@@ -1,0 +1,44 @@
+/* ========== 数学公式编辑 UI ========== */
+
+/* 渲染态：hover 提示可点击 */
+.milkdown-editor .math-node {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.milkdown-editor .math-node:not(.is-editing):hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+/* 行内公式输入框 */
+.math-edit-input {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: inherit;
+  width: 200px;
+}
+
+/* 公式渲染失败占位 */
+.math-error {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px dashed #e5534b;
+  border-radius: 3px;
+  color: #e5534b;
+  font-family: 'Fira Code', Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  cursor: pointer;
+  word-break: break-all;
+}
+.math-block-node .math-error {
+  display: block;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+/* 暗色模式：error 占位 */
+.dark .math-error,
+.milkdown-editor.dark .math-error {
+  border-color: #f77878;
+  color: #f77878;
+}

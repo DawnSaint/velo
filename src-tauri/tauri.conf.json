@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/2.x/tooling/cli/schema.json",
+  "productName": "velo",
+  "version": "0.1.0",
+  "identifier": "com.velo.editor",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Velo",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' data: blob: filesystem: https: 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob: https:;",
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": ["deb", "app", "dmg", "msi"],
+    "windows": {
+      "wix": { "language": "zh-CN" }
+    }
+  },
+  "plugins": {}
+}

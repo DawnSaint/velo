@@ -1,0 +1,41 @@
+/* ========== 编辑器插件通用样式（math / mermaid） ========== */
+
+/* ---- 编辑区 textarea / input 公共 ---- */
+.math-edit-input,
+.edit-textarea {
+  border: 1px solid var(--md-primary-color, #4a9eff);
+  font-family: 'Fira Code', Menlo, Consolas, monospace;
+  outline: none;
+  background: #fff;
+  color: #333;
+}
+
+.edit-textarea {
+  display: block;
+  width: 100%;
+  min-width: 320px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: inherit;
+  line-height: 1.75;
+  resize: none;
+  overflow: hidden;
+}
+
+/* ---- 编辑时下方渲染块（灰色参考） ---- */
+.edit-preview {
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+  margin-top: 8px;
+}
+
+/* ---- 暗色模式：编辑区 ---- */
+.dark .math-edit-input,
+.dark .edit-textarea,
+.milkdown-editor.dark .math-edit-input,
+.milkdown-editor.dark .edit-textarea {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-color: var(--md-primary-color, #4a9eff);
+}
