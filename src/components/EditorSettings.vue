@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useEditorStore } from '@/stores/editor'
+import { useDocumentStore } from '@/stores/document'
 
 const store = useEditorStore()
+const documentStore = useDocumentStore()
 </script>
 
 <template>
@@ -46,6 +48,14 @@ const store = useEditorStore()
         <label class="flex cursor-pointer items-center gap-2 text-sm">
           <input v-model="store.darkMode" type="checkbox" class="rounded">
           <span>暗色模式</span>
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input v-model="documentStore.autoSaveEnabled" type="checkbox" class="rounded">
+          <span>自动保存（1 秒）</span>
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input v-model="documentStore.autoSaveOnBlur" type="checkbox" class="rounded">
+          <span>失焦时保存</span>
         </label>
       </div>
     </div>

@@ -1,7 +1,7 @@
 {
   "name": "velo",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -10,13 +10,16 @@
     "type-check": "vue-tsc --build --force",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "version": "node scripts/sync-tauri-version.mjs && git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
   },
   "dependencies": {
     "@milkdown/kit": "^7.21.1",
     "@milkdown/plugin-math": "^7.5.9",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-fs": "^2.0.0",
     "katex": "^0.16.21",
     "mermaid": "^11.15.0",
     "pinia": "^3.0.4",

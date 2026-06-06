@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps<{
   modelValue: string
@@ -11,7 +11,7 @@ interface HeadingItem {
   text: string
   displayText: string
   children: HeadingItem[]
-  key: string // 唯一标识符，用于折叠状态追踪
+  key: string // 基于内容派生的稳定标识符；跨编辑保持不变，折叠状态因此能延续
 }
 
 interface FlatItem {
@@ -38,11 +38,8 @@ function stripFormatting(text: string): string {
     .trim()
 }
 
-let headingIdCounter = 0
-
 /** 移除围栏代码块（``` 和 ~~~），避免内部 # 被误判为标题 */
 function stripFencedCodeBlocks(md: string): string {
-  // 匹配 ```...``` 或 ~~~...~~~，替换时保留换行数以保持行号
   return md
     .replace(/```[\s\S]*?```/g, (match) => '\n'.repeat((match.match(/\n/g) || []).length))
     .replace(/~~~[\s\S]*?~~~/g, (match) => '\n'.repeat((match.match(/\n/g) || []).length))
@@ -58,11 +55,19 @@ function parseHeadings(markdown: string): HeadingItem[] {
     flat.push({ level: m[1].length, text: raw, displayText: stripFormatting(raw) })
   }
 
+  // 内容派生的稳定 key：相同位置的标题在编辑前后保持同一 key，折叠状态因此能延续。
+  // 同 (level, displayText) 的重复用 #1/#2/... 区分，仍然稳定。
+  const seenCounts = new Map<string, number>()
   const root: HeadingItem[] = []
   const stack: HeadingItem[] = []
 
   for (const h of flat) {
-    const item: HeadingItem = { ...h, children: [], key: `h-${headingIdCounter++}` }
+    const baseKey = `${h.level}::${h.displayText}`
+    const idx = seenCounts.get(baseKey) ?? 0
+    seenCounts.set(baseKey, idx + 1)
+    const key = idx === 0 ? baseKey : `${baseKey}#${idx}`
+
+    const item: HeadingItem = { ...h, children: [], key }
     while (stack.length && stack[stack.length - 1].level >= h.level) stack.pop()
     if (stack.length === 0) root.push(item)
     else stack[stack.length - 1].children.push(item)
@@ -73,12 +78,6 @@ function parseHeadings(markdown: string): HeadingItem[] {
 
 const tree = ref<HeadingItem[]>(parseHeadings(props.modelValue))
 
-watch(() => props.modelValue, (v) => {
-  headingIdCounter = 0
-  collapsedKeys.value.clear()
-  tree.value = parseHeadings(v)
-})
-
 // ========== 折叠状态：使用 Set 追踪被折叠的 key ==========
 const collapsedKeys = ref<Set<string>>(new Set())
 
@@ -88,6 +87,23 @@ function toggleExpand(key: string) {
   else next.add(key)
   collapsedKeys.value = next
 }
+
+watch(() => props.modelValue, (v) => {
+  tree.value = parseHeadings(v)
+  // 删除掉再也不存在的折叠键 —— 保留仍然在树里的，跨编辑保持折叠状态
+  const live = new Set<string>()
+  function walk(items: HeadingItem[]) {
+    for (const it of items) { live.add(it.key); walk(it.children) }
+  }
+  walk(tree.value)
+  if (collapsedKeys.value.size) {
+    const cleaned = new Set<string>()
+    for (const k of collapsedKeys.value) if (live.has(k)) cleaned.add(k)
+    if (cleaned.size !== collapsedKeys.value.size) collapsedKeys.value = cleaned
+  }
+  // 高亮键也可能因为标题文本被改而失效，让 scroll-spy 在下一次滚动时重新算
+  if (currentKey.value && !live.has(currentKey.value)) currentKey.value = null
+})
 
 // ========== 将树展平为可视列表 ==========
 const flatList = computed<FlatItem[]>(() => {
@@ -113,6 +129,26 @@ const flatList = computed<FlatItem[]>(() => {
   }
   walk(tree.value, 0)
   return result
+})
+
+// 全树索引：(level, displayText) → (自身 key, 祖先 key 链)。
+// scroll-spy 据此能在祖先被折叠、自身不在 flatList 时，回退到最近一个仍可见的祖先去高亮。
+interface HeadingIndexEntry {
+  key: string
+  ancestors: string[]
+}
+const headingIndex = computed<Map<string, HeadingIndexEntry>>(() => {
+  const map = new Map<string, HeadingIndexEntry>()
+  function walk(items: HeadingItem[], ancestors: string[]) {
+    for (const item of items) {
+      const k = `${item.level} ${item.displayText}`
+      // 同 (level, text) 的重复保留第一个 —— DOM 那边也只能用 textContent 匹配，没办法
+      if (!map.has(k)) map.set(k, { key: item.key, ancestors: [...ancestors] })
+      walk(item.children, [...ancestors, item.key])
+    }
+  }
+  walk(tree.value, [])
+  return map
 })
 
 const isEmpty = computed(() => flatList.value.length === 0)
@@ -141,7 +177,100 @@ function indentClass(depth: number): string {
   return map[depth] || 'pl-16'
 }
 
-// ========== 主色用于 hover 等场景（从 CSS 变量读取） ==========
+// ========== Scroll-spy：跟踪编辑器当前滚动到的标题，在大纲中加粗高亮 ==========
+const currentKey = ref<string | null>(null)
+let scrollContainer: HTMLElement | null = null
+let rafId: number | null = null
+
+function getScrollContainer(): HTMLElement | null {
+  // 编辑器的可滚动容器是 .milkdown-editor 的父元素（带 overflow-auto 的那层）
+  const editor = document.querySelector('.milkdown-editor')
+  return (editor?.parentElement as HTMLElement | null) ?? null
+}
+
+function findCurrentHeading() {
+  if (!scrollContainer) return
+  const rect = scrollContainer.getBoundingClientRect()
+  // "视口顶线"往下 20px 算作当前标题分界线
+  const threshold = rect.top + 20
+
+  const headings = scrollContainer.querySelectorAll<HTMLElement>('.ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6')
+  if (headings.length === 0) {
+    currentKey.value = null
+    return
+  }
+
+  let lastAbove: { level: number, text: string } | null = null
+  for (const h of headings) {
+    if (h.getBoundingClientRect().top <= threshold) {
+      lastAbove = {
+        level: Number(h.tagName.substring(1)),
+        text: h.textContent?.trim() ?? '',
+      }
+    }
+    else {
+      break
+    }
+  }
+
+  if (!lastAbove) {
+    currentKey.value = null
+    return
+  }
+
+  // 在全树里查匹配项 —— 即使自身因祖先折叠不在 flatList 里也能查到
+  const entry = headingIndex.value.get(`${lastAbove.level} ${lastAbove.text}`)
+  if (!entry) { currentKey.value = null; return }
+
+  const visible = new Set(flatList.value.map(i => i.key))
+  if (visible.has(entry.key)) {
+    currentKey.value = entry.key
+    return
+  }
+  // 自身被折叠藏起来了：往上找最近一个仍可见的祖先来高亮
+  for (let i = entry.ancestors.length - 1; i >= 0; i--) {
+    if (visible.has(entry.ancestors[i])) {
+      currentKey.value = entry.ancestors[i]
+      return
+    }
+  }
+  currentKey.value = null
+}
+
+function onScroll() {
+  if (rafId !== null) return
+  rafId = requestAnimationFrame(() => {
+    rafId = null
+    findCurrentHeading()
+  })
+}
+
+function attachScrollListener() {
+  scrollContainer?.removeEventListener('scroll', onScroll)
+  scrollContainer = getScrollContainer()
+  if (scrollContainer) {
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true })
+    findCurrentHeading()
+  }
+}
+
+onMounted(() => {
+  // MilkdownEditor 异步挂载，先尝试一次，找不到就等下一帧
+  attachScrollListener()
+  if (!scrollContainer) {
+    nextTick(attachScrollListener)
+  }
+  // 编辑器可能在内容变化时重渲染 DOM，再兜底一次
+  setTimeout(attachScrollListener, 200)
+})
+
+onUnmounted(() => {
+  scrollContainer?.removeEventListener('scroll', onScroll)
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+})
 </script>
 
 <template>
@@ -185,7 +314,13 @@ function indentClass(depth: number): string {
 
         <!-- 标题文本 -->
         <button
-          class="truncate text-left text-xs transition-colors rounded px-1 py-0.5 hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+          :class="[
+            'truncate text-left text-xs transition-colors rounded px-1 py-0.5',
+            'hover:bg-gray-200 dark:hover:bg-gray-800',
+            item.key === currentKey
+              ? 'font-bold text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800'
+              : 'text-gray-700 dark:text-gray-300',
+          ]"
           :title="item.displayText"
           @click="scrollToHeading(item)"
         >

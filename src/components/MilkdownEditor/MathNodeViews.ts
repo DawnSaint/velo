@@ -64,6 +64,14 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     input.addEventListener('keydown', (e: KeyboardEvent) => {
       e.stopPropagation()
       if (e.key === 'Escape') { e.preventDefault(); cancel() }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const start = input.selectionStart ?? input.value.length
+        const end = input.selectionEnd ?? input.value.length
+        input.value = input.value.slice(0, start) + '\t' + input.value.slice(end)
+        input.selectionStart = input.selectionEnd = start + 1
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
     })
 
     input.addEventListener('blur', () => { save() })
@@ -107,8 +115,11 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   return {
     dom,
     update(newNode: any) {
+      // ProseMirror 每次文档变化都会调 update()，但只要 value 没变就不重渲染
+      // —— 否则在长文档里每键击 N 个 math 节点都白白重跑一次 KaTeX
+      const valueChanged = node.attrs.value !== newNode.attrs.value
       node = newNode
-      if (!editing) showDisplay()
+      if (!editing && valueChanged) showDisplay()
       return true
     },
     destroy() { ;(dom as any).__mathCleanup?.() },
@@ -167,6 +178,15 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     textarea.addEventListener('keydown', (e: KeyboardEvent) => {
       e.stopPropagation()
       if (e.key === 'Escape') { e.preventDefault(); cancel() }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const start = textarea.selectionStart ?? textarea.value.length
+        const end = textarea.selectionEnd ?? textarea.value.length
+        textarea.value = textarea.value.slice(0, start) + '\t' + textarea.value.slice(end)
+        textarea.selectionStart = textarea.selectionEnd = start + 1
+        autoHeight()
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      }
     })
 
     textarea.addEventListener('blur', () => { save() })
@@ -210,8 +230,10 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   return {
     dom,
     update(newNode: any) {
+      // 同 inline：只在 value 真的变了才重渲染
+      const valueChanged = node.attrs.value !== newNode.attrs.value
       node = newNode
-      if (!editing) showDisplay()
+      if (!editing && valueChanged) showDisplay()
       return true
     },
     destroy() { ;(dom as any).__mathCleanup?.() },

@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Editor, rootCtx, defaultValueCtx } from '@milkdown/kit/core'
-import { commonmark } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx } from '@milkdown/kit/core'
+import {
+  commonmark,
+  emphasisSchema,
+  emphasisUnderscoreInputRule,
+} from '@milkdown/kit/preset/commonmark'
+import {
+  gfm,
+  strikethroughSchema,
+  strikethroughInputRule,
+} from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { math } from '@milkdown/plugin-math'
 import { keymap } from '@milkdown/prose/keymap'
-import { $prose } from '@milkdown/utils'
+import { sinkListItem, liftListItem } from '@milkdown/prose/schema-list'
+import { markRule } from '@milkdown/prose'
+import { $inputRule, $prose } from '@milkdown/utils'
 import { mathEditPlugin } from './MathNodeViews'
 import { mermaidSyntax } from './MermaidSyntax'
 import { mermaidEditPlugin } from './MermaidNodeView'
@@ -62,6 +72,95 @@ const headingBackspaceToParagraph = $prose(() =>
     },
   }),
 )
+
+// 修 @milkdown/preset-commonmark / -gfm 里两条 markRule 的 bug：
+//
+//   commonmark/mark/emphasis.ts ：  /\b_(?![_\s])(.*?[^_\s])_\b/
+//   gfm/mark/strike-through.ts ：   /(?<![\w:/])(~{1,2})(.+?)\1(?!\w|\/)/
+//
+// 这两条**正则结尾都没有 `$` 锚点**，会扫到段落里任意位置的 `_x_` / `~~x~~`，
+// 包括 inline code 内部的（因为 textBetween 不带 mark 信息，code 里的字面字符
+// 同样会被 regex 看到）。而 prosemirror-inputrules 调 handler 时按"匹配紧贴
+// 光标"算 start：handler(state, m, from - (m[0].length - text.length), to) ——
+// 一旦匹配命中段落中间的某段 inline code，算出来的 start 落在光标附近，
+// tr.delete / tr.addMark 跑到完全不相关的位置上，把 inline code 里的字吞掉，
+// 还顺带把光标附近的字符乱加 emphasis。同时 handler 不插入用户当次键入，所以
+// 这次输入也会丢。
+//
+// 别的几条 markRule（emphasisStarInputRule、strongInputRule、inlineCodeInputRule）
+// 末尾都已经有 `$`，是安全的。所以我们只需要：
+//   1) 从 commonmark / gfm 的 bundle 里过滤掉这两条
+//   2) 注册一对带 `$` 锚点的修复版顶上
+const fixedEmphasisUnderscoreInputRule = $inputRule(ctx =>
+  markRule(/\b_(?![_\s])(.*?[^_\s])_\b$/, emphasisSchema.type(ctx), {
+    getAttr: () => ({ marker: '_' }),
+    updateCaptured: ({ fullMatch, start }) =>
+      !fullMatch.startsWith('_')
+        ? { fullMatch: fullMatch.slice(1), start: start + 1 }
+        : {},
+  }),
+)
+
+const fixedStrikethroughInputRule = $inputRule(ctx =>
+  markRule(/(?<![\w:/])(~{1,2})(.+?)\1(?!\w|\/)$/, strikethroughSchema.type(ctx)),
+)
+
+const safeCommonmark = commonmark.filter(p => p !== emphasisUnderscoreInputRule)
+const safeGfm = gfm.filter(p => p !== strikethroughInputRule)
+
+// // 列表项里的 Tab/Shift-Tab 完全交给 Milkdown 自带的 listItemKeymap（来自 commonmark preset）。
+// 本 keymap 只管列表以外的"代码类 / 段落 / 标题"：在光标处插 4 空格。
+const CODE_LIKE = new Set(['code_block', 'math_inline', 'math_block', 'mermaid'])
+
+const tabIndent = $prose(() => {
+  const itemType = (state: any) => state.schema.nodes.list_item
+
+  function isInListItem($from: any): boolean {
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === 'list_item') return true
+    }
+    return false
+  }
+
+  return keymap({
+    Tab: (state, dispatch) => {
+      const { $from } = state.selection
+
+      if (isInListItem($from)) {
+        // 列表项：先尝试 sink；sink 失败（最内层嵌套）→ 退化为段落 Tab
+        if (sinkListItem(itemType(state))(state, dispatch)) return true
+        if (dispatch) dispatch(state.tr.insertText('    '))
+        return true
+      }
+
+      // 代码块 / 公式 / mermaid 等代码类上下文
+      for (let d = $from.depth; d > 0; d--) {
+        const name = $from.node(d).type.name
+        if (CODE_LIKE.has(name)) {
+          if (dispatch) dispatch(state.tr.insertText('    '))
+          return true
+        }
+      }
+
+      // 段落 / 标题
+      const node = $from.node()
+      if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+        if (dispatch) dispatch(state.tr.insertText('    '))
+        return true
+      }
+
+      return false
+    },
+
+    'Shift-Tab': (state, dispatch) => {
+      const { $from } = state.selection
+      if (isInListItem($from)) {
+        return liftListItem(itemType(state))(state, dispatch)
+      }
+      return false
+    },
+  })
+})
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -127,7 +226,18 @@ function scheduleHljsStamp() {
   nextTick(() => stampHljsClass())
 }
 
-async function createEditor() {
+// 点卡片（非 ProseMirror 子元素）时把焦点拉回编辑器
+function onCardClick() {
+  if (!editorInstance) return
+  editorInstance.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    if (!view.hasFocus()) {
+      view.focus()
+    }
+  })
+}
+
+async function createEditor(opts: { focus?: boolean } = {}) {
   if (!containerRef.value) return
 
   // 销毁已有实例
@@ -156,8 +266,11 @@ async function createEditor() {
       })
     })
     .use(headingBackspaceToParagraph)
-    .use(commonmark)
-    .use(gfm)
+    .use(tabIndent)
+    .use(safeCommonmark)
+    .use(fixedEmphasisUnderscoreInputRule)
+    .use(safeGfm)
+    .use(fixedStrikethroughInputRule)
     .use(history)
     .use(math)
     .use(mathEditPlugin)
@@ -165,6 +278,13 @@ async function createEditor() {
     .use(mermaidEditPlugin)
     .use(listener)
     .create()
+
+  // 切文档时（新建 / 打开 / 双击文件）把光标自动落到编辑器里
+  if (opts.focus && editorInstance) {
+    editorInstance.action((ctx) => {
+      ctx.get(editorViewCtx).focus()
+    })
+  }
 
   // 编辑器创建完成后立即注入 hljs class
   scheduleHljsStamp()
@@ -184,12 +304,15 @@ onUnmounted(() => {
 // 外部 modelValue 变化时（切文章 / 从源码模式切换过来），重建编辑器
 watch(() => props.modelValue, () => {
   if (isInternalChange.value) return
-  createEditor()
+  createEditor({ focus: true })
 })
 </script>
 
 <template>
-  <div class="flex-1 rounded-2xl mx-8 mb-8 mt-4 shadow-xl bg-white dark:bg-[#1e1e1e]">
+  <div
+    class="flex-1 rounded-2xl mx-8 mb-8 mt-4 shadow-xl bg-white dark:bg-[#1e1e1e]"
+    @click="onCardClick"
+  >
     <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">
       <div
         ref="containerRef"
@@ -198,7 +321,7 @@ watch(() => props.modelValue, () => {
           'dark': props.darkMode,
         }"
         :style="editorStyle"
-        class="milkdown-editor h-full max-w-[64vw]"
+        class="milkdown-editor h-full w-full max-w-[64vw]"
       />
     </div>
   </div>
@@ -206,18 +329,19 @@ watch(() => props.modelValue, () => {
 </template>
 
 <style>
-/* ========== Milkdown / ProseMirror 基础样式 ========== */
-
 /* ProseMirror 编辑区基础样式 */
 .milkdown-editor .ProseMirror {
   outline: none;
   min-height: 100%;
+  padding-bottom: 64px;
   word-wrap: break-word;
   white-space: pre-wrap;
   white-space: break-spaces;
   -webkit-font-variant-ligatures: none;
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0;
+  tab-size: 8;
+  -moz-tab-size: 8;
 }
 
 /* 占位提示 */

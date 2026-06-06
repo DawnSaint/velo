@@ -199,6 +199,15 @@ function createMermaidView(node: any, view: any, getPos: () => number) {
     textarea.addEventListener('keydown', (e: KeyboardEvent) => {
       e.stopPropagation()
       if (e.key === 'Escape') { e.preventDefault(); cancel() }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const start = textarea.selectionStart ?? textarea.value.length
+        const end = textarea.selectionEnd ?? textarea.value.length
+        textarea.value = textarea.value.slice(0, start) + '\t' + textarea.value.slice(end)
+        textarea.selectionStart = textarea.selectionEnd = start + 1
+        autoHeight()
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      }
     })
 
     textarea.addEventListener('blur', () => { save() })
@@ -240,16 +249,30 @@ function createMermaidView(node: any, view: any, getPos: () => number) {
     if (!editing) startEdit()
   })
 
+  // 主题切换不会产生 ProseMirror transaction，所以 update() 不会触发；
+  // 这里直接监听 App.vue 在 darkMode 变化时派发的事件，强制重渲染一次。
+  const onThemeChange = () => {
+    if (editing) return
+    if (!(node.attrs.value || '').trim()) return
+    showDisplay()
+  }
+  window.addEventListener('velo:theme-change', onThemeChange)
+
   showDisplay()
 
   return {
     dom,
     update(newNode: any) {
+      // ProseMirror 每次文档变化都会调 update()，但只要 value 没变就不重渲染
+      const valueChanged = node.attrs.value !== newNode.attrs.value
       node = newNode
-      if (!editing) showDisplay()
+      if (!editing && valueChanged) showDisplay()
       return true
     },
-    destroy() { ;(dom as any).__mermaidCleanup?.() },
+    destroy() {
+      window.removeEventListener('velo:theme-change', onThemeChange)
+      ;(dom as any).__mermaidCleanup?.()
+    },
     ignoreMutation() { return true },
   }
 }
