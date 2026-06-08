@@ -2,9 +2,12 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
+import { useOutlineStore } from '@/stores/outline'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type PersistedSettings } from '@/stores/persistence'
 import MilkdownEditor from '@/components/MilkdownEditor/index.vue'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
+import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import sampleMd from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -14,6 +17,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
+const outlineStore = useOutlineStore()
 
 // 同步把初始 sample 装入 store —— 必须早于 MilkdownEditor 子组件 mount，
 // 这样子组件第一次拿到的 props.modelValue 就是 sampleMd 而非空串
@@ -58,6 +62,61 @@ watch(
   },
 )
 
+// ========== 用户设置持久化 ==========
+// 启动时从 appDataDir 读 json 覆盖 store,任何设置字段变化 → 500ms debounce 后写回。
+// 失败一律不抛:首次启动 / 文件被删 / 解析错 都回到默认值继续运行。
+async function initSettings() {
+  const loaded = await loadSettings()
+  if (!loaded) return
+  const e = loaded.editor
+  if (e) {
+    if (typeof e.fontSize === 'string') store.fontSize = e.fontSize
+    if (typeof e.primaryColor === 'string') store.primaryColor = e.primaryColor
+    if (typeof e.fontFamily === 'string') store.fontFamily = e.fontFamily
+    if (typeof e.codeBlockTheme === 'string') store.codeBlockTheme = e.codeBlockTheme
+    if (typeof e.isMacCodeBlock === 'boolean') store.isMacCodeBlock = e.isMacCodeBlock
+    if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
+  }
+  const d = loaded.document
+  if (d) {
+    if (typeof d.autoSaveEnabled === 'boolean') documentStore.autoSaveEnabled = d.autoSaveEnabled
+    if (typeof d.autoSaveOnBlur === 'boolean') documentStore.autoSaveOnBlur = d.autoSaveOnBlur
+  }
+}
+
+function snapshotSettings(): PersistedSettings {
+  return {
+    version: 1,
+    editor: {
+      fontSize: store.fontSize,
+      primaryColor: store.primaryColor,
+      fontFamily: store.fontFamily,
+      codeBlockTheme: store.codeBlockTheme,
+      isMacCodeBlock: store.isMacCodeBlock,
+      darkMode: store.darkMode,
+    },
+    document: {
+      autoSaveEnabled: documentStore.autoSaveEnabled,
+      autoSaveOnBlur: documentStore.autoSaveOnBlur,
+    },
+  }
+}
+
+const debouncedSettingsSave = debounce(() => {
+  void saveSettings(snapshotSettings())
+}, 500)
+
+// ========== 大纲折叠状态持久化 ==========
+// 启动时把磁盘上 path → keys 映射灌进 outlineStore,后续 setKeysFor → 500ms debounce 落盘。
+// 必须在 CLI args 之前 load,这样 CLI 打开文件时,EditorOutline 的 filePath watch
+// 能从已就绪的 store 读到该文件的折叠状态 —— 否则首屏打开 = 全展开。
+const debouncedOutlineSave = debounce(() => {
+  void saveOutlineState({
+    version: 1,
+    files: outlineStore.snapshot(),
+  })
+}, 500)
+
 // 失焦保存：window blur 时静默写盘
 // 注意：弹原生 save/open dialog 也会触发 webview blur —— 用 savingOnBlur
 // 做重入保护，防止 saveAs dialog 弹出后又被 blur 触发出第二个 dialog
@@ -86,19 +145,72 @@ function onKeydown(e: KeyboardEvent) {
 
 let unlistenCli: UnlistenFn | null = null
 
+// ========== 草稿定时落盘 ==========
+// dirty 时每 DRAFT_SAVE_INTERVAL_MS 写一份到 appDataDir/drafts/,崩溃 / 强杀时
+// 下次启动能恢复。store 自己已经在 save() / saveAs() 成功后清掉了,这里只管"周期"。
+const DRAFT_SAVE_INTERVAL_MS = 30_000
+let draftTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(async () => {
-  // 0) 冷启动：Rust setup() 阶段把 argv 中的文件路径暂存了下来（没法直接 emit
-  //    因为彼时前端的 listen() 还没挂上）。前端挂载完成后主动来拉一次。
+  // 0) 加载持久化的设置 / 大纲状态 —— 必须在 CLI args 之前完成,
+  //    否则 CLI 打开文件时,EditorOutline 的 filePath watch 读到的 store 是空的,
+  //    首屏就会"丢失"该文件的折叠状态。loadFrom / initSettings 失败一律不抛,
+  //    不会阻塞后续步骤。
+  await initSettings()
+  const outlineLoaded = await loadOutlineState()
+  if (outlineLoaded?.files) outlineStore.loadFrom(outlineLoaded.files)
+
+  // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
+  //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
+  //      注意:draft 落盘 / 恢复扫描必须放 CLI 打开文件之后(见下面 1.5)。
+  draftTimer = setInterval(() => {
+    void documentStore.saveCurrentDraft()
+  }, DRAFT_SAVE_INTERVAL_MS)
+
+  // 0.5) 设置变化 → 落盘的 watch。必须在 load 之后挂,否则 load 自身会触发写盘。
+  watch(
+    [
+      () => store.fontSize,
+      () => store.primaryColor,
+      () => store.fontFamily,
+      () => store.codeBlockTheme,
+      () => store.isMacCodeBlock,
+      () => store.darkMode,
+      () => documentStore.autoSaveEnabled,
+      () => documentStore.autoSaveOnBlur,
+    ],
+    () => { debouncedSettingsSave() },
+  )
+  watch(
+    () => outlineStore.collapsedByPath,
+    () => { debouncedOutlineSave() },
+    { deep: true },
+  )
+
+  // 1) 冷启动:Rust setup() 阶段把 argv 中的文件路径暂存了下来(没法直接 emit
+  //    因为彼时前端的 listen() 还没挂上)。前端挂载完成后主动来拉一次。
+  let cliFirst: string | undefined
   try {
     const initial = await invoke<string[]>('get_cli_args')
-    const first = initial?.[0]
-    if (first) await documentStore.openPath(first)
+    cliFirst = initial?.[0]
+    if (cliFirst) await documentStore.openPath(cliFirst)
   }
   catch (e) {
     console.error('读取启动 CLI 参数失败', e)
   }
 
-  // 1) 二次启动：现有实例已就绪，Rust 直接 emit，这里 listen 接住
+  // 1.5) 扫一遍 appDataDir/drafts/,把"上一会话留下的"草稿装进 store。
+  //
+  //      必须在 CLI 打开文件 *之后*:loadRecoverableDrafts 用 currentDraftId()
+  //      派生 id 排除"当前文档的草稿",而 currentDraftId 又以 currentFilePath
+  //      为输入。如果在 openPath 之前调,currentFilePath 还是 null,filter
+  //      只能排除 'untitled',CLI 即将打开的那个文件的草稿就会留在列表里,
+  //      用户点"恢复"会把刚 load 进来的磁盘内容直接覆盖回那份草稿。
+  //      现在 currentFilePath 要么是 null(无 CLI)要么是 cliFirst(有 CLI),
+  //      filter 都能正确排除当前文档。
+  await documentStore.loadRecoverableDrafts()
+
+  // 2) 二次启动:现有实例已就绪,Rust 直接 emit,这里 listen 接住
   unlistenCli = await listen<string[]>('cli-args', async (e) => {
     const first = e.payload?.[0]
     if (!first) return
@@ -106,14 +218,14 @@ onMounted(async () => {
     void documentStore.openPath(first)
   })
 
-  // 2) Ctrl/Cmd+S
+  // 3) Ctrl/Cmd+S
   window.addEventListener('keydown', onKeydown)
 
-  // 3) 失焦自动保存 + 重新聚焦时核对磁盘
+  // 4) 失焦自动保存 + 重新聚焦时核对磁盘
   window.addEventListener('blur', onWindowBlur)
   window.addEventListener('focus', onWindowFocus)
 
-  // 4) 关闭拦截：脏 → 弹原生确认
+  // 5) 关闭拦截:脏 → 弹原生确认
   const win = getCurrentWindow()
   await win.onCloseRequested(async (event) => {
     if (!documentStore.dirty) return
@@ -123,8 +235,8 @@ onMounted(async () => {
       { title: '未保存的修改', kind: 'warning' },
     )
     if (wantSave) {
-      // 关键：save 可能因为用户取消另存为对话框 / 写盘失败而返回 false。
-      // 此时 *不能* destroy，否则用户的修改就丢了。
+      // 关键:save 可能因为用户取消另存为对话框 / 写盘失败而返回 false。
+      // 此时 *不能* destroy,否则用户的修改就丢了。
       const ok = await documentStore.save()
       if (ok) await win.destroy()
       return
@@ -139,6 +251,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unlistenCli?.()
+  if (draftTimer) {
+    clearInterval(draftTimer)
+    draftTimer = null
+  }
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('focus', onWindowFocus)
@@ -224,6 +340,7 @@ onBeforeUnmount(() => {
       >
         <EditorOutline
           :model-value="documentStore.content"
+          :file-path="documentStore.currentFilePath"
         />
       </aside>
 
@@ -246,5 +363,14 @@ onBeforeUnmount(() => {
         <EditorSettings />
       </aside>
     </div>
+
+    <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->
+    <DraftRecoveryDialog
+      :drafts="documentStore.pendingRecoveryDrafts"
+      :visible="documentStore.pendingRecoveryDrafts.length > 0"
+      @recover="(id) => void documentStore.recoverDraft(id)"
+      @discard="(id) => void documentStore.discardDraft(id)"
+      @dismiss="documentStore.dismissRecoveryDialog()"
+    />
   </div>
 </template>

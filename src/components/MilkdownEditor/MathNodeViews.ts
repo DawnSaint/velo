@@ -1,6 +1,7 @@
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/prose/state'
 import katex from 'katex'
+import { isolateInputFromProseMirror } from './plugin-common'
 
 function renderKatex(source: string, el: HTMLElement, displayMode: boolean) {
   el.innerHTML = ''
@@ -55,7 +56,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     wrapper.appendChild(preview)
     dom.appendChild(wrapper)
 
-    input.addEventListener('beforeinput', (e) => { e.stopPropagation() })
+    isolateInputFromProseMirror(input)
     input.addEventListener('input', (e) => {
       e.stopPropagation()
       renderKatex(input.value, preview, false)
@@ -168,7 +169,7 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
       textarea.style.height = `${textarea.scrollHeight}px`
     }
 
-    textarea.addEventListener('beforeinput', (e) => { e.stopPropagation() })
+    isolateInputFromProseMirror(textarea)
     textarea.addEventListener('input', (e) => {
       e.stopPropagation()
       autoHeight()

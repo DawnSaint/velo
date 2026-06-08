@@ -1,0 +1,114 @@
+/* ========== 脚注样式 ========== */
+
+/* ---- 引用端: <sup class="footnote-ref-node"> ----
+   sup 本身就是 contentEditable=true,文本就是 label;
+   不再用单独 input。Cmd/Ctrl + 单击 跳到 definition。 */
+.milkdown-editor .footnote-ref-node {
+  display: inline-block;
+  min-width: 1.2em;
+  padding: 0 2px;
+  border-radius: 3px;
+  color: var(--md-primary-color, #1F71D9);
+  font-weight: 600;
+  font-size: 0.85em;
+  line-height: 1.4;
+  text-align: center;
+  cursor: text;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: background-color 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent);
+  }
+
+  &:focus {
+    background: #fff8dc;
+    box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+  }
+}
+
+/* 跳转失配的瞬时反馈 */
+.milkdown-editor .footnote-ref-node.footnote-flash {
+  animation: footnote-flash 0.4s ease;
+}
+
+@keyframes footnote-flash {
+  0%, 100% { background: transparent; }
+  50% { background: #f56c6c; color: #fff; }
+}
+
+/* ---- 孤儿 reference(无对应 definition) ---- */
+.milkdown-editor .footnote-ref-node.footnote-orphan {
+  color: #d14;
+  text-decoration: wavy underline #d14;
+  text-underline-offset: 2px;
+}
+
+/* ---- 定义端: <dl class="footnote-definition"> ---- */
+.milkdown-editor .footnote-definition {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 1em 0 0.5em;
+  padding: 0.8em 0 0;
+}
+
+.milkdown-editor .footnote-definition .footnote-label {
+  flex: 0 0 auto;
+  color: var(--md-primary-color, #1F71D9);
+  font-weight: 600;
+  cursor: text;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  border-radius: 2px;
+  padding: 0 2px;
+  transition: background-color 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 10%, transparent);
+  }
+
+  &:focus {
+    background: #fff8dc;
+    box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+  }
+}
+
+.milkdown-editor .footnote-definition .footnote-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: 0.6;
+}
+
+/* 强制 content 内的 paragraph 走 inline,这样描述跟在 label 后同一行 */
+.milkdown-editor .footnote-definition .footnote-content > p {
+  display: inline;
+  margin: 0;
+}
+
+.milkdown-editor .footnote-definition .footnote-backref {
+  flex: 0 0 auto;
+  color: var(--md-primary-color, #1F71D9);
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, transform 0.15s;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  &.footnote-backref-disabled {
+    cursor: default;
+    opacity: 0.2;
+    pointer-events: none;
+  }
+}
+
+/* ---- 暗色 ----
+   当前 footnote-definition 没有自己的底色,跟正文一致;若后续加回分割线,
+   再恢复 .dark 下的 border-top-color 覆盖。 */
