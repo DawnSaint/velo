@@ -1,6 +1,7 @@
 @forward './plugin-common';
 @forward './math';
 @forward './mermaid';
+@forward './footnote';
 
 @tailwind base;
 @tailwind components;
@@ -30,15 +31,15 @@
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     background-color: transparent;
   }
 
   ::-webkit-scrollbar-track {
     background: transparent;
     border-radius: 6px;
-    margin: 1rem 0;
+    margin: 12px 0;
   }
 
   ::-webkit-scrollbar-thumb {

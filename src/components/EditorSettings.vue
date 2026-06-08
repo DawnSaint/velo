@@ -1,16 +1,32 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
+
+/**
+ * 文档统计:字数(非空白字符)、词数(英文 token)、行数
+ * 纯中文文本下 words=0,因为中文无空格分词 —— 这是预期行为,不是 bug。
+ * 行数按源 markdown 的换行符数计,空文档 0 行。
+ */
+const stats = computed(() => {
+  const text = documentStore.content
+  const chars = text.replace(/\s/g, '').length
+  const words = text.split(/\s+/).filter(t => /[A-Za-z0-9]/.test(t)).length
+  const lines = text === '' ? 0 : text.split('\n').length
+  return { chars, words, lines }
+})
+
+const fmt = new Intl.NumberFormat('zh-CN')
 </script>
 
 <template>
-  <div class="min-w-64 p-4 pl-0">
+  <div class="flex h-full min-w-64 flex-col p-4 pl-0">
     <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">设置</h2>
 
-    <div class="space-y-4">
+    <div class="flex-1 space-y-4">
       <!-- 字号 -->
       <div>
         <label class="mb-1 block text-xs text-gray-400">字号</label>
@@ -51,13 +67,22 @@ const documentStore = useDocumentStore()
         </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm">
           <input v-model="documentStore.autoSaveEnabled" type="checkbox" class="rounded">
-          <span>自动保存（1 秒）</span>
+          <span>自动保存(1 秒)</span>
         </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm">
           <input v-model="documentStore.autoSaveOnBlur" type="checkbox" class="rounded">
           <span>失焦时保存</span>
         </label>
       </div>
+    </div>
+
+    <!-- 文档统计:固定在面板底部,一行、无边框、低对比度 -->
+    <div class="flex shrink-0 items-center gap-2 pt-4 text-xs text-gray-400 dark:text-gray-500">
+      <span>字数 <span class="tabular-nums">{{ fmt.format(stats.chars) }}</span></span>
+      <span class="text-gray-300 dark:text-gray-600">·</span>
+      <span>词数 <span class="tabular-nums">{{ fmt.format(stats.words) }}</span></span>
+      <span class="text-gray-300 dark:text-gray-600">·</span>
+      <span>行数 <span class="tabular-nums">{{ fmt.format(stats.lines) }}</span></span>
     </div>
   </div>
 </template>

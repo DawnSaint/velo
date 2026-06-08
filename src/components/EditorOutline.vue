@@ -1,19 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useOutlineStore } from '@/stores/outline'
+import { parseHeadings, type HeadingItem } from '@/utils/outline'
 
 const props = defineProps<{
   modelValue: string
+  filePath: string | null
 }>()
 
-// ========== 类型 ==========
-interface HeadingItem {
-  level: number
-  text: string
-  displayText: string
-  children: HeadingItem[]
-  key: string // 基于内容派生的稳定标识符；跨编辑保持不变，折叠状态因此能延续
-}
+const outlineStore = useOutlineStore()
 
+// ========== 类型 ==========
 interface FlatItem {
   level: number
   text: string
@@ -24,68 +21,27 @@ interface FlatItem {
   expanded: boolean
 }
 
-// ========== 解析 markdown 标题 ==========
-function stripFormatting(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/_(.+?)_/g, '$1')
-    .replace(/`(.+?)`/g, '$1')
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/!\[.*?\]\(.+?\)/g, '')
-    .replace(/~~(.+?)~~/g, '$1')
-    .trim()
-}
-
-/** 移除围栏代码块（``` 和 ~~~），避免内部 # 被误判为标题 */
-function stripFencedCodeBlocks(md: string): string {
-  return md
-    .replace(/```[\s\S]*?```/g, (match) => '\n'.repeat((match.match(/\n/g) || []).length))
-    .replace(/~~~[\s\S]*?~~~/g, (match) => '\n'.repeat((match.match(/\n/g) || []).length))
-}
-
-function parseHeadings(markdown: string): HeadingItem[] {
-  const cleaned = stripFencedCodeBlocks(markdown)
-  const regex = /^(#{1,6})\s+(.+)$/gm
-  const flat: { level: number; text: string; displayText: string }[] = []
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(cleaned)) !== null) {
-    const raw = m[2].trim()
-    flat.push({ level: m[1].length, text: raw, displayText: stripFormatting(raw) })
-  }
-
-  // 内容派生的稳定 key：相同位置的标题在编辑前后保持同一 key，折叠状态因此能延续。
-  // 同 (level, displayText) 的重复用 #1/#2/... 区分，仍然稳定。
-  const seenCounts = new Map<string, number>()
-  const root: HeadingItem[] = []
-  const stack: HeadingItem[] = []
-
-  for (const h of flat) {
-    const baseKey = `${h.level}::${h.displayText}`
-    const idx = seenCounts.get(baseKey) ?? 0
-    seenCounts.set(baseKey, idx + 1)
-    const key = idx === 0 ? baseKey : `${baseKey}#${idx}`
-
-    const item: HeadingItem = { ...h, children: [], key }
-    while (stack.length && stack[stack.length - 1].level >= h.level) stack.pop()
-    if (stack.length === 0) root.push(item)
-    else stack[stack.length - 1].children.push(item)
-    stack.push(item)
-  }
-  return root
-}
-
 const tree = ref<HeadingItem[]>(parseHeadings(props.modelValue))
 
 // ========== 折叠状态：使用 Set 追踪被折叠的 key ==========
 const collapsedKeys = ref<Set<string>>(new Set())
+
+// 文件路径变化:从 store 读该文件的折叠状态,避免切换文件时折叠状态串台
+// (原来的实现下,两份文档里恰好同名/同级的标题会共用同一 key,折叠会"穿越")
+// immediate: true 覆盖初始空 Set;对未保存(path 为 null)的新文档保持空
+watch(() => props.filePath, (path) => {
+  collapsedKeys.value = path
+    ? new Set(outlineStore.getKeysFor(path))
+    : new Set()
+}, { immediate: true })
 
 function toggleExpand(key: string) {
   const next = new Set(collapsedKeys.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
   collapsedKeys.value = next
+  // 同步到 store → 触发 App.vue 的 debounce 落盘
+  outlineStore.setKeysFor(props.filePath, next)
 }
 
 watch(() => props.modelValue, (v) => {
@@ -99,7 +55,11 @@ watch(() => props.modelValue, (v) => {
   if (collapsedKeys.value.size) {
     const cleaned = new Set<string>()
     for (const k of collapsedKeys.value) if (live.has(k)) cleaned.add(k)
-    if (cleaned.size !== collapsedKeys.value.size) collapsedKeys.value = cleaned
+    if (cleaned.size !== collapsedKeys.value.size) {
+      collapsedKeys.value = cleaned
+      // 编辑后失效的 key 也要从 store 里清掉,否则下次打开会复活
+      outlineStore.setKeysFor(props.filePath, cleaned)
+    }
   }
   // 高亮键也可能因为标题文本被改而失效，让 scroll-spy 在下一次滚动时重新算
   if (currentKey.value && !live.has(currentKey.value)) currentKey.value = null
@@ -274,8 +234,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-w-64 p-4 pr-0">
-    <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">
+  <!--
+    h-full + flex flex-col:撑满外层 aside 的高度,让子项可以 flex-1 分配空间
+    标题 shrink-0:不被挤压,始终占自然高度
+    列表 min-h-0 flex-1 overflow-y-auto:拿走剩余空间,内容超出时出滚动条
+      (min-h-0 关键 —— flex 子项默认 min-height: auto,会撑到内容高度,
+       不加 min-h-0 的话 overflow-y-auto 永远没机会触发,这是经典 flex 坑)
+  -->
+  <div class="flex h-full min-w-64 flex-col p-4 pr-0">
+    <h2 class="mb-4 shrink-0 text-sm font-semibold uppercase tracking-wider text-gray-400">
       大纲
     </h2>
 
@@ -283,7 +250,7 @@ onUnmounted(() => {
       暂无标题
     </div>
 
-    <div v-else class="space-y-0.5">
+    <div v-else class="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
       <div
         v-for="item in flatList"
         :key="item.key"

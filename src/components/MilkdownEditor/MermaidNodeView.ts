@@ -1,6 +1,7 @@
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/prose/state'
 import mermaid from 'mermaid'
+import { isolateInputFromProseMirror } from './plugin-common'
 
 // ========== 唯一 ID 生成 ==========
 
@@ -187,7 +188,7 @@ function createMermaidView(node: any, view: any, getPos: () => number) {
       })
     }
 
-    textarea.addEventListener('beforeinput', (e) => { e.stopPropagation() })
+    isolateInputFromProseMirror(textarea)
     textarea.addEventListener('input', (e) => {
       e.stopPropagation()
       autoHeight()
