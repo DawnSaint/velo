@@ -135,11 +135,69 @@ function onWindowFocus() {
   void documentStore.checkExternalChange()
 }
 
-// 全局 Ctrl/Cmd+S
+// ========== 查找替换 (v0.3.1) ==========
+// 状态全在 App.vue 一份,v-model:find-open 透传到 MilkdownEditor 再到 FindReplace。
+// 顶栏按钮的 active 样式、Ctrl+F 打开、X / Esc 关闭、按钮再点关闭 —— 全部
+// 直接改 findOpen 这一份,不存在 mirror。
+const milkdownRef = ref<InstanceType<typeof MilkdownEditor> | null>(null)
+const findOpen = ref(false)
+// 一次性的初始参数:openFind / openReplace 时由 App.vue 写入,
+// FindReplace 内部 watch open → 读这两个初始化。后续用户改 query 不影响这里。
+const findInitialQuery = ref('')
+const findInitialShowReplace = ref(false)
+
+function currentSelectionText(): string {
+  const view = milkdownRef.value?.getEditorView()
+  if (!view) return ''
+  const { from, to } = view.state.selection
+  if (from === to) return ''
+  // '\n' 隔开:多行选区能正常拿来搜
+  return view.state.doc.textBetween(from, to, '\n', '\n')
+}
+
+function openFind() {
+  findInitialQuery.value = currentSelectionText()
+  findInitialShowReplace.value = false
+  findOpen.value = true
+}
+
+function openReplace() {
+  findInitialQuery.value = currentSelectionText()
+  findInitialShowReplace.value = true
+  findOpen.value = true
+}
+
+function toggleFind() {
+  if (findOpen.value) findOpen.value = false
+  else openFind()
+}
+
+// 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
+//
+// 必须 capture 阶段 + preventDefault 才能压过浏览器自己的 Ctrl+F (find in page)。
+// 浏览器在 keydown 冒泡结束后才决定是否开内置 find,我们在 capture 阶段就
+// preventDefault,事件到达目标元素前 default action 已被标记为取消。
+// stopPropagation 防止冒泡到其他 window/document 上的扩展 / 第三方脚本再开一次。
 function onKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+  if (!(e.ctrlKey || e.metaKey)) return
+  const target = e.target as HTMLElement | null
+  // 焦点在 FindReplace 面板里 → 让面板自己处理(避免双触发)
+  if (target?.closest('[data-fr-panel]')) return
+  const k = e.key.toLowerCase()
+  if (k === 's') {
     e.preventDefault()
+    e.stopPropagation()
     void documentStore.save()
+  }
+  else if (k === 'f') {
+    e.preventDefault()
+    e.stopPropagation()
+    openFind()
+  }
+  else if (k === 'h') {
+    e.preventDefault()
+    e.stopPropagation()
+    openReplace()
   }
 }
 
@@ -152,6 +210,12 @@ const DRAFT_SAVE_INTERVAL_MS = 30_000
 let draftTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
+  // 0-pre) 关键:keydown 监听必须在第一个 await 之前挂上。
+  //   启动期 await 一堆(读盘、invoke、openPath),用户在 await 期间按 Ctrl+F
+  //   浏览器自己的 find 会先开 —— handler 还没挂就拦不住了。capture 阶段
+  //   + preventDefault 是另一道保险,见 onKeydown 注释。
+  window.addEventListener('keydown', onKeydown, { capture: true })
+
   // 0) 加载持久化的设置 / 大纲状态 —— 必须在 CLI args 之前完成,
   //    否则 CLI 打开文件时,EditorOutline 的 filePath watch 读到的 store 是空的,
   //    首屏就会"丢失"该文件的折叠状态。loadFrom / initSettings 失败一律不抛,
@@ -218,8 +282,7 @@ onMounted(async () => {
     void documentStore.openPath(first)
   })
 
-  // 3) Ctrl/Cmd+S
-  window.addEventListener('keydown', onKeydown)
+  // 3) keydown 监听已在最前面(0-pre)挂上 —— 启动期 await 期间也要能拦 Ctrl+F
 
   // 4) 失焦自动保存 + 重新聚焦时核对磁盘
   window.addEventListener('blur', onWindowBlur)
@@ -255,7 +318,7 @@ onBeforeUnmount(() => {
     clearInterval(draftTimer)
     draftTimer = null
   }
-  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onKeydown, { capture: true })
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('focus', onWindowFocus)
 })
@@ -264,6 +327,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     :class="{ 'dark': store.darkMode }"
+    :style="{ '--md-primary-color': store.primaryColor }"
     class="flex h-screen flex-col bg-[#f5f5f5] text-gray-900 transition-colors dark:bg-[#1a1a1a] dark:text-gray-100"
   >
     <!-- 顶栏 -->
@@ -320,6 +384,18 @@ onBeforeUnmount(() => {
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
         </button>
         <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
+        <!-- 搜索(Ctrl+F) — toggle:点一次开,再点一次关。active 样式跟设置按钮一样 -->
+        <button
+          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen }"
+          title="搜索 (Ctrl+F)"
+          @click="toggleFind"
+        >
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': showSettings }"
@@ -346,6 +422,10 @@ onBeforeUnmount(() => {
 
       <!-- 编辑器区域 -->
       <MilkdownEditor
+        ref="milkdownRef"
+        v-model:find-open="findOpen"
+        :find-initial-query="findInitialQuery"
+        :find-initial-show-replace="findInitialShowReplace"
         :model-value="documentStore.content"
         :font-family="store.fontFamily"
         :font-size="store.fontSize"

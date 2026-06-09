@@ -30,8 +30,7 @@ mermaid.initialize({
 })
 
 function getMermaidTheme(): 'default' | 'dark' {
-  const editor = document.querySelector('.milkdown-editor')
-  if (editor && editor.classList.contains('dark')) return 'dark'
+  if (document.documentElement.classList.contains('dark')) return 'dark'
   return 'default'
 }
 
@@ -250,12 +249,26 @@ function createMermaidView(node: any, view: any, getPos: () => number) {
     if (!editing) startEdit()
   })
 
-  // 主题切换不会产生 ProseMirror transaction，所以 update() 不会触发；
-  // 这里直接监听 App.vue 在 darkMode 变化时派发的事件，强制重渲染一次。
+  // 主题切换不会产生 ProseMirror transaction,所以 update() 不会触发;
+  // 这里直接监听 App.vue 在 darkMode 变化时派发的事件,强制重渲染一次。
+  //
+  // 不走 showDisplay():主题切换时旧 SVG 内容仍有效(只是颜色不对),
+  // 不需要先清空 + loader,直接把新图渲染完再原子替换,避免高度坍缩和
+  // "渲染中..." 闪烁。lastRenderId 防快速连续切换时旧结果覆盖新结果。
   const onThemeChange = () => {
     if (editing) return
-    if (!(node.attrs.value || '').trim()) return
-    showDisplay()
+    const source = (node.attrs.value || '').trim()
+    if (!source) return
+    const myId = uid()
+    lastRenderId = myId
+    renderMermaid(source, myId).then((result) => {
+      if (editing || lastRenderId !== myId) return
+      if (result.error) return
+      dom.innerHTML = result.svg
+      if (result.bindFunctions) result.bindFunctions(dom)
+      const svgEl = dom.querySelector('svg')
+      if (svgEl) svgEl.style.height = 'auto'
+    })
   }
   window.addEventListener('velo:theme-change', onThemeChange)
 

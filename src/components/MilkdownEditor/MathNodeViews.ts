@@ -24,12 +24,16 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   dom.className = 'math-node math-inline-node'
   let editing = false
 
+  function readValue(n: any = node): string {
+    return n.textContent || ''
+  }
+
   dom.addEventListener('mousedown', (e) => { e.stopPropagation() }, true)
 
   function showDisplay() {
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
-    renderKatex(node.attrs.value, dom, false)
+    renderKatex(readValue(), dom, false)
   }
 
   function startEdit() {
@@ -44,7 +48,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
 
     const input = document.createElement('input')
     input.type = 'text'
-    input.value = node.attrs.value || ''
+    input.value = readValue()
     input.className = 'math-edit-input'
     input.placeholder = 'LaTeX 源码'
 
@@ -81,10 +85,11 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
       if (!editing) return
       editing = false
       cleanup()
-      if (input.value !== node.attrs.value) {
+      if (input.value !== readValue()) {
         const pos = getPos()
         if (pos >= 0) {
-          view.dispatch(view.state.tr.setNodeAttribute(pos, 'value', input.value))
+          const newNode = node.type.create(null, view.state.schema.text(input.value))
+          view.dispatch(view.state.tr.replaceWith(pos, pos + node.nodeSize, newNode))
         }
         else { showDisplay() }
       }
@@ -116,9 +121,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   return {
     dom,
     update(newNode: any) {
-      // ProseMirror 每次文档变化都会调 update()，但只要 value 没变就不重渲染
-      // —— 否则在长文档里每键击 N 个 math 节点都白白重跑一次 KaTeX
-      const valueChanged = node.attrs.value !== newNode.attrs.value
+      const valueChanged = readValue() !== readValue(newNode)
       node = newNode
       if (!editing && valueChanged) showDisplay()
       return true
@@ -228,6 +231,17 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
 
   showDisplay()
 
+  // 弱引用 set 里的"待自动进 edit"标记。
+  // 外部(dollarEnterToMathBlock keymap)在创建节点前 trigger(node),NodeView
+  // 初始化时 has() + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit(),
+  // 确保 textarea focus 不被外层 ProseMirror 的 transaction 重入抢掉。
+  // 走 click 触发那条路在测试里发现 setTimeout 时机不稳(NodeView 还没 attach
+  // 完就 click),改走 NodeView 自检路径更可靠。
+  if (autoEditMathBlocks.has(node)) {
+    autoEditMathBlocks.delete(node)
+    setTimeout(() => { if (!editing) startEdit() }, 0)
+  }
+
   return {
     dom,
     update(newNode: any) {
@@ -243,6 +257,20 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
 }
 
 // ========== 导出 ==========
+
+/**
+ * 标记"某个具体的 math_block 节点应该自动进入编辑态"。
+ * keymap (dollarEnterToMathBlock) 在创建节点前 add(node),NodeView 工厂
+ * 初始化时 has() 检查 + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit。
+ *
+ * 用 WeakSet 而不是 module-level bool 槽 —— 之前 bool 槽在用户极快连按两次
+ * Enter(连敲两行 `$$`)时第二个 math_block 不会进 edit,WeakSet 按节点引用
+ * 不会丢。
+ */
+const autoEditMathBlocks = new WeakSet<object>()
+export function triggerNextMathBlockAutoEdit(node: object) {
+  autoEditMathBlocks.add(node)
+}
 
 export const mathEditPlugin = $prose(() => new Plugin({
   key: new PluginKey('mathEdit'),

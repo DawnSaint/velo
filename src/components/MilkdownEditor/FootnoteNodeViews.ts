@@ -324,6 +324,8 @@ const footnoteEditPlugin = $prose(() => footnoteNumberPlugin)
 
 export const footnoteReferenceInputRule = $inputRule(ctx =>
   new InputRule(/\[\^([^\s\]]+)\]$/, (state, match, start, end) => {
+    const $start = state.doc.resolve(start)
+    if ($start.parentOffset === 0) return null
     const label = match[1]
     if (!label) return null
     const type = footnoteReferenceSchema.type(ctx)

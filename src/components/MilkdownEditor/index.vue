@@ -1,16 +1,15 @@
 <script setup lang="ts">
 // Milkdown 编辑器（外层壳）。
 //
-// 生命周期在 2026 年 6 月整改中交给 @milkdown/vue:
-//   - createEditor / onMounted / onUnmounted / watch(modelValue) / isInternalChange / 220ms 守卫全部删掉
-//   - 内层 EditorInner.vue 用 useEditor() + <Milkdown /> 自管 mount/unmount/destroy
-//   - 本组件只剩 props/emit、CSS 变量、hljs 加载、外层 UI
-//   - modelValue 外部变化时由 EditorInner 探测到(对比 lastSelfEmitted) → emit('rebuildRequest') →
-//     本组件 bump innerKey → EditorInner 整体重挂 → 新 factory 跑出新 editor。
+//
+// 查找替换 (v0.3.1):App.vue 用 v-model:find-open 持有状态,
+// 本组件只透传给 FindReplace,FindReplace 关闭时回写 update:findOpen。
+// 只暴露 getEditorView 给父级(Ctrl+F 要读当前选区)。
 
 import { computed, nextTick, ref, watch } from 'vue'
 import { MilkdownProvider } from '@milkdown/vue'
 import EditorInner from './EditorInner.vue'
+import FindReplace from './FindReplace.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -20,6 +19,12 @@ const props = withDefaults(defineProps<{
   codeBlockTheme?: string
   isMacCodeBlock?: boolean
   darkMode?: boolean
+  /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
+  findOpen?: boolean
+  /** Ctrl+F/Ctrl+H 触发时由父级写入,FindReplace watch open 时读一次后清空用。 */
+  findInitialQuery?: string
+  /** Ctrl+H 触发时为 true,FindReplace 初始化时展开 replace 行。 */
+  findInitialShowReplace?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '14px',
@@ -27,10 +32,16 @@ const props = withDefaults(defineProps<{
   codeBlockTheme: 'https://cdn-doocs.oss-cn-shenzhen.aliyuncs.com/npm/highlightjs/11.11.1/styles/github.min.css',
   isMacCodeBlock: true,
   darkMode: false,
+  findOpen: false,
+  findInitialQuery: '',
+  findInitialShowReplace: false,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  /** v-model:find-open 的 update 端。FindReplace 关闭(X / Esc)时触发,
+   *  把父级的 findOpen 翻成 false —— 唯一的回流路径。 */
+  'update:findOpen': [open: boolean]
 }>()
 
 // CSS 自定义属性,响应式注入到容器上
@@ -82,11 +93,34 @@ const innerRef = ref<InstanceType<typeof EditorInner> | null>(null)
 function onCardClick() {
   innerRef.value?.focusEditor()
 }
+
+// ========== 查找替换面板 ==========
+// 状态全在 App.vue(v-model:find-open 透传),本组件只做透传 + 把 FindReplace
+// 关闭事件回写给父级。父级改 findOpen / findInitialQuery / findInitialShowReplace
+// → prop 流下来 → FindReplace watch 触发。这里没有任何镜像的本地 ref。
+/** 拿当前 inner 的 EditorView;切文件 inner 重建后,这个调用会拿到新的 view */
+function getEditorView() {
+  return innerRef.value?.getEditorView() ?? null
+}
+
+/** FindReplace 关闭时(点 X / 按 Esc)唯一回流路径 → 父级 v-model 翻成 false */
+function onFindClose() {
+  emit('update:findOpen', false)
+}
+
+defineExpose({ getEditorView })
 </script>
 
 <template>
+  <!--
+    CSS 变量挂在 .velo-editor-card 上而不是 .milkdown-editor 上:
+    FindReplace 面板是 .milkdown-editor 的兄弟,不在它的作用域里 —— 把变量
+    抬到共同祖先,两边都继承得到。FindReplace 里的 focus:border-[var(--md-primary-color)]
+    靠这个才能拿到主题色。
+  -->
   <div
-    class="flex-1 rounded-2xl mx-6 mb-6 shadow-xl bg-white dark:bg-[#1e1e1e]"
+    :style="editorStyle"
+    class="velo-editor-card relative flex-1 rounded-2xl mx-6 mb-6 shadow-xl bg-white dark:bg-[#1e1e1e]"
     @click="onCardClick"
   >
     <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">
@@ -95,7 +129,6 @@ function onCardClick() {
           'mac-code-block': props.isMacCodeBlock,
           'dark': props.darkMode,
         }"
-        :style="editorStyle"
         class="milkdown-editor h-full w-full max-w-[64vw]"
       >
         <MilkdownProvider>
@@ -119,6 +152,13 @@ function onCardClick() {
         </MilkdownProvider>
       </div>
     </div>
+    <FindReplace
+      :open="props.findOpen"
+      :editor-view-getter="getEditorView"
+      :initial-query="props.findInitialQuery"
+      :initial-show-replace="props.findInitialShowReplace"
+      @close="onFindClose"
+    />
   </div>
 
 </template>
@@ -139,6 +179,28 @@ function onCardClick() {
   -moz-tab-size: 8;
 }
 
+/*
+  ProseMirror 末尾自动追加的内置元素(支持光标停在最后一个非文本节点后):
+    - .ProseMirror-trailingBreak:文档最末尾的 <br>,让光标可以停在非文本节点之后
+    - .ProseMirror-separator:紧邻 trailingBreak 前的 <img>,widget decoration 的视觉分隔
+  这俩元素没有默认样式,在我们这里会显示成"凭空冒出来的 br/img",尤其在
+  插入 math_block 这种 block-level atomic 节点后特别明显(节点末尾追加一对)。
+  不能禁掉 —— ProseMirror 用它们管末尾指针。这里把宽度归零,inline 排版,
+  既不占视觉空间,又保留 ProseMirror 的内部行为。
+*/
+.milkdown-editor .ProseMirror-separator {
+  display: inline !important;
+  width: 0;
+  user-select: none;
+  pointer-events: none;
+}
+.milkdown-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+  width: 0;
+  user-select: none;
+  pointer-events: none;
+}
+
 /* 占位提示 */
 .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
   color: #adb5bd;
@@ -151,6 +213,21 @@ function onCardClick() {
 /* 选区样式 */
 .milkdown-editor .ProseMirror ::selection {
   background: #b4d5ff;
+}
+
+/* 查找替换高亮(findHighlightPlugin 加的 Decoration)。
+   velo-find-match: 所有命中
+   velo-find-current: 当前 match(findNext / findPrev 选中那个)
+   ::selection 只在选区处于焦点元素时绘制 —— 焦点在 find 输入里时 ::selection
+   不会画,所以必须用 Decoration 才能在用户 navigate 时持续看到高亮。 */
+.velo-find-match {
+  background-color: rgba(255, 215, 0, 0.35);
+  border-radius: 2px;
+}
+.velo-find-current {
+  background-color: rgba(255, 165, 0, 0.6);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.7);
 }
 
 /* 公式编辑时隐藏 ProseMirror 光标 */
@@ -216,7 +293,8 @@ function onCardClick() {
   list-style-type: disc;
 }
 
-.milkdown-editor ul li::marker {
+.milkdown-editor ul li::marker,
+.milkdown-editor ol li::marker {
   color: var(--md-primary-color, #1F71D9);
 }
 

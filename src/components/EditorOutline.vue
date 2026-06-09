@@ -61,8 +61,16 @@ watch(() => props.modelValue, (v) => {
       outlineStore.setKeysFor(props.filePath, cleaned)
     }
   }
-  // 高亮键也可能因为标题文本被改而失效，让 scroll-spy 在下一次滚动时重新算
-  if (currentKey.value && !live.has(currentKey.value)) currentKey.value = null
+  // 高亮键也可能因为标题文本被改而失效 —— 默认回退到第一个标题,
+  // 避免出现"加载完文档,大纲什么都不高亮"的情况。scroll-spy 接下来
+  // 会基于实际滚动位置覆盖,这里只是兜底。
+  if (currentKey.value && !live.has(currentKey.value)) {
+    currentKey.value = tree.value[0]?.key ?? null
+  }
+  // 首次进入/刚加载文档:tree 重建后,如果还没高亮,就高亮第一个。
+  if (!currentKey.value && tree.value[0]) {
+    currentKey.value = tree.value[0].key
+  }
 })
 
 // ========== 将树展平为可视列表 ==========
@@ -174,7 +182,14 @@ function findCurrentHeading() {
   }
 
   if (!lastAbove) {
-    currentKey.value = null
+    // 没有任何 heading 在视口顶线之上 —— 通常发生在:
+    //   1) 滚到文档最顶端(第一个 heading 还在 padding 之下,没越过 20px 阈值)
+    //   2) 文档还没滚到第一个 heading
+    // 这两种情况都应该高亮第一个 heading,而不是空着。
+    const first = headings[0]
+    const firstKey = `${first.tagName.substring(1)} ${first.textContent?.trim() ?? ''}`
+    const entry = headingIndex.value.get(firstKey)
+    currentKey.value = entry?.key ?? null
     return
   }
 
@@ -241,7 +256,7 @@ onUnmounted(() => {
       (min-h-0 关键 —— flex 子项默认 min-height: auto,会撑到内容高度,
        不加 min-h-0 的话 overflow-y-auto 永远没机会触发,这是经典 flex 坑)
   -->
-  <div class="flex h-full min-w-64 flex-col p-4 pr-0">
+  <div class="velo-outline flex h-full min-w-64 flex-col p-4 pr-0">
     <h2 class="mb-4 shrink-0 text-sm font-semibold uppercase tracking-wider text-gray-400">
       大纲
     </h2>
@@ -285,9 +300,13 @@ onUnmounted(() => {
             'truncate text-left text-xs transition-colors rounded px-1 py-0.5',
             'hover:bg-gray-200 dark:hover:bg-gray-800',
             item.key === currentKey
-              ? 'font-bold text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800'
+              ? 'font-bold'
               : 'text-gray-700 dark:text-gray-300',
           ]"
+          :style="item.key === currentKey ? {
+            color: 'var(--md-primary-color, #1F71D9)',
+            backgroundColor: 'color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent)',
+          } : undefined"
           :title="item.displayText"
           @click="scrollToHeading(item)"
         >

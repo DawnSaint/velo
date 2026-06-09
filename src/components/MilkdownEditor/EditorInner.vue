@@ -1,14 +1,5 @@
 <script setup lang="ts">
 // Milkdown 编辑器（kit 风格）作为 @milkdown/vue 的 <Milkdown /> 内部。
-//
-// 设计要点：
-// - useEditor() 必须在 <MilkdownProvider> 子树里调（拿到 inject 的 editorFactory 占位）。
-//   本组件正是 <EditorInner />,由 index.vue 渲染在 <MilkdownProvider> 内部。
-// - 工厂返回 Editor.make()… 跟原来 createEditor() 等价；create() 会在 <Milkdown />
-//   onMounted 时由 @milkdown/vue 内部 useGetEditor 调,不用我们手动 create。
-// - destroy() 同样由 <Milkdown /> onUnmounted 内部调,不用我们手动 destroy。
-// - 拿 editor 实例是异步的（等 create() resolve）:用 useEditor().get() 拿,
-//   配合 loading ref 做 watch。
 
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { Editor, rootCtx, defaultValueCtx, editorViewCtx } from '@milkdown/kit/core'
@@ -29,13 +20,16 @@ import { math } from '@milkdown/plugin-math'
 import { keymap } from '@milkdown/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/prose/schema-list'
 import { markRule } from '@milkdown/prose'
+import type { EditorView } from '@milkdown/prose/view'
 import { $inputRule, $prose } from '@milkdown/utils'
 import { Milkdown, useEditor } from '@milkdown/vue'
-import { mathEditPlugin } from './MathNodeViews'
+import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './MathNodeViews'
 import { mermaidSyntax } from './MermaidSyntax'
 import { mermaidEditPlugin } from './MermaidNodeView'
 import { taskListPlugin } from './TaskListNodeView'
 import { footnoteEditPlugin, footnoteReferenceInputRule } from './FootnoteNodeViews'
+import { preserveEmptyLinePlugin } from './preserveEmptyLine'
+import { findHighlight } from './findHighlight'
 import 'katex/dist/katex.min.css'
 
 // 覆盖 Milkdown 内置行为：在标题前按退格 → 直接转为正文，而非降级（h2→h1）
@@ -177,6 +171,32 @@ const tabIndent = $prose(() => {
   })
 })
 
+// 行首 `$$` + Enter → 插入空 math_block 并进入编辑态
+const dollarEnterToMathBlock = $prose(() =>
+  keymap({
+    Enter: (state, dispatch) => {
+      const { $from } = state.selection
+      const lineStart = $from.start()
+      const before = state.doc.textBetween(lineStart, $from.pos, '\n', '\n')
+      if (before !== '$$') return false
+
+      const mathBlockType = state.schema.nodes.math_block
+      if (!mathBlockType) return false
+
+      // 先 trigger(node) 再 dispatch —— NodeView 工厂在 dispatch 引发的 view update
+      // 同步阶段被调用,has(node) 命中就 setTimeout(0) startEdit()。等 setTimeout
+      // 触发时 DOM 已 attach 完,textarea focus 不会被 ProseMirror 重入抢掉。
+      // 用节点引用(WeakSet)而不是 bool 槽 —— 极快连按两次 Enter 也能各自进 edit。
+      const newMathBlock = mathBlockType.create({ value: '' })
+      triggerNextMathBlockAutoEdit(newMathBlock)
+      const tr = state.tr
+      tr.replaceWith(lineStart, $from.pos, newMathBlock)
+      if (dispatch) dispatch(tr)
+      return true
+    },
+  }),
+)
+
 const props = defineProps<{
   modelValue: string
   /** 切文件后要 focus;首次 mount 不需要 */
@@ -225,7 +245,9 @@ const { get, loading } = useEditor((container) => {
     })
     .use(headingBackspaceToParagraph)
     .use(tabIndent)
+    .use(dollarEnterToMathBlock)
     .use(safeCommonmark)
+    .use(preserveEmptyLinePlugin)
     .use(fixedEmphasisUnderscoreInputRule)
     .use(safeGfm)
     .use(fixedStrikethroughInputRule)
@@ -238,6 +260,7 @@ const { get, loading } = useEditor((container) => {
     .use(taskListPlugin)
     .use(footnoteEditPlugin)
     .use(footnoteReferenceInputRule)
+    .use(findHighlight)
     .use(listener)
 
   return editor
@@ -301,7 +324,31 @@ function focusEditor() {
   catch { /* 销毁期 editorViewCtx 已 remove,忽略 */ }
 }
 
-defineExpose({ focusEditor })
+/**
+ * 把当前 ProseMirror EditorView 暴露给父级,供 find/replace 等外部组件
+ * 拿到 view 后调 view.state / view.dispatch。
+ *
+ * 切文件时整个 inner 被 :key 重建,所以这个 view 永远跟当前编辑器实例对齐;
+ * 父级只需要每次调用都重新拿,不需要维护"view 是否已变"的缓存。
+ *
+ * 销毁期 editorViewCtx 已 remove —— 返回 null,调用方自己处理。
+ */
+function getEditorView(): EditorView | null {
+  const editor = get()
+  if (!editor) return null
+  try {
+    let view: EditorView | null = null
+    editor.action((ctx: any) => {
+      view = ctx.get(editorViewCtx) as EditorView
+    })
+    return view
+  }
+  catch {
+    return null
+  }
+}
+
+defineExpose({ focusEditor, getEditorView })
 </script>
 
 <template>
