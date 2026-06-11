@@ -6,6 +6,9 @@ import { vi } from 'vitest'
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
+  // Tauri 2.5 把 readBinaryFile / writeBinaryFile 合并为 readFile / writeFile(binary)
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
   watch: vi.fn(async () => () => {}),
   // 草稿管理(drafts/)用到的:存在判断 / 建目录 / 列目录 / 原子 rename / 删文件
   exists: vi.fn(),
@@ -13,6 +16,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   readDir: vi.fn(),
   rename: vi.fn(),
   remove: vi.fn(),
+  // copyFile 给潜在的图片复制场景备用
+  copyFile: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -35,4 +40,6 @@ vi.mock('@tauri-apps/api/path', () => ({
   // 测试里返回固定字符串,让 readDir / writeTextFile 这类 fs 操作的 path 参数可预测。
   appDataDir: vi.fn(async () => '/appData'),
   join: vi.fn(async (...parts: string[]) => parts.join('/').replace(/\\/g, '/')),
+  // imageStorage 拿 dirname(currentFilePath) 算 fileDir
+  dirname: vi.fn(async (p: string) => p.split('/').slice(0, -1).join('/') || '/'),
 }))

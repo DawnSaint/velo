@@ -62,10 +62,14 @@
 
 **feat**
 
-- [ ] 图片粘贴 / 拖拽落盘到 `<fileDir>/assets/`，删除图片及对应文件
-- [ ] 图片相对路径 / 绝对路径识别
-- [ ] 图片缩放、Base64 编码图片
-- [ ] 图片设置
+- [x] 图片粘贴 / 拖拽落盘到 `<fileDir>/assets/`(untitled 走 `appDataDir/assets/`)
+- [x] 图片相对路径 / 绝对路径识别
+- [x] 图片删除文件跟随(用户删唯一引用时 confirm 删磁盘文件)
+
+
+**fix**
+
+- [x] Tauri 2.5 `tauri-plugin-fs` 默认不开 `watch` feature → `plugin:fs|watch` 命令未注册,JS 端 `invoke` 抛 "Command watch not found"。`Cargo.toml` 显式开 `features = ["watch"]`,文件监听正常工作
 
 
 
@@ -74,7 +78,8 @@
 **feat**
 
 - [ ] `[text](url)` 链接语法渲染
-- [ ] 警告框
+- [ ] 警告框渲染
+- [ ] html 语法渲染
 
 
 
@@ -113,7 +118,7 @@
 
 
 
-#### v0.3.7 — Milkdown 插件回归测试
+#### v0.3.8 — Milkdown 插件回归测试
 
 **test**
 

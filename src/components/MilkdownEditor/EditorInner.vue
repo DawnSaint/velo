@@ -3,6 +3,7 @@
 
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { Editor, rootCtx, defaultValueCtx, editorViewCtx } from '@milkdown/kit/core'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   commonmark,
   emphasisSchema,
@@ -15,6 +16,12 @@ import {
 } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
+import { dropCursor } from '@milkdown/kit/prose/dropcursor'
+import {
+  imageInlineComponent,
+  inlineImageConfig,
+  defaultInlineImageConfig,
+} from '@milkdown/kit/component/image-inline'
 import { clipboard } from '@milkdown/plugin-clipboard'
 import { math } from '@milkdown/plugin-math'
 import { keymap } from '@milkdown/prose/keymap'
@@ -30,55 +37,41 @@ import { taskListPlugin } from './TaskListNodeView'
 import { footnoteEditPlugin, footnoteReferenceInputRule } from './FootnoteNodeViews'
 import { preserveEmptyLinePlugin } from './preserveEmptyLine'
 import { findHighlight } from './findHighlight'
+import { imageKeymapPlugin } from './imageKeymap'
+import { imageUploadPlugin } from './imageUploadPlugin'
+import { saveImageAsset } from '@/services/imageStorage'
+import { useDocumentStore } from '@/stores/document'
+import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import 'katex/dist/katex.min.css'
 
-// 覆盖 Milkdown 内置行为：在标题前按退格 → 直接转为正文，而非降级（h2→h1）
+// 覆盖 Milkdown 内置行为：在标题前按退格 / 删除 → 直接转为正文，而非降级（h2→h1）
+function headingToParagraph(state: any, dispatch?: any): boolean {
+  const { $from } = state.selection
+  const node = $from.node()
+  if (
+    node.type.name === 'heading'
+    && state.selection.empty
+    && $from.parentOffset === 0
+  ) {
+    if (dispatch) {
+      const paragraphType = state.schema.nodes.paragraph
+      dispatch(
+        state.tr.setBlockType(
+          $from.before(),
+          $from.after(),
+          paragraphType,
+        ),
+      )
+    }
+    return true
+  }
+  return false
+}
+
 const headingBackspaceToParagraph = $prose(() =>
   keymap({
-    Backspace: (state, dispatch) => {
-      const { $from } = state.selection
-      const node = $from.node()
-      if (
-        node.type.name === 'heading'
-        && state.selection.empty
-        && $from.parentOffset === 0
-      ) {
-        if (dispatch) {
-          const paragraphType = state.schema.nodes.paragraph
-          dispatch(
-            state.tr.setBlockType(
-              $from.before(),
-              $from.after(),
-              paragraphType,
-            ),
-          )
-        }
-        return true
-      }
-      return false
-    },
-    Delete: (state, dispatch) => {
-      const { $from } = state.selection
-      const node = $from.node()
-      if (
-        node.type.name === 'heading'
-        && state.selection.empty
-        && $from.parentOffset === 0
-      ) {
-        if (dispatch) {
-          const paragraphType = state.schema.nodes.paragraph
-          dispatch(
-            state.tr.setBlockType(
-              $from.before(),
-              $from.after(),
-              paragraphType,
-            ),
-          )
-        }
-        return true
-      }
-      return false
-    },
+    Backspace: headingToParagraph,
+    Delete: headingToParagraph,
   }),
 )
 
@@ -114,7 +107,13 @@ const fixedStrikethroughInputRule = $inputRule(ctx =>
   markRule(/(?<![\w:/])(~{1,2})(.+?)\1(?!\w|\/)$/, strikethroughSchema.type(ctx)),
 )
 
-const safeCommonmark = commonmark.filter(p => p !== emphasisUnderscoreInputRule)
+const safeCommonmark = commonmark.filter(
+  p =>
+    // 上游 markRule bug 修复
+    // image 不再 filter:commonmark 的 image schema 直接用,NodeView 由
+    // @milkdown/kit/component/image-inline(imageInlineComponent) 接管
+    p !== emphasisUnderscoreInputRule,
+)
 const safeGfm = gfm.filter(p => p !== strikethroughInputRule)
 
 // 列表项里的 Tab/Shift-Tab 完全交给 Milkdown 自带的 listItemKeymap(来自 commonmark preset)。
@@ -247,6 +246,39 @@ const { get, loading } = useEditor((container) => {
     .use(tabIndent)
     .use(dollarEnterToMathBlock)
     .use(safeCommonmark)
+    .config((ctx) => {
+      // Tauri 环境下 src 必须从磁盘绝对路径 → asset:// 协议
+      // 浏览器下直接返回 src(Vite dev 从源目录 serve)
+      function isTauriEnv(): boolean {
+        return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+      }
+      ctx.set(inlineImageConfig.key, {
+        ...defaultInlineImageConfig,
+        // uploadPlaceholderText 留默认 '/Paste' 即可
+        onUpload: async (file: File) => {
+          const result = await saveImageAsset({
+            currentFilePath: useDocumentStore().currentFilePath,
+            file,
+          })
+          return result.srcForMarkdown
+        },
+        proxyDomURL: (url: string) => {
+          if (!isTauriEnv()) return url
+          // 已 web-recognizable 的 URL(http/https/data/asset/tauri)原样 —— 不当磁盘路径处理
+          if (/^(https?:|data:|asset:|tauri:)/.test(url)) return url
+          const currentFilePath = useDocumentStore().currentFilePath
+          const absPath = resolveImageAssetAbsPath(url, currentFilePath)
+          // 无 currentFilePath(untitled)时相对路径无法解析为绝对路径 → 原样,浏览器会断开
+          if (!absPath.startsWith('/') && !/^[A-Z]:/i.test(absPath)) return absPath
+          return convertFileSrc(absPath)
+        },
+      })
+    })
+    .use(imageInlineComponent)
+    .use(imageKeymapPlugin)
+    // 拖动时显示蓝色光标线指示落点(类似 Typora)
+    .use($prose(() => dropCursor({ color: false, class: 'velo-drop-cursor' })))
+    .use(imageUploadPlugin)
     .use(preserveEmptyLinePlugin)
     .use(fixedEmphasisUnderscoreInputRule)
     .use(safeGfm)

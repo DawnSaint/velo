@@ -1,10 +1,4 @@
 <script setup lang="ts">
-// Milkdown 编辑器（外层壳）。
-//
-//
-// 查找替换 (v0.3.1):App.vue 用 v-model:find-open 持有状态,
-// 本组件只透传给 FindReplace,FindReplace 关闭时回写 update:findOpen。
-// 只暴露 getEditorView 给父级(Ctrl+F 要读当前选区)。
 
 import { computed, nextTick, ref, watch } from 'vue'
 import { MilkdownProvider } from '@milkdown/vue'
@@ -112,12 +106,6 @@ defineExpose({ getEditorView })
 </script>
 
 <template>
-  <!--
-    CSS 变量挂在 .velo-editor-card 上而不是 .milkdown-editor 上:
-    FindReplace 面板是 .milkdown-editor 的兄弟,不在它的作用域里 —— 把变量
-    抬到共同祖先,两边都继承得到。FindReplace 里的 focus:border-[var(--md-primary-color)]
-    靠这个才能拿到主题色。
-  -->
   <div
     :style="editorStyle"
     class="velo-editor-card relative flex-1 rounded-2xl mx-6 mb-6 shadow-xl bg-white dark:bg-[#1e1e1e]"
@@ -195,7 +183,7 @@ defineExpose({ getEditorView })
   pointer-events: none;
 }
 .milkdown-editor .ProseMirror-trailingBreak {
-  display: inline !important;
+  display: inline;
   width: 0;
   user-select: none;
   pointer-events: none;
@@ -404,6 +392,128 @@ defineExpose({ getEditorView })
   display: block;
   margin: 0 auto;
   border-radius: 4px;
+}
+
+/* ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)
+   dropCursor({ color: false, class: 'velo-drop-cursor' }) 用 class hook */
+.velo-drop-cursor {
+  background: var(--md-primary-color, #1F71D9);
+  width: 2px;
+  margin-left: -1px;
+  pointer-events: none;
+}
+
+/* ========== @milkdown/kit/component/image-inline 样式 ==========
+   image-inline 的 NodeView DOM:
+     <span class="milkdown-image-inline">     ← wrapper(空态 + 有图态共用)
+       空态: <div class="image-edit">...<input class="link-input-area">...<img class="image-preview">
+       有图态: <img class="image-inline">
+   选中时 wrapper 加 .selected(由 NodeView.selectNode 加)。*/
+
+/* 包装 span 转 block 撑满行宽,里面内容(text-align: center)居中 */
+.milkdown-image-inline {
+  display: block;
+  text-align: center;
+}
+
+/* 有图态:img 居中,outline 透明(默认) */
+.milkdown-image-inline > img.image-inline {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 100%;
+  max-height: 400px;
+  height: auto;
+  border-radius: 4px;
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.12s;
+}
+
+/* hover:低调灰边 */
+.milkdown-image-inline:hover > img.image-inline {
+  outline-color: rgba(0, 0, 0, 0.2);
+}
+
+.dark .milkdown-image-inline:hover > img.image-inline {
+  outline-color: rgba(255, 255, 255, 0.25);
+}
+
+/* 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected */
+.milkdown-image-inline.selected > img.image-inline {
+  outline-color: var(--md-primary-color, #1F71D9);
+  outline-width: 2px;
+}
+
+/* 空态 input 框/上传按钮/预览图 —— 跟 image-inline 提供的默认 UI 配套 */
+.milkdown-image-inline .image-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  color: #666;
+  font-size: 13px;
+}
+
+.dark .milkdown-image-inline .image-edit {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa;
+}
+
+.milkdown-image-inline .link-importer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.milkdown-image-inline .link-input-area {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  background: inherit;
+  color: inherit;
+  min-width: 200px;
+}
+
+.dark .milkdown-image-inline .link-input-area {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.milkdown-image-inline .image-preview img {
+  max-width: 200px;
+  max-height: 100px;
+  border-radius: 4px;
+}
+
+.milkdown-image-inline .placeholder {
+  cursor: text;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.dark .milkdown-image-inline .placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.milkdown-image-inline .milkdown-icon {
+  font-size: 18px;
+  line-height: 1;
+  user-select: none;
+}
+
+.milkdown-image-inline .uploader {
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.milkdown-image-inline .confirm {
+  cursor: pointer;
+  padding: 0 4px;
+  color: var(--md-primary-color, #1F71D9);
 }
 
 .milkdown-editor table {
