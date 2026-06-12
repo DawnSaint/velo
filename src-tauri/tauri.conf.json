@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/2.x/tooling/cli/schema.json",
   "productName": "velo",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "com.velo.editor",
   "build": {
     "beforeBuildCommand": "npm run build",
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' data: blob: filesystem: https: asset: 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob: https: asset:;",
+      "csp": "default-src 'self' data: blob: filesystem: https: http://asset.localhost asset: 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob: https: http://asset.localhost asset:; connect-src 'self' ipc: http://ipc.localhost",
       "capabilities": ["default"],
       "assetProtocol": {
         "enable": true,

@@ -1,7 +1,12 @@
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/prose/state'
 import katex from 'katex'
-import { isolateInputFromProseMirror } from './plugin-common'
+import {
+  createTextareaEditor,
+  stopMousedownPropagation,
+  isolateInputFromProseMirror,
+  insertTabAtCursor,
+} from './TextareaEditor'
 
 function renderKatex(source: string, el: HTMLElement, displayMode: boolean) {
   el.innerHTML = ''
@@ -18,6 +23,10 @@ function renderKatex(source: string, el: HTMLElement, displayMode: boolean) {
 }
 
 // ========== 行内公式 NodeView ==========
+//
+// inline 用 <input> 而非 <textarea>,结构跟 block / mermaid 差别大,
+// 不走 createTextareaEditor。直接复用 stopMousedownPropagation /
+// isolateInputFromProseMirror / insertTabAtCursor。
 
 function createMathInlineView(node: any, view: any, getPos: () => number) {
   const dom = document.createElement('span')
@@ -28,7 +37,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     return n.textContent || ''
   }
 
-  dom.addEventListener('mousedown', (e) => { e.stopPropagation() }, true)
+  stopMousedownPropagation(dom)
 
   function showDisplay() {
     dom.innerHTML = ''
@@ -71,11 +80,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
       if (e.key === 'Escape') { e.preventDefault(); cancel() }
       if (e.key === 'Tab') {
         e.preventDefault()
-        const start = input.selectionStart ?? input.value.length
-        const end = input.selectionEnd ?? input.value.length
-        input.value = input.value.slice(0, start) + '\t' + input.value.slice(end)
-        input.selectionStart = input.selectionEnd = start + 1
-        input.dispatchEvent(new Event('input', { bubbles: true }))
+        insertTabAtCursor(input)
       }
     })
 
@@ -137,10 +142,12 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   const dom = document.createElement('div')
   dom.className = 'math-node math-block-node'
   let editing = false
+  let editor: ReturnType<typeof createTextareaEditor> | null = null
 
-  dom.addEventListener('mousedown', (e) => { e.stopPropagation() }, true)
+  stopMousedownPropagation(dom)
 
   function showDisplay() {
+    if (editing) return
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
     renderKatex(node.attrs.value, dom, true)
@@ -149,79 +156,39 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   function startEdit() {
     if (editing) return
     editing = true
-
-    // 保存当前渲染内容作为参考
     const renderedHtml = dom.innerHTML
     dom.classList.add('is-editing')
-    view.dom.classList.add('prosemirror-caret-hidden')
 
-    const textarea = document.createElement('textarea')
-    textarea.value = node.attrs.value || ''
-    textarea.className = 'edit-textarea'
-    textarea.placeholder = 'LaTeX 源码'
-
-    const preview = document.createElement('div')
-    preview.className = 'edit-preview'
-    preview.innerHTML = renderedHtml
-
-    dom.innerHTML = ''
-    dom.appendChild(textarea)
-    dom.appendChild(preview)
-
-    function autoHeight() {
-      textarea.style.height = `${textarea.scrollHeight}px`
-    }
-
-    isolateInputFromProseMirror(textarea)
-    textarea.addEventListener('input', (e) => {
-      e.stopPropagation()
-      autoHeight()
-      renderKatex(textarea.value, preview, true)
-    })
-
-    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
-      e.stopPropagation()
-      if (e.key === 'Escape') { e.preventDefault(); cancel() }
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        const start = textarea.selectionStart ?? textarea.value.length
-        const end = textarea.selectionEnd ?? textarea.value.length
-        textarea.value = textarea.value.slice(0, start) + '\t' + textarea.value.slice(end)
-        textarea.selectionStart = textarea.selectionEnd = start + 1
-        autoHeight()
-        textarea.dispatchEvent(new Event('input', { bubbles: true }))
-      }
-    })
-
-    textarea.addEventListener('blur', () => { save() })
-
-    function save() {
-      if (!editing) return
-      editing = false
-      cleanup()
-      if (textarea.value !== node.attrs.value) {
-        const pos = getPos()
-        if (pos >= 0) {
-          view.dispatch(view.state.tr.setNodeAttribute(pos, 'value', textarea.value))
+    editor = createTextareaEditor({
+      view,
+      initialValue: node.attrs.value || '',
+      placeholder: 'LaTeX 源码',
+      onCommit: (value) => {
+        if (!editing) return
+        editing = false
+        if (value !== node.attrs.value) {
+          const pos = getPos()
+          if (pos >= 0) {
+            view.dispatch(view.state.tr.setNodeAttribute(pos, 'value', value))
+          }
+          else { showDisplay() }
         }
         else { showDisplay() }
-      }
-      else { showDisplay() }
-    }
-
-    function cancel() {
-      if (!editing) return
-      editing = false
-      cleanup()
-      showDisplay()
-    }
-
-    function cleanup() {
-      view.dom.classList.remove('prosemirror-caret-hidden')
-    }
-
-    ;(dom as any).__mathCleanup = () => { cleanup() }
-    setTimeout(() => { textarea.focus(); autoHeight() }, 0)
+      },
+      onCancel: () => {
+        if (!editing) return
+        editing = false
+        showDisplay()
+      },
+    })
+    editor.setPreviewHtml(renderedHtml)
+    // 初始预览就是 dom.innerHTML 捕获的渲染结果,直接显示;input 监听负责后续重新渲染
+    dom.innerHTML = ''
+    dom.appendChild(editor.container)
+    editor.textarea.addEventListener('input', () => {
+      renderKatex(editor!.textarea.value, editor!.preview, true)
+    })
+    editor.focus()
   }
 
   dom.addEventListener('click', (e) => {
@@ -251,7 +218,7 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
       if (!editing && valueChanged) showDisplay()
       return true
     },
-    destroy() { ;(dom as any).__mathCleanup?.() },
+    destroy() { editor?.dispose() },
     ignoreMutation() { return true },
   }
 }

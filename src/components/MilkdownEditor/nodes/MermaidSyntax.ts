@@ -57,10 +57,9 @@ export const mermaidSchema = $nodeSchema('mermaid', () => ({
       },
     },
   ],
-  toDOM: (node) => {
-    const dom = document.createElement('div')
-    dom.dataset.type = 'mermaid'
-    dom.dataset.value = node.attrs.value
+  toDOM: () => {
+    const dom = document.createElement('span')
+    dom.style.cssText = 'display:none'
     return dom
   },
   parseMarkdown: {

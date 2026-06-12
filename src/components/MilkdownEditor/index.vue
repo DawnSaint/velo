@@ -3,7 +3,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { MilkdownProvider } from '@milkdown/vue'
 import EditorInner from './EditorInner.vue'
-import FindReplace from './FindReplace.vue'
+import FindReplace from './findreplace/FindReplace.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -152,7 +152,7 @@ defineExpose({ getEditorView })
 </template>
 
 <style>
-/* ProseMirror 编辑区基础样式 */
+/* ========== ProseMirror 编辑区基础 ========== */
 .milkdown-editor .ProseMirror {
   outline: none;
   min-height: 100%;
@@ -175,19 +175,16 @@ defineExpose({ getEditorView })
   插入 math_block 这种 block-level atomic 节点后特别明显(节点末尾追加一对)。
   不能禁掉 —— ProseMirror 用它们管末尾指针。这里把宽度归零,inline 排版,
   既不占视觉空间,又保留 ProseMirror 的内部行为。
+  separator 的 display 用 !important 覆盖 ProseMirror 默认的 inline-block。
 */
-.milkdown-editor .ProseMirror-separator {
-  display: inline !important;
-  width: 0;
-  user-select: none;
-  pointer-events: none;
-}
+.milkdown-editor .ProseMirror-separator,
 .milkdown-editor .ProseMirror-trailingBreak {
-  display: inline;
   width: 0;
   user-select: none;
   pointer-events: none;
 }
+.milkdown-editor .ProseMirror-separator { display: inline !important; }
+.milkdown-editor .ProseMirror-trailingBreak { display: inline; }
 
 /* 占位提示 */
 .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -198,7 +195,7 @@ defineExpose({ getEditorView })
   pointer-events: none;
 }
 
-/* 选区样式 */
+/* 选区 */
 .milkdown-editor .ProseMirror ::selection {
   background: #b4d5ff;
 }
@@ -223,7 +220,16 @@ defineExpose({ getEditorView })
   caret-color: transparent !important;
 }
 
-/* ========== 基础排版(使用 CSS 变量,支持 props 响应) ========== */
+/* ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)
+   dropCursor({ color: false, class: 'velo-drop-cursor' }) 用 class hook */
+.velo-drop-cursor {
+  background: var(--md-primary-color, #1F71D9);
+  width: 2px;
+  margin-left: -1px;
+  pointer-events: none;
+}
+
+/* ========== 基础排版(CSS 变量响应 props) ========== */
 .milkdown-editor {
   font-family: var(--md-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
   font-size: var(--md-font-size, 16px);
@@ -231,35 +237,50 @@ defineExpose({ getEditorView })
   color: #333;
 }
 
-/* ========== 通用元素样式 ========== */
-
-/* 标题基础尺寸 */
+/* ========== 标题(尺寸 + 装饰合并在一处) ========== */
 .milkdown-editor h1 {
-  font-size: 1.6em;
+  font-size: 2em;
   font-weight: bold;
-  margin: 1.5em 0 0.5em;
+  margin: 2em 0 1em;
+  color: var(--md-primary-color, #333);
+  text-align: center;
 }
 
 .milkdown-editor h2 {
-  font-size: 1.4em;
+  font-size: 1.6em;
   font-weight: bold;
-  margin: 1.4em 0 0.5em;
+  margin: 1.5em 0 .5em;
+  color: var(--md-primary-color, #333);
+  border-bottom: 1px solid var(--md-primary-color, #eee);
 }
 
 .milkdown-editor h3 {
+  font-size: 1.4em;
+  font-weight: bold;
+  margin-top: 1em;
+  color: var(--md-primary-color, #333);
+}
+
+.milkdown-editor h4 {
   font-size: 1.2em;
   font-weight: bold;
-  margin: 1.3em 0 0.5em;
+  margin-top: .5em;
+  color: var(--md-primary-color, #333);
 }
 
-.milkdown-editor h4,
+.milkdown-editor h5 {
+  color: var(--md-primary-color, #333);
+}
+
 .milkdown-editor h5,
 .milkdown-editor h6 {
-  font-size: 1.1em;
+  font-size: 1em;
   font-weight: bold;
-  margin: 1.2em 0 0.5em;
+  margin-top: 1.2em;
 }
 
+
+/* ========== 段落 / 引用 / 强调 / 链接 / 分割线 ========== */
 .milkdown-editor p {
   margin: 0.5em 0;
 }
@@ -271,39 +292,44 @@ defineExpose({ getEditorView })
   color: #666;
 }
 
+.milkdown-editor strong {
+  font-weight: bold;
+  color: var(--md-primary-color, inherit);
+}
+
+.milkdown-editor em {
+  font-style: italic;
+}
+
+.milkdown-editor a {
+  color: #576b95;
+  text-decoration: none;
+}
+
+.milkdown-editor hr {
+  border: none;
+  border-top: 2px solid #eee;
+  margin: 2em 0;
+}
+
+/* ========== 列表 ========== */
 .milkdown-editor ul,
 .milkdown-editor ol {
   padding-left: 2em;
   margin: 0.5em 0;
 }
 
-.milkdown-editor ul {
-  list-style-type: disc;
-}
+.milkdown-editor ul { list-style-type: disc; }
+.milkdown-editor ul ul { list-style-type: circle; }
+.milkdown-editor ul ul ul { list-style-type: square; }
+
+.milkdown-editor ol { list-style-type: decimal; }
+.milkdown-editor ol ol { list-style-type: lower-alpha; }
+.milkdown-editor ol ol ol { list-style-type: lower-roman; }
 
 .milkdown-editor ul li::marker,
 .milkdown-editor ol li::marker {
   color: var(--md-primary-color, #1F71D9);
-}
-
-.milkdown-editor ul ul {
-  list-style-type: circle;
-}
-
-.milkdown-editor ul ul ul {
-  list-style-type: square;
-}
-
-.milkdown-editor ol {
-  list-style-type: decimal;
-}
-
-.milkdown-editor ol ol {
-  list-style-type: lower-alpha;
-}
-
-.milkdown-editor ol ol ol {
-  list-style-type: lower-roman;
 }
 
 .milkdown-editor li {
@@ -311,7 +337,6 @@ defineExpose({ getEditorView })
 }
 
 /* ========== 任务列表 ========== */
-
 .milkdown-editor li[data-item-type="task"] {
   list-style: none;
   position: relative;
@@ -358,7 +383,7 @@ defineExpose({ getEditorView })
   text-decoration: line-through;
 }
 
-/* 行内代码 */
+/* ========== 代码 ========== */
 .milkdown-editor code {
   font-family: Menlo, Operator Mono, Consolas, Monaco, monospace;
   background: rgba(0, 0, 0, 0.05);
@@ -368,7 +393,6 @@ defineExpose({ getEditorView })
   color: #d14;
 }
 
-/* 代码块 */
 .milkdown-editor pre {
   margin: 1em 0;
   padding: 1em;
@@ -385,6 +409,46 @@ defineExpose({ getEditorView })
   color: inherit;
 }
 
+/* Mac 代码块:红黄绿圆点装饰 */
+.mac-code-block.milkdown-editor pre {
+  position: relative;
+  padding-top: 2.4em;
+}
+
+.mac-code-block.milkdown-editor pre::before {
+  content: '';
+  position: absolute;
+  top: 0.9em;
+  left: 1em;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ed6c60;
+  box-shadow:
+    20px 0 0 #f7c151,
+    40px 0 0 #64c856;
+}
+
+/* ========== 表格 ========== */
+.milkdown-editor table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+.milkdown-editor th,
+.milkdown-editor td {
+  border: 1px solid #ddd;
+  padding: 0.5em 1em;
+  text-align: left;
+}
+
+.milkdown-editor th {
+  background: #f5f5f5;
+  font-weight: bold;
+}
+
+/* ========== 图片(通用) ========== */
 .milkdown-editor img {
   max-width: 100%;
   max-height: 400px;
@@ -394,16 +458,7 @@ defineExpose({ getEditorView })
   border-radius: 4px;
 }
 
-/* ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)
-   dropCursor({ color: false, class: 'velo-drop-cursor' }) 用 class hook */
-.velo-drop-cursor {
-  background: var(--md-primary-color, #1F71D9);
-  width: 2px;
-  margin-left: -1px;
-  pointer-events: none;
-}
-
-/* ========== @milkdown/kit/component/image-inline 样式 ==========
+/* ========== @milkdown/kit/component/image-inline ==========
    image-inline 的 NodeView DOM:
      <span class="milkdown-image-inline">     ← wrapper(空态 + 有图态共用)
        空态: <div class="image-edit">...<input class="link-input-area">...<img class="image-preview">
@@ -434,10 +489,6 @@ defineExpose({ getEditorView })
   outline-color: rgba(0, 0, 0, 0.2);
 }
 
-.dark .milkdown-image-inline:hover > img.image-inline {
-  outline-color: rgba(255, 255, 255, 0.25);
-}
-
 /* 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected */
 .milkdown-image-inline.selected > img.image-inline {
   outline-color: var(--md-primary-color, #1F71D9);
@@ -457,12 +508,6 @@ defineExpose({ getEditorView })
   font-size: 13px;
 }
 
-.dark .milkdown-image-inline .image-edit {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.04);
-  color: #aaa;
-}
-
 .milkdown-image-inline .link-importer {
   display: inline-flex;
   align-items: center;
@@ -479,10 +524,6 @@ defineExpose({ getEditorView })
   min-width: 200px;
 }
 
-.dark .milkdown-image-inline .link-input-area {
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
 .milkdown-image-inline .image-preview img {
   max-width: 200px;
   max-height: 100px;
@@ -492,10 +533,6 @@ defineExpose({ getEditorView })
 .milkdown-image-inline .placeholder {
   cursor: text;
   color: rgba(0, 0, 0, 0.5);
-}
-
-.dark .milkdown-image-inline .placeholder {
-  color: rgba(255, 255, 255, 0.5);
 }
 
 .milkdown-image-inline .milkdown-icon {
@@ -516,158 +553,75 @@ defineExpose({ getEditorView })
   color: var(--md-primary-color, #1F71D9);
 }
 
-.milkdown-editor table {
-  border-collapse: collapse;
-  margin: 1em 0;
-  width: 100%;
-}
-
-.milkdown-editor th,
-.milkdown-editor td {
-  border: 1px solid #ddd;
-  padding: 0.5em 1em;
-  text-align: left;
-}
-
-.milkdown-editor th {
-  background: #f5f5f5;
-  font-weight: bold;
-}
-
-.milkdown-editor hr {
-  border: none;
-  border-top: 2px solid #eee;
-  margin: 2em 0;
-}
-
-.milkdown-editor a {
-  color: #576b95;
-  text-decoration: none;
-}
-
-.milkdown-editor strong {
-  font-weight: bold;
-  color: var(--md-primary-color, inherit);
-}
-
-.milkdown-editor em {
-  font-style: italic;
-}
-
-/* ========== 标题装饰样式 ========== */
-
-.milkdown-editor h1 {
-  padding-bottom: 0.3em;
-  color: var(--md-primary-color, #333);
-  text-align: center;
-}
-
-.milkdown-editor h2 {
-  padding: 0.3em 0;
-  color: var(--md-primary-color, #333);
-}
-
-.milkdown-editor h3 {
-  padding: 0.4em 0.5em;
-  border-left: 4px solid var(--md-primary-color, #333);
-  border-right: 1px solid color-mix(in srgb, var(--md-primary-color, #333) 10%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--md-primary-color, #333) 10%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--md-primary-color, #333) 10%, transparent);
-  background: color-mix(in srgb, var(--md-primary-color, #333) 6%, transparent);
-}
-
-.milkdown-editor h4,
-.milkdown-editor h5,
-.milkdown-editor h6 {
-  color: var(--md-primary-color, #333);
-}
-
-/* ========== 暗色模式适配 ========== */
-
-.dark .milkdown-editor,
-.milkdown-editor.dark {
+/* ========== 暗色模式 ==========
+   两种触发源:外层 <html.dark>(全局 dark) / 编辑器自带 .dark(props.darkMode)。
+   用 :is() 把两个父选择器折叠成一个 prefix,避免每条规则都写两遍选择器。 */
+:is(.dark .milkdown-editor, .milkdown-editor.dark) {
   color: #d4d4d4;
   background: #1e1e1e;
 }
 
-.dark .milkdown-editor .ProseMirror ::selection,
-.milkdown-editor.dark .ProseMirror ::selection {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) .ProseMirror ::selection {
   background: #264f78;
 }
 
-.dark .milkdown-editor blockquote,
-.milkdown-editor.dark blockquote {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) blockquote {
   color: #999;
 }
 
-.dark .milkdown-editor code,
-.milkdown-editor.dark code {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) code {
   background: rgba(255, 255, 255, 0.1);
   color: #f77878;
 }
 
-.dark .milkdown-editor pre,
-.milkdown-editor.dark pre {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) pre {
   background: #2d2d2d;
 }
 
-.dark .milkdown-editor th,
-.milkdown-editor.dark th {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) th {
   background: #2d2d2d;
 }
 
-.dark .milkdown-editor th,
-.dark .milkdown-editor td,
-.milkdown-editor.dark th,
-.milkdown-editor.dark td {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) :is(th, td) {
   border-color: #555;
 }
 
-.dark .milkdown-editor hr,
-.milkdown-editor.dark hr {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) hr {
   border-top-color: #444;
 }
 
-/* 暗色模式下 h4-h6 稍微提亮,确保可读性 */
-.dark .milkdown-editor h4,
-.dark .milkdown-editor h5,
-.dark .milkdown-editor h6,
-.milkdown-editor.dark h4,
-.milkdown-editor.dark h5,
-.milkdown-editor.dark h6 {
+/* h4-h6 稍微提亮,确保可读性 */
+:is(.dark .milkdown-editor, .milkdown-editor.dark) :is(h4, h5, h6) {
   filter: brightness(1.3);
 }
 
-/* 暗色模式下的任务列表 checkbox */
-.dark .milkdown-editor li[data-item-type="task"] > .task-checkbox,
-.milkdown-editor.dark li[data-item-type="task"] > .task-checkbox {
+/* 任务列表 checkbox / 完成态文本 */
+:is(.dark .milkdown-editor, .milkdown-editor.dark) li[data-item-type="task"] > .task-checkbox {
   background: #2d2d2d;
   border-color: #555;
 }
 
-.dark .milkdown-editor li[data-item-type="task"][data-checked="true"] > .task-content,
-.milkdown-editor.dark li[data-item-type="task"][data-checked="true"] > .task-content {
+:is(.dark .milkdown-editor, .milkdown-editor.dark) li[data-item-type="task"][data-checked="true"] > .task-content {
   color: #6a6a6a;
 }
 
-/* ========== Mac 代码块:红黄绿圆点装饰 ========== */
-.mac-code-block.milkdown-editor pre {
-  position: relative;
-  padding-top: 2.4em;
+/* image-inline 暗色态。注意:原代码这里只用 .dark 祖先(没配对 .milkdown-editor.dark),
+   保持原行为不动。 */
+.dark .milkdown-image-inline:hover > img.image-inline {
+  outline-color: rgba(255, 255, 255, 0.25);
 }
 
-.mac-code-block.milkdown-editor pre::before {
-  content: '';
-  position: absolute;
-  top: 0.9em;
-  left: 1em;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ed6c60;
-  box-shadow:
-    20px 0 0 #f7c151,
-    40px 0 0 #64c856;
+.dark .milkdown-image-inline .image-edit {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa;
 }
 
+.dark .milkdown-image-inline .link-input-area {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .milkdown-image-inline .placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
 </style>

@@ -30,15 +30,15 @@ import { markRule } from '@milkdown/prose'
 import type { EditorView } from '@milkdown/prose/view'
 import { $inputRule, $prose } from '@milkdown/utils'
 import { Milkdown, useEditor } from '@milkdown/vue'
-import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './MathNodeViews'
-import { mermaidSyntax } from './MermaidSyntax'
-import { mermaidEditPlugin } from './MermaidNodeView'
-import { taskListPlugin } from './TaskListNodeView'
-import { footnoteEditPlugin, footnoteReferenceInputRule } from './FootnoteNodeViews'
-import { preserveEmptyLinePlugin } from './preserveEmptyLine'
-import { findHighlight } from './findHighlight'
-import { imageKeymapPlugin } from './imageKeymap'
-import { imageUploadPlugin } from './imageUploadPlugin'
+import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
+import { mermaidSyntax } from './nodes/MermaidSyntax'
+import { mermaidDecoration } from './nodes/MermaidDecoration'
+import { taskListPlugin } from './nodes/TaskListNodeView'
+import { footnoteEditPlugin, footnoteReferenceInputRule } from './nodes/FootnoteNodeViews'
+import { preserveEmptyLinePlugin } from './plugins/preserveEmptyLine'
+import { findHighlight } from './findreplace/findHighlight'
+import { imageKeymapPlugin } from './image/imageKeymap'
+import { imageUploadPlugin } from './image/imageUploadPlugin'
 import { saveImageAsset } from '@/services/imageStorage'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
@@ -288,7 +288,7 @@ const { get, loading } = useEditor((container) => {
     .use(math)
     .use(mathEditPlugin)
     .use(mermaidSyntax)
-    .use(mermaidEditPlugin)
+    .use(mermaidDecoration)
     .use(taskListPlugin)
     .use(footnoteEditPlugin)
     .use(footnoteReferenceInputRule)
@@ -310,7 +310,9 @@ onMounted(() => {
     const editor = get()
     if (!editor) return
     // 初次 hljs 注入(覆盖整个编辑器里的 <pre>)
-    nextTick(() => stampHljsInto(editor))
+    nextTick(() => {
+      stampHljsInto(editor)
+    })
     // 切文件场景:把光标 focus 进去
     if (props.focusOnCreate) {
       nextTick(() => {

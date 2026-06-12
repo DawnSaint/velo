@@ -34,11 +34,22 @@ velo/
 │       └── MilkdownEditor/
 │           ├── index.vue          壳 (CSS 变量 / hljs 加载 / innerKey 控制重挂)
 │           ├── EditorInner.vue    useEditor() + <Milkdown />,生命周期交给 @milkdown/vue
-│           ├── MathNodeViews.ts   公式 NodeView
-│           ├── MermaidSyntax.ts   mermaid remark 插件 + schema
-│           ├── MermaidNodeView.ts mermaid NodeView (异步渲染 + 主题事件)
-│           ├── TaskListNodeView.ts 任务列表 checkbox NodeView
-│           └── FootnoteNodeViews.ts 脚注 NodeView + 位置收集 Plugin + 输入规则
+│           ├── nodes/             自定义 ProseMirror 节点
+│           │   ├── MathNodeViews.ts        公式 NodeView (block view 走 TextareaEditor)
+│           │   ├── MermaidSyntax.ts        mermaid remark 插件 + schema (toDOM 输出 height:0 占位)
+│           │   ├── MermaidDecoration.ts    mermaid widget plugin (SVG 显示 + 编辑态 textarea,详见"设计要点")
+│           │   ├── TaskListNodeView.ts     任务列表 checkbox NodeView
+│           │   ├── FootnoteNodeViews.ts    脚注 NodeView + 位置收集 Plugin + 输入规则
+│           │   └── TextareaEditor.ts       多行 textarea 编辑壳 (math block / mermaid 共用)
+│           ├── findreplace/       查找替换
+│           │   ├── FindReplace.vue         浮层 UI
+│           │   ├── findHighlight.ts        匹配高亮 ProseMirror plugin
+│           │   └── findMatches.ts          匹配/替换纯函数
+│           ├── image/             图片上传与键盘
+│           │   ├── imageUploadPlugin.ts    paste/drop 拦截 + 持盘
+│           │   └── imageKeymap.ts          删除原子保护
+│           └── plugins/           通用独立插件
+│               └── preserveEmptyLine.ts    空行保留
 └── src-tauri/
     ├── capabilities/default.json  fs:allow-** (通用文本编辑器,见维护者注意点 4)
     └── src/{main,lib}.rs          set_window_theme / get_cli_args / PendingCliArgs / single-instance
@@ -57,8 +68,8 @@ velo/
 | `safeCommonmark` + `fixedEmphasisUnderscoreInputRule` | 修复上游 markRule bug(详见"已修复的 upstream 问题") |
 | `safeGfm` + `fixedStrikethroughInputRule` | 同上 |
 | `history` | 撤销 / 重做 |
-| `math` + `mathEditPlugin` | LaTeX 行内 / 块级 + KaTeX 实时预览 |
-| `mermaidSyntax` + `mermaidEditPlugin` | ```` ```mermaid ```` 转自定义节点 + 异步渲染 |
+| `math` + `mathEditPlugin` | LaTeX 行内 / 块级 + KaTeX 实时预览(block view 用 `TextareaEditor`) |
+| `mermaidSyntax` + `mermaidDecoration` | ```` ```mermaid ```` 转自定义节点(schema toDOM 输出 height:0 占位);widget 渲染 SVG + 编辑态 textarea |
 | `taskListPlugin` | `- [ ]` / `- [x]` 可点 checkbox |
 | `footnoteEditPlugin` | 脚注 NodeView + 位置收集 Plugin + `[^id]` 输入规则 |
 | `listener` | `markdownUpdated` → 回写 store / hljs class 注入 |
@@ -100,6 +111,8 @@ velo/
 - **echo 哨兵** (`echosToAccept`) —— Milkdown 首次 mount 回吐一次"规范化后"的 markdown,store 用这个计数把那次回吐采纳为新基线,dirty 保持 false。`init` / `loadContent` 都要正确设 `echosToAccept = 1`,否则首屏立刻变脏
 - **Plan B 模块身份** —— `safeCommonmark = commonmark.filter(p => p !== emphasisUnderscoreInputRule)` 依赖两端 import 指向同一模块实例,upstream 重构破坏等式的话过滤会**静默失效**
 - **NodeView 隔离** —— `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
+- **mermaid 走 widget 不走 NodeView** —— atom NodeView 的 outer dom 改 `innerHTML` 会被 ProseMirror 的 `DOMObserver` 当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount,所有 NodeView destroy + recreate,用户每敲一字符 mermaid 全闪 loader。改用 `Decoration.widget`:`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变,widget 内部 `dom.innerHTML = svg` 不报警。widget 内部根据 plugin state.editNodePos 切换"显示 SVG"/"显示 textarea"两种渲染,key 设为 `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}` 在状态切换时由 ProseMirror 卸载/挂载。完全没有 NodeView,schema toDOM 输出 `height:0` 隐藏占位(atom 节点必须有 dom 用于 posAtCoords / selection 映射,藏掉视觉即可)。**坑**:plugin promise resolve 后**不要** dispatch setMeta 触发 buildDecorations,否则新 Decoration 实例的 `WidgetType.eq` 在比 toDOM/spec 时会失败 → widget 复用失效 → 死循环;直接在 widget 自己的 dom 上写 svg 即可。
+- **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
 - **样式分层** —— MilkdownEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
 - **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
 

@@ -6,8 +6,6 @@
 
 ### v0.3.x — 持久化与基础补齐
 
-> v0.3.x 将 Velo 从"能用"提升为"写起来顺手"：0.3.0 收尾日常使用的遗留问题与高频缺失能力(持久化、崩溃恢复、脚注等)；0.3.1-0.3.5 沿定位(查找替换 / 图片本地化)、并行(多 Tab)、聚焦(专注 / 打字机)三轴线扩展核心编辑交互，补齐文件入口与最近文件；0.3.6 收尾 Milkdown 回归测试。具体能力在对应小版本中分批交付。
-
 
 
 #### v0.3.0 — 持久化与基础补齐
@@ -69,11 +67,71 @@
 
 **fix**
 
-- [x] Tauri 2.5 `tauri-plugin-fs` 默认不开 `watch` feature → `plugin:fs|watch` 命令未注册,JS 端 `invoke` 抛 "Command watch not found"。`Cargo.toml` 显式开 `features = ["watch"]`,文件监听正常工作
+- [x] Tauri 2.5 `tauri-plugin-fs` 默认不开 `watch` feature → `plugin:fs|watch` 命令未注册，JS 端 `invoke` 抛 "Command watch not found"。`Cargo.toml` 显式开 `features = ["watch"]`，文件监听正常工作
 
 
 
-#### v0.3.3 — 链接和警告框
+#### v0.3.3 — BUG 修复和部分重构
+
+
+**fix**
+
+- [x] 修复 mermaid 在用户每次输入字符时整块销毁重建闪烁的问题
+
+**refactor**
+
+- [x] `MilkdownEditor/` 按功能分子目录:`nodes/` (节点 NodeView/Schema)、`findreplace/`、`image/`、`plugins/`，根目录只留 `index.vue` + `EditorInner.vue`
+- [x] math block view 抽 textarea 编辑器(`createTextareaEditor`)，取代 `plugin-common.ts` 小工具集；
+- [x] mermaid 改用 `Decoration.widget`(widget 由 ProseMirror View 自己管理，内部 mutation 不再触发 DOMObserver)，NodeView 整层移除
+
+**style**
+
+- [x] 顺手调整了正文标题(h1-h6)的字号/装饰(h1 居中放大、h2 加底边、h3 移除原 4 边框 tint 框等)；不是本次 refactor 主线目标，但跟着 CSS 重组一起改了
+
+
+
+### v0.4.x
+
+
+#### v0.4.0 — milkdown 重构
+
+
+**详细评估**:见 [`docs/MIGRATION_PROSEMIRROR.md`](./MIGRATION_PROSEMIRROR.md)。
+
+**refactor**
+
+- [ ] Phase 1 — 基础设施(藏在 feature flag 后，旧路径保留)
+  - [ ] 依赖:加 `prosemirror-*` / `remark-*` / `mdast-util-*`，移除 `@milkdown/*`
+  - [ ] `composables/useProseMirror.ts` 替代 `useEditor()` + `<Milkdown />`
+  - [ ] `editor/schema.ts` 基础 schema(等价 preset-commonmark + gfm)
+  - [ ] `editor/markdownIO.ts` markdown ↔ ProseMirror doc 双向(接管 `markdownUpdated` 监听)
+  - [ ] `editor/imageNodeView.ts` 替代 `imageInlineComponent` 空态 + 有图态
+  - [ ] `nodes/MathSyntax.ts` 接管 `@milkdown/plugin-math` 的 `$...$` / `$$...$$` 解析
+  - [ ] `nodes/MermaidSyntax.ts` `$nodeSchema` 宏 → 裸 `Schema.spec`
+- [ ] Phase 2 — 接入
+  - [ ] `EditorInner.vue` 重写，改用新 composable
+  - [ ] `index.vue` 删 `MilkdownProvider`
+  - [ ] 跑通自动化测试 + round-trip 测试，全绿才进 Phase 3
+- [ ] Phase 3 — 清理
+  - [ ] 删 `safeCommonmark` / `safeGfm` / `fixedEmphasisUnderscoreInputRule` / `fixedStrikethroughInputRule` 及 `$prose` / `$inputRule` 包装
+  - [ ] 跑 MIGRATION_PROSEMIRROR.md §6.3 手动回归清单(12 项)
+
+**fix**
+
+- [ ] 移除 upstream `markRule` 正则 bug 补丁(见 `ARCHITECTURE.md` "已修复的 upstream 问题" 段)，裸 ProseMirror 不需要这层防御
+
+**test**
+
+- [ ] 现有 `__tests__/` 改 import:`@milkdown/prose/*` → `prosemirror-*`
+- [ ] 新增 round-trip 测试:10 个 sample(标题/强调/链接/代码块/列表+任务/表格/mermaid/math/脚注)循环 `fromMarkdown → toMarkdown → normalize`
+- [ ] 现有测试全绿(FootnoteNodeViews / findMatches / preserveEmptyLine)
+
+**docs**
+
+- [ ] `docs/ARCHITECTURE.md` 删除 "Plan B 模块身份" 段、"已修复的 upstream 问题" 段，Milkdown 插件链表格重写为裸 ProseMirror 插件链
+
+
+#### v0.4.1 — 增加语法渲染
 
 **feat**
 
@@ -83,7 +141,7 @@
 
 
 
-#### v0.3.4 — 沉浸式写作
+#### v0.4.2 — 沉浸式写作
 
 **feat**
 
@@ -93,16 +151,7 @@
 - [ ] 保持窗口最前
 
 
-
-#### v0.3.5 — 源代码模式
-
-**feat**
-
-- [ ] 源代码模式
-
-
-
-#### v0.3.6 — 代码块升级
+#### v0.4.3 — 代码块升级
 
 **feat**
 
@@ -110,7 +159,7 @@
 
 
 
-#### v0.3.7 — 目录
+#### v0.4.4 — 目录
 
 **feat**
 
@@ -118,19 +167,23 @@
 
 
 
-#### v0.3.8 — Milkdown 插件回归测试
+#### v0.4.5 — 插件回归测试
+
+
+**feat**
+
+- [ ] 源代码模式
 
 **test**
 
-- [ ] 阶段 3 — Milkdown 插件(已修 upstream bug 的回归保护)
+- [ ] 阶段 3 测试组件引入
 
 
 
 
 
-### v0.4.x — 工作区与文件管理
+### v0.5.x — 工作区与文件管理
 
-> v0.4.x 将 Velo 从"打开单个文件"提升为"管理一组相关文档"：0.4.0 锚定工作区 / 资产 / 视图三层目标；0.4.1 实现侧边栏文件树与工作区切换；0.4.2 集中图片资源并支持高级操作；0.4.3 打磨大纲搜索与状态栏；0.4.4 收尾组件层与端到端测试。具体能力在对应小版本中分批交付。
 
 **目标**
 
@@ -140,19 +193,18 @@
 
 
 
-#### v0.4.1 — 工作区与侧边栏文件树
+#### v0.5.0 — 工作区与侧边栏文件树
 
 **feat**
 
 - [ ] 侧边栏文件树：目录懒加载、点开、右键菜单(新建 / 重命名 / 删除 / 在资源管理器中显示)
 - [ ] 工作区概念：以根目录为粒度，记录展开状态
 - [ ] 侧边栏统一收纳大纲与文件树，二者可切换
-
 - [ ] 打开最近文件功能
 
 
 
-#### v0.4.2 — 资产面板与拖入文件
+#### v0.5.1 — 资产面板与拖入文件
 
 **feat**
 - [ ] 资产面板：展示当前文档引用过的所有图片(本地 + 外链)，支持点击定位
@@ -160,7 +212,7 @@
 
 
 
-#### v0.4.3 — 大纲搜索与状态栏集成
+#### v0.5.2 — 大纲搜索与状态栏集成
 
 **feat**
 - [ ] 大纲搜索过滤
@@ -168,8 +220,8 @@
 
 
 
-#### v0.4.4 — 组件层与端到端测试
+#### v0.5.3 — 组件层与端到端测试
 
 **test**
-- [ ] 阶段 4 — 组件层(随 v0.3.x / v0.4.x 持续补)
+- [ ] 阶段 4 — 组件层(随 v0.3.x / v0.5.x 持续补)
 - [ ] 阶段 5 — 端到端(跨组件状态流出现时启动)

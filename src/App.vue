@@ -8,7 +8,7 @@ import MilkdownEditor from '@/components/MilkdownEditor/index.vue'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
-import sampleMd from '@/assets/sample.md?raw'
+import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -19,6 +19,10 @@ const store = useEditorStore()
 const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
 
+const sampleMd = sampleMdRaw.replace(
+  '/src/assets/Velo.png',
+  new URL(veloLogo, window.location.href).href,
+)
 // 同步把初始 sample 装入 store —— 必须早于 MilkdownEditor 子组件 mount，
 // 这样子组件第一次拿到的 props.modelValue 就是 sampleMd 而非空串
 documentStore.init(sampleMd)
