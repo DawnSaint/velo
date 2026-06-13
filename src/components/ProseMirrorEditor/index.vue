@@ -1,7 +1,6 @@
 <script setup lang="ts">
 
 import { computed, nextTick, ref, watch } from 'vue'
-import { MilkdownProvider } from '@milkdown/vue'
 import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
 
@@ -119,25 +118,23 @@ defineExpose({ getEditorView })
         }"
         class="milkdown-editor h-full w-full max-w-[64vw]"
       >
-        <MilkdownProvider>
-          <!--
-            innerKey 由 EditorInner 探测到外部 modelValue 变化时 bump,
-            触发 EditorInner 整体重挂,等价于原来 createEditor() 的重建语义。
-            ref 用于外层点击拉焦点。
-            focus-on-create:innerKey > 0 → 当前这次挂载是一次 rebuild
-            (切文件 / CLI 打开 / 外部同步),让 EditorInner 把光标落进编辑区;
-            首次挂载(innerKey === 0)不抢焦点,避免把 DraftRecoveryDialog 等
-            启动期弹窗的焦点踢走。
-          -->
-          <EditorInner
-            ref="innerRef"
-            :key="innerKey"
-            :model-value="modelValue"
-            :focus-on-create="innerKey > 0"
-            @update:model-value="emit('update:modelValue', $event)"
-            @rebuild-request="onRebuildRequest"
-          />
-        </MilkdownProvider>
+        <!--
+          innerKey 由 EditorInner 探测到外部 modelValue 变化时 bump,
+          触发 EditorInner 整体重挂,等价于原来 createEditor() 的重建语义。
+          ref 用于外层点击拉焦点。
+          focus-on-create:innerKey > 0 → 当前这次挂载是一次 rebuild
+          (切文件 / CLI 打开 / 外部同步),让 EditorInner 把光标落进编辑区;
+          首次挂载(innerKey === 0)不抢焦点,避免把 DraftRecoveryDialog 等
+          启动期弹窗的焦点踢走。
+        -->
+        <EditorInner
+          ref="innerRef"
+          :key="innerKey"
+          :model-value="modelValue"
+          :focus-on-create="innerKey > 0"
+          @update:model-value="emit('update:modelValue', $event)"
+          @rebuild-request="onRebuildRequest"
+        />
       </div>
     </div>
     <FindReplace

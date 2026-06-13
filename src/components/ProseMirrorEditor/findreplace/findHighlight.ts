@@ -12,10 +12,9 @@
 //     (用户在编辑器里输入导致 doc 变化时,旧位置仍能正确跟住)
 //   - 插件 props.decorations 用 state 构造 DecorationSet,ProseMirror 自动渲染
 
-import { Plugin, PluginKey } from '@milkdown/prose/state'
-import { Decoration, DecorationSet } from '@milkdown/prose/view'
-import type { EditorState } from '@milkdown/prose/state'
-import { $prose } from '@milkdown/utils'
+import { Plugin, PluginKey } from 'prosemirror-state'
+import { Decoration, DecorationSet } from 'prosemirror-view'
+import type { EditorState } from 'prosemirror-state'
 
 export interface FindHighlight {
   matches: Array<{ from: number, to: number }>
@@ -70,5 +69,5 @@ const findHighlightPlugin = new Plugin<FindHighlight>({
   },
 })
 
-/** Milkdown 包装:EditorInner 直接 .use(findHighlightPlugin) 即可 */
-export const findHighlight = $prose(() => findHighlightPlugin)
+/** raw ProseMirror Plugin —— EditorInner 直接装入 plugins 数组 */
+export const findHighlight = findHighlightPlugin

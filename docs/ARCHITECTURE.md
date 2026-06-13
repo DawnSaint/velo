@@ -9,7 +9,7 @@
 | 语言 | TypeScript (strict) |
 | 构建 | Vite |
 | 桌面壳 | Tauri 2.0 |
-| 编辑器 | Milkdown (ProseMirror) |
+| 编辑器 | ProseMirror |
 | 数学公式 | KaTeX |
 | 图表 | Mermaid |
 | CSS | Tailwind 3 + Sass |
@@ -31,9 +31,9 @@ velo/
 │       ├── EditorOutline.vue
 │       ├── EditorSettings.vue
 │       ├── DraftRecoveryDialog.vue
-│       └── MilkdownEditor/
+│       └── ProseMirrorEditor/
 │           ├── index.vue          壳 (CSS 变量 / hljs 加载 / innerKey 控制重挂)
-│           ├── EditorInner.vue    useEditor() + <Milkdown />,生命周期交给 @milkdown/vue
+│           ├── EditorInner.vue    useProseMirror() + 裸 ProseMirror EditorView
 │           ├── nodes/             自定义 ProseMirror 节点
 │           │   ├── MathNodeViews.ts        公式 NodeView (block view 走 TextareaEditor)
 │           │   ├── MermaidSyntax.ts        mermaid remark 插件 + schema (toDOM 输出 height:0 占位)
@@ -57,30 +57,40 @@ velo/
 
 ---
 
-## Milkdown 插件链
+## ProseMirror 插件链
 
-按 `EditorInner.vue` 里 `.use()` 顺序:
+按 `ProseMirrorEditor/EditorInner.vue` 里 `allPlugins` 数组顺序:
 
 | 插件 | 用途 |
 |------|------|
-| `headingBackspaceToParagraph` | 标题前 Backspace / Delete → 直接转正文(不降级 h2→h1) |
-| `tabIndent` | 列表项走 sink/lift;代码类节点 / 段落 / 标题插 4 空格 |
-| `safeCommonmark` + `fixedEmphasisUnderscoreInputRule` | 修复上游 markRule bug(详见"已修复的 upstream 问题") |
-| `safeGfm` + `fixedStrikethroughInputRule` | 同上 |
-| `history` | 撤销 / 重做 |
-| `math` + `mathEditPlugin` | LaTeX 行内 / 块级 + KaTeX 实时预览(block view 用 `TextareaEditor`) |
-| `mermaidSyntax` + `mermaidDecoration` | ```` ```mermaid ```` 转自定义节点(schema toDOM 输出 height:0 占位);widget 渲染 SVG + 编辑态 textarea |
-| `taskListPlugin` | `- [ ]` / `- [x]` 可点 checkbox |
-| `footnoteEditPlugin` | 脚注 NodeView + 位置收集 Plugin + `[^id]` 输入规则 |
-| `listener` | `markdownUpdated` → 回写 store / hljs class 注入 |
+| `keymap(Backspace/Delete → headingToParagraph)` | 标题前退格 / 删除 → 转段落(不降级 h2→h1) |
+| `keymap(Mod-z/y/Shift-z)` | 撤销 / 重做 |
+| `keymap(Enter → chainCommands(dollarEnterCmd, splitBlock))` | `$$` + Enter → 块级公式进入编辑态;其他 Enter → 换段 |
+| `keymap(baseKeymap)` | 接管未自定义的所有基础键 |
+| `dropCursor` | 拖动时显示蓝色光标线指示落点 |
+| `gapCursor` | 允许光标落在非文本节点之间 |
+| `history` | 撤销 / 重做栈 |
+| `tabIndent` | 列表项 sink/lift;代码类 / 段落 / 标题按 Tab 插 4 空格;非列表 Shift-Tab 消费(焦点保留) |
+| `dollarEnterToMathBlock` | `$$` + Enter keymap 入口 |
+| `imageKeymapPlugin` | atom 节点(image / mermaid / math_block)删除保护:Backspace/Delete 紧贴 → 选中而非删除 |
+| `imageUploadPlugin` | paste/drop 拦截 → 落盘 → 插入 image 节点 |
+| `imageInlineViewPlugin` | image NodeView(Tauri asset:// 协议代理) |
+| `mathEditPlugin` | math_inline / math_block NodeView(KaTeX 实时预览) |
+| `mermaidDecoration` | mermaid block 用 Decoration.widget 渲染 SVG / 编辑态切换 |
+| `taskListPlugin` | `- [ ]` / `- [x]` list_item NodeView(checkbox + 内容区分) |
+| `footnoteEditPlugin` | 脚注 NodeView + 位置收集 + `[^id]` 输入规则 |
+| `findHighlight` | 查找替换高亮 Decoration |
+| `inputRules` | fixedEmphasis_/Strike + inlineMath + footnote + ellipsis/emDash |
+
+**markdown 解析** 不在 ProseMirror 插件链里 —— 走 `editor/markdownIO.ts` 的 unified pipeline(`remark-parse` + `remark-gfm` + `remark-math` + `remarkPreserveEmptyLine`),`fromMarkdown(md, schema)` 装到 EditorState,`onChange(doc) → toMarkdown(doc)` 回写。**键入触发**走 inputRules,不走 unified。
 
 ---
 
 ## 数据流
 
-**`documentStore.content` 是编辑器文本的唯一来源** —— `<MilkdownEditor :model-value v-model>` 双向同步,`EditorOutline` 只读。`dirty = content !== lastSavedContent`。
+**`documentStore.content` 是编辑器文本的唯一来源** —— `<ProseMirrorEditor :model-value v-model>` 双向同步,`EditorOutline` 只读。`dirty = content !== lastSavedContent`。
 
-**生命周期** 由 `@milkdown/vue` 接管:`EditorInner.vue` 用 `useEditor()` + `<Milkdown />` 自管 create/destroy。外部 modelValue 变化时(切文件 / 新建 / 外部同步),`lastSelfEmitted` 值对比探测,emit `rebuildRequest` 给外层 bump `innerKey` 触发整编辑器重建(优于 `isInternalChange` + `nextTick` 时序标志)。
+**生命周期** 由 `useProseMirror` 接管:`EditorInner.vue` 在 onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时(切文件 / 新建 / 外部同步),`lastSelfEmitted` 值对比探测,emit `rebuildRequest` 给外层 bump `innerKey` 触发整编辑器重建(优于 `isInternalChange` + `nextTick` 时序标志)。
 
 **文件操作**(都走 `documentStore`):
 - **打开** → `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent`(设 `echosToAccept=1` 等编辑器首屏 echo)
@@ -108,25 +118,25 @@ velo/
 - **自家写盘不打扰** —— `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 因此被 `disk === lastSavedContent` 短路
 - **写盘抛错回滚** —— `lastSavedContent` 先推到 snapshot,失败回滚到 `previousBaseline`,dirty 不错位
 - **focus 兜底** —— `notify-rs` 在网络盘 / 原子 rename / Dropbox 等同步工具下会漏报,`window focus` 主动核一次
-- **echo 哨兵** (`echosToAccept`) —— Milkdown 首次 mount 回吐一次"规范化后"的 markdown,store 用这个计数把那次回吐采纳为新基线,dirty 保持 false。`init` / `loadContent` 都要正确设 `echosToAccept = 1`,否则首屏立刻变脏
-- **Plan B 模块身份** —— `safeCommonmark = commonmark.filter(p => p !== emphasisUnderscoreInputRule)` 依赖两端 import 指向同一模块实例,upstream 重构破坏等式的话过滤会**静默失效**
+- **echo 哨兵** (`lastSelfEmitted`) —— `EditorInner` 自己 dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch modelValue 看到值匹配就跳过(自己 emit 的 echo);不匹配就 emit `rebuildRequest` 重建。比 `isInternalChange + nextTick` 时序标志更稳。
 - **NodeView 隔离** —— `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
 - **mermaid 走 widget 不走 NodeView** —— atom NodeView 的 outer dom 改 `innerHTML` 会被 ProseMirror 的 `DOMObserver` 当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount,所有 NodeView destroy + recreate,用户每敲一字符 mermaid 全闪 loader。改用 `Decoration.widget`:`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变,widget 内部 `dom.innerHTML = svg` 不报警。widget 内部根据 plugin state.editNodePos 切换"显示 SVG"/"显示 textarea"两种渲染,key 设为 `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}` 在状态切换时由 ProseMirror 卸载/挂载。完全没有 NodeView,schema toDOM 输出 `height:0` 隐藏占位(atom 节点必须有 dom 用于 posAtCoords / selection 映射,藏掉视觉即可)。**坑**:plugin promise resolve 后**不要** dispatch setMeta 触发 buildDecorations,否则新 Decoration 实例的 `WidgetType.eq` 在比 toDOM/spec 时会失败 → widget 复用失效 → 死循环;直接在 widget 自己的 dom 上写 svg 即可。
 - **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
-- **样式分层** —— MilkdownEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
+- **样式分层** —— ProseMirrorEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
 - **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
 
 ---
 
-## 已修复的 upstream 问题
+## v0.4.0 重构记录
 
-### Milkdown `markRule` 越界改写 inline code
+v0.4.0 把编辑器从 `@milkdown/*` 切到裸 ProseMirror + remark / unified。详细评估见 [`MIGRATION_PROSEMIRROR.md`](./MIGRATION_PROSEMIRROR.md),关键变化:
 
-`@milkdown/preset-commonmark` / `-gfm` 的 `emphasisUnderscoreInputRule` / `strikethroughInputRule` 正则末尾**没有 `$` 锚点**,会扫到段落里任意位置的 `_x_` / `~~x~~`,包括 inline code 内部(因为 `textBetween` 不带 mark 信息,code 里的字面字符同样被 regex 看到)。`prosemirror-inputrules` 按"匹配紧贴光标"算 `start`,一旦命中 inline code,`tr.delete` / `tr.addMark` 跑到错误位置 —— inline code 里的字被吞,光标附近的字符被错误加 emphasis,当次键入也丢。
-
-**修法**:`commonmark` / `gfm` bundle 里 `.filter()` 掉这两条 rule,再注册一对带 `$` 锚点的修复版(`fixedEmphasisUnderscoreInputRule` / `fixedStrikethroughInputRule`)顶上。其他 markRule(emphasisStar / strong / inlineCodeInputRule)末尾本来就有 `$`,不替换。
-
-**验证**:升级 Milkdown 后打开示例文档,在 `` `_斜体_` `` inline code 后面任意位置敲空格,inline code 内容不应被破坏。等 upstream 修了之后可移除 `safeXxx` 过滤和 `fixedXxx` 替换。
+- **不再需要** `safeCommonmark` / `safeGfm` / `fixedXxxInputRule`(修上游 markRule bug 的补丁)—— 上游 Milkdown 封装不存在了,bug 失去存在意义
+- **基础键** 现在显式装 `keymap(baseKeymap)`,ProseMirror 不会自动装
+- **markdown 解析** 走自写 `markdownIO.ts`(unified pipeline + mdast↔PM 转换),不再依赖 `prosemirror-markdown` 的 `defaultMarkdownParser` / `defaultMarkdownSerializer`
+- **新组件目录** `ProseMirrorEditor/`,旧 `MilkdownEditor/` 已删
+- **新依赖**:`prosemirror-*` / `remark-*` / `mdast-util-*` / `unified`(全部已是 @milkdown 时代的传递依赖,显式化即可)
+- **删除依赖**:`@milkdown/kit` / `@milkdown/plugin-clipboard` / `@milkdown/plugin-math` / `@milkdown/vue`(净减 96 个传递包)
 
 ---
 

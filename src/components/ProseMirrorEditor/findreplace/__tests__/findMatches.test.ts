@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Schema, type Node as PMNode } from '@milkdown/prose/model'
+import { Schema, type Node as PMNode } from 'prosemirror-model'
 import { buildPattern, escapeRegex, findMatchesInDoc, replaceInText } from '../findMatches'
 
 // 最小 schema:doc / paragraph / heading / text,够测位置计算即可

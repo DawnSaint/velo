@@ -17,12 +17,11 @@
 //
 // 范式对标:findreplace/findHighlight.ts(Decoration + DecorationSet + tr.setMeta)。
 
-import { $prose } from '@milkdown/kit/utils'
-import { Plugin, PluginKey } from '@milkdown/prose/state'
-import { Decoration, DecorationSet } from '@milkdown/prose/view'
-import type { EditorState } from '@milkdown/prose/state'
-import type { Node as PMNode } from '@milkdown/prose/model'
-import type { EditorView } from '@milkdown/prose/view'
+import { Plugin, PluginKey } from 'prosemirror-state'
+import { Decoration, DecorationSet } from 'prosemirror-view'
+import type { EditorState } from 'prosemirror-state'
+import type { Node as PMNode } from 'prosemirror-model'
+import type { EditorView } from 'prosemirror-view'
 import mermaid from 'mermaid'
 
 // ========== ID 生成 ==========
@@ -455,4 +454,4 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
   },
 })
 
-export const mermaidDecoration = $prose(() => mermaidDecoPlugin)
+export const mermaidDecoration = mermaidDecoPlugin

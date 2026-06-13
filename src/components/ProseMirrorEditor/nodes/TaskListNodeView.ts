@@ -1,5 +1,4 @@
-import { $prose } from '@milkdown/kit/utils'
-import { Plugin, PluginKey } from '@milkdown/prose/state'
+import { Plugin, PluginKey } from 'prosemirror-state'
 
 /**
  * 任务列表 NodeView
@@ -83,7 +82,7 @@ function createListItemView(node: any, view: any, getPos: () => number) {
   }
 }
 
-export const taskListPlugin = $prose(() => new Plugin({
+export const taskListPlugin = new Plugin({
   key: new PluginKey('taskList'),
   props: {
     nodeViews: {
@@ -91,4 +90,4 @@ export const taskListPlugin = $prose(() => new Plugin({
         createListItemView(node, view, getPos as () => number),
     },
   },
-}))
+})

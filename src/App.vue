@@ -4,7 +4,7 @@ import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type PersistedSettings } from '@/stores/persistence'
-import MilkdownEditor from '@/components/MilkdownEditor/index.vue'
+import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
@@ -23,7 +23,7 @@ const sampleMd = sampleMdRaw.replace(
   '/src/assets/Velo.png',
   new URL(veloLogo, window.location.href).href,
 )
-// 同步把初始 sample 装入 store —— 必须早于 MilkdownEditor 子组件 mount，
+// 同步把初始 sample 装入 store —— 必须早于 ProseMirrorEditor 子组件 mount,
 // 这样子组件第一次拿到的 props.modelValue 就是 sampleMd 而非空串
 documentStore.init(sampleMd)
 
@@ -140,10 +140,10 @@ function onWindowFocus() {
 }
 
 // ========== 查找替换 (v0.3.1) ==========
-// 状态全在 App.vue 一份,v-model:find-open 透传到 MilkdownEditor 再到 FindReplace。
+// 状态全在 App.vue 一份,v-model:find-open 透传到 ProseMirrorEditor 再到 FindReplace。
 // 顶栏按钮的 active 样式、Ctrl+F 打开、X / Esc 关闭、按钮再点关闭 —— 全部
 // 直接改 findOpen 这一份,不存在 mirror。
-const milkdownRef = ref<InstanceType<typeof MilkdownEditor> | null>(null)
+const milkdownRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
 const findOpen = ref(false)
 // 一次性的初始参数:openFind / openReplace 时由 App.vue 写入,
 // FindReplace 内部 watch open → 读这两个初始化。后续用户改 query 不影响这里。
@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
       </aside>
 
       <!-- 编辑器区域 -->
-      <MilkdownEditor
+      <ProseMirrorEditor
         ref="milkdownRef"
         v-model:find-open="findOpen"
         :find-initial-query="findInitialQuery"

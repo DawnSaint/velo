@@ -1,10 +1,8 @@
-import { $prose, $inputRule } from '@milkdown/utils'
-import { Plugin, PluginKey, TextSelection } from '@milkdown/prose/state'
-import { InputRule } from '@milkdown/prose/inputrules'
-import type { EditorState } from '@milkdown/prose/state'
-import type { Node as PMNode } from '@milkdown/prose/model'
-import type { EditorView } from '@milkdown/prose/view'
-import { footnoteReferenceSchema } from '@milkdown/kit/preset/gfm'
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
+import { InputRule } from 'prosemirror-inputrules'
+import type { EditorState } from 'prosemirror-state'
+import type { Node as PMNode } from 'prosemirror-model'
+import type { EditorView } from 'prosemirror-view'
 
 // ============================================================
 //  1. 编号核心
@@ -286,8 +284,8 @@ function createFootnoteDefinitionView(node: PMNode, view: EditorView, getPos: ()
 //  5. Plugin 装配
 // ============================================================
 
-// 抽成模块级常量,这样 EditorInner.vue 通过 $prose 包装用,
-// 单元测试也能直接拿到 raw ProseMirror Plugin,真实地走 NodeView 路径。
+// 抽成模块级常量,raw ProseMirror Plugin 直接导出,
+// 单元测试也能拿到 plugin 实例真实地走 NodeView 路径。
 const footnoteNumberPlugin = new Plugin({
   key: footnoteNumberKey,
   state: {
@@ -307,7 +305,7 @@ const footnoteNumberPlugin = new Plugin({
   },
 })
 
-const footnoteEditPlugin = $prose(() => footnoteNumberPlugin)
+const footnoteEditPlugin = footnoteNumberPlugin
 
 // ============================================================
 //  6. 输入规则:输入 `[^id]` → 自动转 footnote_reference
@@ -322,16 +320,17 @@ const footnoteEditPlugin = $prose(() => footnoteNumberPlugin)
 //  - id 不允许含空白 / `]`
 //  - 不与已有 emphasis/strikethrough 冲突(它们的开头是 `*_~`)
 
-export const footnoteReferenceInputRule = $inputRule(ctx =>
-  new InputRule(/\[\^([^\s\]]+)\]$/, (state, match, start, end) => {
+export const footnoteReferenceInputRule = new InputRule(
+  /\[\^([^\s\]]+)\]$/,
+  (state, match, start, end) => {
     const $start = state.doc.resolve(start)
     if ($start.parentOffset === 0) return null
     const label = match[1]
     if (!label) return null
-    const type = footnoteReferenceSchema.type(ctx)
+    const type = state.schema.nodes.footnote_reference
     if (!type) return null
     return state.tr.replaceRangeWith(start, end, type.create({ label }))
-  }),
+  },
 )
 
 

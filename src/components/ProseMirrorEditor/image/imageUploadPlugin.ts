@@ -12,9 +12,8 @@
 //     clipboard handler 先抢走(但 clipboard 不处理 File,只处理 HTML/text,
 //     所以顺序实际不影响,挂在前面只为了逻辑清晰)
 
-import { $prose } from '@milkdown/utils'
-import { Plugin } from '@milkdown/prose/state'
-import type { EditorView } from '@milkdown/prose/view'
+import { Plugin } from 'prosemirror-state'
+import type { EditorView } from 'prosemirror-view'
 import { saveImageAsset } from '@/services/imageStorage'
 import { useDocumentStore } from '@/stores/document'
 
@@ -64,7 +63,7 @@ async function saveAndInsert(view: EditorView, file: File, dropPos: number | nul
   }
 }
 
-export const imageUploadPlugin = $prose(() => new Plugin({
+export const imageUploadPlugin = new Plugin({
   props: {
     // 用 handleDOMEvents 而不是 Plugin 的 handleDrop prop —— ProseMirror 的
     // handleDrop 只在 drop 命中 contentDOM 时触发,命中 editor 的 padding
@@ -99,4 +98,4 @@ export const imageUploadPlugin = $prose(() => new Plugin({
       return true
     },
   },
-}))
+})

@@ -11,8 +11,8 @@
 //   - 关闭时把焦点还给编辑器,回到编辑态。
 
 import { computed, nextTick, ref, watch } from 'vue'
-import type { EditorView } from '@milkdown/prose/view'
-import { TextSelection } from '@milkdown/prose/state'
+import type { EditorView } from 'prosemirror-view'
+import { TextSelection } from 'prosemirror-state'
 import { findMatchesInDoc, replaceInText, type FindOptions, type Match } from './findMatches'
 import { findHighlightKey } from './findHighlight'
 

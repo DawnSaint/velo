@@ -30,7 +30,7 @@
 // 为什么不抽成 Vue SFC:这些操作要直接接 ProseMirror view / DOM,
 // 引一层 Vue 反而多绕;函数式 helper 单元测也好写。
 
-import type { EditorView } from '@milkdown/prose/view'
+import type { EditorView } from 'prosemirror-view'
 
 export interface TextareaEditorOptions {
   /** ProseMirror view。helper 用它在编辑期加 view.dom 的 prosemirror-caret-hidden,退出时移除。 */

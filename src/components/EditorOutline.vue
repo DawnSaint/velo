@@ -230,7 +230,7 @@ function attachScrollListener() {
 }
 
 onMounted(() => {
-  // MilkdownEditor 异步挂载，先尝试一次，找不到就等下一帧
+  // ProseMirrorEditor 异步挂载,先尝试一次,找不到就等下一帧
   attachScrollListener()
   if (!scrollContainer) {
     nextTick(attachScrollListener)

@@ -1,5 +1,4 @@
-import { $prose } from '@milkdown/kit/utils'
-import { Plugin, PluginKey } from '@milkdown/prose/state'
+import { Plugin, PluginKey } from 'prosemirror-state'
 import katex from 'katex'
 import {
   createTextareaEditor,
@@ -239,7 +238,7 @@ export function triggerNextMathBlockAutoEdit(node: object) {
   autoEditMathBlocks.add(node)
 }
 
-export const mathEditPlugin = $prose(() => new Plugin({
+export const mathEditPlugin = new Plugin({
   key: new PluginKey('mathEdit'),
   props: {
     nodeViews: {
@@ -247,4 +246,4 @@ export const mathEditPlugin = $prose(() => new Plugin({
       math_block: (node, view, getPos) => createMathBlockView(node, view, getPos as () => number),
     },
   },
-}))
+})

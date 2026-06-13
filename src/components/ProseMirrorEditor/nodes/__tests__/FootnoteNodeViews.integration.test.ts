@@ -2,9 +2,9 @@
 // (footnoteNumberPlugin),走真实 NodeView 路径,验证两条跳转真的派发。
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { Schema, type Node as PMNode } from '@milkdown/prose/model'
-import { EditorState } from '@milkdown/prose/state'
-import { EditorView } from '@milkdown/prose/view'
+import { Schema, type Node as PMNode } from 'prosemirror-model'
+import { EditorState } from 'prosemirror-state'
+import { EditorView } from 'prosemirror-view'
 import { footnoteNumberPlugin } from '../FootnoteNodeViews'
 
 // 最小 schema —— 与现有 FootnoteNodeViews.test.ts 一致

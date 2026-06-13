@@ -6,7 +6,7 @@
 // 跨文本节点:每个 text node 各自 exec regex,匹配位置按 node pos 平移回 doc 坐标。
 // 零宽匹配(整个 regex 是 anchor)会推进 lastIndex,避免死循环。
 
-import type { Node } from '@milkdown/prose/model'
+import type { Node } from 'prosemirror-model'
 
 export interface FindOptions {
   caseSensitive: boolean

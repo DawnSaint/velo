@@ -100,35 +100,48 @@
 
 **refactor**
 
-- [ ] Phase 1 — 基础设施(藏在 feature flag 后，旧路径保留)
-  - [ ] 依赖:加 `prosemirror-*` / `remark-*` / `mdast-util-*`，移除 `@milkdown/*`
-  - [ ] `composables/useProseMirror.ts` 替代 `useEditor()` + `<Milkdown />`
-  - [ ] `editor/schema.ts` 基础 schema(等价 preset-commonmark + gfm)
-  - [ ] `editor/markdownIO.ts` markdown ↔ ProseMirror doc 双向(接管 `markdownUpdated` 监听)
-  - [ ] `editor/imageNodeView.ts` 替代 `imageInlineComponent` 空态 + 有图态
-  - [ ] `nodes/MathSyntax.ts` 接管 `@milkdown/plugin-math` 的 `$...$` / `$$...$$` 解析
-  - [ ] `nodes/MermaidSyntax.ts` `$nodeSchema` 宏 → 裸 `Schema.spec`
-- [ ] Phase 2 — 接入
-  - [ ] `EditorInner.vue` 重写，改用新 composable
-  - [ ] `index.vue` 删 `MilkdownProvider`
-  - [ ] 跑通自动化测试 + round-trip 测试，全绿才进 Phase 3
-- [ ] Phase 3 — 清理
-  - [ ] 删 `safeCommonmark` / `safeGfm` / `fixedEmphasisUnderscoreInputRule` / `fixedStrikethroughInputRule` 及 `$prose` / `$inputRule` 包装
-  - [ ] 跑 MIGRATION_PROSEMIRROR.md §6.3 手动回归清单(12 项)
+- [x] Phase 1 — 基础设施(藏在 feature flag 后，旧路径保留)
+  - [x] 依赖:加 `prosemirror-*` / `remark-*` / `mdast-util-*`(已是传递依赖，显式化即可，无新下载)
+  - [x] `composables/useProseMirror.ts` 替代 `useEditor()` + `<Milkdown />`
+  - [x] `editor/schema.ts` 基础 schema(等价 preset-commonmark + gfm)
+  - [x] `editor/markdownIO.ts` markdown ↔ ProseMirror doc 双向(unified + remark + 自写 mdast↔PM)
+  - [x] `editor/imageNodeView.ts` 替代 `imageInlineComponent`(极简版，空态仅提示)
+  - [x] `__tests__/markdownIO.test.ts` round-trip 10 sample 全绿
+  - [ ] ~~`nodes/MathSyntax.ts` 接管 `@milkdown/plugin-math` 的 `$...$` / `$$...$$` 解析~~ → markdownIO 已通过 `remark-math` 接管，KaTeX 渲染走旧 `MathNodeViews.ts`，Phase 2 改 import
+  - [ ] ~~`nodes/MermaidSyntax.ts` `$nodeSchema` 宏 → 裸 `Schema.spec`~~ → schema 已合并进 `schema.ts`，转换走 markdownIO，Phase 3 删旧文件
+- [x] Phase 2 — 接入
+  - [x] 11 个 nodes/ + findreplace/ + image/ + plugins/ 文件搬迁 + 改 import + 解 `$prose`/`$inputRule`/`$remark` 包装
+  - [x] 4 个 `__tests__` 文件搬迁
+  - [x] `EditorInner.vue` 重写用 `useProseMirror` 装配
+  - [x] `index.vue` 删 `MilkdownProvider`
+  - [x] `App.vue` 接 `VITE_USE_PM=1` flag 切换
+  - [x] 跑通 `vitest run` 全绿(227/227) + `vue-tsc --noEmit` 0 错 + `vite build` 双路径都通过
+- [x] Phase 3 — 清理
+  - [x] 删 `safeCommonmark` / `safeGfm` / `fixedEmphasisUnderscoreInputRule` / `fixedStrikethroughInputRule` 及 `$prose` / `$inputRule` 包装
+  - [x] 跑 MIGRATION_PROSEMIRROR.md §6.3 手动回归清单(12 项)
+  - [x] 删 `src/components/MilkdownEditor/`(18 个文件)
+  - [x] 删 `@milkdown/*` 依赖(净减 96 传递包)
+  - [x] `App.vue` 删 `VITE_USE_PM` flag + MilkdownEditor import
+  - [x] 注释里 4 处过期 "MilkdownEditor" 引用改写为 ProseMirrorEditor
 
 **fix**
 
-- [ ] 移除 upstream `markRule` 正则 bug 补丁(见 `ARCHITECTURE.md` "已修复的 upstream 问题" 段)，裸 ProseMirror 不需要这层防御
+- [x] 移除 upstream `markRule` 正则 bug 补丁(见 `ARCHITECTURE.md` "v0.4.0 重构记录" 段)，裸 ProseMirror 不需要这层防御
+- [x] Enter 不换行 → 补 `keymap(baseKeymap)` + 显式 `chainCommands(..., splitBlock)`
+- [x] Backspace 选中整段 → imageKeymap 改 `type.name` 比对(ProseMirror 陷阱 `$pos.nodeBefore` 在文本中间返回 atom 化 text 切片)
+- [x] `$x$` 不转 math_inline → 加 inlineMathInputRule(remark-math 只管外部解析,实时键入需显式 InputRule)
+- [x] 非列表 Shift-Tab 丢焦点 → 返回 `true` 消费 + ProseMirror 自动 preventDefault
 
 **test**
 
-- [ ] 现有 `__tests__/` 改 import:`@milkdown/prose/*` → `prosemirror-*`
-- [ ] 新增 round-trip 测试:10 个 sample(标题/强调/链接/代码块/列表+任务/表格/mermaid/math/脚注)循环 `fromMarkdown → toMarkdown → normalize`
-- [ ] 现有测试全绿(FootnoteNodeViews / findMatches / preserveEmptyLine)
+- [x] 现有 `__tests__/` 改 import:`@milkdown/prose/*` → `prosemirror-*`
+- [x] 新增 round-trip 测试:10 个 sample 循环 `fromMarkdown → toMarkdown → normalize`
+- [x] 现有测试全绿(FootnoteNodeViews / findMatches / preserveEmptyLine)
+- [x] 新增 4 个回归合约测试:`baseKeymap` / `backspaceRegression` / `shiftTabFocus` / `inlineMathInputRule`
 
 **docs**
 
-- [ ] `docs/ARCHITECTURE.md` 删除 "Plan B 模块身份" 段、"已修复的 upstream 问题" 段，Milkdown 插件链表格重写为裸 ProseMirror 插件链
+- [x] `docs/ARCHITECTURE.md` 删除 "Plan B 模块身份" 段、"已修复的 upstream 问题" 段，Milkdown 插件链表格重写为裸 ProseMirror 插件链，新增"v0.4.0 重构记录"段
 
 
 #### v0.4.1 — 增加语法渲染

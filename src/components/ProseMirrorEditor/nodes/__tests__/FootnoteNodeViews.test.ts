@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Schema } from '@milkdown/prose/model'
+import { Schema } from 'prosemirror-model'
 import { computeNumbering } from '../FootnoteNodeViews'
 
 // 构造一个最小 schema,只装 footnote_reference / footnote_definition 两个节点

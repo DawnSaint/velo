@@ -28,7 +28,7 @@ function formatError(e: unknown): string {
 }
 
 export const useDocumentStore = defineStore('document', () => {
-  // 编辑器当前内容，由 store 持有；App.vue 通过 v-model 双向绑给 MilkdownEditor
+  // 编辑器当前内容,由 store 持有;App.vue 通过 v-model 双向绑给 ProseMirrorEditor
   const content = ref('')
   // "最近一次和磁盘一致"的快照；dirty 由 content vs. 这一份比较得出
   const lastSavedContent = ref('')
@@ -169,7 +169,7 @@ export const useDocumentStore = defineStore('document', () => {
     const willRecreateEditor = content.value !== c
     content.value = c
     lastSavedContent.value = c
-    // 只在内容真的变了（→ MilkdownEditor 会重建 → 会 echo）时才等 echo
+    // 只在内容真的变了(→ ProseMirrorEditor 会重建 → 会 echo)时才等 echo
     echosToAccept = willRecreateEditor ? 1 : 0
     void syncTitle()
     // 切换文件 / 新建：重建监听
