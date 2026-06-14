@@ -3,6 +3,18 @@
 // 拿到的也是这里的 stub。
 import { vi } from 'vitest'
 
+// jsdom 不实现 CSS.escape(W3C CSSOM spec 的一部分)。linkClickPlugin 用它
+// 做 querySelector `[id="..."]` 时转义 heading id 里的特殊字符。
+// 这里补一个 spec 的 ASCII 子集实现,够我们用(production 用浏览器原生)。
+if (typeof globalThis.CSS === 'undefined' || !globalThis.CSS.escape) {
+  globalThis.CSS = {
+    ...(globalThis.CSS ?? {}),
+    escape(value: string): string {
+      return String(value).replace(/[\0-\x1F\x7F!"#$%&'()*+,./:;<=>?@[\]^`{|}~\\]/g, '\\$&')
+    },
+  }
+}
+
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
@@ -25,6 +37,12 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: vi.fn(),
   confirm: vi.fn(),
   message: vi.fn(),
+}))
+
+// linkClick 插件用 open() 调系统浏览器打开外部 URL。
+// 同 plugin-dialog 的 open 不同名模块,保持各自 stub 独立。
+vi.mock('@tauri-apps/plugin-shell', () => ({
+  open: vi.fn(async () => {}),
 }))
 
 // getCurrentWindow 整个进程是单例 —— 真实 Tauri 运行时也是同一个 window 对象。

@@ -33,9 +33,11 @@ import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeVi
 import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
 import { footnoteEditPlugin, footnoteReferenceInputRule } from './nodes/FootnoteNodeViews'
+import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
+import { linkClickPlugin, linkEditEscapeKeymap, linkAutoFormatPlugin, linkInputRule } from './plugins/linkClick'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import 'katex/dist/katex.min.css'
@@ -263,7 +265,11 @@ const basePlugins: Plugin[] = [
   dollarEnterToMathBlock,
   imageKeymapPlugin,
   imageUploadPlugin,
+  linkClickPlugin,
+  linkEditEscapeKeymap,
+  linkAutoFormatPlugin,
   imageInlineViewPlugin,
+  htmlNodeViewPlugin,
   mathEditPlugin,
   mermaidDecoration,
   taskListPlugin,
@@ -282,6 +288,7 @@ const inputRulesPlugin = inputRules({
     fixedEmphasisUnderscoreInputRule,
     fixedStrikethroughInputRule,
     inlineMathInputRule,
+    linkInputRule,
     footnoteReferenceInputRule,
     ellipsis,
     emDash,

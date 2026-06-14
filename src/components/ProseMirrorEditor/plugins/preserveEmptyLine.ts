@@ -19,13 +19,12 @@
  * 这是一个 unified 插件 —— `markdownIO.ts` 里 `.use(remarkPreserveEmptyLine)`。
  * 必须挂在 `remarkParse` **之后**,这样它拦得到 `this.parser`。
  */
-export function remarkPreserveEmptyLine() {
-  return function plugin(this: any) {
-    const originalParser = this.parser
-    if (!originalParser) return
-    this.parser = function(this: any, doc: string) {
-      return originalParser.call(this, preprocessBlankLines(doc))
-    }
+export const remarkPreserveEmptyLine = function(this: any) {
+  const self = this as any
+  const originalParser = self?.parser
+  if (!originalParser) return
+  self.parser = function(this: any, doc: string) {
+    return originalParser.call(this, preprocessBlankLines(doc))
   }
 }
 
@@ -35,7 +34,7 @@ export function remarkPreserveEmptyLine() {
  */
 export function preprocessBlankLines(doc: string): string {
   return doc.replace(/\n\n\n+/g, (match) => {
-    const blankLineCount = match.length - 2
+    const blankLineCount = match.length / 2 - 1
     let result = '\n\n'
     for (let i = 0; i < blankLineCount; i++) {
       result += '<br />\n\n'

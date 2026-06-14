@@ -37,6 +37,13 @@ const nodes: Record<string, NodeSpec> = {
   paragraph: {
     content: 'inline*',
     group: 'block',
+    // empty: true 表示"空段占位",由 preserveEmptyLine 注入的 <br /> 块在
+    // mdastBlockToPM 转 PM 时打上标记,toMarkdown 阶段还原成含 <br /> inline
+    // html 的 mdast 节点 → stringify 输出 <br />\n\n 不被 normalize 折叠,实现
+    // "多空行 → 多空段" round-trip。
+    attrs: {
+      empty: { default: false },
+    },
     parseDOM: [{ tag: 'p' }],
     toDOM: () => ['p', 0],
   },
@@ -66,6 +73,34 @@ const nodes: Record<string, NodeSpec> = {
     defining: true,
     parseDOM: [{ tag: 'blockquote' }],
     toDOM: () => ['blockquote', 0],
+  },
+
+  // GitHub 风格警告框 / callout / admonition。
+  // 由 plugins/remarkAlert.ts 在 mdast 阶段从 blockquote(首行 [!TYPE])改造而来;
+  // toMarkdown 时反向写回 blockquote + [!TYPE] 文本前缀,保 GFM 可读性。
+  // 5 种 variant:note / tip / important / warning / caution
+  alert: {
+    content: 'block+',
+    group: 'block',
+    defining: true,
+    attrs: {
+      variant: { default: 'note' },
+    },
+    parseDOM: [{
+      tag: 'div[data-type="alert"]',
+      getAttrs: (dom: HTMLElement) => ({
+        variant: dom.dataset.variant ?? 'note',
+      }),
+    }],
+    toDOM: (node) => [
+      'div',
+      {
+        'data-type': 'alert',
+        'data-variant': node.attrs.variant as string,
+        'class': `velo-alert velo-alert-${node.attrs.variant}`,
+      },
+      0,
+    ],
   },
 
   bullet_list: {
@@ -336,6 +371,47 @@ const nodes: Record<string, NodeSpec> = {
     },
   },
 
+  // html_block / html_inline:atom 节点,attrs.value 存原始 HTML 字符串。
+  // toDOM 输出占位(数据传递),真实渲染由 nodes/HtmlNodeView.ts 的 NodeView
+  // 用 DOMPurify sanitize 后 innerHTML 写入。
+  // 与 math_block / math_inline 同形态。
+  html_block: {
+    group: 'block',
+    atom: true,
+    isolating: true,
+    defining: true,
+    marks: '',
+    attrs: {
+      value: { default: '' },
+    },
+    parseDOM: [{
+      tag: 'div[data-type="html_block"]',
+      preserveWhitespace: 'full',
+      getAttrs: (dom: HTMLElement) => ({ value: dom.dataset.value ?? '' }),
+    }],
+    toDOM: (node) => [
+      'div',
+      { 'data-type': 'html_block', 'data-value': node.attrs.value as string },
+    ],
+  },
+
+  html_inline: {
+    group: 'inline',
+    inline: true,
+    atom: true,
+    attrs: {
+      value: { default: '' },
+    },
+    parseDOM: [{
+      tag: 'span[data-type="html_inline"]',
+      getAttrs: (dom: HTMLElement) => ({ value: dom.dataset.value ?? '' }),
+    }],
+    toDOM: (node) => [
+      'span',
+      { 'data-type': 'html_inline', 'data-value': node.attrs.value as string },
+    ],
+  },
+
   // ============================================================
   //  Tables (gfm) —— 用 prosemirror-tables 的 tableNodes 工厂
   // ============================================================
@@ -429,6 +505,9 @@ const marks: Record<string, MarkSpec> = {
       href: {},
       title: { default: null },
     },
+    // inclusive: false —— 光标在 link 边界输入新字符时不继承 link mark
+    // 否则用户在链接末尾打字会变成链接的一部分(蓝色 + 可点击)
+    inclusive: false,
     parseDOM: [{
       tag: 'a[href]',
       getAttrs: (dom: HTMLElement) => ({

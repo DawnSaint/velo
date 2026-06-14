@@ -148,9 +148,13 @@
 
 **feat**
 
-- [ ] `[text](url)` 链接语法渲染
-- [ ] 警告框渲染
-- [ ] html 语法渲染
+- [x] `[text](url)` 链接语法渲染(沿用 `prosemirror-markdown` 自带 link mark + schema)
+- [x] 警告框渲染(`remarkAlert` 改写 mdast `> [!NOTE]` → `alert` schema 节点,5 种 variant note/tip/important/warning/caution,反向 toMarkdown 用 mdast `html` 节点绕过 `[` 转义)
+- [x] html 语法渲染(`html_block` / `html_inline` 节点 + `HtmlNodeView` 用 DOMPurify sanitize 后 innerHTML 写入;行内 `<kbd>Ctrl</kbd>` 等用 `mergeHtmlInlineRuns` 合并被 remark 拆散的标签段)
+
+**fix**
+
+- [x] 修复空行无法正常显示的问题(`v0.4.0` markdownIO 重构后,`preprocessBlankLines` 注入的 `<br />` 走 `html_block` 路径渲染成单独 `<div>`,不是空段;改成 `paragraph([])` 空 childCount + `toMarkdown` 用 `text` 节点占位 + 调整 `preprocessBlankLines` 公式为 `match.length / 2 - 1`,实现 `1 空段 round-trip 后仍 1 空段` 不翻倍)
 
 
 

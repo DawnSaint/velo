@@ -125,18 +125,6 @@ velo/
 - **样式分层** —— ProseMirrorEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
 - **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
 
----
-
-## v0.4.0 重构记录
-
-v0.4.0 把编辑器从 `@milkdown/*` 切到裸 ProseMirror + remark / unified。详细评估见 [`MIGRATION_PROSEMIRROR.md`](./MIGRATION_PROSEMIRROR.md),关键变化:
-
-- **不再需要** `safeCommonmark` / `safeGfm` / `fixedXxxInputRule`(修上游 markRule bug 的补丁)—— 上游 Milkdown 封装不存在了,bug 失去存在意义
-- **基础键** 现在显式装 `keymap(baseKeymap)`,ProseMirror 不会自动装
-- **markdown 解析** 走自写 `markdownIO.ts`(unified pipeline + mdast↔PM 转换),不再依赖 `prosemirror-markdown` 的 `defaultMarkdownParser` / `defaultMarkdownSerializer`
-- **新组件目录** `ProseMirrorEditor/`,旧 `MilkdownEditor/` 已删
-- **新依赖**:`prosemirror-*` / `remark-*` / `mdast-util-*` / `unified`(全部已是 @milkdown 时代的传递依赖,显式化即可)
-- **删除依赖**:`@milkdown/kit` / `@milkdown/plugin-clipboard` / `@milkdown/plugin-math` / `@milkdown/vue`(净减 96 个传递包)
 
 ---
 

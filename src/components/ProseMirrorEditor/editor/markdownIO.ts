@@ -1,18 +1,11 @@
 // Markdown ↔ ProseMirror doc 双向转换。
 //
-// 走 unified pipeline:remark-parse + remark-gfm + remark-math + remark-stringify。
-// remark-* 自己挂载 micromark / mdast-util 的 fromMarkdown / toMarkdown 扩展,
-// 我们只在 mdast ↔ ProseMirror 这一层做转换。
-//
-// stringify 配置对齐 Milkdown / preset-commonmark 默认值,目的是让现有
-// `.md` 文件 round-trip 后 diff 最小:
-// - bullet `-`, listItemIndent 'one', emphasis `_`, strong `*`, fences true
-//
 // 已知信息丢失(文档化但不防御):
 // - hardbreak attrs.isInline → 统一序列化为 `break`
 // - list_item attrs.label → 由 stringify 的 bullet 配置决定
 // - table cell colspan/rowspan/colwidth → mdast 不支持
-// - mdast `html` 节点 → 当前转 paragraph 占位(v0.4.1 再做)
+// - mdast `html` 节点 → html_block / html_inline(原样存 attrs.value,
+//   NodeView 用 DOMPurify sanitize 后 innerHTML 写入)
 //
 // mermaid:mdast 里就是 `code` with `lang === 'mermaid'`,我们映射到 PM 的
 // mermaid 节点(attrs.value = code.value)。反向同理。
@@ -25,6 +18,7 @@ import remarkMath from 'remark-math'
 import type { Schema, Node as PMNode, MarkType } from 'prosemirror-model'
 import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingContent, Table, ListItem } from 'mdast'
 import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
+import { remarkAlert } from '../plugins/remarkAlert'
 
 // ============================================================
 //  unified processor
@@ -32,11 +26,10 @@ import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
 
 const processor = unified()
   .use(remarkParse)
-  // 空行保留 —— 必须在 remarkParse 之后,拦截 this.parser 把多空行
-  // 预处理成 <br /> 块,让 mdast 里出现可见的空 paragraph 占位
   .use(remarkPreserveEmptyLine)
   .use(remarkGfm)
   .use(remarkMath)
+  .use(remarkAlert)
   .use(remarkStringify, {
     bullet: '-',
     listItemIndent: 'one',
@@ -52,7 +45,7 @@ const processor = unified()
 // ============================================================
 
 export function fromMarkdown(md: string, schema: Schema): PMNode {
-  const tree = processor.parse(md) as Root
+  const tree = processor.runSync(processor.parse(md) as Root) as Root
   const blocks = tree.children.flatMap(n => mdastBlockToPM(n, schema))
   // 空文档兜底:doc 至少要一个 paragraph
   if (blocks.length === 0) {
@@ -63,6 +56,13 @@ export function fromMarkdown(md: string, schema: Schema): PMNode {
 
 /** mdast 块级节点 → 0..N 个 PM 节点(0 个发生在不支持的节点被吞掉时)。 */
 function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
+  if ((node as any).type === 'alert') {
+    const alertNode = node as any
+    return [schema.node('alert', {
+      variant: String(alertNode.variant ?? 'note').toLowerCase(),
+    }, ((alertNode.children ?? []) as RootContent[]).flatMap((c: RootContent) => mdastBlockToPM(c, schema)))]
+  }
+
   switch (node.type) {
     case 'paragraph':
       return [schema.node('paragraph', null, mdastInlineToPM(node.children, schema))]
@@ -111,9 +111,15 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
       return [mdastTableToPM(node, schema)]
 
     case 'html':
-      // v0.4.1 再做。目前转纯文本段落兜底,不抛错也不丢内容。
-      return [schema.node('paragraph', null,
-        node.value ? [schema.text(node.value)] : [])]
+      // 块级 HTML 整体存 attrs.value;空 value 过滤(不渲染空 div 块)
+      if (!node.value) return []
+      // preserveEmptyLine 注入的 <br /> 占位:代表"1 个空段",转空 paragraph。
+      // 不走 html_block 路径(那个会被 NodeView 渲染成单独的 <div> 块,
+      // 跟"空段"语义对不上)。toMarkdown 靠 childCount=0 识别空段,无需 attr。
+      if (node.value === '<br />') {
+        return [schema.node('paragraph')]
+      }
+      return [schema.node('html_block', { value: node.value })]
 
     default:
       // 不支持的块级节点(yaml/toml frontmatter 等)→ 静默丢弃
@@ -175,6 +181,75 @@ function mdastInlineToPM(nodes: PhrasingContent[], schema: Schema): PMNode[] {
   for (const n of nodes) {
     out.push(...inlineNodeToPM(n, schema, []))
   }
+  return mergeHtmlInlineRuns(schema, out)
+}
+
+/**
+ * 合并相邻的 html_inline 节点 + 其间的纯文本节点,形成完整的 HTML 区域。
+ *
+ * remark 把 `<kbd>Ctrl</kbd>` 拆成 3 个 mdast 节点(html("<kbd>") / text("Ctrl") /
+ * html("</kbd>")),逐个转 PM 会得到 3 个独立 atom 节点,NodeView 把每个渲染成独立
+ * span:开标签 span 渲染成空 kbd、文本游离在 span 外、闭标签 span 空。视觉上
+ * `<kbd>Ctrl</kbd>` 变成 `<kbd></kbd>Ctrl` 然后挂个孤立闭标签。
+ *
+ * 这里走一个简易标签栈状态机:遇到第一个 html_inline 节点开始缓冲,持续收
+ * html + text 直到标签栈清空(说明完整标签对已收齐)。栈用简易正则扫 —— 只
+ * 关心开始 / 结束 / 自闭合标签,够覆盖 sample.md 全部场景。
+ *
+ * 已知限制:HTML 区域内的文本如果带 mark(emphasis / strong 等),合并后 mark
+ * 会丢 —— 我们用 `.text` 拿纯文本。保 mark 需要保留各 PM 节点原样,但那正
+ * 好是当前问题。后续要做的话改 span tree。
+ */
+function mergeHtmlInlineRuns(schema: Schema, nodes: PMNode[]): PMNode[] {
+  const out: PMNode[] = []
+  let buf: string | null = null
+  let openTags: string[] = []
+
+  const flush = () => {
+    if (buf !== null) {
+      out.push(schema.node('html_inline', { value: buf }))
+      buf = null
+      openTags = []
+    }
+  }
+
+  // 扫 <tag> / </tag> / <tag/> 三种。attr 内容里可能有 > 之外的字符,<script> 这种
+  // 也照样能匹配;够用。
+  const tagRe = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/g
+
+  for (const node of nodes) {
+    if (node.type.name === 'html_inline') {
+      const value = node.attrs.value as string
+      if (buf === null) buf = ''
+      buf += value
+      // 更新标签栈
+      for (const m of value.matchAll(tagRe)) {
+        const tag = m[1]
+        const isClose = m[0].startsWith('</')
+        const isSelfClose = m[0].endsWith('/>')
+        if (isClose) {
+          const idx = openTags.lastIndexOf(tag)
+          if (idx >= 0) openTags.splice(idx, 1)
+        }
+        else if (!isSelfClose) {
+          openTags.push(tag)
+        }
+      }
+      // 标签栈空 → 整段 HTML 区域已收齐,flush
+      if (openTags.length === 0) flush()
+    }
+    else if (node.type.name === 'text' && buf !== null) {
+      // HTML 区域内的纯文本:并入缓冲区(marks 会丢,见函数注释)
+      buf += node.text ?? ''
+    }
+    else {
+      // HTML 区域外的节点 / 区域内的非文本节点(如 hardbreak):先 flush,再透传
+      flush()
+      out.push(node)
+    }
+  }
+  // 收尾:还有未 flush 的 buffer(说明 HTML 标签没正常闭合),照原样当一个区域
+  flush()
   return out
 }
 
@@ -241,8 +316,9 @@ function inlineNodeToPM(
       return [schema.node('footnote_reference', { label: node.identifier })]
 
     case 'html':
-      // 行内 html → 文本兜底(v0.4.1)
-      return node.value ? [schema.text(node.value, marks)] : []
+      // 行内 HTML:atom 节点,不带外层 marks(对照 image 行为)
+      if (!node.value) return []
+      return [schema.node('html_inline', { value: node.value })]
 
     default:
       return []
@@ -273,6 +349,9 @@ function pmBlocksToMdast(parent: PMNode): RootContent[] {
 function pmBlockToMdast(node: PMNode): RootContent | null {
   switch (node.type.name) {
     case 'paragraph':
+      if (node.childCount === 0) {
+        return { type: 'paragraph', children: [{ type: 'text', value: '' }] }
+      }
       return { type: 'paragraph', children: pmInlineToMdast(node) }
 
     case 'heading':
@@ -287,6 +366,31 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
         type: 'blockquote',
         children: pmBlocksToMdast(node) as (BlockContent | DefinitionContent)[],
       }
+
+    case 'alert': {
+      const variant = String(node.attrs.variant ?? 'note').toUpperCase()
+      const marker = `[!${variant}]`
+      const children = pmBlocksToMdast(node) as (BlockContent | DefinitionContent)[]
+
+      // marker 用 mdast html 节点而不是 text 节点 —— mdast-util-to-markdown 对
+      // phrasing 内的 `[` 默认转义(防 link reference 歧义),但 html 节点不受
+      // 这条规则约束,原样写出 `[!NOTE]`。
+      if (children[0]?.type === 'paragraph') {
+        const first = children[0] as { type: 'paragraph'; children: PhrasingContent[] }
+        first.children.unshift({ type: 'html', value: `${marker}\n` })
+      }
+      else {
+        children.unshift({
+          type: 'paragraph',
+          children: [{ type: 'html', value: marker }],
+        })
+      }
+
+      return {
+        type: 'blockquote',
+        children,
+      }
+    }
 
     case 'hr':
       return { type: 'thematicBreak' }
@@ -303,6 +407,10 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
 
     case 'math_block':
       return { type: 'math', value: node.attrs.value as string } as RootContent
+
+    case 'html_block':
+      // 原样写出 attrs.value;remark-stringify 对 mdast html 节点不做 escape
+      return { type: 'html', value: node.attrs.value as string }
 
     case 'bullet_list':
     case 'ordered_list': {
@@ -393,6 +501,7 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     | { kind: 'break'; marks: never[] }
     | { kind: 'inlineMath'; marks: never[]; value: string }
     | { kind: 'footnoteRef'; marks: never[]; label: string }
+    | { kind: 'htmlInline'; marks: never[]; value: string }
 
   const spans: Span[] = []
   parent.forEach(child => {
@@ -417,6 +526,10 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     }
     else if (name === 'footnote_reference') {
       spans.push({ kind: 'footnoteRef', marks: [], label: child.attrs.label as string })
+    }
+    else if (name === 'html_inline') {
+      // atom 节点:marks 字段在 dispatch 时也硬编码为 []，与 image 一致
+      spans.push({ kind: 'htmlInline', marks: [], value: child.attrs.value as string })
     }
   })
 
@@ -445,6 +558,9 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
         identifier: span.label,
         label: span.label,
       })
+    }
+    else if (span.kind === 'htmlInline') {
+      out.push({ type: 'html', value: span.value } as PhrasingContent)
     }
     else {
       out.push(wrapWithMarks(span.value, span.marks))
