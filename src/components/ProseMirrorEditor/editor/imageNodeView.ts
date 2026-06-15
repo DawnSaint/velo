@@ -1,14 +1,3 @@
-// 图片 NodeView。替代 @milkdown/kit/component/image-inline。
-//
-// 设计:极简版。空态(src === '')显示一行点击提示;有图态显示 <img>。
-// paste/drop 已由 image/imageUploadPlugin 接管,空态在实际使用中很少触发。
-// .selected:ProseMirror NodeSelection 时由 selectNode/deselectNode 切换。
-//
-// proxyDomURL:Tauri 环境下要把磁盘路径走 asset:// 协议;由 caller 注入,
-// 避免本文件直接依赖 stores/document(为 v0.4.x 后续解耦做准备)。
-//
-// CSS class 与现有 .milkdown-image-inline 完全一致,沿用 index.vue 里的样式。
-
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView, NodeView } from 'prosemirror-view'
 
@@ -24,7 +13,7 @@ export function createImageNodeView(opts: ImageViewOptions) {
     _getPos: () => number | undefined,
   ): NodeView {
     const wrapper = document.createElement('span')
-    wrapper.className = 'milkdown-image-inline'
+    wrapper.className = 'velo-image-inline'
 
     function render(currentNode: PMNode) {
       wrapper.replaceChildren()

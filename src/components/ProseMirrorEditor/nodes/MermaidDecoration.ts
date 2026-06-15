@@ -227,9 +227,7 @@ function fillEditor(dom: HTMLElement, node: PMNode, pos: number): void {
   dom.appendChild(preview)
 
   const view = currentView
-  if (view && !view.isDestroyed) {
-    view.dom.classList.add('prosemirror-caret-hidden')
-  }
+  void view
 
   // 隔离 ProseMirror
   textarea.addEventListener('beforeinput', (e) => { e.stopPropagation() })
@@ -297,14 +295,12 @@ function fillEditor(dom: HTMLElement, node: PMNode, pos: number): void {
     const tr = v.state.tr
     if (value !== node.attrs.value) tr.setNodeAttribute(pos, 'value', value)
     tr.setMeta(mermaidDecoKey, { commitAt: pos })
-    v.dom.classList.remove('prosemirror-caret-hidden')
     v.dispatch(tr)
   }
 
   function cancel() {
     const v = currentView
     if (!v || v.isDestroyed) return
-    v.dom.classList.remove('prosemirror-caret-hidden')
     v.dispatch(v.state.tr.setMeta(mermaidDecoKey, { cancelAt: pos }))
   }
 

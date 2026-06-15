@@ -1,12 +1,12 @@
 /* ========== 数学公式编辑 UI ========== */
 
 /* 渲染态：hover 提示可点击 */
-.milkdown-editor .math-node {
+.velo-editor .math-node {
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.15s;
 }
-.milkdown-editor .math-node:not(.is-editing):hover {
+.velo-editor .math-node:not(.is-editing):hover {
   background: rgba(128, 128, 128, 0.1);
 }
 
@@ -38,7 +38,7 @@
 
 /* 暗色模式：error 占位 */
 .dark .math-error,
-.milkdown-editor.dark .math-error {
+.velo-editor.dark .math-error {
   border-color: #f77878;
   color: #f77878;
 }

@@ -1,3 +1,14 @@
+// Editor 通用(基础 → 排版 → 列表 → 代码 → 表格 → 图像 → HTML 块 → 警告框 → 暗色)
+@forward './editor-base';
+@forward './editor-typography';
+@forward './editor-lists';
+@forward './editor-code';
+@forward './editor-tables';
+@forward './editor-image';
+@forward './editor-html-blocks';
+@forward './editor-alerts';
+@forward './editor-dark';
+
 @forward './plugin-common';
 @forward './math';
 @forward './mermaid';

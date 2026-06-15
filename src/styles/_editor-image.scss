@@ -1,0 +1,129 @@
+// 图片:通用 img + velo-image-inline NodeView 全部(亮色部分)
+//
+// 暗色部分保持 flat——原代码注释明确"只用 .dark 祖先,保持原行为不动"。
+
+.velo-editor {
+  // 通用图片
+  img {
+    max-width: 100%;
+    max-height: 400px;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+    border-radius: 4px;
+  }
+}
+
+// image-inline NodeView DOM:
+//   <span class="velo-image-inline">     ← wrapper(空态 + 有图态共用)
+//     空态: <div class="image-edit">...<input class="link-input-area">...<img class="image-preview">
+//     有图态: <img class="image-inline">
+// 选中时 wrapper 加 .selected(由 NodeView.selectNode 加)。
+
+// 包装 span 转 block 撑满行宽,里面内容(text-align: center)居中
+.velo-image-inline {
+  display: block;
+  text-align: center;
+
+  // 有图态:img 居中,outline 透明(默认)
+  > img.image-inline {
+    display: inline-block;
+    vertical-align: middle;
+    max-width: 100%;
+    max-height: 400px;
+    height: auto;
+    border-radius: 4px;
+    outline: 1px solid transparent;
+    outline-offset: 2px;
+    transition: outline-color 0.12s;
+  }
+
+  // hover:低调灰边
+  &:hover > img.image-inline {
+    outline-color: rgba(0, 0, 0, 0.2);
+  }
+
+  // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected
+  &.selected > img.image-inline {
+    outline-color: var(--md-primary-color, #1F71D9);
+    outline-width: 2px;
+  }
+
+  // 空态 input 框/上传按钮/预览图——跟 image-inline 提供的默认 UI 配套
+  .image-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px dashed rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.02);
+    color: #666;
+    font-size: 13px;
+  }
+
+  .link-importer {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .link-input-area {
+    padding: 4px 8px;
+    font-size: 13px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    background: inherit;
+    color: inherit;
+    min-width: 200px;
+  }
+
+  .image-preview img {
+    max-width: 200px;
+    max-height: 100px;
+    border-radius: 4px;
+  }
+
+  .placeholder {
+    cursor: text;
+    color: rgba(0, 0, 0, 0.5);
+  }
+
+  .velo-image-icon {
+    font-size: 18px;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .uploader {
+    cursor: pointer;
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  .confirm {
+    cursor: pointer;
+    padding: 0 4px;
+    color: var(--md-primary-color, #1F71D9);
+  }
+}
+
+// image-inline 暗色态——只用 .dark 祖先(没配对 .velo-editor.dark),
+// 保持原行为不动。
+.dark .velo-image-inline:hover > img.image-inline {
+  outline-color: rgba(255, 255, 255, 0.25);
+}
+
+.dark .velo-image-inline .image-edit {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa;
+}
+
+.dark .velo-image-inline .link-input-area {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .velo-image-inline .placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}

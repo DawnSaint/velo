@@ -1,0 +1,30 @@
+// HTML 透传容器 + inline source edit 视觉指示
+//
+// nodes/HtmlNodeView.ts 创建的 div / span,DOMPurify sanitize 后的 HTML 写在 innerHTML。
+// 这里只给容器加微弱视觉边界,让用户区分"这是 HTML 块"。
+
+.velo-editor {
+  .velo-html-block {
+    border-radius: 4px;
+  }
+
+  .velo-html-inline {
+    // 行内容器本身不加视觉装饰,样式靠下面的具体标签规则
+  }
+}
+
+// inline source edit 视觉指示
+// linkClickPlugin 等编辑态的源码文本加上 .velo-link-source-edit,提示用户
+// "这是在编辑 markdown 源码"——等宽字体 + 浅灰底,与正文区分开
+.velo-link-source-edit {
+  font-family: Menlo, Operator Mono, Consolas, Monaco, monospace;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  padding: 0 3px;
+  color: #555;
+}
+
+:is(.dark .velo-editor, .velo-editor.dark) .velo-link-source-edit {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #aaa;
+}

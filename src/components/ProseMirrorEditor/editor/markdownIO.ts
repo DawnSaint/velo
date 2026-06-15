@@ -19,6 +19,7 @@ import type { Schema, Node as PMNode, MarkType } from 'prosemirror-model'
 import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingContent, Table, ListItem } from 'mdast'
 import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
+import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 
 // ============================================================
 //  unified processor
@@ -27,6 +28,7 @@ import { remarkAlert } from '../plugins/remarkAlert'
 const processor = unified()
   .use(remarkParse)
   .use(remarkPreserveEmptyLine)
+  .use(remarkEncodeLinkUrls)
   .use(remarkGfm)
   .use(remarkMath)
   .use(remarkAlert)
@@ -53,6 +55,15 @@ export function fromMarkdown(md: string, schema: Schema): PMNode {
   }
   return schema.node('doc', null, blocks)
 }
+
+// URL 在解析时已被 encodeLinkUrlSpaces 转成 %20,PM doc 里存的是原始可读形式
+// (decode 回来);toMarkdown / linkClick 等都假设 doc 里的 href 是 "可读形式"，
+// 不会再二次 encode。
+// 注:remarkEncodeLinkUrls 只在 parse 前替换文本,实际产出的 mdast link 节点
+// URL 字段已经含 %20(被解析器"吃"进去),但 mdast → PM 转换时通常把 URL 当
+// opaque 字符串透传,所以 href 字段会以 %20 形式进 doc —— 这是个隐患,
+// 必须在 mdast → PM 的 link 分支里 decode 回可读形式。
+// 修复:mdastInlineToPM 的 case 'link' 处统一 decodeURIComponent。
 
 /** mdast 块级节点 → 0..N 个 PM 节点(0 个发生在不支持的节点被吞掉时)。 */
 function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
@@ -290,11 +301,24 @@ function inlineNodeToPM(
           activeMarks.concat({ type: schema.marks.strike_through })))
 
     case 'link':
+      // remarkParse 看到的 url 是经 remarkEncodeLinkUrls 预处理过的,
+      // URL 里的内部空格被 encode 成 %20。这里 decode 回可读形式,
+      // 让 doc.link.attrs.href 是用户友好形态:
+      //   输入 `[回到开头](# Markdown 语法)` → PM doc 里 href = '# Markdown 语法'
+      //   序列化 toMarkdown 也直接写回 '# Markdown 语法'(round-trip 友好)
+      // scrollToAnchor 走 slug 化降级匹配跳转(plugins/linkClick.ts)。
+      let href = node.url
+      try {
+        href = decodeURIComponent(href)
+      }
+      catch {
+        /* decode 失败就保留原值(可能本来就是 %20 字面量) */
+      }
       return node.children.flatMap(c =>
         inlineNodeToPM(c, schema,
           activeMarks.concat({
             type: schema.marks.link,
-            attrs: { href: node.url, title: node.title ?? null },
+            attrs: { href, title: node.title ?? null },
           })))
 
     case 'image':

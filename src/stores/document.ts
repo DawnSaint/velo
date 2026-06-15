@@ -36,9 +36,6 @@ export const useDocumentStore = defineStore('document', () => {
   const autoSaveEnabled = ref(false)
   const autoSaveOnBlur = ref(false)
 
-  // Milkdown 收到 defaultValue 后会回吐一次"规范化"后的 markdown（行尾归一、
-  // 列表标记统一等），这次回吐不算用户编辑。loadContent/init 时把它设为 1,
-  // 编辑器重建后的第一次 emit 落到 setContent 被消费，并把那一次的值作为新基线。
   let echosToAccept = 0
 
   const dirty = computed(() => content.value !== lastSavedContent.value)

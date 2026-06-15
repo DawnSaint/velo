@@ -49,7 +49,6 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     editing = true
     dom.innerHTML = ''
     dom.classList.add('is-editing')
-    view.dom.classList.add('prosemirror-caret-hidden')
 
     const wrapper = document.createElement('span')
     wrapper.className = 'math-edit-wrapper'
@@ -88,7 +87,6 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     function save() {
       if (!editing) return
       editing = false
-      cleanup()
       if (input.value !== readValue()) {
         const pos = getPos()
         if (pos >= 0) {
@@ -103,15 +101,9 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     function cancel() {
       if (!editing) return
       editing = false
-      cleanup()
       showDisplay()
     }
 
-    function cleanup() {
-      view.dom.classList.remove('prosemirror-caret-hidden')
-    }
-
-    ;(dom as any).__mathCleanup = () => { cleanup() }
     setTimeout(() => input.focus(), 0)
   }
 
@@ -130,7 +122,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
       if (!editing && valueChanged) showDisplay()
       return true
     },
-    destroy() { ;(dom as any).__mathCleanup?.() },
+    destroy() { /* nothing */ },
     ignoreMutation() { return true },
   }
 }
@@ -159,7 +151,6 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     dom.classList.add('is-editing')
 
     editor = createTextareaEditor({
-      view,
       initialValue: node.attrs.value || '',
       placeholder: 'LaTeX 源码',
       onCommit: (value) => {

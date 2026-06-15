@@ -3,7 +3,6 @@ import { Plugin, PluginKey } from 'prosemirror-state'
 /**
  * 任务列表 NodeView
  *
- * `@milkdown/preset-gfm` 在 `list_item` schema 上加了 `checked: boolean | null`:
  *   - null  = 普通列表项
  *   - true  = `[x]` 已勾选
  *   - false = `[ ]` 未勾选

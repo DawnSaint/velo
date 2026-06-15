@@ -1,6 +1,5 @@
 // ProseMirror 文档内文本搜索的纯函数。
 //
-// 不依赖 Editor / Milkdown / Vue,只接 ProseMirror Node + query + options,
 // 输出 Match[] (doc 坐标系下的 from/to)。可独立测试,也可在组件外用。
 //
 // 跨文本节点:每个 text node 各自 exec regex,匹配位置按 node pos 平移回 doc 坐标。

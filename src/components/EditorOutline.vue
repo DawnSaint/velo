@@ -151,8 +151,8 @@ let scrollContainer: HTMLElement | null = null
 let rafId: number | null = null
 
 function getScrollContainer(): HTMLElement | null {
-  // 编辑器的可滚动容器是 .milkdown-editor 的父元素（带 overflow-auto 的那层）
-  const editor = document.querySelector('.milkdown-editor')
+  // 编辑器的可滚动容器是 .velo-editor 的父元素（带 overflow-auto 的那层）
+  const editor = document.querySelector('.velo-editor')
   return (editor?.parentElement as HTMLElement | null) ?? null
 }
 

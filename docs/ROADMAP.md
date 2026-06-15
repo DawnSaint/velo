@@ -176,14 +176,22 @@
 
 
 
-#### v0.4.2 — 沉浸式写作
+#### v0.4.2 — 代码整理
 
-**feat**
+**refactor**
 
-- [ ] 专注模式：当前段落外的内容降透明度
-- [ ] 打字机模式：光标锁屏中
-- [ ] 全屏模式
-- [ ] 保持窗口最前
+- [x] CSS 拆分到 `src/styles/`:把 `ProseMirrorEditor/index.vue` 里 660 行 `<style>` 块拆成 9 个 SCSS partial(`_editor-base` / `_editor-typography` / `_editor-lists` / `_editor-code` / `_editor-tables` / `_editor-image` / `_editor-html-blocks` / `_editor-alerts` / `_editor-dark`),根 class 提到嵌套外层,子选择器缩进,index.vue 减到 150 行
+- [x] `milkdown-` 命名空间清理:`.milkdown-editor` / `.milkdown-image-inline` / `.milkdown-icon` / `milkdownRef` 全部改 `.velo-editor` / `.velo-image-inline` / `.velo-image-icon` / `editorRef`,11 个文件 100+ 选择器 + 3 处变量名 + 1 处 `wrapper.className` + 1 处 `querySelector` 同步
+- [x] 简化编辑器重建路径:删 `innerKey` ref + `onRebuildRequest` + `:focus-on-create` prop,`EditorInner.vue` 改用 `view.updateState(EditorState.create(...))` 替换内部 state,plugin state 因 init 跑归零(等价 destroy + recreate 但不销毁 view 实例);`index.vue` 不再参与重建控制
+- [x] 删 `paragraph.attrs.empty` 死属性:全仓库 0 处使用,空段判定走 `node.childCount === 0`(`markdownIO.ts:352`)
+- [x] 删 `prosemirror-caret-hidden` 老 bug 相关代码:`view.dom` 是 `.ProseMirror` 元素本身,旧选择器 `.prosemirror-caret-hidden .ProseMirror` 永远不匹配(`MathNodeViews` / `TextareaEditor` / `MermaidDecoration` 3 处 add/remove 全部清掉,`TextareaEditorOptions.view` 参数也清掉)
+
+**fix**
+
+- [x] 链接 `[text](url 含内部空格)` 不被识别:`syntax/inline/link.ts` URL 正则 `[^()\s]+` 改成 `[^()]+?\s*\)`,允许内部空格,尾部空格 trim
+- [x] 解析期同理:CommonMark 拒绝 URL 含空格,`[回到开头](# Markdown 语法)` 在 remark-parse 阶段就失败;新建 `plugins/remarkEncodeLinkUrls.ts` 在 parser 入口把内部空格 encode 成 `%20`,`markdownIO.ts case 'link'` 里 `decodeURIComponent` 回可读形式,doc 里 `href` 字段始终是用户友好形态
+- [x] 锚点跳转在用户输入带空格 slug 时找不到 heading:`scrollToAnchor` 加 slug 化降级匹配,先试原 id,找不到再试 `toLowerCase().trim().replace(/\s+/g, '-')`(对齐 `heading.toDOM` 算法)
+
 
 
 #### v0.4.3 — 代码块升级
@@ -201,8 +209,17 @@
 - [ ] 增加目录的渲染
 
 
+#### v0.4.5 — 沉浸式写作
 
-#### v0.4.5 — 插件回归测试
+**feat**
+
+- [ ] 专注模式：当前段落外的内容降透明度
+- [ ] 打字机模式：光标锁屏中
+- [ ] 全屏模式
+- [ ] 保持窗口最前
+
+
+#### v0.4.6 — 插件回归测试
 
 
 **feat**

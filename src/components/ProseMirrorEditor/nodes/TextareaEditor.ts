@@ -1,13 +1,11 @@
 // 多行可编辑 NodeView 的 textarea + preview 共用壳。
 //
 // 适用场景:NodeView 内部要编辑一段源码(LaTeX / mermaid ...),实时预览
-// 同步显示渲染结果。helper 管 textarea 的输入/keydown/blur/focus/autoSize
-// 以及 view.dom 的 caret-hidden 切换,调用方只关心 preview 怎么渲染、
-// onCommit 怎么把 value 写回 doc。
+// 同步显示渲染结果。helper 管 textarea 的输入/keydown/blur/focus/autoSize,
+// 调用方只关心 preview 怎么渲染、onCommit 怎么把 value 写回 doc。
 //
 // 用法:
 //   const ed = createTextareaEditor({
-//     view,                                    // ProseMirror view,用来切 caret hidden
 //     initialValue: node.attrs.value || '',
 //     placeholder: 'LaTeX 源码',
 //     onCommit: (value) => { /* view.dispatch(...) */ },
@@ -24,17 +22,11 @@
 // - Escape → onCancel
 // - blur  → onCommit(value),由调用方决定怎么 dispatch
 // - input 事件 stopPropagation 防止冒泡,autoSize 始终生效
-// - view.dom 上自动加/移 prosemirror-caret-hidden
-// - dispose() 移 caret hidden(供 NodeView destroy 时兜底调用)
 //
 // 为什么不抽成 Vue SFC:这些操作要直接接 ProseMirror view / DOM,
 // 引一层 Vue 反而多绕;函数式 helper 单元测也好写。
 
-import type { EditorView } from 'prosemirror-view'
-
 export interface TextareaEditorOptions {
-  /** ProseMirror view。helper 用它在编辑期加 view.dom 的 prosemirror-caret-hidden,退出时移除。 */
-  view: EditorView
   initialValue: string
   placeholder: string
   /** blur 时触发,把 value 写回 doc 由调用方决定怎么 dispatch。 */
@@ -57,8 +49,6 @@ export interface TextareaEditor {
 }
 
 export function createTextareaEditor(opts: TextareaEditorOptions): TextareaEditor {
-  const { view } = opts
-
   const textarea = document.createElement('textarea')
   textarea.value = opts.initialValue
   textarea.className = 'edit-textarea'
@@ -70,9 +60,6 @@ export function createTextareaEditor(opts: TextareaEditorOptions): TextareaEdito
   const container = document.createElement('div')
   container.appendChild(textarea)
   container.appendChild(preview)
-
-  // 编辑期间 ProseMirror 不显示光标,避免 textarea focus / blur 时闪烁
-  view.dom.classList.add('prosemirror-caret-hidden')
 
   isolateInputFromProseMirror(textarea)
   textarea.addEventListener('input', (e) => {
@@ -102,7 +89,6 @@ export function createTextareaEditor(opts: TextareaEditorOptions): TextareaEdito
     setPreviewHtml: (html) => { preview.innerHTML = html },
     focus: () => { setTimeout(() => { textarea.focus() }, 0) },
     dispose: () => {
-      view.dom.classList.remove('prosemirror-caret-hidden')
       // 把 container 从 dom 移除(如果还在树里)
       if (container.parentNode) container.parentNode.removeChild(container)
     },

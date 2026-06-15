@@ -143,7 +143,7 @@ function onWindowFocus() {
 // 状态全在 App.vue 一份,v-model:find-open 透传到 ProseMirrorEditor 再到 FindReplace。
 // 顶栏按钮的 active 样式、Ctrl+F 打开、X / Esc 关闭、按钮再点关闭 —— 全部
 // 直接改 findOpen 这一份,不存在 mirror。
-const milkdownRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
+const editorRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
 const findOpen = ref(false)
 // 一次性的初始参数:openFind / openReplace 时由 App.vue 写入,
 // FindReplace 内部 watch open → 读这两个初始化。后续用户改 query 不影响这里。
@@ -151,7 +151,7 @@ const findInitialQuery = ref('')
 const findInitialShowReplace = ref(false)
 
 function currentSelectionText(): string {
-  const view = milkdownRef.value?.getEditorView()
+  const view = editorRef.value?.getEditorView()
   if (!view) return ''
   const { from, to } = view.state.selection
   if (from === to) return ''
@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
 
       <!-- 编辑器区域 -->
       <ProseMirrorEditor
-        ref="milkdownRef"
+        ref="editorRef"
         v-model:find-open="findOpen"
         :find-initial-query="findInitialQuery"
         :find-initial-show-replace="findInitialShowReplace"

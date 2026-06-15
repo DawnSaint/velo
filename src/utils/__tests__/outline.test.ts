@@ -129,7 +129,6 @@ describe('parseHeadings', () => {
   })
 
   it('转义字符:text 保留反斜杠,displayText 还原成字面字符', () => {
-    // 模拟 Milkdown 序列化后,标题里有 _ 被转义为 \_
     const md = '# foo\\_bar'
     const tree = parseHeadings(md)
     expect(tree[0].text).toBe('foo\\_bar') // raw 源保留 \_

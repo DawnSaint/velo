@@ -382,6 +382,10 @@ function parseLinkSource(source: string): { text: string, href: string } | null 
 /**
  * #anchor → view.dom 内查找 heading[id],命中则平滑滚动。
  */
+function slugifyHeadingId(id: string): string {
+  return id.toLowerCase().trim().replace(/\s+/g, '-')
+}
+
 function scrollToAnchor(view: EditorView, rawId: string): void {
   let id = rawId
   try {
@@ -390,7 +394,13 @@ function scrollToAnchor(view: EditorView, rawId: string): void {
   catch {
     /* 解不出来就用原值 */
   }
-  const target = view.dom.querySelector(`[id="${CSS.escape(id)}"]`)
+
+  const candidates = [id, slugifyHeadingId(id)]
+  let target: Element | null = null
+  for (const candidate of candidates) {
+    target = view.dom.querySelector(`[id="${CSS.escape(candidate)}"]`)
+    if (target) break
+  }
   if (target) {
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }

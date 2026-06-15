@@ -1,8 +1,4 @@
-// 替代 @milkdown/vue 的 useEditor() + <Milkdown />。
-//
-// 旧 Milkdown 路径里:`useEditor((root) => Editor.make().config(...).use(...))` 把
-// 创建/销毁/挂载交给 @milkdown/vue,容器由 <Milkdown /> 提供。
-// 这里直接走裸 ProseMirror:caller 提供 schema / plugins / 初始 doc / change 回调,
+// caller 提供 schema / plugins / 初始 doc / change 回调,
 // composable 负责 EditorView 的挂载、销毁,以及把 view 暴露给外层(供 find/replace
 // 这种"拿到 view 自己 dispatch"的用例)。
 //

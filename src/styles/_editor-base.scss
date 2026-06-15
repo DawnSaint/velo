@@ -1,0 +1,67 @@
+// 编辑器基础:ProseMirror 壳 + 占位 + 选区 + find 高亮 + drop-cursor
+
+.velo-editor {
+  // ProseMirror 编辑区根
+  .ProseMirror {
+    outline: none;
+    min-height: 100%;
+    padding-bottom: 64px;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    white-space: break-spaces;
+    -webkit-font-variant-ligatures: none;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0;
+    tab-size: 8;
+    -moz-tab-size: 8;
+  }
+
+  // ProseMirror 末尾自动追加的内置元素(trailingBreak / separator)。
+  // 不能禁掉——ProseMirror 用它们管末尾指针。这里把宽度归零,inline 排版,
+  // 既不占视觉空间,又保留 ProseMirror 的内部行为。
+  // separator 的 display 用 !important 覆盖 ProseMirror 默认的 inline-block。
+  .ProseMirror-separator,
+  .ProseMirror-trailingBreak {
+    width: 0;
+    user-select: none;
+    pointer-events: none;
+  }
+  .ProseMirror-separator { display: inline !important; }
+  .ProseMirror-trailingBreak { display: inline; }
+
+  // 占位提示(空文档首段)
+  .ProseMirror p.is-editor-empty:first-child::before {
+    color: #adb5bd;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+
+  // 选区
+  .ProseMirror ::selection {
+    background: #b4d5ff;
+  }
+
+  // 查找替换高亮(findHighlightPlugin 加的 Decoration)。
+  // ::selection 只在选区处于焦点元素时绘制——焦点在 find 输入里时 ::selection
+  // 不会画,所以必须用 Decoration 才能在用户 navigate 时持续看到高亮。
+  .velo-find-match {
+    background-color: rgba(255, 215, 0, 0.35);
+    border-radius: 2px;
+  }
+  .velo-find-current {
+    background-color: rgba(255, 165, 0, 0.6);
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.7);
+  }
+}
+
+// ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)
+// dropCursor({ color: false, class: 'velo-drop-cursor' }) 用 class hook。
+.velo-drop-cursor {
+  background: var(--md-primary-color, #1F71D9);
+  width: 2px;
+  margin-left: -1px;
+  pointer-events: none;
+}

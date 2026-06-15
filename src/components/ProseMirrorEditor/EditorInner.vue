@@ -5,11 +5,12 @@
 // - 修上游 markRule bug 的 fixedXxx 规则保留(markRule 仍来自 prosemirror-inputrules)
 // - 各自定义 NodeView / Decoration / InputRule 走本地 nodes/* + image/* + findreplace/*
 // - 写入时 toMarkdown(doc) → emit update:modelValue(走 markdownIO)
-// - modelValue 外部变化时,由父级 :key 触发重挂;本组件不做 watch modelValue
+// - modelValue 外部变化时(切文件 / CLI 打开 / fs:watch 同步)→ 直接 view.updateState
+//   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
 import { onBeforeUnmount, watch } from 'vue'
 import { EditorView } from 'prosemirror-view'
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
 import { inputRules, emDash, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { history, undo, redo } from 'prosemirror-history'
@@ -243,21 +244,37 @@ const allPlugins = [...basePlugins, inputRulesPlugin]
 
 const props = defineProps<{
   modelValue: string
-  focusOnCreate?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  rebuildRequest: []
 }>()
 
 // 区分 self-emit echo vs 外部 modelValue 变化。值匹配 → echo,跳过;
-// 否则 → emit rebuildRequest(父级 bump :key 重建)。
+// 否则 → 直接 view.updateState 替换内部状态,plugin state 因 init 跑而归零
+// (等价于"销毁重建 EditorView",但不动 view 实例,不重挂 NodeView 容器)。
 let lastSelfEmitted: string | null = null
+// 首次挂载完成 = onReady 跑过 = mounted。后续 watch 触发的都是"外部 modelValue
+// 切换",这时拉焦点回编辑区(切文件 / CLI 打开 / 外部同步的明确意图)。
+// 启动期(mounted=false)不抢焦点,避免把 DraftRecoveryDialog 等启动期弹窗的
+// 焦点踢走。
+let mounted = false
 
 watch(() => props.modelValue, (newVal) => {
   if (newVal === lastSelfEmitted) return
-  emit('rebuildRequest')
+  const view = getView()
+  if (!view) return
+
+  const doc = fromMarkdown(newVal, schema as VeloSchema)
+  view.updateState(EditorState.create({
+    schema,
+    doc,
+    plugins: allPlugins,
+  }))
+  stampHljsInto(view)
+  if (mounted) {
+    try { view.focus() } catch { /* 销毁期忽略 */ }
+  }
 })
 
 // useProseMirror 返回的 containerRef 直接绑到 template ref。TS 看不到
@@ -275,9 +292,7 @@ const { containerRef, getView } = useProseMirror({
   },
   onReady: (view) => {
     stampHljsInto(view)
-    if (props.focusOnCreate) {
-      try { view.focus() } catch { /* 销毁期忽略 */ }
-    }
+    mounted = true
   },
 })
 

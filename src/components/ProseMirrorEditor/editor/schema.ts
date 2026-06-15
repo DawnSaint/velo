@@ -1,19 +1,11 @@
 // 基础 schema 装配。一处提供整套 ProseMirror schema(commonmark + gfm + 自定义节点)。
 //
 // 设计原则:
-// - **schema 形状对齐 Milkdown preset 输出**(节点名、attr 名、defaults 与
-//   @milkdown/preset-commonmark / -gfm 严格一致)。这样旧 doc 反序列化时
-//   不会因 attr 默认值漂移导致行为差异;脚注/任务列表/表格 markdown 往返
-//   也走同一组 mdast 类型,不需要额外的兼容层。
 // - **自定义节点(math_inline / math_block / mermaid)只占 schema 槽位**,
 //   parseDOM/toDOM 是占位,真正的渲染走 NodeView / Decoration.widget。
 //   见 ARCHITECTURE.md 的"mermaid 走 widget 不走 NodeView"段。
-// - **list_item 一并合并 task list checked attr**(沿用 Milkdown 选择 a:
-//   单节点 + 可选 checked,不分裂 task_list_item)。NodeView 在
+// - **list_item 一并合并 task list checked attr**。NodeView 在
 //   TaskListNodeView.ts 里按 checked != null 分支渲染 checkbox。
-// - **emphasis/strong 的 marker 默认值硬编码 '*'**;原 Milkdown 走
-//   remarkStringifyOptionsCtx 的全局配置,我们没有这一层 ctx。
-// - **link.href 无 default**:原样保留 Milkdown 行为,缺 href 抛错。
 //
 // 不在这里:input rules、keymap、history —— 那些是 Plugin,不是 schema spec。
 
@@ -37,13 +29,6 @@ const nodes: Record<string, NodeSpec> = {
   paragraph: {
     content: 'inline*',
     group: 'block',
-    // empty: true 表示"空段占位",由 preserveEmptyLine 注入的 <br /> 块在
-    // mdastBlockToPM 转 PM 时打上标记,toMarkdown 阶段还原成含 <br /> inline
-    // html 的 mdast 节点 → stringify 输出 <br />\n\n 不被 normalize 折叠,实现
-    // "多空行 → 多空段" round-trip。
-    attrs: {
-      empty: { default: false },
-    },
     parseDOM: [{ tag: 'p' }],
     toDOM: () => ['p', 0],
   },
@@ -310,7 +295,6 @@ const nodes: Record<string, NodeSpec> = {
   // math_inline / math_block:LaTeX 公式。
   // - inline 走 KaTeX 行内渲染,内容为 source(textContent)
   // - block 走 KaTeX displayMode,source 在 attrs.value 里
-  // 与 @milkdown/plugin-math 的 schema 一致。
   math_inline: {
     group: 'inline',
     inline: true,
@@ -431,7 +415,6 @@ const nodes: Record<string, NodeSpec> = {
   }),
 }
 
-// 表格节点上的 GFM 特化:强制头行 + 体行结构,与 Milkdown preset-gfm 一致。
 // tableNodes 默认 content 是 'table_row+',需要替换成头行优先。
 // 同时新增 table_header_row 节点(prosemirror-tables 默认无)。
 nodes.table = {
@@ -464,8 +447,6 @@ nodes.table_row = {
 // ============================================================
 
 const marks: Record<string, MarkSpec> = {
-  // 行内 code,priority 100 —— 与 Milkdown commonmark 一致,确保
-  // markRule 触发顺序和 emphasis/strong 不冲突
   code: {
     code: true,
     parseDOM: [{ tag: 'code' }],
@@ -501,7 +482,6 @@ const marks: Record<string, MarkSpec> = {
 
   link: {
     attrs: {
-      // href 无 default —— 与 Milkdown 一致;创建 link mark 必须显式传 href
       href: {},
       title: { default: null },
     },

@@ -3,7 +3,7 @@
 /* ---- 引用端: <sup class="footnote-ref-node"> ----
    sup 本身就是 contentEditable=true,文本就是 label;
    不再用单独 input。Cmd/Ctrl + 单击 跳到 definition。 */
-.milkdown-editor .footnote-ref-node {
+.velo-editor .footnote-ref-node {
   display: inline-block;
   min-width: 1.2em;
   padding: 0 2px;
@@ -30,7 +30,7 @@
 }
 
 /* 跳转失配的瞬时反馈 */
-.milkdown-editor .footnote-ref-node.footnote-flash {
+.velo-editor .footnote-ref-node.footnote-flash {
   animation: footnote-flash 0.4s ease;
 }
 
@@ -40,12 +40,12 @@
 }
 
 /* ---- 孤儿 reference(无对应 definition) ---- */
-.milkdown-editor .footnote-ref-node.footnote-orphan {
+.velo-editor .footnote-ref-node.footnote-orphan {
   color: #d14;
 }
 
 /* ---- 定义端: <dl class="footnote-definition"> ---- */
-.milkdown-editor .footnote-definition {
+.velo-editor .footnote-definition {
   display: flex;
   align-items: center;
   gap: 0.4em;
@@ -53,7 +53,7 @@
   padding: 0.8em 0 0;
 }
 
-.milkdown-editor .footnote-definition .footnote-label {
+.velo-editor .footnote-definition .footnote-label {
   flex: 0 0 auto;
   color: var(--md-primary-color, #1F71D9);
   font-weight: 600;
@@ -75,19 +75,19 @@
   }
 }
 
-.milkdown-editor .footnote-definition .footnote-content {
+.velo-editor .footnote-definition .footnote-content {
   flex: 1 1 auto;
   min-width: 0;
   opacity: 0.6;
 }
 
 /* 强制 content 内的 paragraph 走 inline,这样描述跟在 label 后同一行 */
-.milkdown-editor .footnote-definition .footnote-content > p {
+.velo-editor .footnote-definition .footnote-content > p {
   display: inline;
   margin: 0;
 }
 
-.milkdown-editor .footnote-definition .footnote-backref {
+.velo-editor .footnote-definition .footnote-backref {
   flex: 0 0 auto;
   color: var(--md-primary-color, #1F71D9);
   text-decoration: none;

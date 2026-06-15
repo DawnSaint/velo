@@ -1,6 +1,6 @@
 /* ========== Mermaid 节点 ========== */
 
-.milkdown-editor .mermaid-node {
+.velo-editor .mermaid-node {
   cursor: pointer;
   border-radius: 8px;
   padding: 12px;
@@ -10,13 +10,13 @@
   border: 1px solid transparent;
 }
 
-.milkdown-editor .mermaid-node:not(.is-editing):hover {
+.velo-editor .mermaid-node:not(.is-editing):hover {
   background: rgba(128, 128, 128, 0.05);
   border-color: rgba(128, 128, 128, 0.15);
 }
 
 /* 空态占位 */
-.milkdown-editor .mermaid-placeholder {
+.velo-editor .mermaid-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -28,7 +28,7 @@
 }
 
 /* Loading */
-.milkdown-editor .mermaid-loading {
+.velo-editor .mermaid-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -37,7 +37,7 @@
 }
 
 /* 错误显示 */
-.milkdown-editor .mermaid-error {
+.velo-editor .mermaid-error {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -51,18 +51,18 @@
   font-size: 0.9em;
 }
 
-.milkdown-editor .mermaid-error-icon {
+.velo-editor .mermaid-error-icon {
   font-weight: bold;
   font-size: 1.2em;
 }
 
-.milkdown-editor .mermaid-error-hint {
+.velo-editor .mermaid-error-hint {
   font-size: 0.8em;
   color: #999;
 }
 
 /* SVG 响应式 */
-.milkdown-editor .mermaid-node svg {
+.velo-editor .mermaid-node svg {
   max-width: 100%;
   max-height: 400px;
   height: auto;
@@ -73,23 +73,23 @@
 /* ========== 暗色模式：Mermaid ========== */
 
 .dark .mermaid-placeholder,
-.milkdown-editor.dark .mermaid-placeholder {
+.velo-editor.dark .mermaid-placeholder {
   border-color: #555;
   color: #777;
 }
 
 .dark .mermaid-loading,
-.milkdown-editor.dark .mermaid-loading {
+.velo-editor.dark .mermaid-loading {
   color: #888;
 }
 
 .dark .mermaid-error,
-.milkdown-editor.dark .mermaid-error {
+.velo-editor.dark .mermaid-error {
   border-color: #f77878;
   color: #f77878;
 }
 
 .dark .mermaid-error-hint,
-.milkdown-editor.dark .mermaid-error-hint {
+.velo-editor.dark .mermaid-error-hint {
   color: #888;
 }

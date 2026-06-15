@@ -32,7 +32,7 @@ velo/
 │       ├── EditorSettings.vue
 │       ├── DraftRecoveryDialog.vue
 │       └── ProseMirrorEditor/
-│           ├── index.vue          壳 (CSS 变量 / hljs 加载 / innerKey 控制重挂)
+│           ├── index.vue          壳 (CSS 变量 / hljs 加载)
 │           ├── EditorInner.vue    useProseMirror() + 裸 ProseMirror EditorView
 │           ├── nodes/             自定义 ProseMirror 节点
 │           │   ├── MathNodeViews.ts        公式 NodeView (block view 走 TextareaEditor)
@@ -99,7 +99,7 @@ velo/
 
 **`documentStore.content` 是编辑器文本的唯一来源** —— `<ProseMirrorEditor :model-value v-model>` 双向同步,`EditorOutline` 只读。`dirty = content !== lastSavedContent`。
 
-**生命周期** 由 `useProseMirror` 接管:`EditorInner.vue` 在 onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时(切文件 / 新建 / 外部同步),`lastSelfEmitted` 值对比探测,emit `rebuildRequest` 给外层 bump `innerKey` 触发整编辑器重建(优于 `isInternalChange` + `nextTick` 时序标志)。
+**生命周期** 由 `useProseMirror` 接管:`EditorInner.vue` 在 onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时(切文件 / 新建 / 外部同步),`lastSelfEmitted` 值对比探测,`EditorInner` 内部直接 `view.updateState(EditorState.create(...))` 替换内部 state(plugin state 因 init 跑而归零,等价 destroy + recreate 但不销毁 view 实例),`index.vue` 不参与重建控制
 
 **文件操作**(都走 `documentStore`):
 - **打开** → `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent`(设 `echosToAccept=1` 等编辑器首屏 echo)
@@ -127,7 +127,7 @@ velo/
 - **自家写盘不打扰** —— `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 因此被 `disk === lastSavedContent` 短路
 - **写盘抛错回滚** —— `lastSavedContent` 先推到 snapshot,失败回滚到 `previousBaseline`,dirty 不错位
 - **focus 兜底** —— `notify-rs` 在网络盘 / 原子 rename / Dropbox 等同步工具下会漏报,`window focus` 主动核一次
-- **echo 哨兵** (`lastSelfEmitted`) —— `EditorInner` 自己 dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch modelValue 看到值匹配就跳过(自己 emit 的 echo);不匹配就 emit `rebuildRequest` 重建。比 `isInternalChange + nextTick` 时序标志更稳。
+- **echo 哨兵** (`lastSelfEmitted`) —— `EditorInner` 自己 dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch modelValue 看到值匹配就跳过(自己 emit 的 echo);不匹配则 `EditorInner` 内部 `view.updateState(EditorState.create(...))` 替换内部 state。比 `isInternalChange + nextTick` 时序标志更稳。
 - **NodeView 隔离** —— `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
 - **mermaid 走 widget 不走 NodeView** —— atom NodeView 的 outer dom 改 `innerHTML` 会被 ProseMirror 的 `DOMObserver` 当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount,所有 NodeView destroy + recreate,用户每敲一字符 mermaid 全闪 loader。改用 `Decoration.widget`:`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变,widget 内部 `dom.innerHTML = svg` 不报警。widget 内部根据 plugin state.editNodePos 切换"显示 SVG"/"显示 textarea"两种渲染,key 设为 `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}` 在状态切换时由 ProseMirror 卸载/挂载。完全没有 NodeView,schema toDOM 输出 `height:0` 隐藏占位(atom 节点必须有 dom 用于 posAtCoords / selection 映射,藏掉视觉即可)。**坑**:plugin promise resolve 后**不要** dispatch setMeta 触发 buildDecorations,否则新 Decoration 实例的 `WidgetType.eq` 在比 toDOM/spec 时会失败 → widget 复用失效 → 死循环;直接在 widget 自己的 dom 上写 svg 即可。
 - **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏

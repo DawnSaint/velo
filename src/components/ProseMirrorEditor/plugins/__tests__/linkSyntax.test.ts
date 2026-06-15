@@ -68,6 +68,21 @@ describe('linkSyntax: 单字触发', () => {
     cleanup()
   })
 
+  it('URL 含内部空格(页内锚点常见写法)→ 仍识别为链接', () => {
+    // `[回到开头](# Markdown 语法)` 这种写法在中文 markdown 编辑里很常见,
+    // 之前 `[^()\s]+` 把空格排了导致不识别,放宽后能识别。
+    // 跳转由 linkClick.scrollToAnchor 的 slug 化降级匹配负责。
+    const { view, cleanup } = mountView('')
+    view.dispatch(view.state.tr.insertText('[回到开头](# Markdown 语法)', 1))
+    const para = view.state.doc.firstChild!
+    const linkChild = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === '回到开头')
+    expect(linkChild).toBeDefined()
+    expect(linkChild!.marks.find(m => m.type.name === 'link')?.attrs.href)
+      .toBe('# Markdown 语法')
+    cleanup()
+  })
+
   it('regex:跨行 [text\\n](url) 不匹配', () => {
     const matched = /\[([^\]\n]+)\]\(([^()\s]+)\)/.exec('para[a\nb](url)')
     expect(matched).toBeNull()

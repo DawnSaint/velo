@@ -182,6 +182,26 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
     expect(emptyCRLF).toBeGreaterThan(0)
   })
 
+  it('URL 含内部空格(中文页内锚点)→ 解析为链接,href 是可读形式(空格已 decode)', () => {
+    // 链路:输入 `[text](url with space)` → preprocessor encode 让 remarkParse
+    // 接受 → mdast → PM 时再 decode 回可读形式 → doc.link.attrs.href 是
+    // 友好形态(用户看到的不是 %20)。
+    // toMarkdown 序列化:remark-stringify 检测到 URL 含空格会自动用
+    // `<url>` 包裹(标准 CommonMark 行为,跨工具通用),不依赖我们干预。
+    const doc = fromMarkdown('页内 [回到开头](# Markdown 语法) 测试。', schema)
+    const para = doc.firstChild!
+    const linkChild = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.marks.some(m => m.type.name === 'link'))
+    expect(linkChild).toBeDefined()
+    const linkMark = linkChild!.marks.find(m => m.type.name === 'link')!
+    // href 字段是 "可读形式"(空格未 encode)
+    expect(linkMark.attrs.href).toBe('# Markdown 语法')
+
+    // 验证后续 toMarkdown 也不暴露 %20 给用户(走 `<url>` 包裹)
+    const back = toMarkdown(doc)
+    expect(back).toContain('回到开头](<# Markdown 语法>)')
+  })
+
   it('1 个空段解析为空 paragraph(childCount=0) 节点', () => {
     // a\n\n\nb → preprocess 注入 <br /> → remark-parse 出块级 html
     // → mdastBlockToPM 转空 paragraph。判断空段靠 childCount=0,
