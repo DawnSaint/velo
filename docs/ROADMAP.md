@@ -151,10 +151,28 @@
 - [x] `[text](url)` 链接语法渲染(沿用 `prosemirror-markdown` 自带 link mark + schema)
 - [x] 警告框渲染(`remarkAlert` 改写 mdast `> [!NOTE]` → `alert` schema 节点,5 种 variant note/tip/important/warning/caution,反向 toMarkdown 用 mdast `html` 节点绕过 `[` 转义)
 - [x] html 语法渲染(`html_block` / `html_inline` 节点 + `HtmlNodeView` 用 DOMPurify sanitize 后 innerHTML 写入;行内 `<kbd>Ctrl</kbd>` 等用 `mergeHtmlInlineRuns` 合并被 remark 拆散的标签段)
+- [x] 语法实时转换框架(`syntax/*` registry + `plugins/syntaxAutoFormat.ts`):dirty-range 局部扫描 + block/inline 两层注册表,新增语法只需写一个文件
+- [x] 7 类块级语法键入触发:`# `~`###### ` heading / `> ` blockquote / `- `+`* `+`+ `(含 `- [ ] ` 任务变种)bullet_list / `\d+. ` ordered_list / ` ``` `+` ```lang ` code_block / `--- ` hr / blockquote 内 `> [!TYPE]` + Enter → alert
+- [x] 修复 `[^xxx]` 必须正向输入的问题:框架走全段 g 正则,反向输入(先 `]` 再补 `[^xxx`)也能触发
 
 **fix**
 
 - [x] 修复空行无法正常显示的问题(`v0.4.0` markdownIO 重构后,`preprocessBlankLines` 注入的 `<br />` 走 `html_block` 路径渲染成单独 `<div>`,不是空段;改成 `paragraph([])` 空 childCount + `toMarkdown` 用 `text` 节点占位 + 调整 `preprocessBlankLines` 公式为 `match.length / 2 - 1`,实现 `1 空段 round-trip 后仍 1 空段` 不翻倍)
+- [x] list_item 内 Enter 行为修复:`v0.4.0` 迁到裸 ProseMirror 时漏挂 `splitListItem`,导致有内容项按 Enter 产生新 paragraph(光标缩进但无标识)而非新 list_item;Enter 链改成 `chainCommands(dollarEnterCmd, splitListItem, liftListItem, splitBlock)`,顺带让空 list_item 按 Enter 提升为顶层 paragraph(退出列表),与 baseKeymap 的 splitBlock 兜底保持非列表路径
+- [x] `preprocessBlankLines` 行尾规范化:磁盘上的 CRLF / 老 Mac CR 风格文件,旧正则 `\n\n\n+` 因 \r 隔断匹配不到,多空行不被识别;先 `.replace(/\r\n?/g, '\n')` 统一成 LF
+- [x] alert 实时转换大小写不敏感:初版 `ALERT_PATTERN` 只识别全写 `[!NOTE]`,与 markdownIO 走的 `remarkAlert` 路径(用 `/i` flag)行为分叉;给 regex 加 `i` flag + `apply` 内白名单防御(防 `[!FOO]` 误吞)
+
+**refactor**
+
+- [x] 5 条独立 InputRule(`fixedEmphasisUnderscore` / `fixedStrikethrough` / `inlineMath` / `linkInputRule` / `footnoteReference`)+ `linkAutoFormatPlugin` 统一并入 `syntax/*` registry,`EditorInner.vue` 的 `inputRulesPlugin` 只保留 `ellipsis` / `emDash` 纯文本快速路径
+
+**test**
+
+- [x] `syntaxAutoFormat.test.ts` 25 个用例:7 个块级 happy / 段中反例 / 5 个 inline / 反向输入 footnote / 黑名单 / 防死循环 / noop tr 不变 / 转换产物不重抓
+- [x] `listEnter.test.ts` 4 个用例:有内容项 Enter / ordered_list 项 Enter / 空 list_item lift 退列表 / 普通段落 Enter
+- [x] `preserveEmptyLine.test.ts` 3 个新用例:CRLF 识别 / 老 Mac CR 识别 / LF/CRLF 混用
+- [x] `markdownIO.test.ts` 1 个新增 round-trip 用例:CRLF 风格的空段数与 LF 对齐
+- [x] 旧测试清理:`inlineMathInputRule.test.ts`(测的是测试文件自己粘贴的 InputRule 副本,生产代码已删)、`linkInputRule.test.ts` + `linkAutoFormat.test.ts` 合并为 `linkSyntax.test.ts`(9 个用例)
 
 
 

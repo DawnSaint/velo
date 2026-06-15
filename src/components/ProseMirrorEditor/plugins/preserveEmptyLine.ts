@@ -31,14 +31,25 @@ export const remarkPreserveEmptyLine = function(this: any) {
 /**
  * 把多空行转成 `<br />\n\n` 重复,每个多出来的空行多 1 个 `<br />` 块。
  * 纯函数,方便单测。
+ *
+ * ## 行尾规范化
+ *
+ * 先把 CRLF(`\r\n`)和 单独 CR(`\r`,老 Mac 风格)统一成 LF,再处理多空行。
+ * 原因:Windows / 网络盘 / 旧 git 配置可能让磁盘文件是 CRLF,`\r` 夹在两个
+ * `\n` 中间会让下方 `\n\n\n+` 匹配不到。所有 md → doc 路径都过
+ * remarkPreserveEmptyLine,所以这里加一行覆盖所有调用入口
+ * (fromMarkdown 初始装载 / linkClick 提交时 inline 重解析 / 任何未来
+ * `fromMarkdown` 的调用方)。
  */
 export function preprocessBlankLines(doc: string): string {
-  return doc.replace(/\n\n\n+/g, (match) => {
-    const blankLineCount = match.length / 2 - 1
-    let result = '\n\n'
-    for (let i = 0; i < blankLineCount; i++) {
-      result += '<br />\n\n'
-    }
-    return result
-  })
+  return doc
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n\n\n+/g, (match) => {
+      const count = Math.ceil(match.length / 2 - 1)
+      let result = '\n\n'
+      for (let i = 0; i < count; i++) {
+        result += '<br />\n\n'
+      }
+      return result
+    })
 }

@@ -169,6 +169,19 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
   // 会把 a\n\n\nb 转成 a\n\n<br />\n\nb(toMarkdown 又会还原成同样形态),
   // 所以源字符串跟回写字符串必然不等 —— 但 doc 结构在 from→to→from 循环后保持一致。
 
+  it('CRLF 行尾的多空行也能被识别(从磁盘读 Windows 文件场景)', () => {
+    // 修复前:`a\r\n\r\n\r\nb` 走 preprocessBlankLines 不会变(因 \r 卡住匹配),
+    // 最终 doc 没有空 paragraph 占位;现在统一规范化,空段数与 LF 版本一致。
+    const docLF = fromMarkdown('a\n\n\nb', schema)
+    const docCRLF = fromMarkdown('a\r\n\r\n\r\nb', schema)
+    expect(docCRLF.childCount).toBe(docLF.childCount)
+    // 验证空段数对齐(LF 走 1 空段,CRLF 走 1 空段)
+    const emptyLF = docLF.children.filter(c => c.childCount === 0).length
+    const emptyCRLF = docCRLF.children.filter(c => c.childCount === 0).length
+    expect(emptyCRLF).toBe(emptyLF)
+    expect(emptyCRLF).toBeGreaterThan(0)
+  })
+
   it('1 个空段解析为空 paragraph(childCount=0) 节点', () => {
     // a\n\n\nb → preprocess 注入 <br /> → remark-parse 出块级 html
     // → mdastBlockToPM 转空 paragraph。判断空段靠 childCount=0,

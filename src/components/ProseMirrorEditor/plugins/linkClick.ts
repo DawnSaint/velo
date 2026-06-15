@@ -29,7 +29,6 @@ import type { Transaction } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import type { MarkType, Node as PMNode, ResolvedPos } from 'prosemirror-model'
 import { Decoration, DecorationSet } from 'prosemirror-view'
-import { InputRule } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { open } from '@tauri-apps/plugin-shell'
 import { fromMarkdown, toMarkdown } from '../editor/markdownIO'
@@ -408,87 +407,15 @@ async function openExternal(url: string): Promise<void> {
 }
 
 // ============================================================
-//  实时 [text](url) → link mark
+//  历史:实时 [text](url) → link mark
+//
+//  v0.4.0 ~ v0.4.1 这里有一个 linkAutoFormatPlugin(全文 appendTransaction
+//  扫描)+ 一个 @deprecated 的 linkInputRule。v0.4.1.x 起这两段都迁到
+//  syntax registry(syntax/inline/link.ts),由 plugins/syntaxAutoFormat
+//  统一调度。本文件只保留:
+//   - linkClickPlugin / linkClickPluginKey:点击进入源码编辑态 + session 状态
+//   - linkEditEscapeKeymap:Escape 退出编辑态
+//
+//  syntaxAutoFormatPlugin 通过 linkClickPluginKey.getState 读 session 范围,
+//  与之相交的 textblock 不抢用户改源码 —— 这是 session 唯一的对外接口。
 // ============================================================
-
-/**
- * 每次 doc 变化后扫描所有 inline text,把 `[text](url)` 模式替换为带 link mark 的 text。
- *
- * 走 appendTransaction 而不是 InputRule,因为 InputRule 只对**单字键入紧贴匹配末尾**
- * 响应 —— 粘贴整段 markdown / 中间删除一字符再补 / 删 `[` 再补回 都不会触发。
- *
- * 跳过的位置:
- *  - 已经带 link mark 的文本(避免重复转换 / 死循环)
- *  - 编辑态 source(linkClickPlugin.state.session 范围内 —— 用户正在改源码)
- *  - code mark / code_block(代码字面量不该被解析为链接)
- */
-const LINK_PATTERN = /\[([^\]\n]+)\]\(([^()\s]+)\)/g
-
-export const linkAutoFormatPlugin = new Plugin({
-  appendTransaction(transactions, _oldState, newState) {
-    if (!transactions.some(tr => tr.docChanged)) return null
-
-    const linkMarkType = newState.schema.marks.link
-    const codeMarkType = newState.schema.marks.code
-    if (!linkMarkType) return null
-
-    // 编辑态范围:不在编辑链接源码里转,否则用户改了一半就被吃掉
-    const session = linkClickPluginKey.getState(newState)?.session ?? null
-
-    let tr = newState.tr
-    let touched = false
-
-    newState.doc.descendants((node, pos) => {
-      if (node.isText) {
-        // 跳过已经带 link mark 或在 code mark 里的文本
-        if (node.marks.some(m => m.type === linkMarkType)) return false
-        if (codeMarkType && node.marks.some(m => m.type === codeMarkType)) return false
-
-        const text = node.text ?? ''
-        let match: RegExpExecArray | null
-        LINK_PATTERN.lastIndex = 0
-        while ((match = LINK_PATTERN.exec(text)) !== null) {
-          const matchStart = pos + match.index
-          const matchEnd = matchStart + match[0].length
-
-          // 与编辑态 session 重叠 → 跳过(用户正在改源码,不抢)
-          if (session && matchStart < session.editTo && matchEnd > session.editFrom) continue
-
-          const linkText = match[1]
-          const url = match[2]
-          if (!linkText || !url) continue
-
-          // tr.mapping 累计前面替换的位移
-          const from = tr.mapping.map(matchStart)
-          const to = tr.mapping.map(matchEnd)
-          const linkMark = linkMarkType.create({ href: url })
-          tr = tr.replaceWith(from, to, newState.schema.text(linkText, [linkMark]))
-          touched = true
-        }
-        return false  // text 节点不再下钻
-      }
-      // code_block 整段跳过
-      if (node.type.name === 'code_block') return false
-      return true
-    })
-
-    return touched ? tr : null
-  },
-})
-
-/**
- * @deprecated linkAutoFormatPlugin 完全覆盖 InputRule 能力(还多了粘贴/删除补回)。
- * 保留导出仅为不破坏可能的外部 import。
- */
-export const linkInputRule = new InputRule(
-  /\[([^\]\n]+)\]\(([^()\s]+)\)$/,
-  (state, match, start, end) => {
-    const text = match[1]
-    const url = match[2]
-    if (!text || !url) return null
-    const linkMarkType = state.schema.marks.link
-    if (!linkMarkType) return null
-    const linkMark = linkMarkType.create({ href: url })
-    return state.tr.replaceWith(start, end, state.schema.text(text, [linkMark]))
-  },
-)

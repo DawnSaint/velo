@@ -1,5 +1,4 @@
 import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
-import { InputRule } from 'prosemirror-inputrules'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
@@ -308,30 +307,12 @@ const footnoteNumberPlugin = new Plugin({
 const footnoteEditPlugin = footnoteNumberPlugin
 
 // ============================================================
-//  6. 输入规则:输入 `[^id]` → 自动转 footnote_reference
+//  历史:输入规则 `[^id]` → footnote_reference
+//
+//  v0.4.0 ~ v0.4.1 这里有 footnoteReferenceInputRule;v0.4.1.x 起迁到
+//  syntax/inline/footnoteRef.ts,由 syntaxAutoFormatPlugin 调度。
+//  关键改进:不再依赖"键入紧贴匹配末尾",先输 `]` 再前面补 `[^xxx` 也能触发。
 // ============================================================
-//
-//  @milkdown/preset-gfm 自带 schema 但不带 inputRule,用户手动敲 `[^id]`
-//  不会自动转成节点。这里补一条:在 paragraph/heading 等 inline 容器里,
-//  文本末尾出现 `[^id]` 时,光标紧跟 `]` 触发,替换为 footnote_reference 节点。
-//
-//  注意:
-//  - 用 $ 锚定到光标位置(ProseMirror inputRule 的标准做法)
-//  - id 不允许含空白 / `]`
-//  - 不与已有 emphasis/strikethrough 冲突(它们的开头是 `*_~`)
-
-export const footnoteReferenceInputRule = new InputRule(
-  /\[\^([^\s\]]+)\]$/,
-  (state, match, start, end) => {
-    const $start = state.doc.resolve(start)
-    if ($start.parentOffset === 0) return null
-    const label = match[1]
-    if (!label) return null
-    const type = state.schema.nodes.footnote_reference
-    if (!type) return null
-    return state.tr.replaceRangeWith(start, end, type.create({ label }))
-  },
-)
 
 
 

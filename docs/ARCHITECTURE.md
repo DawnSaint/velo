@@ -39,7 +39,7 @@ velo/
 │           │   ├── MermaidSyntax.ts        mermaid remark 插件 + schema (toDOM 输出 height:0 占位)
 │           │   ├── MermaidDecoration.ts    mermaid widget plugin (SVG 显示 + 编辑态 textarea,详见"设计要点")
 │           │   ├── TaskListNodeView.ts     任务列表 checkbox NodeView
-│           │   ├── FootnoteNodeViews.ts    脚注 NodeView + 位置收集 Plugin + 输入规则
+│           │   ├── FootnoteNodeViews.ts    脚注 NodeView + 位置收集 Plugin
 │           │   └── TextareaEditor.ts       多行 textarea 编辑壳 (math block / mermaid 共用)
 │           ├── findreplace/       查找替换
 │           │   ├── FindReplace.vue         浮层 UI
@@ -48,8 +48,15 @@ velo/
 │           ├── image/             图片上传与键盘
 │           │   ├── imageUploadPlugin.ts    paste/drop 拦截 + 持盘
 │           │   └── imageKeymap.ts          删除原子保护
-│           └── plugins/           通用独立插件
-│               └── preserveEmptyLine.ts    空行保留
+│           ├── plugins/           通用独立插件
+│           │   ├── linkClick.ts            链接点击 / 源码编辑态 session
+│           │   ├── preserveEmptyLine.ts    空行保留
+│           │   ├── remarkAlert.ts          GFM alert remark 插件
+│           │   └── syntaxAutoFormat.ts     语法实时转换框架(见"设计要点")
+│           └── syntax/            实时语法注册表(详见"设计要点")
+│               ├── index.ts                注册入口(import 触发 register 副作用)
+│               ├── block/                  段首语法:heading / codeBlock / blockquote / list / hr
+│               └── inline/                 段内语法:emphasis / strike / inlineMath / footnoteRef / link
 └── src-tauri/
     ├── capabilities/default.json  fs:allow-** (通用文本编辑器,见维护者注意点 4)
     └── src/{main,lib}.rs          set_window_theme / get_cli_args / PendingCliArgs / single-instance
@@ -74,13 +81,15 @@ velo/
 | `dollarEnterToMathBlock` | `$$` + Enter keymap 入口 |
 | `imageKeymapPlugin` | atom 节点(image / mermaid / math_block)删除保护:Backspace/Delete 紧贴 → 选中而非删除 |
 | `imageUploadPlugin` | paste/drop 拦截 → 落盘 → 插入 image 节点 |
+| `linkClickPlugin` + `linkEditEscapeKeymap` | 链接单击进源码编辑态 / Cmd 跳转 / Escape 还原 |
+| `syntaxAutoFormatPlugin` | **语法实时转换框架**:dirty-range 局部扫,registry 驱动(见"设计要点") |
 | `imageInlineViewPlugin` | image NodeView(Tauri asset:// 协议代理) |
 | `mathEditPlugin` | math_inline / math_block NodeView(KaTeX 实时预览) |
 | `mermaidDecoration` | mermaid block 用 Decoration.widget 渲染 SVG / 编辑态切换 |
 | `taskListPlugin` | `- [ ]` / `- [x]` list_item NodeView(checkbox + 内容区分) |
-| `footnoteEditPlugin` | 脚注 NodeView + 位置收集 + `[^id]` 输入规则 |
+| `footnoteEditPlugin` | 脚注 NodeView + 位置收集 |
 | `findHighlight` | 查找替换高亮 Decoration |
-| `inputRules` | fixedEmphasis_/Strike + inlineMath + footnote + ellipsis/emDash |
+| `inputRules` | ellipsis / emDash 纯文本→纯文本快速路径(其它语法走 syntaxAutoFormat) |
 
 **markdown 解析** 不在 ProseMirror 插件链里 —— 走 `editor/markdownIO.ts` 的 unified pipeline(`remark-parse` + `remark-gfm` + `remark-math` + `remarkPreserveEmptyLine`),`fromMarkdown(md, schema)` 装到 EditorState,`onChange(doc) → toMarkdown(doc)` 回写。**键入触发**走 inputRules,不走 unified。
 
@@ -124,6 +133,7 @@ velo/
 - **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
 - **样式分层** —— ProseMirrorEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
 - **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
+- **语法实时转换走 appendTransaction + dirty-range,不走 InputRule 末尾匹配** —— 历史上每条语法各自一个 InputRule(末尾紧贴 `$` 锚)+ link 单独一份 `linkAutoFormatPlugin`(全文扫描),问题:① 反向输入(如先 `]` 再补 `[^xxx`)不触发 InputRule;② 粘贴 / 中间编辑不响应 InputRule;③ 块级语法(`### `/`> `/`- ` 等)根本没人接管,只能渲染已写好的不能输入触发;④ 每条规则各自处理黑名单 / 编辑态 session,扩展成本高。**新框架**:`plugins/syntaxAutoFormat.ts` 单一 `appendTransaction`,从 `tr.mapping.maps` 提取 dirty range → 扩展到包含的 textblock → 对每个 textblock 跑 `syntax/block/*` 段首检测 + `syntax/inline/*` 段内 g 正则检测。性能:敲一字符 = 扫一段;粘贴整段 = 扫被粘入的 N 段;无全文重扫。黑名单(`code_block` / `html_block` / `mermaid` / `math_block`)、code mark、`linkClickPluginKey.session` 范围由框架统一过滤,语法定义只写 `pattern + apply`。新增语法 = 写一个文件 + 在 `syntax/index.ts` 注册一行。`InputRule` 仅保留 `ellipsis` / `emDash` 这种纯文本→纯文本的快速路径。**坑**:① block detector 要求 `pattern` 带 `^`、不带 `g`;inline 反过来要求带 `g` 不带 `^/$`,框架做 `pattern.global` 防御但不自动改写。② inline 里跑正则前要把段内 atom(image / footnote_reference / math_inline / html_inline)用 NBSP ` ` 占位喂给正则,匹配范围里含 NBSP 直接跳过(避免穿透 atom)。③ 语法 `apply` 直接修改框架传入的 `tr`,多个 match 共用一个 `tr.mapping`,语法不要自己 dispatch。④ `appendTransaction` 返回的 tr 不会回灌到自己,但单次 apply 内若 pattern 会再次匹配产物会死循环 —— 实测 schema 下转出的都是 atom / 带 mark 文本,不进 inline detector 范围,无忧。
 
 
 ---

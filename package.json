@@ -23,7 +23,7 @@
     "@tauri-apps/plugin-fs": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "dompurify": "^3.4.10",
-    "katex": "^0.16.21",
+    "katex": "^0.17.0",
     "mdast-util-find-and-replace": "^3.0.2",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",

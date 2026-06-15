@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// 新版 ProseMirror 编辑器(无 Milkdown 依赖)。
-//
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
 // - 历史 / dropCursor / gapCursor 走 prosemirror-* 官方插件
@@ -8,21 +6,16 @@
 // - 各自定义 NodeView / Decoration / InputRule 走本地 nodes/* + image/* + findreplace/*
 // - 写入时 toMarkdown(doc) → emit update:modelValue(走 markdownIO)
 // - modelValue 外部变化时,由父级 :key 触发重挂;本组件不做 watch modelValue
-//
-// 对外 API 与旧 EditorInner 完全一致:
-//   props: modelValue, focusOnCreate
-//   emit: update:modelValue, rebuildRequest
-//   expose: focusEditor, getEditorView
 
 import { onBeforeUnmount, watch } from 'vue'
 import { EditorView } from 'prosemirror-view'
 import { Plugin, PluginKey } from 'prosemirror-state'
-import { inputRules, emDash, ellipsis, InputRule } from 'prosemirror-inputrules'
+import { inputRules, emDash, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { history, undo, redo } from 'prosemirror-history'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
-import { sinkListItem, liftListItem } from 'prosemirror-schema-list'
+import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
 import { baseKeymap, chainCommands, splitBlock } from 'prosemirror-commands'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
@@ -32,12 +25,14 @@ import { useProseMirror } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
 import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
-import { footnoteEditPlugin, footnoteReferenceInputRule } from './nodes/FootnoteNodeViews'
+import { footnoteEditPlugin } from './nodes/FootnoteNodeViews'
 import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
-import { linkClickPlugin, linkEditEscapeKeymap, linkAutoFormatPlugin, linkInputRule } from './plugins/linkClick'
+import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
+import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
+import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import 'katex/dist/katex.min.css'
@@ -68,61 +63,6 @@ function headingToParagraph(state: any, dispatch?: any): boolean {
   }
   return false
 }
-
-// ============================================================
-//  markRule 修复:
-//  Milkdown 的 preset-commonmark/gfm 里 emphasisUnderscoreInputRule /
-//  strikethroughInputRule 的正则末尾没有 $ 锚点,会扫到段落里任意位置。
-//  新版用 prosemirror-inputrules 的 markRule 自己写一对带 $ 锚点的修复版。
-// ============================================================
-
-const fixedEmphasisUnderscoreInputRule = new InputRule(
-  /\b_(?![_\s])(.*?[^_\s])_\b$/,
-  (state, match, start, end) => {
-    const inner = match[1]
-    if (!inner) return null
-    const tr = state.tr
-    tr.delete(start, end)
-    const mark = state.schema.marks.emphasis.create({ marker: '_' })
-    tr.addMark(start, start + inner.length, mark)
-    return tr
-  },
-)
-
-const fixedStrikethroughInputRule = new InputRule(
-  /(?<![\w:/])(~{1,2})(.+?)\1(?!\w|\/)$/,
-  (state, match, _start, end) => {
-    const inner = match[2]
-    if (!inner) return null
-    const tr = state.tr
-    tr.delete(_start, end)
-    const mark = state.schema.marks.strike_through.create()
-    tr.addMark(_start, _start + inner.length, mark)
-    return tr
-  },
-)
-
-// 行内公式:用户敲完 `$x$`,光标紧贴第二个 $ 时,把匹配段替换为 math_inline 节点。
-//
-// 规则:
-//   - regex `\$([^$\n]+)\$`:匹配 `$ <非空非换行非 $> $` 紧贴光标
-//   - 必须 $1 非空,空匹配不转
-//   - 替换为 math_inline 节点,textContent 是 $1,KaTeX 渲染由 MathNodeViews.ts 接管
-//
-// remark-math / markdownIO 走的是**外部 markdown 解析**;EditorView 实时键入
-// 不经过 unified,必须靠 input rule 显式转换。
-const inlineMathInputRule = new InputRule(
-  /\$([^$\n]+)\$$/,
-  (state, match, start, end) => {
-    const inner = match[1]
-    if (!inner) return null
-    const type = state.schema.nodes.math_inline
-    if (!type) return null
-    const tr = state.tr
-    tr.replaceRangeWith(start, end, type.create(null, state.schema.text(inner)))
-    return tr
-  },
-)
 
 // ============================================================
 //  列表项 + 代码类节点的 Tab 缩进(对齐旧 tabIndent)
@@ -252,9 +192,21 @@ const basePlugins: Plugin[] = [
     Delete: chainCommands(headingToParagraph, baseKeymap['Delete']),
   }),
   keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
-  // dollarEnter 优先($$ + Enter),失败再 splitBlock
+  // Enter 链:
+  //   1. dollarEnterCmd:`$$` + Enter → math_block 编辑态
+  //   2. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
+  //   3. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
+  //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
+  //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
+  //      时的行为割裂)
+  //   4. splitBlock:兜底,普通段落里换行
   keymap({
-    Enter: chainCommands(dollarEnterCmd, splitBlock),
+    Enter: chainCommands(
+      dollarEnterCmd,
+      splitListItem(schema.nodes.list_item),
+      liftListItem(schema.nodes.list_item),
+      splitBlock,
+    ),
   }),
   // baseKeymap 装在最后:接管未自定义的所有键(Enter, Backspace-after-failed, ...)
   keymap(baseKeymap),
@@ -267,7 +219,7 @@ const basePlugins: Plugin[] = [
   imageUploadPlugin,
   linkClickPlugin,
   linkEditEscapeKeymap,
-  linkAutoFormatPlugin,
+  syntaxAutoFormatPlugin,
   imageInlineViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,
@@ -277,22 +229,10 @@ const basePlugins: Plugin[] = [
   findHighlight,
 ]
 
-// InputRule 链路:fixedXxx + footnote + (smartQuotes 由上面基线带)
-// 注意:markRule(emphasis_/strong) 默认规则我们在 schema.ts 装配 schema 时
-// 没用 preset-commonmark 的 rule,所以这里**只挂** fixedXxx + footnote rule。
-// 用户的 emphasisStarInputRule / strongInputRule 行为(走 * ** 触发)目前
-// 在新 schema 下不自动触发 —— 这是 Phase 1 接受的范围,Phase 2 验收后再加
-// 显式 markRule 恢复。
+// 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
+// 加 mark 的语法都走 syntaxAutoFormatPlugin。
 const inputRulesPlugin = inputRules({
-  rules: [
-    fixedEmphasisUnderscoreInputRule,
-    fixedStrikethroughInputRule,
-    inlineMathInputRule,
-    linkInputRule,
-    footnoteReferenceInputRule,
-    ellipsis,
-    emDash,
-  ],
+  rules: [ellipsis, emDash],
 })
 
 const allPlugins = [...basePlugins, inputRulesPlugin]

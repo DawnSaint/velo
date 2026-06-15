@@ -63,4 +63,24 @@ describe('preprocessBlankLines', () => {
     const twice = preprocessBlankLines(once)
     expect(twice).toBe(once)
   })
+
+  it('CRLF 行尾被规范化成 LF 后,多空行仍能识别(Windows / 网络盘文件)', () => {
+    // 修复前:`\r\n\r\n\r\n` 含 \r,旧正则 `\n\n\n+` 不匹配
+    // 修复后:先 \r\n → \n,3 个 \n 触发 1 个 <br /> 占位
+    expect(preprocessBlankLines('a\r\n\r\n\r\nb')).toBe('a\n\n<br />\n\nb')
+    expect(preprocessBlankLines('a\r\n\r\n\r\n\r\nb')).toBe('a\n\n<br />\n\nb')
+    expect(preprocessBlankLines('a\r\n\r\n\r\n\r\n\r\nb')).toBe('a\n\n<br />\n\n<br />\n\nb')
+  })
+
+  it('老 Mac 风格 CR 单独行尾也能规范化', () => {
+    expect(preprocessBlankLines('a\r\rb')).toBe('a\n\nb')
+    // a\r\r\rb → a\n\n\nb,3 个 \n 触发 1 个 <br /> 占位
+    // (0.5 * 1 < 0.5 在 JS 里走 1 次,等效 ceil;见源文件注释)
+    expect(preprocessBlankLines('a\r\r\rb')).toBe('a\n\n<br />\n\nb')
+  })
+
+  it('CRLF 与 LF 混用也能正确处理', () => {
+    // 不一致行尾:解析时按 \r 拆分,可能有空 token,这里验证不会破坏正常段落
+    expect(preprocessBlankLines('para1\r\n\r\npara2')).toBe('para1\n\npara2')
+  })
 })
