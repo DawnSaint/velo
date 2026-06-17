@@ -1,18 +1,18 @@
 # CLAUDE.md
 
-> 每次加载本仓库时，请先读取以下两份文档，作为后续工作的上下文基础：
->
-> - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 版本规划与已完成 / 待办事项清单
-> - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — 技术栈、目录结构、ProseMirror 插件链、数据流与设计要点
-
 ## 加载指引
 
 在开始任何任务之前：
 
-1. **必读**：用 Read 工具读取上面两份文档的完整内容（不要只读前若干行）。
-2. 把 ROADMAP 当作"现在做到哪了 / 接下来做什么"的 source of truth；把 ARCHITECTURE 当作"代码长什么样 / 为什么这么设计"的 source of truth。
+1. **读文档**。文档分两档：
+   - **必读**（每次开发前都读）：用 Read 工具读取完整内容（不要只读前若干行）
+     - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本 To-Do
+     - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — 技术栈、目录结构、ProseMirror 插件链、数据流与设计要点
+   - **按需读取**（排查遗留代码 / 用户显式询问"为什么这里这样设计" / 回溯某次重构的取舍时才读）
+     - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 重大架构决策与重大重构的 ADR
+2. 把 ROADMAP 当作"接下来做什么"的 source of truth；把 ARCHITECTURE 当作"代码长什么样 / 为什么这么设计"的 source of truth。
 3. 当用户的需求与 ROADMAP 中已规划的某个版本目标相关时，优先沿用该版本的设计意图，不要另起炉灶。
-4. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。
+4. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。CHANGELOG 是"那次重构的决策与上下文"的时间线视角，ARCHITECTURE 写不下时再查 CHANGELOG。
 
 ## 文档同步规则（重要）
 
@@ -34,9 +34,18 @@
 ### 2. ROADMAP.md — 版本任务推进必须同步
 
 - 完成 ROADMAP 中已列出的某条 `- [ ]` → 改为 `- [x]`，不要删除条目
+- **某版本全部 feat/fix/refactor 收口发布后**：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"用 ADR 块写入 CHANGELOG（格式见 CHANGELOG 顶部）。普通 feat/fix 不进 CHANGELOG（`git log` 是 source of truth）
 - 实现过程中发现 ROADMAP 原计划无法落地或方案改了 → 用删除线 + `→` 注明实际走法（参考 v0.4.0 Phase 1 已有写法）
-- 临时新增的、原计划没列的功能 / 重要 fix → 追加到对应版本的 `feat` / `fix` / `refactor` 段下
-- 不要私自创建新版本号，新版本规划由用户决定；不要修改已发布版本的历史条目
+- 临时新增的、原计划没列的功能 / 重要 fix → 追加到 CHANGELOG 当前版本 `feat` / `fix` 段下（**不再回 ROADMAP**）
+
+
+### 2.5. CHANGELOG.md — 重大决策的 ADR 留痕
+
+- 只记"重大架构决策 + 重大重构"，走 MADR 格式（Status / Context / Decision / Consequences 四段）
+- 判定标准：候选方案 ≥ 2 个、选择对未来 1+ 个版本有持续影响、踩坑点非显然（普通 bug fix 不进）
+- 编号 `ADR-YYYYMMDD-NNN`，按写入顺序递增
+- 写入时机：**版本发布时整批入**（与 ROADMAP 整章删除同步），不要零散追加
+- 改 ADR（修正事实 / 补充后果）直接在原条目改，**不要新开条目覆盖**；如有"已被新决策取代"用 `Superseded by ADR-XXX` 在 Status 里标注
 
 ### 3. 新增 markdown 语法支持(完整闭环 checklist)
 
@@ -56,13 +65,13 @@
 | 6 | **ProseMirror 插件** | `EditorInner.vue` 的 `allPlugins` 数组 | 需要新装饰 / 行为插件(查找高亮 / 自动补全 / 原子保护) |
 | 7 | **keymap** | `EditorInner.vue` | 新快捷键(如 `$$` + Enter) |
 | 8 | **测试** | `__tests__/*.ts` | 每条语法至少 1 happy + 1 反例;`markdownIO` 改动必加 round-trip |
-| 9 | **ROADMAP** | `docs/ROADMAP.md` 当前版本 `feat` 段 | 加 `- [x] 一行说明` |
+| 9 | **CHANGELOG** | `docs/CHANGELOG.md` 当前版本 `feat` 段（发布后写） | 发版时普通条目靠 `git log`；如属"重大决策"再补 ADR 块 |
 | 10 | **ARCHITECTURE** | `docs/ARCHITECTURE.md` | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍;**纯模板化不需要改** |
 
 **最易漏的项**:
 - 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效,且无警告,纯静默
 - 第 4 列双向——`fromMarkdown` 加了,`toMarkdown` 忘了,文件保存再加载会丢数据
-- 第 9 列文档——实现完了没留痕,后人不知道
+- 第 9 列留痕——发版时该语法的 feat/fix 走 `git log` 即可；如属"重大决策"必须补 ADR 块（"为什么走 X 不走 Y"的取舍不写在 commit message 里）
 - 第 10 列过度——简单语法也写一段"设计要点"反而稀释文档信号
 
 **已落地的语法参照**:
@@ -77,7 +86,7 @@
 
 - **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先问用户
 - **修 bug 先看 ARCHITECTURE 的"设计要点"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
-- **加注释克制**：仓库现有注释密度偏低，匹配现有风格；只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
+- **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
 - **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全绿
 - **类型严格**：TypeScript strict 模式，`vue-tsc --noEmit` 必须 0 错
 

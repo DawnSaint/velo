@@ -20,7 +20,13 @@ export interface PersistedSettings {
     fontSize: string
     primaryColor: string
     fontFamily: string
-    codeBlockTheme: string
+    /**
+     * v0.4.3 删:代码块主题跟随 darkMode,不再单独存。
+     * 字段定义保留,纯类型层面(给 PersistedSettings 一个稳定 shape),
+     * 但 snapshotSettings 不再写,loadSettings 也不读 — 旧 settings 文件里的
+     * 残留 codeBlockTheme 字段被忽略。
+     */
+    codeBlockTheme?: string
     isMacCodeBlock: boolean
     darkMode: boolean
   }

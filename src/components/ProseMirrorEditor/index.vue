@@ -1,15 +1,15 @@
 <script setup lang="ts">
 
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
+import CodeBlockLanguagePicker from './CodeBlockLanguagePicker.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
   fontFamily?: string
   fontSize?: string
   primaryColor?: string
-  codeBlockTheme?: string
   isMacCodeBlock?: boolean
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
@@ -22,7 +22,6 @@ const props = withDefaults(defineProps<{
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '14px',
   primaryColor: '#0F4C81',
-  codeBlockTheme: 'https://cdn-doocs.oss-cn-shenzhen.aliyuncs.com/npm/highlightjs/11.11.1/styles/github.min.css',
   isMacCodeBlock: true,
   darkMode: false,
   findOpen: false,
@@ -44,29 +43,6 @@ const editorStyle = computed(() => ({
   '--md-font-size': props.fontSize,
 }))
 
-// ========== 代码块主题:加载 highlight.js CSS ==========
-function loadCodeTheme() {
-  const cssUrl = props.codeBlockTheme
-  const el = document.querySelector(`#hljs`)
-  if (el) {
-    el.setAttribute(`href`, cssUrl)
-  }
-  else {
-    const link = document.createElement(`link`)
-    link.setAttribute(`type`, `text/css`)
-    link.setAttribute(`rel`, `stylesheet`)
-    link.setAttribute(`href`, cssUrl)
-    link.setAttribute(`id`, `hljs`)
-    document.head.appendChild(link)
-  }
-}
-loadCodeTheme()
-watch(() => props.codeBlockTheme, () => {
-  loadCodeTheme()
-  // CSS 换了 → 新代码块要重新染 hljs class;EditorInner 内部已在
-  // markdown 解析后 stamp 一次,这里不需额外动作
-})
-
 // ========== 点卡片空白处 → 焦点拉回编辑器 ==========
 // click 事件向上冒泡,点 .velo-editor 的 padding 时 target 是 .velo-editor 自己,
 // 不会冒泡到作为子级的 <EditorInner>。所以这里把 @click 挂在最外层 card div 上,
@@ -74,6 +50,17 @@ watch(() => props.codeBlockTheme, () => {
 const innerRef = ref<InstanceType<typeof EditorInner> | null>(null)
 function onCardClick() {
   innerRef.value?.focusEditor()
+}
+
+// ========== 代码块语言选择浮层 ==========
+// CodeHighlightWidget 工具条 click → CustomEvent('velo:open-lang-picker') 冒泡到这里。
+// 复制按钮 click 已在 widget 内部 await 完成,这里不再转发。
+const pickerRef = ref<InstanceType<typeof CodeBlockLanguagePicker> | null>(null)
+
+function onOpenLangPicker(e: Event) {
+  const ev = e as CustomEvent<{ pos: number, lang: string, anchor: HTMLElement }>
+  if (!ev.detail) return
+  pickerRef.value?.open(ev.detail)
 }
 
 // ========== 查找替换面板 ==========
@@ -90,6 +77,19 @@ function getEditorView() {
 function onFindClose() {
   emit('update:findOpen', false)
 }
+
+// 事件挂到外层容器,widget 冒泡上来
+onMounted(() => {
+  window.addEventListener('velo:open-lang-picker', onOpenLangPicker)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('velo:open-lang-picker', onOpenLangPicker)
+})
+
+// 保留 watch 占位(原本监听 props 变化)
+watch(() => props.modelValue, () => {
+  // 实际更新由 EditorInner 内部 watch props.modelValue 完成,这里 no-op
+})
 
 defineExpose({ getEditorView })
 </script>
@@ -127,7 +127,7 @@ defineExpose({ getEditorView })
       :initial-show-replace="props.findInitialShowReplace"
       @close="onFindClose"
     />
+    <CodeBlockLanguagePicker ref="pickerRef" :view="getEditorView()" />
   </div>
 
 </template>
-

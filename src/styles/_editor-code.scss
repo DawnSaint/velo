@@ -1,4 +1,24 @@
-// 代码:行内 code + pre code 块 + Mac 红黄绿点装饰
+// 代码:行内 code + 块级 pre/code + 工具条 + 语言选择浮层。
+//
+// 设计要点:
+// - **块级 pre/code**:高亮走 shiki v1 Dual Themes 集成(真实主题
+//   vitesse-light + vitesse-dark,见 CodeBlockLangs.ts),token span 内联
+//   style 写局部 CSS 变量 `--shiki-light` / `--shiki-dark`;切 darkMode =
+//   切 <html class="dark"> → CSS 变量值变化 → token 颜色自动变,
+//   **ProseMirror 不知道、不参与**(零重渲)。手写 30 个色板变量已删,
+//   色板由 shiki 真实主题提供,改色直接换 themes。
+// - **工具条 widget**:side: -1 渲染在 code_block 之前,absolute 定位到右上;
+//   默认 opacity 0.4,容器 :hover / :focus-within 时 opacity 1,工具条始终
+//   可达但不抢眼(决策 3-B 简化版)
+// - **语言选择浮层**:Teleport to="body",不抢 ProseMirror 焦点
+//
+// 注意:PreView 里 `<pre>` 是 schema toDOM 输出的默认结构(为了保留文本选取
+//  / 复制走 ProseMirror 标准路径);工具条 widget 加在 pre **之前**(side: -1),
+// 两者并列在父级里不嵌套。
+
+// ============================================================
+//  行内 code
+// ============================================================
 
 .velo-editor {
   code {
@@ -13,7 +33,6 @@
   pre {
     margin: 1em 0;
     padding: 1em;
-    background: #f5f5f5;
     border-radius: 8px;
     overflow-x: auto;
   }
@@ -27,7 +46,158 @@
   }
 }
 
-// Mac 代码块:红黄绿圆点装饰(在外层 .mac-code-block.velo-editor 上)
+// ============================================================
+//  shiki dual themes 集成
+//
+// 设计要点:
+// - 真实主题:用 vitesse-light + vitesse-dark(见 CodeBlockLangs.ts),
+//   shiki 给每个 token 输出 --shiki-light / --shiki-dark 局部 CSS 变量。
+// - 切色机制:pre 自身用 var(--shiki-light) / var(--shiki-dark),
+//   每个 token span 写自己 light/dark 颜色 → var() 在 span 上下文解析
+//   拿到该 token 的颜色,切 <html class="dark"> 时 cascade 翻面,
+//   ProseMirror / shiki 不参与(零重渲)。
+// - pre 背景/border:text-only 兜底用 vitesse 主题 bg / border 对齐的
+//   hex,自管一套即可(全局 :root 变量,跟 token 同套切色机制)。
+// - **dark 命中三路**(同时存在,优先级由特异性决定):
+//   .velo-editor.dark pre    → 编辑器强制 darkMode
+//   .dark .velo-editor pre   → 父级 .dark 容器
+//   html.dark .velo-editor pre → 顶层 <html class="dark">
+//   这三路都映射到同一份 dark 色板。
+// ============================================================
+
+:root {
+  --shiki-light: #24292e;
+  --shiki-dark: #c9d1d9;
+  --shiki-light-bg: #ffffff;
+  --shiki-dark-bg: #0d1117;
+  --shiki-light-border: #e1e4e8;
+  --shiki-dark-border: #30363d;
+}
+
+.velo-editor pre {
+  background-color: var(--shiki-light-bg);
+  border: 1px solid var(--shiki-light-border);
+}
+
+// **color 必须同时写 pre 和 pre span**:color 的 var() 在 element 自身
+// 上下文解析,子元素继承的是已解析值,不会重解析。pre 上的 color 给
+// pre 自身 / 无 token 包裹的空白兜底(走 :root --shiki-light),span
+// 上的 color 让 var(--shiki-light) 在每个 span 自身解析,拿到 shiki
+// inline 写的局部变量(每个 token 不同颜色)。切 <html class="dark">
+// 时只翻 :root / dark 命中规则里的变量值,ProseMirror / shiki 不参与。
+.velo-editor pre,
+.velo-editor pre span {
+  color: var(--shiki-light);
+}
+
+html.dark .velo-editor pre,
+.dark .velo-editor pre,
+.velo-editor.dark pre,
+html.dark .velo-editor pre span,
+.dark .velo-editor pre span,
+.velo-editor.dark pre span {
+  background-color: var(--shiki-dark-bg);
+  border-color: var(--shiki-dark-border);
+  color: var(--shiki-dark);
+}
+
+// inline code 在 dark 模式下需要调色
+.velo-editor.dark code,
+html.dark .velo-editor code {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ff7b72;
+}
+
+// ============================================================
+//  工具条 widget(JS 绝对定位浮在 pre 内部右上角,hover 时才显示)
+// ============================================================
+
+// ProseMirror widget `side: -1` 永远渲染在 `<pre>` **之前**(兄弟节点,
+// 不能嵌 pre 内部)。要走 absolute + JS 同步 top/right 浮进 pre 内部
+// 右上角:由 CodeHighlightWidget.ts 的 syncPosition() 算 pre 位置写
+// inline style。本 SCSS 只管按钮视觉,定位交给 JS。
+//
+// pre 自身要 `position: relative` 作为 widget absolute 的锚点之一
+.velo-editor pre {
+  position: relative;
+}
+
+.velo-code-toolbar-widget {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 2px 6px;
+  pointer-events: auto;
+  > .velo-code-lang-btn,
+  > .velo-code-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .2em;
+    height: 1.6em;
+    padding: 0 .4em;
+    font-size: .9em;
+    line-height: 1;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    vertical-align: middle;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.12s ease, visibility 0.12s ease;
+    &:hover { background: rgba(0, 0, 0, 0.06); }
+  }
+}
+html.dark .velo-code-toolbar-widget > .velo-code-lang-btn:hover,
+html.dark .velo-code-toolbar-widget > .velo-code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+// hover 命中三种情况:① widget 自身 ② 紧跟 widget 的 pre(:has 反查,
+// 浏览器支持 Chromium 105+ / Safari 15.4+ / Firefox 121+,Tauri 2 WebView2
+// / WKWebView 都支持) ③ 按钮键盘 focus
+.velo-code-toolbar-widget:hover > .velo-code-lang-btn,
+.velo-code-toolbar-widget:hover > .velo-code-copy-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.velo-code-toolbar-widget > .velo-code-lang-btn:focus,
+.velo-code-toolbar-widget > .velo-code-copy-btn:focus,
+.velo-code-toolbar-widget > .velo-code-lang-btn:focus-visible,
+.velo-code-toolbar-widget > .velo-code-copy-btn:focus-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.velo-code-toolbar-widget:has(+ pre:hover) > .velo-code-lang-btn,
+.velo-code-toolbar-widget:has(+ pre:hover) > .velo-code-copy-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+// 让按钮在浮层存活期内常驻显示(否则鼠标移到浮层选项里就脱 hover 区了)。
+.velo-code-toolbar-widget.velo-lang-picker-open > .velo-code-lang-btn,
+.velo-code-toolbar-widget.velo-lang-picker-open > .velo-code-copy-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.velo-copy-flash-ok {
+  color: #2da44e !important;
+}
+
+// ============================================================
+//  Mac 代码块:红黄绿圆点装饰(在外层 .mac-code-block.velo-editor 上)
+// ============================================================
+
 .mac-code-block.velo-editor pre {
   position: relative;
   padding-top: 2.4em;
@@ -45,4 +215,92 @@
   box-shadow:
     20px 0 0 #f7c151,
     40px 0 0 #64c856;
+}
+
+// ============================================================
+//  代码块语言选择浮层(全局,因为 Teleport to="body")
+// ============================================================
+
+.velo-lang-backdrop {
+  position: fixed;
+  // top / left 由 inline style 设
+}
+
+.velo-lang-panel {
+  background: #fff;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  width: 180px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+html.dark .velo-lang-panel {
+  background: #1e1e1e;
+  border-color: #30363d;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.velo-lang-filter {
+  flex: 0 0 auto;
+  border: none;
+  border-bottom: 1px solid #e1e4e8;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  background: transparent;
+  color: inherit;
+}
+
+html.dark .velo-lang-filter {
+  border-bottom-color: #30363d;
+}
+
+.velo-lang-list {
+  flex: 1 1 auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.velo-lang-list li {
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  color: inherit;
+}
+
+.velo-lang-list li:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+html.dark .velo-lang-list li:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.velo-lang-list li.active {
+  font-weight: 600;
+  color: var(--md-primary-color, #0F4C81);
+}
+
+.velo-lang-empty {
+  cursor: default !important;
+  color: #999;
+  font-style: italic;
+}
+
+// 自定义语言建议行:输入框有 query 但选项里无精确匹配时浮出,click 视为应用
+.velo-lang-custom-suggest {
+  font-style: italic;
+  color: var(--md-primary-color, #0F4C81);
+  border-top: 1px solid #e1e4e8;
+}
+html.dark .velo-lang-custom-suggest {
+  border-top-color: #30363d;
 }

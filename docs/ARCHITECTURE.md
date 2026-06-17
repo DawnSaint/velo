@@ -1,12 +1,14 @@
 # Velo
 
+
+
 ## 技术栈
 
 | 类别 | 技术 |
 |------|------|
 | 前端框架 | Vue 3 (`<script setup>`) |
 | 状态管理 | Pinia |
-| 语言 | TypeScript (strict) |
+| 语言 | TypeScript |
 | 构建 | Vite |
 | 桌面壳 | Tauri 2.0 |
 | 编辑器 | ProseMirror |
@@ -83,6 +85,7 @@ velo/
 | `imageUploadPlugin` | paste/drop 拦截 → 落盘 → 插入 image 节点 |
 | `linkClickPlugin` + `linkEditEscapeKeymap` | 链接单击进源码编辑态 / Cmd 跳转 / Escape 还原 |
 | `syntaxAutoFormatPlugin` | **语法实时转换框架**:dirty-range 局部扫,registry 驱动(见"设计要点") |
+| `codeHighlightPlugin` | 代码块高亮 + 工具条:side: -1 widget 渲染 toolbar(语言按钮 / 复制按钮,自定义 'velo:open-lang-picker' / 'velo:copy-code' 事件冒泡),inline decoration 给 text 加 `style="--shiki-light:#xxx; --shiki-dark:#yyy"` dual themes CSS 变量(见"设计要点") |
 | `imageInlineViewPlugin` | image NodeView(Tauri asset:// 协议代理) |
 | `mathEditPlugin` | math_inline / math_block NodeView(KaTeX 实时预览) |
 | `mermaidDecoration` | mermaid block 用 Decoration.widget 渲染 SVG / 编辑态切换 |
@@ -131,6 +134,7 @@ velo/
 - **NodeView 隔离** —— `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
 - **mermaid 走 widget 不走 NodeView** —— atom NodeView 的 outer dom 改 `innerHTML` 会被 ProseMirror 的 `DOMObserver` 当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount,所有 NodeView destroy + recreate,用户每敲一字符 mermaid 全闪 loader。改用 `Decoration.widget`:`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变,widget 内部 `dom.innerHTML = svg` 不报警。widget 内部根据 plugin state.editNodePos 切换"显示 SVG"/"显示 textarea"两种渲染,key 设为 `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}` 在状态切换时由 ProseMirror 卸载/挂载。完全没有 NodeView,schema toDOM 输出 `height:0` 隐藏占位(atom 节点必须有 dom 用于 posAtCoords / selection 映射,藏掉视觉即可)。**坑**:plugin promise resolve 后**不要** dispatch setMeta 触发 buildDecorations,否则新 Decoration 实例的 `WidgetType.eq` 在比 toDOM/spec 时会失败 → widget 复用失效 → 死循环;直接在 widget 自己的 dom 上写 svg 即可。
 - **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
+- **shiki Dual Themes 集成** —— 用真实主题 `vitesse-light` + `vitesse-dark`(bundled,从 `@shikijs/themes` 自动加载)。`codeToTokensWithThemes(code, { themes: { light, dark }, defaultColor: false })` 返回 `ThemedTokenWithVariants[][]`,每个 token 在 `variants.light` / `variants.dark` 各有一套 hex。**机制**:每个 token span 的 inline style 写局部 CSS 变量 `--shiki-light:${hex}; --shiki-dark:${hex}`;SCSS 规则对 `pre` **和** `pre span` 同时设 `color: var(--shiki-light)`(必须两个 selector 都写 —— `color` 的 `var()` 在 element 自身上下文解析,子元素继承的是已解析值,不会重解析;只有 span 也写 `color: var(--shiki-light)`,每个 span 才能拿到自己的 token 颜色)。切 `<html class="dark">` 时 SCSS 规则翻面,token 颜色实时变,ProseMirror / shiki 不参与(零重渲)。**为什么不用 `defaultColor: 'light'`**:那会输出 `color:#xxx` inline style,优先级 > CSS 规则 → 切 dark 时要 `!important` 强压,`defaultColor: false` 走纯 CSS cascade 更干净。**pre 背景/border**:自管两套 hex(写死,跟 vitesse 主题默认 bg/border 对齐),走 `:root` 变量 + 同样三路 dark 命中(`.velo-editor.dark` / `.dark .velo-editor` / `html.dark`)切色,跟 token 走同套 cascade 机制。
 - **样式分层** —— ProseMirrorEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
 - **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
 - **语法实时转换走 appendTransaction + dirty-range,不走 InputRule 末尾匹配** —— 历史上每条语法各自一个 InputRule(末尾紧贴 `$` 锚)+ link 单独一份 `linkAutoFormatPlugin`(全文扫描),问题:① 反向输入(如先 `]` 再补 `[^xxx`)不触发 InputRule;② 粘贴 / 中间编辑不响应 InputRule;③ 块级语法(`### `/`> `/`- ` 等)根本没人接管,只能渲染已写好的不能输入触发;④ 每条规则各自处理黑名单 / 编辑态 session,扩展成本高。**新框架**:`plugins/syntaxAutoFormat.ts` 单一 `appendTransaction`,从 `tr.mapping.maps` 提取 dirty range → 扩展到包含的 textblock → 对每个 textblock 跑 `syntax/block/*` 段首检测 + `syntax/inline/*` 段内 g 正则检测。性能:敲一字符 = 扫一段;粘贴整段 = 扫被粘入的 N 段;无全文重扫。黑名单(`code_block` / `html_block` / `mermaid` / `math_block`)、code mark、`linkClickPluginKey.session` 范围由框架统一过滤,语法定义只写 `pattern + apply`。新增语法 = 写一个文件 + 在 `syntax/index.ts` 注册一行。`InputRule` 仅保留 `ellipsis` / `emDash` 这种纯文本→纯文本的快速路径。**坑**:① block detector 要求 `pattern` 带 `^`、不带 `g`;inline 反过来要求带 `g` 不带 `^/$`,框架做 `pattern.global` 防御但不自动改写。② inline 里跑正则前要把段内 atom(image / footnote_reference / math_inline / html_inline)用 NBSP ` ` 占位喂给正则,匹配范围里含 NBSP 直接跳过(避免穿透 atom)。③ 语法 `apply` 直接修改框架传入的 `tr`,多个 match 共用一个 `tr.mapping`,语法不要自己 dispatch。④ `appendTransaction` 返回的 tr 不会回灌到自己,但单次 apply 内若 pattern 会再次匹配产物会死循环 —— 实测 schema 下转出的都是 atom / 带 mark 文本,不进 inline detector 范围,无忧。
@@ -145,3 +149,6 @@ velo/
 3. **`onCloseRequested` 未取消** —— unlisten fn 没存,HMR 重挂会叠加 handler,dev 体验略差;prod 不受影响
 4. **Tauri 权限 scope** —— `capabilities/default.json` 把 fs 权限都开 `**`,因为是通用文本编辑器。分发硬化版本时收紧到工作目录
 5. **脚注 label 是显示文本** —— 当前没有 `1.` `2.` `3.` 自动编号。扩展点是在 `FootnoteNumberPlugin.state` 加 `numbering: Map<label, number>`,按首次出现顺序在 `state.apply` 里推算 —— **不要**把编号写回 `attrs.label`,否则 markdown 源码会变成 `[^1]` 这种数字 id,失去可读语义,也跟 GFM / CommonMark 约定不符
+6. **shiki Dual Themes 切色靠 CSS,不要走 plugin rebuild** —— 颜色由 token span 局部 CSS 变量 `--shiki-light` / `--shiki-dark` + pre 自身 `color: var(--shiki-light)` cascade 决定。切 `<html class="dark">` 时 CSS 规则翻面,ProseMirror / shiki 不参与。**不要**在 `codeHighlightPlugin` 内部订阅 `velo:theme-change` 事件再 dispatch `tr.setMeta({ highlighter })` 触发 rebuild —— 既无必要(颜色纯走 CSS),又会因新 DecorationSet 的 token 位置 inline style 全部重写 → 视觉闪烁 + 死循环风险(同 mermaid 教训)。pre 背景 / border 同理,只改 SCSS 即可,不要走 plugin。
+7. **Tauri clipboard-manager vs navigator.clipboard** —— Tauri webview 的 `navigator.clipboard.writeText` 在非 secure context 下不可用,**统一走** `@tauri-apps/plugin-clipboard-manager` 的 `writeText`(Rust 端 `tauri-plugin-clipboard-manager` 启用 + `clipboard-manager:default` capability 已配)。失败时 UI 闪 '✗' 1.5s,**不抛**——复制失败不该阻塞主流程。
+8. **工具条 widget 必须用真盒子,不能 `display: contents`** —— `display: contents` 让元素 hit-test 边界消失,`:hover` 命中不到(浏览器对 contents 元素的 hit-test 处理不一致)。widget 走 `display: block; height: 22px` 真盒子,`side: -1` 渲染在 `<pre>` **之前**(DOM 顺序:widget → pre)。`pre:hover` → 命中**前一个** widget 用 `:has(+ pre:hover)`(Chromium 105+ / Safari 15.4+ / Firefox 121+ 都支持,Tauri 2 WebView2/WKWebView 满足);widget 自身 hover 直接命中。同时支持 `:focus` / `:focus-visible` 键盘可达。**不要** 试图在 widget 内部用 `position: absolute` 把按钮浮出 + 让 widget 行高 0 —— 高度 0 widget 自身 hover 命中不到,只剩 `:has` 唯一路径,反而更脆。

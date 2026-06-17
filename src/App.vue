@@ -77,7 +77,6 @@ async function initSettings() {
     if (typeof e.fontSize === 'string') store.fontSize = e.fontSize
     if (typeof e.primaryColor === 'string') store.primaryColor = e.primaryColor
     if (typeof e.fontFamily === 'string') store.fontFamily = e.fontFamily
-    if (typeof e.codeBlockTheme === 'string') store.codeBlockTheme = e.codeBlockTheme
     if (typeof e.isMacCodeBlock === 'boolean') store.isMacCodeBlock = e.isMacCodeBlock
     if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
   }
@@ -95,7 +94,6 @@ function snapshotSettings(): PersistedSettings {
       fontSize: store.fontSize,
       primaryColor: store.primaryColor,
       fontFamily: store.fontFamily,
-      codeBlockTheme: store.codeBlockTheme,
       isMacCodeBlock: store.isMacCodeBlock,
       darkMode: store.darkMode,
     },
@@ -241,7 +239,6 @@ onMounted(async () => {
       () => store.fontSize,
       () => store.primaryColor,
       () => store.fontFamily,
-      () => store.codeBlockTheme,
       () => store.isMacCodeBlock,
       () => store.darkMode,
       () => documentStore.autoSaveEnabled,

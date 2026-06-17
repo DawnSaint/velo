@@ -9,7 +9,6 @@
 //   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
 import { onBeforeUnmount, watch } from 'vue'
-import { EditorView } from 'prosemirror-view'
 import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
 import { inputRules, emDash, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
@@ -33,6 +32,7 @@ import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
+import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
@@ -129,6 +129,16 @@ const tabIndent = keymap({
 //  `$$` + Enter → math_block 进入编辑态
 // ============================================================
 
+// 代码块内 Enter:baseKeymap 的 splitBlock 在 code_block 里会把剩余内容
+// 拆成 paragraph(用户感知"代码块被拆成两块")。这里显式在 Enter 链最前
+// 拦截:光标在 code_block 内部时只插换行,保持仍在一个 code_block 内。
+function codeBlockEnter(state: any, dispatch?: any): boolean {
+  const { $head } = state.selection
+  if ($head.parent.type.name !== 'code_block') return false
+  if (dispatch) dispatch(state.tr.insertText('\n'))
+  return true
+}
+
 function dollarEnterCmd(state: any, dispatch?: any): boolean {
   const { $from } = state.selection
   const lineStart = $from.start()
@@ -203,6 +213,7 @@ const basePlugins: Plugin[] = [
   //   4. splitBlock:兜底,普通段落里换行
   keymap({
     Enter: chainCommands(
+      codeBlockEnter,
       dollarEnterCmd,
       splitListItem(schema.nodes.list_item),
       liftListItem(schema.nodes.list_item),
@@ -221,6 +232,7 @@ const basePlugins: Plugin[] = [
   linkClickPlugin,
   linkEditEscapeKeymap,
   syntaxAutoFormatPlugin,
+  codeHighlightPlugin,
   imageInlineViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,
@@ -271,7 +283,6 @@ watch(() => props.modelValue, (newVal) => {
     doc,
     plugins: allPlugins,
   }))
-  stampHljsInto(view)
   if (mounted) {
     try { view.focus() } catch { /* 销毁期忽略 */ }
   }
@@ -290,20 +301,10 @@ const { containerRef, getView } = useProseMirror({
     lastSelfEmitted = md
     emit('update:modelValue', md)
   },
-  onReady: (view) => {
-    stampHljsInto(view)
+  onReady: () => {
     mounted = true
   },
 })
-
-function stampHljsInto(view: EditorView) {
-  try {
-    view.dom.querySelectorAll('.ProseMirror pre').forEach((pre: Element) => {
-      pre.classList.add('hljs')
-    })
-  }
-  catch { /* 销毁期 view.dom 已 null,忽略 */ }
-}
 
 function focusEditor() {
   const view = getView()
