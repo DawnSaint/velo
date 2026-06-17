@@ -10,14 +10,21 @@
 //      是有的,只是类型层面),这里直接传 (view, getPos) => DOMNode 函数。
 //   2. 高亮:codeToTokens 拿 ThemedToken[][],逐 token 转
 //      Decoration.inline(from, to, { style: 'color: var(--shiki-xxx)' })。
-//   3. plugin.state 缓存 highlighter 实例;首次 await getHighlighter()
-//      期间,plugin.decorations 返回空 inline decoration,等 token 到了
-//      通过 tr.setMeta 触发重新构建。
+//   3. plugin.state 缓存 highlighter 实例 + 当前 light/dark 主题名;
+//      首次 await getHighlighter() 期间,plugin.decorations 返回空 inline
+//      decoration,等 token 到了通过 tr.setMeta 触发重新构建。
 //
-// 主题切换:零重渲。token.color 是 `var(--shiki-keyword)` 字符串,只要
-// <html class="dark"> 切换 → CSS 变量值变 → token 颜色自动变;ProseMirror
-// 不知道、不参与。**不要**在 widget 内订阅 'velo:theme-change' 再
-// setState 触发 rebuild,会死循环。
+// **暗色模式** (darkMode toggle):零重渲。token.color 是 `var(--shiki-keyword)`
+// 字符串,只要 <html class="dark"> 切换 → CSS 变量值变 → token 颜色自动变;
+// ProseMirror 不知道、不参与。**不要**在 widget 内订阅 'velo:theme-change'
+// 再 setState 触发 rebuild,会死循环。
+//
+// **代码块主题切换** (settings 面板里换 vitesse-light → dracula):需要 rebuild
+// decoration,因为新主题的 hex 颜色不同,得重新生成 token 的 inline style。
+// App.vue watch store.codeLightTheme / codeDarkTheme → 调 ensureTheme +
+// dispatch tr.setMeta({ highlighter, lightTheme, darkTheme }) → plugin state
+// apply → buildDecorations 重新跑。这条路径是 *设置* 触发的,跟 darkMode
+// toggle 的纯 CSS 路径正交。
 //
 // widget key 必须含 lang + 文本 hash —— lang 变化时 ProseMirror 会复用
 // 同 key 的 widget DOM 导致按钮文字不更新;docChange 时 inline decoration
@@ -28,7 +35,15 @@ import type { EditorState, Transaction } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { Highlighter } from 'shiki'
-import { getHighlighter, getTokensSync, hashCode } from './CodeBlockLangs'
+import { useEditorStore } from '@/stores/editor'
+import {
+  getHighlighterSync,
+  getTokensSync,
+  hashCode,
+  ensureTheme,
+  DEFAULT_LIGHT_THEME,
+  DEFAULT_DARK_THEME,
+} from './CodeBlockLangs'
 
 // ============================================================
 //  Plugin state
@@ -37,10 +52,29 @@ import { getHighlighter, getTokensSync, hashCode } from './CodeBlockLangs'
 interface CodeHighlightState {
   /** 异步 highlighter;null 表示还没好(grammar 还在 load)。 */
   highlighter: Highlighter | null
+  /** 当前浅色主题名(双主题代码块的 light 变体)。 */
+  lightTheme: string
+  /** 当前深色主题名(双主题代码块的 dark 变体)。 */
+  darkTheme: string
 }
 
-const initialState: CodeHighlightState = {
-  highlighter: null,
+/** 工厂:每次调都从 store 同步拿当前主题,factory 内不能直接用 ref(模块
+ *  加载时 store 还没就绪),改在 state.init 内联调。 */
+function makeInitialState(): CodeHighlightState {
+  // store 在模块顶层还不可用(state.init 时已经在 component context)
+  let light = DEFAULT_LIGHT_THEME
+  let dark = DEFAULT_DARK_THEME
+  try {
+    const store = useEditorStore()
+    if (store.codeLightTheme) light = store.codeLightTheme
+    if (store.codeDarkTheme) dark = store.codeDarkTheme
+  }
+  catch { /* pinia 未就绪 / 单元测试场景,fallback DEFAULT */ }
+  return {
+    highlighter: getHighlighterSync(), // PM mount 时 App.vue codeBlockReady 守门后必然 ready
+    lightTheme: light,
+    darkTheme: dark,
+  }
 }
 
 export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight')
@@ -273,6 +307,8 @@ async function writeToClipboard(text: string, btn: HTMLElement): Promise<void> {
 function buildDecorations(
   state: EditorState,
   hl: Highlighter | null,
+  lightTheme: string,
+  darkTheme: string,
 ): DecorationSet {
   const decos: Decoration[] = []
   state.doc.descendants((node: PMNode, pos: number) => {
@@ -313,7 +349,7 @@ function buildDecorations(
     if (!lang || !hl) return
     if (blockStart >= blockEnd) return
     // inline decoration:code_block 内部的 text 加 token color
-    const result = getTokensSync(hl, code, lang)
+    const result = getTokensSync(hl, code, lang, lightTheme, darkTheme)
     if (!result) return
     const { tokens } = result
     // shiki 的 ThemedToken.offset 是"相对于输入 code 字符串开头"的全局偏移
@@ -358,36 +394,74 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
   key: codeHighlightKey,
   state: {
     init() {
-      return initialState
+      // 同步从 cached highlighter 拿 hl(PM mount 时 App.vue codeBlockReady
+      // 守门已 await getHighlighter() 完成 → cachedHighlighter 必然非空),
+      // initialState.highlighter 直接填好,plugin.decorations 第一次跑就
+      // 写 token inline style → 首屏零闪烁。
+      // 主题从 store 读,App.vue setup 顶层 initSettings() 已 hydrate 完。
+      return makeInitialState()
     },
     apply(tr, prev) {
       const meta = tr.getMeta(codeHighlightKey) as
-        | { highlighter?: Highlighter }
+        | { highlighter?: Highlighter, lightTheme?: string, darkTheme?: string }
         | undefined
-      if (meta?.highlighter) {
-        return { highlighter: meta.highlighter }
+      if (!meta) return prev
+      return {
+        highlighter: meta.highlighter ?? prev.highlighter,
+        lightTheme: meta.lightTheme ?? prev.lightTheme,
+        darkTheme: meta.darkTheme ?? prev.darkTheme,
       }
-      return prev
     },
   },
   props: {
     decorations(state) {
       const s = codeHighlightKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s.highlighter)
+      return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme)
     },
   },
   view: (view) => {
-    // 异步把 highlighter 拉起来;resolve 后 dispatch 一个 setMeta tr,
-    // 触发 apply → buildDecorations 重新跑 → inline decoration 出现。
-    getHighlighter()
-      .then((hl) => {
-        if (view.isDestroyed) return
-        view.dispatch(view.state.tr.setMeta(codeHighlightKey, { highlighter: hl }))
-      })
-      .catch((err) => {
-        console.warn('[codeHighlight] shiki highlighter 加载失败:', err)
-      })
+    // **首屏零闪烁机制**:
+    //   1) App.vue setup 内 `codeBlockReady` 守门,等 `await getHighlighter(
+    //      store.codeLightTheme, store.codeDarkTheme) + ensureTheme(...)`
+    //      完成才翻 true,ProseMirrorEditor 子组件才 mount。
+    //   2) PM mount → plugin `state.init` 同步从 `getHighlighterSync()` 拿
+    //      cached hl(已 resolve),initialState.highlighter 直接填好 →
+    //      `decorations(state)` 第一次跑就有 token style。
+    //   3) 主题从 store 同步读(`useEditorStore()` 在 component context
+    //      内可用,init 时已就绪)。
+    // → 第一次 view 绘制时,代码块 token 颜色就是用户主题色,零闪烁。
+    //
+    // 本 view factory 仍保留 setMeta dispatch 作为防御性兜底(防个别 race
+    // 场景 state.init 时 hl 还没 ready,但 App.vue codeBlockReady 已守门,
+    // 正常路径下这是 noop —— state.highlighter 已经被 init 填好,apply
+    // 改写后值不变)。
+    //
+    // 后续"用户在 settings 面板切主题"路径由 App.vue 4.5 段 watch 走
+    // `ensureTheme` 追加 + dispatch setMeta 触发 rebuild,跟这里正交。
+    ;(async () => {
+      const store = useEditorStore()
+      const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
+      const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
+      // 即便 state.init 已经同步拿了 hl,这里再 ensureTheme 一次保证
+      // "用户主题确实装上了"(防 init 时 cached 来自别的早调用方但装的是
+      // DEFAULT 主题 —— 当前 App.vue codeBlockReady 已 ensure 过,理论上
+      // cached 的 hl 已经装好用户主题,这里 ensureTheme 是幂等保险)。
+      const hlReady = await ensureTheme(light)
+      await ensureTheme(dark)
+      if (view.isDestroyed) return
+      const s = codeHighlightKey.getState(view.state)
+      // 防御:仅在 hl/主题与 state 不一致时 dispatch,避免无谓的 state mutation
+      if (!s || s.highlighter !== hlReady || s.lightTheme !== light || s.darkTheme !== dark) {
+        view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
+          highlighter: hlReady,
+          lightTheme: light,
+          darkTheme: dark,
+        }))
+      }
+    })().catch((err) => {
+      console.warn('[codeHighlight] shiki highlighter 加载失败:', err)
+    })
     return { destroy: () => { /* no-op */ } }
   },
 })

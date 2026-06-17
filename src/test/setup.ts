@@ -61,3 +61,17 @@ vi.mock('@tauri-apps/api/path', () => ({
   // imageStorage 拿 dirname(currentFilePath) 算 fileDir
   dirname: vi.fn(async (p: string) => p.split('/').slice(0, -1).join('/') || '/'),
 }))
+
+// 默认 isTauri() 在 jsdom 里返回 false(globalThis.isTauri 没注入),
+// persistence.ts 的 tauriOnly() 守门会让所有草稿 IO 走 noop 分支,
+// store 层的 draft 测试拿不到任何 IO 调用。测试环境一律按 "Tauri 运行时"
+// 处理:让 persistence 实际调 plugin-fs mock,业务代码自身的 isTauri()
+// 守门路径不归这里管(由 store 单元测试直接覆盖)。
+//
+// 只暴露 persistence.ts / 其它受测代码用得到的导出;其它(convertFileSrc
+// / invoke 等)给个 stub,免得业务代码意外走到真实实现抛 "no IPC"。
+vi.mock('@tauri-apps/api/core', () => ({
+  isTauri: vi.fn(() => true),
+  invoke: vi.fn(async () => undefined),
+  convertFileSrc: vi.fn((p: string) => p),
+}))

@@ -1,4 +1,5 @@
 import { appDataDir, join } from '@tauri-apps/api/path'
+import { isTauri } from '@tauri-apps/api/core'
 import {
   exists,
   readTextFile,
@@ -8,6 +9,20 @@ import {
   remove,
   rename,
 } from '@tauri-apps/plugin-fs'
+
+// ============================================================
+//  Tauri 环境检测
+// ============================================================
+//
+// dev web 端(只跑 `npm run dev`,不起 Tauri 进程)用 @tauri-apps/api/* 调
+// `invoke('plugin:fs|...')` 会 throw `Cannot read properties of undefined
+// (reading 'invoke')` —— __TAURI_INTERNALS__ 没注入。Persistence 这层
+// 一律先 isTauri() 守门,web 端 load 返回 null / save 是 noop,store
+// 走默认值继续渲染,不阻塞 dev 体验。
+
+function tauriOnly(): boolean {
+  return isTauri()
+}
 
 // ========== 用户设置 ==========
 
@@ -20,15 +35,10 @@ export interface PersistedSettings {
     fontSize: string
     primaryColor: string
     fontFamily: string
-    /**
-     * v0.4.3 删:代码块主题跟随 darkMode,不再单独存。
-     * 字段定义保留,纯类型层面(给 PersistedSettings 一个稳定 shape),
-     * 但 snapshotSettings 不再写,loadSettings 也不读 — 旧 settings 文件里的
-     * 残留 codeBlockTheme 字段被忽略。
-     */
-    codeBlockTheme?: string
     isMacCodeBlock: boolean
     darkMode: boolean
+    codeLightTheme?: string
+    codeDarkTheme?: string
   }
   document: {
     autoSaveEnabled: boolean
@@ -40,8 +50,10 @@ export interface PersistedSettings {
  * 读 appDataDir/velo-settings.json。
  * 文件不存在 / 解析失败 / 任何 IO 异常 → 返回 null,
  * 调用方继续用 store 默认值 —— 第一次启动 / 配置损坏都不能阻塞 UI。
+ * dev web 端(无 Tauri 运行时)→ 返回 null,store 走默认值,不要抛错。
  */
 export async function loadSettings(): Promise<PersistedSettings | null> {
+  if (!tauriOnly()) return null
   try {
     const dir = await appDataDir()
     const path = await join(dir, SETTINGS_FILE)
@@ -61,8 +73,10 @@ export async function loadSettings(): Promise<PersistedSettings | null> {
 /**
  * 写 appDataDir/velo-settings.json。
  * 失败仅记录日志不抛 —— 设置写盘不应该把主流程搞崩。
+ * dev web 端 → noop,不做任何事。
  */
 export async function saveSettings(s: PersistedSettings): Promise<void> {
+  if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
     if (!(await exists(dir))) {
@@ -92,6 +106,7 @@ export interface PersistedOutlineState {
  * 与 settings 同样的失败策略:不存在 / 损坏 / 版本不匹配 → null,调用方用空状态继续。
  */
 export async function loadOutlineState(): Promise<PersistedOutlineState | null> {
+  if (!tauriOnly()) return null
   try {
     const dir = await appDataDir()
     const path = await join(dir, OUTLINE_FILE)
@@ -110,6 +125,7 @@ export async function loadOutlineState(): Promise<PersistedOutlineState | null> 
 }
 
 export async function saveOutlineState(s: PersistedOutlineState): Promise<void> {
+  if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
     if (!(await exists(dir))) {
@@ -146,6 +162,7 @@ export interface Draft {
 }
 
 async function ensureDraftsDir(): Promise<string | null> {
+  if (!tauriOnly()) return null
   try {
     const dir = await appDataDir()
     const draftsDir = await join(dir, DRAFTS_DIR)
@@ -187,6 +204,7 @@ export async function saveDraft(draft: Draft): Promise<void> {
  * 解析失败的单个文件跳过(打 warn),不让一条坏数据卡死整个恢复流程。
  */
 export async function loadDrafts(): Promise<Draft[]> {
+  if (!tauriOnly()) return []
   try {
     const dir = await appDataDir()
     const draftsDir = await join(dir, DRAFTS_DIR)
@@ -221,6 +239,7 @@ export async function loadDrafts(): Promise<Draft[]> {
  * 删一个草稿。失败仅记录日志 —— 删不掉不应该阻塞用户的恢复选择。
  */
 export async function deleteDraft(id: string): Promise<void> {
+  if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
     const draftsDir = await join(dir, DRAFTS_DIR)
@@ -236,6 +255,7 @@ export async function deleteDraft(id: string): Promise<void> {
 
 /** 删目录下所有 .json 草稿(用于"全部丢弃")。 */
 export async function deleteAllDrafts(): Promise<void> {
+  if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
     const draftsDir = await join(dir, DRAFTS_DIR)

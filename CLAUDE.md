@@ -90,6 +90,42 @@
 - **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全绿
 - **类型严格**：TypeScript strict 模式，`vue-tsc --noEmit` 必须 0 错
 
+
+
+## Commit 格式规约
+
+```
+<type>(version): <summary>
+
+Feat:
+- English bullet 1
+- English bullet 2
+
+Fix:
+- English bullet
+
+Feat:
+- 中文 bullet 1
+- 中文 bullet 2
+
+Fix:
+- 中文 bullet
+
+依赖变更：xxx@^4.2.0
+```
+
+
+- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore`
+- **version**：当前项目版本（`v<major>.<minor>.<patch>`），同一版本的多个 commit 共用同一 scope
+- **summary**：1 句概括性的的英文，描述"这次 commit 干了什么"
+
+**Body**
+
+按改动类型分组，每组用 `<Type>:` 开头；英文 bullet 在前，中文 bullet 复述在后。依赖变更（`Cargo.toml` / `package.json`）单独用 `依赖变更：…` section 收口。
+
+
+
+
 ## 仓库速览
 
 - **项目**：Velo — 基于 Vue 3 + Tauri 2 + ProseMirror 的本地 markdown 编辑器

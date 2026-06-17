@@ -8,12 +8,15 @@ import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
+// import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
+
+const tauri = isTauri()
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
@@ -27,6 +30,54 @@ const sampleMd = sampleMdRaw.replace(
 // 这样子组件第一次拿到的 props.modelValue 就是 sampleMd 而非空串
 documentStore.init(sampleMd)
 
+// store hydrate + shiki highlighter ready 必须在 ProseMirrorEditor 子组件
+// mount **之前**完成,否则首屏代码块会闪两遍:
+//
+//  1) PM mount → code_block 节点进入 DOM → plugin `decorations(state)` 第一
+//     次跑,此时 plugin state.highlighter 还是 null(因为 view 工厂里的
+//     `await getHighlighter()` 还在异步路上)→ buildDecorations 走
+//     `if (!lang || !hl) return`,**不写任何 token inline style**。
+//     此时 pre/span 只继承 SCSS 默认 `color: var(--shiki-light)` = #24292e
+//     (近黑) → 用户看到"先黑色"。
+//  2) `await getHighlighter()` resolve → `dispatch setMeta({ highlighter: hl })`
+//     → plugin state apply → `decorations(state)` 第二次跑,这次 hl 非空 →
+//     写出正确 token inline style → 颜色变 → **闪烁**。
+//
+// 解法:在 `settingsReady` 之上再叠一层 `codeBlockReady`,**等 highlighter
+// 装好再翻**。`PM v-if="codeBlockReady"` → PM mount 时 shiki 已就绪,plugin
+// view 工厂 attach 后 `getHighlighter(light, dark)` 走 cached promise 同步
+// resolve → `dispatch setMeta` 同步发生 → plugin state.highlighter 立刻
+// ready → `decorations(state)` 第一次跑就有 token style → 零闪烁。
+//
+// 失败一律不抛(首次启动 / 文件被删 / 解析错 → settingsReady 立即 true,
+// store 走 DEFAULT,继续往后等 getHighlighter resolve → codeBlockReady 翻
+// true → PM mount,行为一致,不会卡白屏)。
+const settingsReady = ref(false)
+const codeBlockReady = ref(false)
+
+void initSettings()
+  .finally(() => { settingsReady.value = true })
+  .then(async () => {
+    // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
+    const { getHighlighter, ensureTheme, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
+      '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+    )
+    const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
+    const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
+    // 装用户主题;singleton 若已被占,这里 getHighlighter 拿到旧 hl,ensureTheme
+    // 补装用户主题。两条路都确保 highlighter 装好用户主题。
+    await getHighlighter(light, dark)
+    await ensureTheme(light)
+    await ensureTheme(dark)
+    codeBlockReady.value = true
+  })
+  .catch((err) => {
+    // shiki 加载失败也别卡白屏,翻 ready 让 PM mount,plugin 内置 catch 会
+    // 输出 warn,代码块走 SCSS 默认色(降级)
+    console.warn('[App] shiki highlighter 预加载失败,降级到默认色:', err)
+    codeBlockReady.value = true
+  })
+
 const showOutline = ref(false)
 const showSettings = ref(false)
 
@@ -36,7 +87,9 @@ watch(
   () => store.darkMode,
   (val) => {
     document.documentElement.classList.toggle('dark', val)
-    void invoke('set_window_theme', { theme: val ? 'dark' : 'light' }).catch(() => {})
+    if (tauri) {
+      void invoke('set_window_theme', { theme: val ? 'dark' : 'light' }).catch(() => {})
+    }
     // 通知带自管渲染的 NodeView（mermaid）刷新主题 —— ProseMirror 不会因
     // 这次类名切换产生 transaction，nodeView.update() 不会触发，得我们主动喊
     window.dispatchEvent(new CustomEvent('velo:theme-change'))
@@ -79,6 +132,8 @@ async function initSettings() {
     if (typeof e.fontFamily === 'string') store.fontFamily = e.fontFamily
     if (typeof e.isMacCodeBlock === 'boolean') store.isMacCodeBlock = e.isMacCodeBlock
     if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
+    if (typeof e.codeLightTheme === 'string') store.codeLightTheme = e.codeLightTheme
+    if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
   }
   const d = loaded.document
   if (d) {
@@ -96,6 +151,8 @@ function snapshotSettings(): PersistedSettings {
       fontFamily: store.fontFamily,
       isMacCodeBlock: store.isMacCodeBlock,
       darkMode: store.darkMode,
+      codeLightTheme: store.codeLightTheme,
+      codeDarkTheme: store.codeDarkTheme,
     },
     document: {
       autoSaveEnabled: documentStore.autoSaveEnabled,
@@ -218,11 +275,17 @@ onMounted(async () => {
   //   + preventDefault 是另一道保险,见 onKeydown 注释。
   window.addEventListener('keydown', onKeydown, { capture: true })
 
-  // 0) 加载持久化的设置 / 大纲状态 —— 必须在 CLI args 之前完成,
+  // 0) 加载大纲折叠状态 —— 必须早于 CLI 打开文件,
   //    否则 CLI 打开文件时,EditorOutline 的 filePath watch 读到的 store 是空的,
-  //    首屏就会"丢失"该文件的折叠状态。loadFrom / initSettings 失败一律不抛,
+  //    首屏就会"丢失"该文件的折叠状态。loadFrom 失败一律不抛,
   //    不会阻塞后续步骤。
-  await initSettings()
+  //
+  // 注意:initSettings() 已提前到 setup() 顶层 await(见上方),目的是让
+  // store.codeLightTheme / codeDarkTheme 在 ProseMirrorEditor 子组件 mount
+  // **之前**就被用户设置覆盖,CodeHighlightWidget plugin view 工厂 attach
+  // 时拿到正确主题调 getHighlighter(light, dark),shiki 一次性装对 → 首屏
+  // 零闪烁。dev web 端 loadSettings() 因 isTauri() 守门返回 null,顶层
+  // await 立即 resolve,无副作用。
   const outlineLoaded = await loadOutlineState()
   if (outlineLoaded?.files) outlineStore.loadFrom(outlineLoaded.files)
 
@@ -241,6 +304,8 @@ onMounted(async () => {
       () => store.fontFamily,
       () => store.isMacCodeBlock,
       () => store.darkMode,
+      () => store.codeLightTheme,
+      () => store.codeDarkTheme,
       () => documentStore.autoSaveEnabled,
       () => documentStore.autoSaveOnBlur,
     ],
@@ -254,14 +319,20 @@ onMounted(async () => {
 
   // 1) 冷启动:Rust setup() 阶段把 argv 中的文件路径暂存了下来(没法直接 emit
   //    因为彼时前端的 listen() 还没挂上)。前端挂载完成后主动来拉一次。
-  let cliFirst: string | undefined
-  try {
-    const initial = await invoke<string[]>('get_cli_args')
-    cliFirst = initial?.[0]
-    if (cliFirst) await documentStore.openPath(cliFirst)
-  }
-  catch (e) {
-    console.error('读取启动 CLI 参数失败', e)
+  //    dev web 端(无 Tauri runtime)→ tauri=false,直接跳过整段,跟 persistence
+  //    load/save 的 isTauri 守门一致。`invoke` 在 web 端调会 throw
+  //    `Cannot read properties of undefined (reading 'invoke')` 因为
+  //    window.__TAURI_INTERNALS__ 没注入。
+  if (tauri) {
+    let cliFirst: string | undefined
+    try {
+      const initial = await invoke<string[]>('get_cli_args')
+      cliFirst = initial?.[0]
+      if (cliFirst) await documentStore.openPath(cliFirst)
+    }
+    catch (e) {
+      console.error('读取启动 CLI 参数失败', e)
+    }
   }
 
   // 1.5) 扫一遍 appDataDir/drafts/,把"上一会话留下的"草稿装进 store。
@@ -275,13 +346,18 @@ onMounted(async () => {
   //      filter 都能正确排除当前文档。
   await documentStore.loadRecoverableDrafts()
 
-  // 2) 二次启动:现有实例已就绪,Rust 直接 emit,这里 listen 接住
-  unlistenCli = await listen<string[]>('cli-args', async (e) => {
-    const first = e.payload?.[0]
-    if (!first) return
-    if (!(await documentStore.confirmDiscardIfDirty())) return
-    void documentStore.openPath(first)
-  })
+  // 2) 二次启动:现有实例已就绪,Rust 直接 emit,这里 listen 接住。
+  //    dev web 端 listen 也会 throw(__TAURI_INTERNALS__ undefined),加 tauri
+  //    守门。这行如果 throw 会让 onMounted async 函数 reject,后续 4.5 段
+  //    "切代码主题" watch 就挂不上 —— dev web 端切主题失败的根因。
+  if (tauri) {
+    unlistenCli = await listen<string[]>('cli-args', async (e) => {
+      const first = e.payload?.[0]
+      if (!first) return
+      if (!(await documentStore.confirmDiscardIfDirty())) return
+      void documentStore.openPath(first)
+    })
+  }
 
   // 3) keydown 监听已在最前面(0-pre)挂上 —— 启动期 await 期间也要能拦 Ctrl+F
 
@@ -289,28 +365,66 @@ onMounted(async () => {
   window.addEventListener('blur', onWindowBlur)
   window.addEventListener('focus', onWindowFocus)
 
-  // 5) 关闭拦截:脏 → 弹原生确认
-  const win = getCurrentWindow()
-  await win.onCloseRequested(async (event) => {
-    if (!documentStore.dirty) return
-    event.preventDefault()
-    const wantSave = await confirm(
-      `「${documentStore.fileName}」有未保存的修改，是否保存？`,
-      { title: '未保存的修改', kind: 'warning' },
-    )
-    if (wantSave) {
-      // 关键:save 可能因为用户取消另存为对话框 / 写盘失败而返回 false。
-      // 此时 *不能* destroy,否则用户的修改就丢了。
-      const ok = await documentStore.save()
-      if (ok) await win.destroy()
-      return
-    }
-    const discard = await confirm('放弃修改并直接关闭？', {
-      title: '确认关闭',
-      kind: 'warning',
+  // 4.5) 代码块主题切换:用户改 store.codeLightTheme / codeDarkTheme →
+  //  ensureTheme 异步追加 → dispatch setMeta({ highlighter, lightTheme, darkTheme })
+  // → plugin state apply → buildDecorations 重新跑 → token inline style 用新主题色重写。
+  // 跟 darkMode toggle 的纯 CSS 路径正交,这条要主动 rebuild(新主题 hex 变了)。
+  //
+  // **首屏零闪烁**:`getHighlighter` 是 singleton,第一次调用决定装哪两个
+  // 主题,后续只能 loadTheme 追加(会再触发一次 rebuild → 视觉闪)。所以
+  // 启动期 settings 加载提前到 App.vue setup 顶层 await(见 setup 顶部),
+  // ProseMirrorEditor 子组件 mount 时 store.codeLightTheme / codeDarkTheme
+  // 已经是用户值;plugin view 工厂 attach 后从 store 读 → getHighlighter(
+  // light, dark) 一次性装对。**这里 watch 不开 immediate** —— 首次由 view
+  // 工厂的 getHighlighter 触发,本 watch 只管"用户后续改"。
+  const { ensureTheme: ensureShikiTheme } = await import(
+    '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+  )
+  const { codeHighlightKey } = await import(
+    '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
+  )
+  watch(
+    () => [store.codeLightTheme, store.codeDarkTheme] as const,
+    async ([light, dark]) => {
+      const view = editorRef.value?.getEditorView()
+      if (!view || view.isDestroyed) return
+      const hl = await ensureShikiTheme(light)
+      await ensureShikiTheme(dark)
+      if (view.isDestroyed) return
+      view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
+        highlighter: hl,
+        lightTheme: light,
+        darkTheme: dark,
+      }))
+    },
+  )
+
+  // 5) 关闭拦截:脏 → 弹原生确认。dev web 端没有 Tauri runtime,getCurrentWindow
+  //    / onCloseRequested / confirm 这些 Tauri 同步 API 一调就 throw,所以整段
+  //    用 tauri 守门跳过;浏览器自带 beforeunload 弹原生确认(用户没要求,本项目
+  //    不做)。保存可能因为用户取消另存为对话框 / 写盘失败而返回 false —— 此时
+  //    *不能* destroy,否则用户的修改就丢了。
+  if (tauri) {
+    const win = getCurrentWindow()
+    await win.onCloseRequested(async (event) => {
+      if (!documentStore.dirty) return
+      event.preventDefault()
+      const wantSave = await confirm(
+        `「${documentStore.fileName}」有未保存的修改，是否保存？`,
+        { title: '未保存的修改', kind: 'warning' },
+      )
+      if (wantSave) {
+        const ok = await documentStore.save()
+        if (ok) await win.destroy()
+        return
+      }
+      const discard = await confirm('放弃修改并直接关闭？', {
+        title: '确认关闭',
+        kind: 'warning',
+      })
+      if (discard) await win.destroy()
     })
-    if (discard) await win.destroy()
-  })
+  }
 })
 
 onBeforeUnmount(() => {
@@ -422,7 +536,17 @@ onBeforeUnmount(() => {
       </aside>
 
       <!-- 编辑器区域 -->
+      <!--
+        v-if="codeBlockReady" 守门:**shiki highlighter 装好用户主题**后才
+        mount ProseMirrorEditor。PM mount 时 plugin state.highlighter 立即
+        ready → `decorations(state)` 第一次跑就写正确 token inline style
+        → 首屏零闪烁。单纯守 settingsReady(只等 store hydrate)不够 —— PM
+        mount 早于 `await getHighlighter()` resolve,plugin 第一次跑
+        decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
+        setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。
+      -->
       <ProseMirrorEditor
+        v-if="codeBlockReady"
         ref="editorRef"
         v-model:find-open="findOpen"
         :find-initial-query="findInitialQuery"

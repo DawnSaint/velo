@@ -34,121 +34,110 @@ velo/
 │       ├── EditorSettings.vue
 │       ├── DraftRecoveryDialog.vue
 │       └── ProseMirrorEditor/
-│           ├── index.vue          壳 (CSS 变量 / hljs 加载)
+│           ├── index.vue          壳 (CSS 变量)
 │           ├── EditorInner.vue    useProseMirror() + 裸 ProseMirror EditorView
-│           ├── nodes/             自定义 ProseMirror 节点
-│           │   ├── MathNodeViews.ts        公式 NodeView (block view 走 TextareaEditor)
-│           │   ├── MermaidSyntax.ts        mermaid remark 插件 + schema (toDOM 输出 height:0 占位)
-│           │   ├── MermaidDecoration.ts    mermaid widget plugin (SVG 显示 + 编辑态 textarea,详见"设计要点")
-│           │   ├── TaskListNodeView.ts     任务列表 checkbox NodeView
-│           │   ├── FootnoteNodeViews.ts    脚注 NodeView + 位置收集 Plugin
-│           │   └── TextareaEditor.ts       多行 textarea 编辑壳 (math block / mermaid 共用)
-│           ├── findreplace/       查找替换
-│           │   ├── FindReplace.vue         浮层 UI
-│           │   ├── findHighlight.ts        匹配高亮 ProseMirror plugin
-│           │   └── findMatches.ts          匹配/替换纯函数
-│           ├── image/             图片上传与键盘
-│           │   ├── imageUploadPlugin.ts    paste/drop 拦截 + 持盘
-│           │   └── imageKeymap.ts          删除原子保护
-│           ├── plugins/           通用独立插件
-│           │   ├── linkClick.ts            链接点击 / 源码编辑态 session
-│           │   ├── preserveEmptyLine.ts    空行保留
-│           │   ├── remarkAlert.ts          GFM alert remark 插件
-│           │   └── syntaxAutoFormat.ts     语法实时转换框架(见"设计要点")
-│           └── syntax/            实时语法注册表(详见"设计要点")
-│               ├── index.ts                注册入口(import 触发 register 副作用)
-│               ├── block/                  段首语法:heading / codeBlock / blockquote / list / hr
-│               └── inline/                 段内语法:emphasis / strike / inlineMath / footnoteRef / link
+│           ├── nodes/             自定义节点 (公式/mermaid/任务列表/脚注/代码块)
+│           │   ├── MathNodeViews.ts
+│           │   ├── MermaidSyntax.ts + MermaidDecoration.ts
+│           │   ├── TaskListNodeView.ts
+│           │   ├── FootnoteNodeViews.ts
+│           │   ├── CodeHighlightWidget.ts
+│           │   └── TextareaEditor.ts  多行 textarea 编辑壳
+│           ├── findreplace/       查找替换 (浮层UI + 高亮plugin + 匹配函数)
+│           ├── image/             图片 paste/drop 上传 + 删除保护 keymap
+│           ├── plugins/           通用插件
+│           │   ├── linkClick.ts        链接点击/源码编辑态 session
+│           │   ├── preserveEmptyLine.ts
+│           │   ├── remarkAlert.ts      GFM alert remark 插件
+│           │   └── syntaxAutoFormat.ts 语法实时转换框架
+│           └── syntax/            实时语法注册表
+│               ├── index.ts            注册入口
+│               ├── block/              段首: heading / codeBlock / blockquote / list / hr
+│               └── inline/             段内: emphasis / strike / inlineMath / footnoteRef / link
 └── src-tauri/
-    ├── capabilities/default.json  fs:allow-** (通用文本编辑器,见维护者注意点 4)
-    └── src/{main,lib}.rs          set_window_theme / get_cli_args / PendingCliArgs / single-instance
+    ├── capabilities/default.json  fs:allow-** (通用文本编辑器)
+    └── src/{main,lib}.rs          窗口主题 / CLI args / single-instance
 ```
 
 ---
 
 ## ProseMirror 插件链
 
-按 `ProseMirrorEditor/EditorInner.vue` 里 `allPlugins` 数组顺序:
+按 `EditorInner.vue` 里 `allPlugins` 数组顺序:
 
 | 插件 | 用途 |
 |------|------|
-| `keymap(Backspace/Delete → headingToParagraph)` | 标题前退格 / 删除 → 转段落(不降级 h2→h1) |
-| `keymap(Mod-z/y/Shift-z)` | 撤销 / 重做 |
-| `keymap(Enter → chainCommands(dollarEnterCmd, splitBlock))` | `$$` + Enter → 块级公式进入编辑态;其他 Enter → 换段 |
-| `keymap(baseKeymap)` | 接管未自定义的所有基础键 |
-| `dropCursor` | 拖动时显示蓝色光标线指示落点 |
-| `gapCursor` | 允许光标落在非文本节点之间 |
-| `history` | 撤销 / 重做栈 |
-| `tabIndent` | 列表项 sink/lift;代码类 / 段落 / 标题按 Tab 插 4 空格;非列表 Shift-Tab 消费(焦点保留) |
-| `dollarEnterToMathBlock` | `$$` + Enter keymap 入口 |
-| `imageKeymapPlugin` | atom 节点(image / mermaid / math_block)删除保护:Backspace/Delete 紧贴 → 选中而非删除 |
-| `imageUploadPlugin` | paste/drop 拦截 → 落盘 → 插入 image 节点 |
-| `linkClickPlugin` + `linkEditEscapeKeymap` | 链接单击进源码编辑态 / Cmd 跳转 / Escape 还原 |
-| `syntaxAutoFormatPlugin` | **语法实时转换框架**:dirty-range 局部扫,registry 驱动(见"设计要点") |
-| `codeHighlightPlugin` | 代码块高亮 + 工具条:side: -1 widget 渲染 toolbar(语言按钮 / 复制按钮,自定义 'velo:open-lang-picker' / 'velo:copy-code' 事件冒泡),inline decoration 给 text 加 `style="--shiki-light:#xxx; --shiki-dark:#yyy"` dual themes CSS 变量(见"设计要点") |
-| `imageInlineViewPlugin` | image NodeView(Tauri asset:// 协议代理) |
-| `mathEditPlugin` | math_inline / math_block NodeView(KaTeX 实时预览) |
-| `mermaidDecoration` | mermaid block 用 Decoration.widget 渲染 SVG / 编辑态切换 |
-| `taskListPlugin` | `- [ ]` / `- [x]` list_item NodeView(checkbox + 内容区分) |
-| `footnoteEditPlugin` | 脚注 NodeView + 位置收集 |
-| `findHighlight` | 查找替换高亮 Decoration |
-| `inputRules` | ellipsis / emDash 纯文本→纯文本快速路径(其它语法走 syntaxAutoFormat) |
+| keymap(Backspace/Delete → headingToParagraph) | 标题退格/删除转段落 (不降级 h2→h1) |
+| keymap(Mod-z/y/Shift-z) | 撤销/重做 |
+| keymap(Enter → dollarEnterCmd) | `$$`+Enter 进块级公式编辑态 |
+| keymap(baseKeymap) | 接管基础键 |
+| dropCursor / gapCursor | 拖放光标 + 跨非文本节点光标 |
+| history | 撤销/重做栈 |
+| tabIndent | Tab 缩进/反缩进;代码/段落插4空格;非列表 Shift-Tab 消费 |
+| imageKeymapPlugin | atom 节点删除保护 (Backspace/Delete 紧贴先选中不直接删) |
+| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点 |
+| linkClickPlugin + linkEditEscapeKeymap | 链接单击进源码编辑 / Cmd 跳转 / Escape 还原 |
+| syntaxAutoFormatPlugin | dirty-range 局部扫,registry 驱动 (见设计要点) |
+| codeHighlightPlugin | shiki dual-theme 代码高亮 + toolbar widget (见设计要点) |
+| imageInlineViewPlugin | image NodeView (Tauri asset:// 代理) |
+| mathEditPlugin | math_inline/block NodeView (KaTeX 实时预览) |
+| mermaidDecoration | Decoration.widget 渲染 SVG / 编辑态切换 (见设计要点) |
+| taskListPlugin | `- [ ]` / `- [x]` checkbox NodeView |
+| footnoteEditPlugin | 脚注 NodeView + 位置收集 |
+| findHighlight | 查找替换高亮 |
+| inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
-**markdown 解析** 不在 ProseMirror 插件链里 —— 走 `editor/markdownIO.ts` 的 unified pipeline(`remark-parse` + `remark-gfm` + `remark-math` + `remarkPreserveEmptyLine`),`fromMarkdown(md, schema)` 装到 EditorState,`onChange(doc) → toMarkdown(doc)` 回写。**键入触发**走 inputRules,不走 unified。
+**markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + remark-math + preserveEmptyLine)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
 
 ---
 
 ## 数据流
 
-**`documentStore.content` 是编辑器文本的唯一来源** —— `<ProseMirrorEditor :model-value v-model>` 双向同步,`EditorOutline` 只读。`dirty = content !== lastSavedContent`。
+**`documentStore.content` 是编辑器文本的唯一来源**,`dirty = content !== lastSavedContent`。
 
-**生命周期** 由 `useProseMirror` 接管:`EditorInner.vue` 在 onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时(切文件 / 新建 / 外部同步),`lastSelfEmitted` 值对比探测,`EditorInner` 内部直接 `view.updateState(EditorState.create(...))` 替换内部 state(plugin state 因 init 跑而归零,等价 destroy + recreate 但不销毁 view 实例),`index.vue` 不参与重建控制
+**生命周期**: `EditorInner.vue` onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时用 `lastSelfEmitted` 值对比探测自 emit 的 echo,非 echo 则 `view.updateState(EditorState.create(...))` 替换内部 state。
 
-**文件操作**(都走 `documentStore`):
-- **打开** → `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent`(设 `echosToAccept=1` 等编辑器首屏 echo)
-- **保存** → `writeTextFile`,**写盘前乐观推进** `lastSavedContent`,自己触发的 fs:watch 事件被 `disk === lastSavedContent` 过滤;失败回滚
-- **Ctrl+S / 失焦保存 / 关闭拦截** → 同一份 `save()`
+**文件操作**:
 
-**外部改动同步** (`checkExternalChange`,fs:watch + window focus 兜底):
+- 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`)
+- 保存: `writeTextFile`,**写盘前乐观推进** `lastSavedContent` 过滤自己的 fs:watch 事件;失败回滚
+- Ctrl+S / 失焦 / 关闭拦截走同一 `save()`
+
+**外部改动同步** (`checkExternalChange`, fs:watch + window focus 兜底):
+
 1. `disk === lastSavedContent` → 自己的写,忽略
-2. `disk === content` → 别人重写为同样内容,只刷新基线
-3. `!dirty` → 静默 `loadContent(disk, path)`
-4. `dirty` → 弹确认 → 用户决定 reload 或保留本地
+2. `disk === content` → 别人重写为同样内容,刷新基线
+3. `!dirty` → 静默 reload
+4. `dirty` → 弹确认
 
-**单实例 + 文件关联**:
-- **冷启动**:Rust `setup()` 把 argv 暂存进 `PendingCliArgs`,前端 `onMounted` 调 `invoke('get_cli_args')` 拉一次(直接 emit 会被 webview 漏报)
-- **二次启动**:`tauri-plugin-single-instance` 回调 → `app.emit('cli-args')` → 前端 `listen('cli-args')` 接住
+**单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。
 
-**崩溃恢复草稿**:脏盘期间每 30s 把内容写到 `appDataDir/drafts/{id}.json`(ID = path 编码或 `untitled`)。启动时扫描展示给用户选择恢复 / 丢弃。**注意**:`loadRecoverableDrafts` 必须在 `openPath` *之后*调,filter 用 `currentDraftId()` 排除当前文档的草稿。
+**崩溃恢复**: 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
 
-**持久化**:`appDataDir/{velo-settings.json, velo-outline-state.json, drafts/}`。失败一律不抛,降级到 store 默认值 —— 首次启动 / 配置损坏都不能阻塞 UI。
+**持久化**: `appDataDir/{velo-settings.json, velo-outline-state.json, drafts/}`,失败降级不阻塞 UI。
 
 ---
 
 ## 设计要点
 
-- **自家写盘不打扰** —— `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 因此被 `disk === lastSavedContent` 短路
-- **写盘抛错回滚** —— `lastSavedContent` 先推到 snapshot,失败回滚到 `previousBaseline`,dirty 不错位
-- **focus 兜底** —— `notify-rs` 在网络盘 / 原子 rename / Dropbox 等同步工具下会漏报,`window focus` 主动核一次
-- **echo 哨兵** (`lastSelfEmitted`) —— `EditorInner` 自己 dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch modelValue 看到值匹配就跳过(自己 emit 的 echo);不匹配则 `EditorInner` 内部 `view.updateState(EditorState.create(...))` 替换内部 state。比 `isInternalChange + nextTick` 时序标志更稳。
-- **NodeView 隔离** —— `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
-- **mermaid 走 widget 不走 NodeView** —— atom NodeView 的 outer dom 改 `innerHTML` 会被 ProseMirror 的 `DOMObserver` 当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount,所有 NodeView destroy + recreate,用户每敲一字符 mermaid 全闪 loader。改用 `Decoration.widget`:`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变,widget 内部 `dom.innerHTML = svg` 不报警。widget 内部根据 plugin state.editNodePos 切换"显示 SVG"/"显示 textarea"两种渲染,key 设为 `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}` 在状态切换时由 ProseMirror 卸载/挂载。完全没有 NodeView,schema toDOM 输出 `height:0` 隐藏占位(atom 节点必须有 dom 用于 posAtCoords / selection 映射,藏掉视觉即可)。**坑**:plugin promise resolve 后**不要** dispatch setMeta 触发 buildDecorations,否则新 Decoration 实例的 `WidgetType.eq` 在比 toDOM/spec 时会失败 → widget 复用失效 → 死循环;直接在 widget 自己的 dom 上写 svg 即可。
-- **mermaid 主题切换** —— widget 工厂里直接挂 `velo:theme-change` window listener,自己改 dom;不走 plugin setMeta 路径(同上的死循环)。decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
-- **shiki Dual Themes 集成** —— 用真实主题 `vitesse-light` + `vitesse-dark`(bundled,从 `@shikijs/themes` 自动加载)。`codeToTokensWithThemes(code, { themes: { light, dark }, defaultColor: false })` 返回 `ThemedTokenWithVariants[][]`,每个 token 在 `variants.light` / `variants.dark` 各有一套 hex。**机制**:每个 token span 的 inline style 写局部 CSS 变量 `--shiki-light:${hex}; --shiki-dark:${hex}`;SCSS 规则对 `pre` **和** `pre span` 同时设 `color: var(--shiki-light)`(必须两个 selector 都写 —— `color` 的 `var()` 在 element 自身上下文解析,子元素继承的是已解析值,不会重解析;只有 span 也写 `color: var(--shiki-light)`,每个 span 才能拿到自己的 token 颜色)。切 `<html class="dark">` 时 SCSS 规则翻面,token 颜色实时变,ProseMirror / shiki 不参与(零重渲)。**为什么不用 `defaultColor: 'light'`**:那会输出 `color:#xxx` inline style,优先级 > CSS 规则 → 切 dark 时要 `!important` 强压,`defaultColor: false` 走纯 CSS cascade 更干净。**pre 背景/border**:自管两套 hex(写死,跟 vitesse 主题默认 bg/border 对齐),走 `:root` 变量 + 同样三路 dark 命中(`.velo-editor.dark` / `.dark .velo-editor` / `html.dark`)切色,跟 token 走同套 cascade 机制。
-- **样式分层** —— ProseMirrorEditor 基础排版内联 `<style>`,公式 / Mermaid / 脚注走 SCSS partial
-- **脚注 label 是显示文本** —— `attrs.label` 既是用户可改的原始 id,也是 NodeView 写出的文本;没有 `1.` `2.` `3.` 自动编号(扩展点见"维护者注意点 5")
-- **语法实时转换走 appendTransaction + dirty-range,不走 InputRule 末尾匹配** —— 历史上每条语法各自一个 InputRule(末尾紧贴 `$` 锚)+ link 单独一份 `linkAutoFormatPlugin`(全文扫描),问题:① 反向输入(如先 `]` 再补 `[^xxx`)不触发 InputRule;② 粘贴 / 中间编辑不响应 InputRule;③ 块级语法(`### `/`> `/`- ` 等)根本没人接管,只能渲染已写好的不能输入触发;④ 每条规则各自处理黑名单 / 编辑态 session,扩展成本高。**新框架**:`plugins/syntaxAutoFormat.ts` 单一 `appendTransaction`,从 `tr.mapping.maps` 提取 dirty range → 扩展到包含的 textblock → 对每个 textblock 跑 `syntax/block/*` 段首检测 + `syntax/inline/*` 段内 g 正则检测。性能:敲一字符 = 扫一段;粘贴整段 = 扫被粘入的 N 段;无全文重扫。黑名单(`code_block` / `html_block` / `mermaid` / `math_block`)、code mark、`linkClickPluginKey.session` 范围由框架统一过滤,语法定义只写 `pattern + apply`。新增语法 = 写一个文件 + 在 `syntax/index.ts` 注册一行。`InputRule` 仅保留 `ellipsis` / `emDash` 这种纯文本→纯文本的快速路径。**坑**:① block detector 要求 `pattern` 带 `^`、不带 `g`;inline 反过来要求带 `g` 不带 `^/$`,框架做 `pattern.global` 防御但不自动改写。② inline 里跑正则前要把段内 atom(image / footnote_reference / math_inline / html_inline)用 NBSP ` ` 占位喂给正则,匹配范围里含 NBSP 直接跳过(避免穿透 atom)。③ 语法 `apply` 直接修改框架传入的 `tr`,多个 match 共用一个 `tr.mapping`,语法不要自己 dispatch。④ `appendTransaction` 返回的 tr 不会回灌到自己,但单次 apply 内若 pattern 会再次匹配产物会死循环 —— 实测 schema 下转出的都是 atom / 带 mark 文本,不进 inline detector 范围,无忧。
-
+- **自家写盘不打扰**: `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 被 `disk === lastSavedContent` 短路
+- **echo 哨兵** (`lastSelfEmitted`): EditorInner dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch 看到匹配则跳过 echo
+- **mermaid 走 Decoration.widget 不走 NodeView**: atom NodeView 的 outer dom `innerHTML` 变更会被 ProseMirror DOMObserver 当外部突变 → 全量 remount + 每字符 loader 闪烁。widget 的 `WidgetViewDesc.ignoreMutation` 默认忽略非 selection 突变。widget 根据 plugin state 切换 SVG/textarea,key 用 `mermaid-widget:${pos}:${isEditing}` 让 ProseMirror 自行卸载/挂载。schema toDOM 输出 `height:0` 隐藏占位。**坑**: plugin promise resolve 后不要 dispatch setMeta 触发 rebuild decorations,直接在 widget dom 上写 svg;否则新 Decoration 实例 `WidgetType.eq` 失败 → widget 复用失效 → 死循环
+- **mermaid 主题切换**: widget 工厂直接挂 `velo:theme-change` window listener 自己改 dom;`spec.destroy` 钩子 removeEventListener 防泄漏。不走 plugin setMeta (同上死循环)
+- **shiki dual-theme 代码高亮**: `codeToTokensWithThemes(code, { themes: { light, dark } })` 返回 token 级双色。每个 token span inline style 拼局部 CSS 变量 `--shiki-light`/`--shiki-dark`,SCSS 按 `html.dark` 选变量。**darkMode toggle 纯 CSS 切色**(零重渲,不要订阅事件 rebuild);**用户换主题**才 rebuild decoration(hex 变了,App.vue watch 触发)。**首屏零闪烁**: App.vue `setup` 用 `codeBlockReady` 守门 PM mount(等 shiki 主题加载完);PM mount 时 plugin `state.init` 同步拿 cached highlighter
+- **语法实时转换走 appendTransaction + dirty-range**(不走 InputRule 末尾匹配): `syntaxAutoFormat.ts` 从 `tr.mapping.maps` 提取 dirty range → 对包含的 textblock 跑 block 段首检测 + inline 正则扫描。黑名单(code_block/html_block/mermaid/math_block)、code mark、link session 框架统一过滤。新增语法 = 写一个文件 + `syntax/index.ts` 注册一行。**坑**: block detector pattern 带 `^` 不带 `g`;inline 反过来带 `g` 不带 `^/$`;inline 扫描前把段内 atom 用 NBSP 占位防穿透;语法 apply 直接修改框架传入的 `tr`,不要自己 dispatch
+- **NodeView 隔离**: `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
+- **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注走 SCSS partial
 
 ---
 
 ## 维护者注意点
 
-1. **路径别名** —— `@/` → `src/`
-2. **fs.watch 生命周期 race** —— `startWatchOf` / `stopWatch` 是 fire-and-forget,理论能泄漏旧 watcher;实际 `checkExternalChange` 早退所以无 user-visible 影响。若观察到泄漏 fd,加 sequence number 串行化
-3. **`onCloseRequested` 未取消** —— unlisten fn 没存,HMR 重挂会叠加 handler,dev 体验略差;prod 不受影响
-4. **Tauri 权限 scope** —— `capabilities/default.json` 把 fs 权限都开 `**`,因为是通用文本编辑器。分发硬化版本时收紧到工作目录
-5. **脚注 label 是显示文本** —— 当前没有 `1.` `2.` `3.` 自动编号。扩展点是在 `FootnoteNumberPlugin.state` 加 `numbering: Map<label, number>`,按首次出现顺序在 `state.apply` 里推算 —— **不要**把编号写回 `attrs.label`,否则 markdown 源码会变成 `[^1]` 这种数字 id,失去可读语义,也跟 GFM / CommonMark 约定不符
-6. **shiki Dual Themes 切色靠 CSS,不要走 plugin rebuild** —— 颜色由 token span 局部 CSS 变量 `--shiki-light` / `--shiki-dark` + pre 自身 `color: var(--shiki-light)` cascade 决定。切 `<html class="dark">` 时 CSS 规则翻面,ProseMirror / shiki 不参与。**不要**在 `codeHighlightPlugin` 内部订阅 `velo:theme-change` 事件再 dispatch `tr.setMeta({ highlighter })` 触发 rebuild —— 既无必要(颜色纯走 CSS),又会因新 DecorationSet 的 token 位置 inline style 全部重写 → 视觉闪烁 + 死循环风险(同 mermaid 教训)。pre 背景 / border 同理,只改 SCSS 即可,不要走 plugin。
-7. **Tauri clipboard-manager vs navigator.clipboard** —— Tauri webview 的 `navigator.clipboard.writeText` 在非 secure context 下不可用,**统一走** `@tauri-apps/plugin-clipboard-manager` 的 `writeText`(Rust 端 `tauri-plugin-clipboard-manager` 启用 + `clipboard-manager:default` capability 已配)。失败时 UI 闪 '✗' 1.5s,**不抛**——复制失败不该阻塞主流程。
-8. **工具条 widget 必须用真盒子,不能 `display: contents`** —— `display: contents` 让元素 hit-test 边界消失,`:hover` 命中不到(浏览器对 contents 元素的 hit-test 处理不一致)。widget 走 `display: block; height: 22px` 真盒子,`side: -1` 渲染在 `<pre>` **之前**(DOM 顺序:widget → pre)。`pre:hover` → 命中**前一个** widget 用 `:has(+ pre:hover)`(Chromium 105+ / Safari 15.4+ / Firefox 121+ 都支持,Tauri 2 WebView2/WKWebView 满足);widget 自身 hover 直接命中。同时支持 `:focus` / `:focus-visible` 键盘可达。**不要** 试图在 widget 内部用 `position: absolute` 把按钮浮出 + 让 widget 行高 0 —— 高度 0 widget 自身 hover 命中不到,只剩 `:has` 唯一路径,反而更脆。
+1. **路径别名**: `@/` → `src/`
+2. **fs.watch 生命周期 race**: `startWatchOf`/`stopWatch` fire-and-forget,理论可泄漏;`checkExternalChange` 早退故无实际影响
+4. **Tauri 权限**: `capabilities/default.json` fs 开 `**`(通用文本编辑器),分发时收紧
+5. **脚注 label 是显示文本,无自动编号**: 扩展点是在 `FootnoteNumberPlugin.state` 加 `numbering: Map<label, number>`,**不要**把编号写回 `attrs.label`(丢语义,跟 GFM 不符)
+6. **shiki darkMode vs 切主题两条路径正交**: darkMode toggle 纯 CSS 切色(零重渲);切主题(换 one-light→dracula)hex 变了必须 rebuild,由 App.vue watch 触发。两条路径不要混,尤其 darkMode 切换时不要 dispatch setMeta
+7. **clipboard 统一走** `@tauri-apps/plugin-clipboard-manager` 的 `writeText`
+8. **code toolbar widget 用真盒子,不能 `display: contents`**: widget `display: block; height: 22px`,`side: -1` 渲染在 `<pre>` 之前,用 `:has(+ pre:hover)` 联动 hover
+9. **dev web 端 Tauri API 必须 `isTauri()` 守门**: 纯 vite 调 `@tauri-apps/api/*` 同步 throw。`persistence.ts` 走 `tauriOnly()`;`App.vue` 顶层 `const tauri = isTauri()`,fire-and-forget 异步用 `if (tauri)` 守门,onMounted await 链路整段 `if (tauri) { ... }` 包裹(单行 throw 让 async 整条 reject)

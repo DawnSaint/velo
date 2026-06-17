@@ -13,6 +13,7 @@
 // 10. widget 不被 mermaid 节点触发(markdownIO 分流到 mermaid 节点,plugin 过滤)
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
@@ -75,6 +76,10 @@ beforeAll(async () => {
 
 beforeEach(() => {
   document.documentElement.classList.remove('dark')
+  // CodeHighlightWidget 的 view factory(IIFE 内 useEditorStore() 读主题)需
+  // 要 active Pinia,否则 getActivePinia 抛错 → IIFE 的 .catch 吞掉 → shiki
+  // 永远不 ready → token span 为 0。每个 case 独立起一个 pinia 防止状态串。
+  setActivePinia(createPinia())
 })
 
 afterEach(() => {
@@ -99,17 +104,24 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('2. language=javascript → inline decoration 包含 var(--shiki-*) style', async () => {
+  it('2. language=javascript → inline decoration 写 shiki 局部 CSS 变量', async () => {
     const view = makeView('```javascript\nconst x = 1\n```')
     await flushHighlighter()
-    // 找 pre > code 内的 inline span,有 style 包含 var(--shiki-)
+    // 找 pre > code 内的 inline span,有 style 包含 --shiki 局部 CSS 变量。
+    //
+    // 真实 inline 格式:`--shiki-light:#xxx;--shiki-dark:#yyy`(只有变量定义,
+    // 没有 `color:` 前缀)。`color: var(--shiki-light)` 这条规则由 SCSS 那边
+    // 对 `pre span` 写,不在 inline style 里 —— 走 defaultColor: false 模式
+    // 让 inline style 只写变量、颜色走 CSS cascade,切 <html class="dark">
+    // 翻面时不会跟 inline `color:` 打架(ARCHITECTURE 维护者注意点 6)。
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBeGreaterThan(0)
-    // 至少一个 span 的 style 含 "color: var(--shiki-"
-    const hasColorVar = Array.from(styledSpans).some((s) =>
-      (s.getAttribute('style') || '').includes('color: var(--shiki-'),
-    )
-    expect(hasColorVar).toBe(true)
+    // 至少一个 span 的 style 同时定义了 light / dark 两个变体
+    const hasDualThemes = Array.from(styledSpans).some((s) => {
+      const st = s.getAttribute('style') || ''
+      return st.includes('--shiki-light:') && st.includes('--shiki-dark:')
+    })
+    expect(hasDualThemes).toBe(true)
     view.destroy()
   })
 
