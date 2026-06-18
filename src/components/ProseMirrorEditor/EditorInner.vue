@@ -34,6 +34,8 @@ import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
+import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
+import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import 'katex/dist/katex.min.css'
@@ -248,7 +250,11 @@ const inputRulesPlugin = inputRules({
   rules: [ellipsis, emDash],
 })
 
-const allPlugins = [...basePlugins, inputRulesPlugin]
+// 快捷键 keymap(declarative registry)—— 优先级在 history / baseKeymap 之后,
+// 让内置 Backspace / Enter / Tab 链先响应,shortcuts 只补"未自定义"的键。
+const shortcutKeymap = buildShortcutKeymap()
+
+const allPlugins = [...basePlugins, inputRulesPlugin, shortcutKeymap]
 
 // ============================================================
 //  Vue 组件壳

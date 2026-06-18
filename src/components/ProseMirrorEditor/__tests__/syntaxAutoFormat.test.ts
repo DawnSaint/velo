@@ -28,6 +28,8 @@ import { alertSyntax } from '../syntax/block/alert'
 import { footnoteRefSyntax } from '../syntax/inline/footnoteRef'
 import { linkSyntax } from '../syntax/inline/link'
 import { emphasisUnderscoreSyntax } from '../syntax/inline/emphasis'
+import { emphasisStarSyntax } from '../syntax/inline/emphasisStar'
+import { strongSyntax } from '../syntax/inline/strong'
 import { strikeSyntax } from '../syntax/inline/strike'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
 
@@ -43,6 +45,9 @@ beforeAll(() => {
   registerInlineSyntax(linkSyntax)
   registerInlineSyntax(footnoteRefSyntax)
   registerInlineSyntax(inlineMathSyntax)
+  // 与 syntax/index.ts 注册顺序对齐:emphasisStar → strong → strike → emphasisUnderscore
+  registerInlineSyntax(emphasisStarSyntax)
+  registerInlineSyntax(strongSyntax)
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
 })
@@ -367,6 +372,129 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const struck = Array.from({ length: para.childCount }, (_, i) => para.child(i))
       .find(c => c.text === 'bad')
     expect(struck?.marks.find(m => m.type.name === 'strike_through')).toBeDefined()
+    cleanup()
+  })
+})
+
+// =====================================================================
+//  v0.4.4 — strong / emphasisStar / strike 互锁矩阵
+// =====================================================================
+
+describe('syntaxAutoFormat: v0.4.4 强-弱 mark 互锁', () => {
+  // 查 strong mark 的辅助函数
+  function findMark(para: any, markName: string, text: string): { text: string, mark: any } | null {
+    let found: { text: string, mark: any } | null = null
+    para.forEach((child: any) => {
+      if (found) return
+      const m = child.marks.find((mk: any) => mk.type.name === markName)
+      if (m && child.text === text) found = { text: child.text, mark: m }
+    })
+    return found
+  }
+
+  it('"**bold**" 段中键入 → 加 strong mark', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '**bold**')
+    const para = view.state.doc.firstChild!
+    const r = findMark(para, 'strong', 'bold')
+    expect(r).not.toBeNull()
+    expect(r!.mark.attrs.marker).toBe('*')
+    cleanup()
+  })
+
+  it('"__bold__" 段中键入 → 加 strong mark(marker=`_`)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '__bold__')
+    const para = view.state.doc.firstChild!
+    const r = findMark(para, 'strong', 'bold')
+    expect(r).not.toBeNull()
+    expect(r!.mark.attrs.marker).toBe('_')
+    cleanup()
+  })
+
+  it('"*italic*" 段中键入 → 加 emphasis mark(marker=`*`)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '*italic*')
+    const para = view.state.doc.firstChild!
+    const r = findMark(para, 'emphasis', 'italic')
+    expect(r).not.toBeNull()
+    expect(r!.mark.attrs.marker).toBe('*')
+    cleanup()
+  })
+
+  it('"**33**" → strong(emphasisStar 不抢,** 前缀被 `(?<!\\*)` 拒)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '**33**')
+    const para = view.state.doc.firstChild!
+    const r = findMark(para, 'strong', '33')
+    expect(r).not.toBeNull()
+    // 不应该残留裸 `*`
+    const paraText = view.state.doc.textBetween(0, view.state.doc.content.size, ' ', ' ')
+    expect(paraText).not.toMatch(/\*/)
+    cleanup()
+  })
+
+  it('"**bold** and *italic*" → 两种 mark 各自正确转', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '**bold** and *italic*')
+    const para = view.state.doc.firstChild!
+    expect(findMark(para, 'strong', 'bold')).not.toBeNull()
+    expect(findMark(para, 'emphasis', 'italic')).not.toBeNull()
+    cleanup()
+  })
+
+  it('"*not*italic*" → 只 `*italic*` 命中(首 `*not*` 因尾后是 word 字符被拒)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '*not*italic*')
+    const para = view.state.doc.firstChild!
+    expect(findMark(para, 'emphasis', 'italic')).not.toBeNull()
+    // "not" 不应有 emphasis mark
+    const notSpan = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find((c: any) => c.text === 'not')
+    expect(notSpan?.marks.some((m: any) => m.type.name === 'emphasis') ?? false).toBe(false)
+    cleanup()
+  })
+
+  it('"** not bold **"(内含前后空格)→ 不转(开头 `**` 后是空格被 `(?\\s)` 拒)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '** not bold **')
+    const para = view.state.doc.firstChild!
+    expect(findMark(para, 'strong', 'not bold')).toBeNull()
+    cleanup()
+  })
+
+  it('"a**b**c" → strong 仍命中(无 word 边界限制,跨段也行)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, 'a**b**c')
+    const para = view.state.doc.firstChild!
+    expect(findMark(para, 'strong', 'b')).not.toBeNull()
+    cleanup()
+  })
+
+  it('"**33** ~~sfd~~" 混合段 → strong + strike 各自命中(用户报的 `~~sfd~~` bug 验证)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '**33** ~~sfd~~')
+    const para = view.state.doc.firstChild!
+    expect(findMark(para, 'strong', '33')).not.toBeNull()
+    expect(findMark(para, 'strike_through', 'sfd')).not.toBeNull()
     cleanup()
   })
 })

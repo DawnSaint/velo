@@ -505,6 +505,14 @@ const marks: Record<string, MarkSpec> = {
     ],
     toDOM: () => ['del', 0],
   },
+
+  // ==xxx== 高亮。toDOM 用原生 <mark>,复用 _editor-typography.scss:108
+  // 已有的 #fff3a3 黄色背景。从 markdown 文本解析时,==xxx== 不在 GFM 范围,
+  // 由 markdownIO 的 fromMarkdown 端做文本后处理切三段(前/带 highlight/后)。
+  highlight: {
+    parseDOM: [{ tag: 'mark' }],
+    toDOM: () => ['mark', 0],
+  },
 }
 
 // ============================================================

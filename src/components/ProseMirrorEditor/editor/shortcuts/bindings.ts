@@ -1,0 +1,122 @@
+// 快捷键注册集中入口 —— EditorInner.vue 一行 `import './editor/shortcuts'` 触发。
+//
+// 新加快捷键 = 在这里加 1 行 registerShortcut(...)
+// 不需要碰 EditorInner.vue,也不需要碰 registry.ts(除非改 API)。
+//
+// 键位约定:
+//  - 跨平台用 'Mod-'(Mac=Cmd,Win=Ctrl)。避免 'Ctrl-1' 之类纯 Ctrl 键
+//    在 macOS Chrome 上被浏览器 tab 切换抢走。
+//  - 块级快捷键占位用了 Mod-Shift-? 组合(VSCode / Obsidian 风格)——
+//    用户后续可能调整,直接改这一文件即可。
+//  - 高亮用 Mod-h;水平线快捷键(Mod-Shift-h)在 v0.4.4 验收时未生效,延期后续版本。
+//    insertHr 函数保留在 blockCommands.ts,重新启用只需在这里加 1 行 registerShortcut。
+
+import { registerShortcut } from './registry'
+import { toggleMarkWithWrap } from './commands/markCommands'
+import { setHeading, setParagraph } from './commands/blockCommands'
+import { wrapInBulletList, wrapInOrderedList, wrapInBlockquote, wrapInCodeBlock } from './commands/listCommands'
+import { insertTable2x2 } from './commands/tableCommands'
+import { triggerLinkEdit } from './commands/linkCommands'
+import { schema } from '../schema'
+
+// ============================================================
+//  文本 mark(选区 toggle / 空选区插包裹符 + setStoredMark)
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-b',
+  command: toggleMarkWithWrap(schema.marks.strong, '**'),
+  label: '加粗',
+  group: 'text',
+})
+
+registerShortcut({
+  key: 'Mod-i',
+  command: toggleMarkWithWrap(schema.marks.emphasis, '*'),
+  label: '斜体',
+  group: 'text',
+})
+
+registerShortcut({
+  key: 'Mod-Shift-s',
+  command: toggleMarkWithWrap(schema.marks.strike_through, '~~'),
+  label: '删除线',
+  group: 'text',
+})
+
+registerShortcut({
+  key: 'Mod-h',
+  command: toggleMarkWithWrap(schema.marks.highlight, '=='),
+  label: '高亮',
+  group: 'text',
+})
+
+registerShortcut({
+  key: 'Mod-k',
+  command: triggerLinkEdit,
+  label: '链接',
+  group: 'text',
+})
+
+// ============================================================
+//  块级(标题 / 段落)
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-0',
+  command: setParagraph(schema),
+  label: '段落',
+  group: 'block',
+})
+
+for (const level of [1, 2, 3, 4, 5, 6] as const) {
+  registerShortcut({
+    key: `Mod-${level}`,
+    command: setHeading(schema, level),
+    label: `标题 ${level}`,
+    group: 'block',
+  })
+}
+
+// ============================================================
+//  列表 / 引用 / 代码块(占位键位,用户后续可调整)
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-Shift-7',
+  command: wrapInOrderedList(schema),
+  label: '有序列表',
+  group: 'block',
+})
+
+registerShortcut({
+  key: 'Mod-Shift-8',
+  command: wrapInBulletList(schema),
+  label: '无序列表',
+  group: 'block',
+})
+
+registerShortcut({
+  key: 'Mod-Shift->',
+  command: wrapInBlockquote(schema),
+  label: '引用',
+  group: 'block',
+})
+
+registerShortcut({
+  key: 'Mod-Shift-c',
+  command: wrapInCodeBlock(schema),
+  label: '代码块',
+  group: 'block',
+})
+
+// ============================================================
+//  表格
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-t',
+  command: insertTable2x2(schema),
+  label: '插入 2x2 表格',
+  group: 'table',
+})

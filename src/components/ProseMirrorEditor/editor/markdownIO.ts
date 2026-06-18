@@ -20,6 +20,7 @@ import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingConten
 import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
+import { remarkHighlight } from '../plugins/remarkHighlight'
 
 // ============================================================
 //  unified processor
@@ -32,6 +33,7 @@ const processor = unified()
   .use(remarkGfm)
   .use(remarkMath)
   .use(remarkAlert)
+  .use(remarkHighlight)
   .use(remarkStringify, {
     bullet: '-',
     listItemIndent: 'one',
@@ -40,7 +42,20 @@ const processor = unified()
     fences: true,
     rule: '-',
     ruleSpaces: false,
-  })
+    handlers: {
+      // ==xxx== 高亮。mdast 没有原生 highlight 节点,这里走 state.write
+      // 原样输出 `==`,内层 children 走 state.all 让 remark-stringify 自己序列化
+      // (嵌套 strong / emphasis / link 都正确)。
+      highlight(state: any, node: any) {
+        state.write('==')
+        if (Array.isArray(node.children) && node.children.length > 0) {
+          state.all(node)
+        }
+        state.write('==')
+      },
+    },
+    // `highlight` 是自定义 mdast 节点,Options 类型联合里没有 —— 用 any 绕过
+  } as any)
 
 // ============================================================
 //  fromMarkdown:string → ProseMirror Node
@@ -304,25 +319,36 @@ function inlineNodeToPM(
 ): PMNode[] {
   const marks = activeMarks.map(m => m.type.create(m.attrs))
 
-  switch (node.type) {
+  // remarkHighlight 注入的 'highlight' 节点不在 PhrasingContent 类型联合里,
+  // 把 node 当 any 处理 —— 各分支访问的字段都在运行时存在。
+  const n = node as any
+
+  switch (n.type) {
     case 'text':
-      return node.value ? [schema.text(node.value, marks)] : []
+      return n.value ? [schema.text(n.value, marks)] : []
 
     case 'inlineCode':
-      return [schema.text(node.value, marks.concat(schema.marks.code.create()))]
+      return [schema.text(n.value, marks.concat(schema.marks.code.create()))]
 
     case 'emphasis':
-      return node.children.flatMap(c =>
+      return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.emphasis })))
 
     case 'strong':
-      return node.children.flatMap(c =>
+      return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.strong })))
 
+    case 'highlight':
+      // remarkHighlight 注入的自定义节点,无 GFM 原生对应物。
+      // children 复用 inlineNodeToPM 递归 + 把 highlight mark push 到 activeMarks。
+      return n.children.flatMap((c: PhrasingContent) =>
+        inlineNodeToPM(c, schema,
+          activeMarks.concat({ type: schema.marks.highlight })))
+
     case 'delete':
-      return node.children.flatMap(c =>
+      return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.strike_through })))
 
@@ -333,25 +359,25 @@ function inlineNodeToPM(
       //   输入 `[回到开头](# Markdown 语法)` → PM doc 里 href = '# Markdown 语法'
       //   序列化 toMarkdown 也直接写回 '# Markdown 语法'(round-trip 友好)
       // scrollToAnchor 走 slug 化降级匹配跳转(plugins/linkClick.ts)。
-      let href = node.url
+      let href = n.url
       try {
         href = decodeURIComponent(href)
       }
       catch {
         /* decode 失败就保留原值(可能本来就是 %20 字面量) */
       }
-      return node.children.flatMap(c =>
+      return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
           activeMarks.concat({
             type: schema.marks.link,
-            attrs: { href, title: node.title ?? null },
+            attrs: { href, title: n.title ?? null },
           })))
 
     case 'image':
       return [schema.node('image', {
-        src: node.url,
-        alt: node.alt ?? '',
-        title: node.title ?? '',
+        src: n.url,
+        alt: n.alt ?? '',
+        title: n.title ?? '',
       })]
 
     case 'break':
@@ -360,15 +386,15 @@ function inlineNodeToPM(
     case 'inlineMath':
       // math_inline content 是 text*,把 source 当文本塞进去
       return [schema.node('math_inline', null,
-        node.value ? [schema.text(node.value)] : [])]
+        n.value ? [schema.text(n.value)] : [])]
 
     case 'footnoteReference':
-      return [schema.node('footnote_reference', { label: node.identifier })]
+      return [schema.node('footnote_reference', { label: n.identifier })]
 
     case 'html':
       // 行内 HTML:atom 节点,不带外层 marks(对照 image 行为)
-      if (!node.value) return []
-      return [schema.node('html_inline', { value: node.value })]
+      if (!n.value) return []
+      return [schema.node('html_inline', { value: n.value })]
 
     default:
       return []
@@ -583,11 +609,50 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     }
   })
 
-  // 第二步:连续相同 mark 集合的 spans 合并到同一个 mark 树下。
-  // 走最朴素的策略:逐 span 调用 wrapWithMarks,让 mdast-util-to-markdown 在
-  // stringify 时自己合并相邻同 mark 的输出(它会做的,实测无需我们提前合并)。
+  // 第二步:先抽 highlight run(==xxx==),再走剩余 spans 的 wrapWithMarks。
+  //
+  // 为什么要先抽 highlight:highlight 不是 GFM 的原生 mark,wrapWithMarks 不知道
+  // 它,会丢 mark。所以这里把"连续 text span 都含 highlight mark"的那一段
+  // 抽出来,strip highlight mark(保留其他 mark),输出成 `[html '==', ...内层 mdast..., html '==']`
+  // 三个兄弟节点 —— mdast html 节点原样输出,不会被 escape(`=` 在 start-of-inline
+  // 位置会被 remark-stringify 当 setext heading 前缀 escape 成 `\=`,改用 html 节点避开)。
+  //
+  // 不抽 atom(image / math_inline / footnoteRef / hardbreak / html_inline):
+  // 这些跨节点的 highlight 在规范上本就不该支持(round-trip 后断)。
+  // 实测 schema 里 highlight 不带在 atom 上,所以 typeAt 的输入只会让
+  // 文本节点带 highlight mark,这段逻辑对简单场景足够。
   const out: PhrasingContent[] = []
-  for (const span of spans) {
+  let i = 0
+  while (i < spans.length) {
+    const span = spans[i]
+    if (span.kind === 'text' && span.marks.some(m => m.name === 'highlight')) {
+      const start = i
+      let end = i
+      while (
+        end < spans.length
+        && spans[end].kind === 'text'
+        && spans[end].marks.some(m => m.name === 'highlight')
+      ) {
+        end++
+      }
+      const inner: PhrasingContent[] = []
+      for (let j = start; j < end; j++) {
+        const sub = spans[j]
+        if (sub.kind !== 'text') continue // TS narrow 兜底,while 已保证是 text
+        const noHighlight = sub.marks.filter(m => m.name !== 'highlight')
+        inner.push(wrapWithMarks(sub.value, noHighlight))
+      }
+      if (inner.length > 0) {
+        // 用 html 节点作 `==` 边界 —— 不会被 escape
+        out.push({ type: 'html', value: '==' } as PhrasingContent)
+        out.push(...inner)
+        out.push({ type: 'html', value: '==' } as PhrasingContent)
+      }
+      // else: 极端情况,跳过(空 highlight run 不输出 `====`)
+      i = end
+      continue
+    }
+    // 非 highlight span:照旧
     if (span.kind === 'image') {
       out.push({
         type: 'image',
@@ -615,6 +680,7 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     else {
       out.push(wrapWithMarks(span.value, span.marks))
     }
+    i++
   }
   return out
 }

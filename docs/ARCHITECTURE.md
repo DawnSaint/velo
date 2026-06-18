@@ -85,6 +85,7 @@ velo/
 | taskListPlugin | `- [ ]` / `- [x]` checkbox NodeView |
 | footnoteEditPlugin | 脚注 NodeView + 位置收集 |
 | findHighlight | 查找替换高亮 |
+| `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册 |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
 **markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + remark-math + preserveEmptyLine)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
@@ -143,3 +144,10 @@ velo/
 7. **clipboard 统一走** `@tauri-apps/plugin-clipboard-manager` 的 `writeText`
 8. **code toolbar widget 用真盒子,不能 `display: contents`**: widget `display: block; height: 22px`,`side: -1` 渲染在 `<pre>` 之前,用 `:has(+ pre:hover)` 联动 hover
 9. **dev web 端 Tauri API 必须 `isTauri()` 守门**: 纯 vite 调 `@tauri-apps/api/*` 同步 throw。`persistence.ts` 走 `tauriOnly()`;`App.vue` 顶层 `const tauri = isTauri()`,fire-and-forget 异步用 `if (tauri)` 守门,onMounted await 链路整段 `if (tauri) { ... }` 包裹(单行 throw 让 async 整条 reject)
+10. **快捷键 declarative registry**(v0.4.4+):所有键位在 `editor/shortcuts/bindings.ts` 集中注册,**不**在 EditorInner.vue 里硬编码。新加快捷键 = 新建 command 文件 + 在 `bindings.ts` 加 1 行 `registerShortcut(...)`,不需要碰 EditorInner 或 registry.ts。
+11. **inline syntax regex 边界规约**(v0.4.4+):新加 inline syntax 时 regex **必须自带 word boundary**,不依赖 registry 顺序防误识别。规约:
+    - 开口边界 `(?<!\W)` / `(?<!\*)` / `(?<![\w:/])` 等(挡前导 word / 特定分隔符)
+    - 闭口边界 `(?!\W)` / `(?!\*)` / `(?![\w|/])` 等
+    - inner 不含分隔符(如 strong inner `[^\n*]+?`,不允许 inner 跨过 `**`)
+    - 例:`**33**` 必须被 strong 吃掉、`text==hi==` 不应被 highlight 误识别 —— 见 `syntax/inline/strong.ts` / `highlight.ts` 顶部的注释
+12. **highlight mark 的 markdown round-trip**(v0.4.4+):`==xxx==` 不在 GFM 范围。`fromMarkdown` 走 `plugins/remarkHighlight.ts`(state machine + in-text regex + word boundary);`toMarkdown` 在 `pmInlineToMdast` 抽 highlight run,用 **mdast html 节点**(不是 text 节点)作 `==` 边界 —— text 节点在 start-of-inline 位置会被 remark-stringify escape 成 `\==`。

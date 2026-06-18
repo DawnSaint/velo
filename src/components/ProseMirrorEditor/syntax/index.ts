@@ -20,10 +20,13 @@ import { hrSyntax } from './block/hr'
 import { alertSyntax } from './block/alert'
 
 import { emphasisUnderscoreSyntax } from './inline/emphasis'
+import { emphasisStarSyntax } from './inline/emphasisStar'
 import { strikeSyntax } from './inline/strike'
+import { strongSyntax } from './inline/strong'
 import { inlineMathSyntax } from './inline/inlineMath'
 import { footnoteRefSyntax } from './inline/footnoteRef'
 import { linkSyntax } from './inline/link'
+import { highlightSyntax } from './inline/highlight'
 
 registerBlockSyntax(headingSyntax)
 registerBlockSyntax(codeBlockSyntax)
@@ -37,5 +40,13 @@ registerBlockSyntax(alertSyntax)
 registerInlineSyntax(linkSyntax)         // 优先 link,避免 [^id] 误抓 link 模式中的 ]
 registerInlineSyntax(footnoteRefSyntax)
 registerInlineSyntax(inlineMathSyntax)
+// 顺序关键:emphasisStar 在 strong 之前 —— 各自 regex 自带边界,但先跑挑剔的
+// (inner 不含 `*`)可避免 strong 已被新 doc 改掉后,emphasisStar 在 stale blockText
+// 上又重扫一次(框架注释说外层 for 会继续走下一条 syntax,这是天然行为,顺序
+// 只是优化早返回)。strike 之后,emphasisUnderscore 放它后面。highlight 放最末,
+// 不抢前面的 link / footnote / math / strike 匹配。
+registerInlineSyntax(emphasisStarSyntax)
+registerInlineSyntax(strongSyntax)
 registerInlineSyntax(strikeSyntax)
 registerInlineSyntax(emphasisUnderscoreSyntax)
+registerInlineSyntax(highlightSyntax)

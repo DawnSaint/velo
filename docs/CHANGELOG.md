@@ -112,3 +112,18 @@
   - `bundledLanguages` Record gate 拦未注册 lang,避免无效 `loadLanguage` 触发 ShikiError warn 刷屏
   - 首次 miss 那一帧的 decoration 是无 token 的;rebuild 下一帧才出 token —— 这是有意为之的"先骨架后着色",不是 bug
   - `setDecorationRebuildCallback` 单 slot 钩子,一次粘贴 N 个未装 lang resolve 后 coalesce 到下一帧一次 dispatch;多 PM instance 场景要改 `Set<cb>`
+
+
+## v0.4.4 — 快捷键与高亮  (2026-06-18)
+
+### ADR-20260618-002: 快捷键走 declarative registry
+
+- **Context**: 历史上 ProseMirror keymap 在 `EditorInner.vue` 的 allPlugins 里手写,keymap 项散落在多处代码中,改一个键位要翻全栈;命令与键位耦合(没法独立复用 command);且没有任何机制能枚举当前有哪些键位。用户提出"快捷键介绍"需求时,这一缺口立刻显现
+- **Decision**: 新建 `editor/shortcuts/registry.ts` 单例 + `registerShortcut({ key, command, label, group })` API;`editor/shortcuts/commands/` 按命令类型分文件(`toggleMarkWithWrap` / `setHeading` / `wrapIn*` / `insertTable2x2` / `triggerLinkEdit`);`editor/shortcuts/bindings.ts` 集中所有 `registerShortcut` 调用;`EditorInner.vue` 仅 `import './editor/shortcuts'` 触发副作用注册 + `buildShortcutKeymap()` 进 allPlugins。`label` / `group` 字段为后续命令面板 / 速查 overlay 留好接口
+- **Consequences**:
+  - 新加快捷键 = 1 个 command 文件 + `bindings.ts` 加 1 行 registerShortcut,**不碰** `EditorInner.vue` / `registry.ts`(除非改 API)
+  - `getShortcuts()` 一处可见所有键位,改键位 = 改 `bindings.ts` 一处
+  - v0.4.4 共发布 17 个键位(文本 mark 5 + 段落 1 + 标题 6 + 列表 2 + 引用 1 + 代码块 1 + 表格 1);水平线快捷键(`Mod-Shift-h`)验收未生效,延期后续版本,`insertHr` 函数保留以便复用,启用只需在 `bindings.ts` 加 1 行
+  - `toggleMarkWithWrap` 统一行为:选区非空 toggle / 选区空插包裹符 + setStoredMark / 已在 mark 内 removeStoredMark / `code_block` 与 `code` mark 黑名单 / linkClick session 内只 setStoredMark 不插包裹符(保护源码编辑态不被改)
+  - link mark(`Mod-k`)走 `triggerLinkEdit` 单独实现:`setMeta(syntaxAutoFormatPlugin, false)` 防止 syntaxAutoFormat 抢转 link mark,源码插入后启动 linkClick session 进入编辑态
+
