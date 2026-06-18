@@ -48,6 +48,12 @@ fn set_window_theme(theme: String, window: tauri::WebviewWindow) {
     let _ = window.set_theme(t);
 }
 
+/// 打开 WebView2 devtools。生产构建需要在 tauri 依赖开 `devtools` 才生效。
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -69,7 +75,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![set_window_theme, get_cli_args])
+        .invoke_handler(tauri::generate_handler![set_window_theme, get_cli_args, open_devtools])
         .setup(|app| {
             // 首次启动：把 argv 里的文件路径暂存进 state，等前端 onMounted 主动来拉
             let args: Vec<String> = std::env::args().skip(1).collect();

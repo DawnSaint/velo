@@ -24,7 +24,6 @@ export default defineConfig({
   },
   build: {
     cssCodeSplit: false,
-    chunkSizeWarningLimit: 2000,
     rolldownOptions: {
       output: {
         codeSplitting: false,

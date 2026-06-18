@@ -68,17 +68,17 @@
 
 
 
-## v0.4.3 — 代码块升级  (2026-06-16)
+## v0.4.3 — 代码块升级
 
 ### ADR-20260616-001: 代码块高亮 shiki Dual Themes
 
 - **Context**: highlight.js 不支持 token 级主题切换(整块一个色)，且需要手写色板对齐 VS Code 主题；shiki 早期试过 `createCssVariablesTheme` 模式，官方不推荐 + 跟 VS Code 真实主题有色差
 - **Decision**: `codeToTokensWithThemes(code, { themes: { light, dark } })` 返回 `ThemedTokenWithVariants[][]`，每个 token span 写 `--shiki-light:${hex}; --shiki-dark:${hex}` 局部 CSS 变量；`pre` 自身 `color: var(--shiki-light)` 选色，切 `<html class="dark">` 走 CSS cascade 翻面（零重渲，ProseMirror / shiki 不参与）。pre 背景 / border 写死（白/深灰），跟代码块主题解耦
 - **Consequences**:
-  - 用户从 shiki 66 个 bundled 主题里自选，`createHighlighter` 启动只装当前 2 个主题（避首屏 +200ms）
+  - 用户从 shiki 66 个 bundled 主题里自选，`createHighlighter` 启动只装当前 2 个主题
   - **切主题要 rebuild**（hex 变了）：走 App.vue `watch store.codeLightTheme` → `ensureTheme` 追加 + `dispatch setMeta` 触发，跟 darkMode toggle 路径**正交**
   - `getLanguage` 在 lang 未注册时**同步 throw ShikiError**（不是返回 null），try 兜住后走 plain text 降级，不阻断其他 code block 高亮
-  - 顺带引入：30 个开放语种清单 + 浮层语言选择 UI（Teleport 挂 body）、一键复制（`@tauri-apps/plugin-clipboard-manager`）
+  - 引入 30 个开放语种清单 + 浮层语言选择 UI（Teleport 挂 body）、一键复制（`@tauri-apps/plugin-clipboard-manager`）
 
 ### ADR-20260616-002: 代码块工具条 widget 几何同步
 
@@ -101,3 +101,14 @@
   1. **fire-and-forget 异步**（`invoke('set_window_theme')` 等）走 `if (tauri)` 守门
   2. **onMounted await 链路里的 Tauri 同步**（`get_cli_args` / `listen('cli-args', ...)` / `onCloseRequested`）整段 `if (tauri) { ... }` 包裹，不让单行 throw 阻断整条 async 链
   persistence 模块统一加 `tauriOnly()` 守门：web 端 load=null / save=noop，store 走默认值继续渲染
+
+### ADR-20260618-001: shiki 预扫 + 懒加载 lang
+
+- **Context**: 启动期 `createHighlighter` 装 30 个 lang 全集约 6MB grammar,实际单篇 doc 只会用其中 2-5 个;完全懒加载又会让首屏代码块第一帧走 SCSS 默认色,出现"先骨架后着色"的明显两段
+- **Decision**: 启动期 mdast 预扫 doc 的 fenced code lang(由 App.vue 调 `extractLangsFromDoc`)∪ 5 项 `BASELINE_LANGS` 兜底(js/ts/py/bash/json) → `createHighlighter` 只装这一小撮;运行时 miss 走 `ensureLanguage` fire-and-forget 异步追加,resolve 后 plugin 端 rAF 节流一次 dispatch setMeta 触发 rebuild
+- **Consequences**:
+  - 首屏 grammar 从 ~6MB 降到 ~1-1.6MB
+  - `getTokensSync` 改用 `hl.getLoadedLanguages()` 探活
+  - `bundledLanguages` Record gate 拦未注册 lang,避免无效 `loadLanguage` 触发 ShikiError warn 刷屏
+  - 首次 miss 那一帧的 decoration 是无 token 的;rebuild 下一帧才出 token —— 这是有意为之的"先骨架后着色",不是 bug
+  - `setDecorationRebuildCallback` 单 slot 钩子,一次粘贴 N 个未装 lang resolve 后 coalesce 到下一帧一次 dispatch;多 PM instance 场景要改 `Set<cb>`

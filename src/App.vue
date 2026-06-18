@@ -59,14 +59,24 @@ void initSettings()
   .finally(() => { settingsReady.value = true })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
-    const { getHighlighter, ensureTheme, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
+    const { getHighlighter, ensureTheme, BASELINE_LANGS, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
       '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+    )
+    const { extractLangsFromDoc } = await import(
+      '@/components/ProseMirrorEditor/editor/markdownIO'
     )
     const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
     const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
-    // 装用户主题;singleton 若已被占,这里 getHighlighter 拿到旧 hl,ensureTheme
-    // 补装用户主题。两条路都确保 highlighter 装好用户主题。
-    await getHighlighter(light, dark)
+    // 预扫 doc 用到的 lang + 5 项 BASELINE 兜底(去重)→ createHighlighter
+    // 只装这一小撮 grammar,首屏 ~5-8 个 lang × ~200KB ≈ 1-1.6MB,远小于
+    // 旧版"30 个 lang 全装" ~6MB。doc 里没出现 / 用户后续切换的 lang
+    // 由 plugin getTokensSync 走 ensureLanguage 异步追加。
+    const usedLangs = extractLangsFromDoc(documentStore.content)
+    const bootstrapLangs = [...new Set([...usedLangs, ...BASELINE_LANGS])]
+    // 装用户主题 + 预扫 lang;singleton 若已被占,这里 getHighlighter 拿到旧
+    // hl,ensureTheme 补装用户主题。两条路都确保 highlighter 装好用户主题 +
+    // 预扫 lang。
+    await getHighlighter(bootstrapLangs, light, dark)
     await ensureTheme(light)
     await ensureTheme(dark)
     codeBlockReady.value = true

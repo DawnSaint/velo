@@ -56,6 +56,32 @@ export function fromMarkdown(md: string, schema: Schema): PMNode {
   return schema.node('doc', null, blocks)
 }
 
+// ============================================================
+//  extractLangsFromDoc:扫 doc 收集所有 fenced code 块用到的 lang
+// ============================================================
+//
+// 给 shiki 预装 grammar 用。doc 里出现的 lang 在 App.vue 启动期装进
+// createHighlighter,首屏代码块立即出 token;未出现的 lang 留到运行时
+// `ensureLanguage` 异步追加。走 mdast 不走 regex,CommonMark 缩进 / 自定义
+// 容器 / 引用块嵌套的 fence 都能正确识别,跟 editor 实际看到的语义一致。
+// `processor.parse` 是纯 AST 构造(无 PM 转换、无 stringify),代价可忽略。
+export function extractLangsFromDoc(md: string): string[] {
+  if (!md) return []
+  const tree = processor.parse(md) as Root
+  const seen = new Set<string>()
+  const visit = (n: Root | RootContent): void => {
+    if (n.type === 'code' && n.lang) {
+      seen.add(n.lang.toLowerCase())
+    }
+    // mdast 节点只有 block / root / 部分 phrasing 节点带 children,统一读
+    if ('children' in n && Array.isArray((n as { children?: unknown }).children)) {
+      for (const c of (n as { children: RootContent[] }).children) visit(c)
+    }
+  }
+  visit(tree)
+  return [...seen]
+}
+
 // URL 在解析时已被 encodeLinkUrlSpaces 转成 %20,PM doc 里存的是原始可读形式
 // (decode 回来);toMarkdown / linkClick 等都假设 doc 里的 href 是 "可读形式"，
 // 不会再二次 encode。

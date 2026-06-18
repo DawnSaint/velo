@@ -5,6 +5,14 @@
 //   --shiki-light / --shiki-dark,切 <html class="dark"> 时走 CSS cascade
 //   翻面,ProseMirror / shiki 不参与(零重渲)。pre 背景写死(始终白/深灰),
 //   跟主题色解耦 — 用户切主题不会白屏跳跃。
+// - **预扫 + 懒加载 lang**:createHighlighter 启动时只装 doc
+//   实际用到的 lang(由 App.vue 调 extractLangsFromDoc 预扫 `code` 节点
+//   的 lang 字段),不传完整 LANG_OPTIONS 全表。空 doc 走 5 项 BASELINE
+//   兜底(javascript / typescript / python / bash / json),覆盖最高频
+//   输入。运行时用户切到未预装的 lang(粘贴 / picker 选)→ `getTokensSync`
+//   检测 `hl.getLoadedLanguages()` miss → 异步 `ensureLanguage(lang)` 追加
+//   + resolve 后 dispatch setMeta 触发 plugin rebuild。`bundledThemes` 同
+//   理,ensureTheme 走另一路径(只追加主题不重建 hl)。
 // - **bundled themes + 懒加载**:createHighlighter 启动时只装当前选中的
 //   [light, dark] 2 个主题(默认 vitesse-light / vitesse-dark),切主题时
 //   调 loadTheme(themeId) ~100-300ms 异步追加,append-only 不重建 highlighter。
@@ -13,13 +21,14 @@
 // - **bundledThemesInfo 拿主题元数据**:shiki 主包 export 的 ThemeMetadata[]
 //   含 id / displayName / type('light' | 'dark')。设置面板下拉从这里读,
 //   build 时 tree-shake 不会把全 themes JSON 拖进 bundle。
-// - **LANG_OPTIONS 是 shiki langs 的唯一来源**:浮层下拉清单 == createHighlighter
-//   喂进去的 lang 集,改一处即同步;'' 留给 "plain text"(shiki 不参与)。
-//   用户手敲的 lang 字符串走 hl.getLanguage 内置 alias 解析。
+// - **LANG_OPTIONS 是浮层下拉 + 测试兜底清单**:不直接喂给 createHighlighter
+//   (启动期只装 doc 用到的 lang,见上"预扫 + 懒加载 lang");`getHighlighter()`
+//   无参调用时 fallback 到 LANG_OPTIONS 全集,给测试 / 旧调用方用。'' 留给
+//   "plain text"(shiki 不参与)。用户手敲的 lang 字符串走 hl 内置 alias 解析。
 // - **singleton + 异步**:createHighlighter 异步返回,内部用 Promise 缓存。
 
-import { createHighlighter, bundledThemesInfo } from 'shiki'
-import type { BundledTheme, Highlighter, ThemedTokenWithVariants } from 'shiki'
+import { createHighlighter, bundledLanguages, bundledThemesInfo } from 'shiki'
+import type { BundledLanguage, BundledTheme, Highlighter, ThemedTokenWithVariants } from 'shiki'
 
 // ============================================================
 //  浮层下拉开放清单
@@ -36,6 +45,14 @@ export const LANG_OPTIONS: readonly string[] = [
   'sql', 'bash', 'shell', 'powershell',
   'markdown', 'diff', 'dockerfile', 'makefile',
   'vue', 'svelte',
+]
+
+/** 启动期最小预装 lang 清单(空 doc / 首次打开新文件时兜底用)。
+ *  覆盖 markdown 编辑器最高频的 5 种:js / ts / py / bash / json。
+ *  跟 LANG_OPTIONS 不重叠,LANG_OPTIONS 是浮层下拉用的全集。
+ *  export 是给 App.vue 拼"doc 用到的 ∪ baseline"用。 */
+export const BASELINE_LANGS: readonly string[] = [
+  'javascript', 'typescript', 'python', 'bash', 'json',
 ]
 
 // ============================================================
@@ -67,12 +84,27 @@ let cachedHighlighter: Highlighter | null = null
 /** 正在 await 的 themeId set — loadTheme 重复 call 同 id 不重起 promise。 */
 const loadingThemes = new Set<string>()
 
+/** 正在 await 的 langId set — ensureLanguage 重复 call 同 id 不重起 promise。
+ *  同时给 getTokensSync 当 gate:lang 已在 in-flight 时不再触发第二次 load。 */
+const loadingLangs = new Set<string>()
+
+/** Decoration rebuild 通知钩子(单 slot,跟 ensureTheme 模式一致)。
+ *  plugin `view` factory mount 时注册、destroy 时清空。ensureLanguage
+ * 完成后调一次,plugin 端走 rAF 节流后 dispatch setMeta 触发 rebuild。 */
+let decorationRebuildCallback: (() => void) | null = null
+
 /**
  * 拿(或创建)highlighter。第一次调用启动 grammar / wasm 加载 + 初始 2 个主题;
  * 后续调用复用同一个 Promise(拿到同一个 Highlighter 实例)。
- * lightTheme / darkTheme 是启动期要装的主题;若 highlighterPromise 已存在(被先
- * 一步的 plugin factory 用默认主题创建),返回的 hl 不一定装了这俩,调用方应紧接
- * 着调 ensureTheme 追加;本函数只保证 lightTheme/darkTheme **在 init 时被装**。
+ *
+ * @param langs   启动期要装的 lang 列表。`undefined` → 默认装 LANG_OPTIONS
+ *                全集(测试 / 未走 pre-scan 的旧调用方走这条);`[]` → 不预装
+ *                任何 lang(完全靠运行时 ensureLanguage 兜底);正常路径由
+ *                App.vue 传 `extractLangsFromDoc(content) ∪ BASELINE_LANGS`。
+ * @param lightTheme / darkTheme  启动期要装的主题;若 highlighterPromise 已存在
+ *                (被先一步的 plugin factory 用默认主题创建),返回的 hl 不一定
+ *                装了这俩,调用方应紧接着调 ensureTheme 追加;本函数只保证
+ *                lightTheme/darkTheme **在 init 时被装**。
  *
  * **resolved 后同步缓存**:`cachedHighlighter` 在 promise resolve 时填好,
  * 之后 `getHighlighterSync()` 同步可读。App.vue 在 PM mount 前 await 完成
@@ -80,12 +112,17 @@ const loadingThemes = new Set<string>()
  * 就能拿到 highlighter,避免首屏"先默认色后用户主题色"的闪烁。
  */
 export function getHighlighter(
+  langs?: string[],
   lightTheme = DEFAULT_LIGHT_THEME,
   darkTheme = DEFAULT_DARK_THEME,
 ): Promise<Highlighter> {
   if (!highlighterPromise) {
+    // undefined(未传)→ 测试 / 旧调用方,装全集;显式 [] 走兜底空集;显式数组用之
+    const resolvedLangs = langs === undefined
+      ? LANG_OPTIONS.filter(l => l)
+      : langs
     highlighterPromise = createHighlighter({
-      langs: LANG_OPTIONS.filter(l => l),
+      langs: resolvedLangs,
       themes: [lightTheme, darkTheme],
     }).then((hl) => {
       cachedHighlighter = hl
@@ -139,6 +176,51 @@ export async function ensureTheme(themeId: string): Promise<Highlighter> {
 }
 
 /**
+ * 注册 / 注销 Decoration rebuild 通知钩子。plugin `view` factory mount
+ * 时注册(destroy 时清 null)。`ensureLanguage` resolve 后调一次注册
+ * 的 callback,plugin 端走 rAF 节流后 dispatch setMeta 触发 rebuild。
+ *
+ * 单 slot(当前项目一个 PM instance);若未来多编辑器要并存再改 Set<cb>。
+ */
+export function setDecorationRebuildCallback(cb: (() => void) | null): void {
+  decorationRebuildCallback = cb
+}
+
+/**
+ * 懒加载一个 lang(append-only,不重建 highlighter)。已加载直接 resolve;
+ * 重复并发 call 同 id 走同一 promise;完成后通知 rebuild 钩子。
+ *
+ * 启动期 App.vue 已经预扫过 doc 用到的 lang + BASELINE;本函数兜底
+ * 运行时"用户切到 / 粘贴未预装 lang"。未注册的 lang(shiki 抛 ShikiError)
+ * 在内部 catch + warn,不重试。
+ */
+export async function ensureLanguage(lang: string): Promise<void> {
+  const hl = await getHighlighter()
+  const id = lang.toLowerCase()
+  if (hl.getLoadedLanguages().includes(id)) return
+  if (loadingLangs.has(id)) return
+  loadingLangs.add(id)
+  try {
+    // LANG_OPTIONS 是手维护的 30 项清单;运行时用户走 picker 选 / 粘贴
+    // 自定义 lang,可能不在清单里。`bundledLanguages` 是 shiki 全套 200+
+    // bundling,任何合法的 lang id 都能 load。这里 `as BundledLanguage`
+    // 是把 string 缩窄成 shiki 接受的 string literal union,运行时 shiki
+    // 自己校验是否在 bundled 列表里(不在则 throw → 走 catch warn)。
+    await hl.loadLanguage(id as BundledLanguage)
+  }
+  catch (err) {
+    // 未注册 lang / 加载失败:静默 warn,UI 走 SCSS 默认色(无 token 配色)
+    console.warn(`[shiki] ensureLanguage("${id}") failed:`, err)
+  }
+  finally {
+    loadingLangs.delete(id)
+  }
+  // 无论成功失败都通知 rebuild —— 失败的那次 getTokensSync 还是 null,
+  // 但 rebuild 让 getTokensSync 重新被调到一次,确保后续请求走统一路径
+  decorationRebuildCallback?.()
+}
+
+/**
  * 测试用:重置 singleton,让下一次 getHighlighter() 重新创建。生产代码
  * 不应调用。
  */
@@ -146,6 +228,8 @@ export function __resetHighlighterForTest(): void {
   highlighterPromise = null
   cachedHighlighter = null
   loadingThemes.clear()
+  loadingLangs.clear()
+  decorationRebuildCallback = null
 }
 
 // ============================================================
@@ -161,13 +245,20 @@ export function hashCode(s: string): string {
   return (h >>> 0).toString(36)
 }
 
-/** 同步跑 token 解析:lang 未注册或 highlighter 还没好 → 返回 null。
+/** 同步跑 token 解析:lang 未装或 highlighter 还没好 → 返回 null。
  *  走 codeToTokensWithThemes 双主题 API,返回 ThemedTokenWithVariants[][],每个
  *  token 在 variants.light / variants.dark 各有一套 hex。inline style 怎么写由
  *  调用方 buildDecorations 决定 —— 拼成 `--shiki-light:xxx;--shiki-dark:yyy`
  *  局部 CSS 变量(不写 `color:` 前缀,纯靠 SCSS 那边 `color: var(--shiki-light)`
  *  选色)。切 darkMode 翻面走 CSS cascade,ProseMirror / shiki 不参与(零重渲);
- *  切主题需 rebuild decoration(新主题颜色不同,CSS 变量值变了得重新生成 inline style)。 */
+ *  切主题需 rebuild decoration(新主题颜色不同,CSS 变量值变了得重新生成 inline style)。
+ *
+ * **lang 未装兜底**:用 `hl.getLoadedLanguages()` 探活(而非 `hl.getLanguage()`,
+ * 后者在 lang 不存在时 throw ShikiError,不适合做"未装"探测)。未装 → 触发
+ * `ensureLanguage` 异步加载,本次 return null;resolve 后 rebuild 钩子通知
+ * plugin 重新跑 `decorations(state)`,届时再调 `getTokensSync` 拿真 token。
+ * 未注册的 lang(`xyz-not-registered` 之类)走 ensureLanguage 内部 try/catch
+ * warn,不会无限重试。 */
 export function getTokensSync(
   hl: Highlighter | null,
   code: string,
@@ -176,17 +267,22 @@ export function getTokensSync(
   darkTheme: string,
 ): { tokens: ThemedTokenWithVariants[][] } | null {
   if (!hl || !lang) return null
-  let grammar
-  try {
-    grammar = hl.getLanguage(lang.toLowerCase())
-  }
-  catch {
+  const id = lang.toLowerCase()
+  if (!hl.getLoadedLanguages().includes(id)) {
+    // lang 不在 shiki bundled 列表(用户手敲 `xyz-not-registered` 之类)
+    // → 直接 return null,不触发 ensureLanguage 也不 warn(避免控制台刷屏)。
+    // `bundledLanguages` 是 shiki 全套 200+ 列表的 Record<id, loader>,
+    // 包含 `js` 这种 alias,跟 `getLoadedLanguages()` 的 alias 路由一致。
+    if (!(id in bundledLanguages)) return null
+    // 已在 in-flight 不重起;首次 miss 触发异步加载,本次 return null
+    if (!loadingLangs.has(id)) {
+      void ensureLanguage(id)
+    }
     return null
   }
-  if (!grammar) return null
   try {
     const tokens = hl.codeToTokensWithThemes(code, {
-      lang: grammar.name as any,
+      lang: id as any,
       themes: { light: lightTheme as BundledTheme, dark: darkTheme as BundledTheme },
     })
     return { tokens }

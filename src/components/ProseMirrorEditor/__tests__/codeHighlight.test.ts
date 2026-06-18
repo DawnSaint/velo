@@ -12,7 +12,7 @@
 // 9. 复制按钮 click → CustomEvent('velo:copy-code') 冒泡,detail 包含 pos
 // 10. widget 不被 mermaid 节点触发(markdownIO 分流到 mermaid 节点,plugin 过滤)
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
@@ -25,6 +25,7 @@ import {
 } from '../nodes/CodeHighlightWidget'
 import {
   getHighlighter,
+  ensureLanguage,
   __resetHighlighterForTest,
 } from '../nodes/CodeBlockLangs'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
@@ -281,6 +282,81 @@ describe('codeHighlightPlugin', () => {
     btn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
     expect(btn?.textContent).toContain('rust')
     view.destroy()
+  })
+
+  // fast-follow:预扫 + 懒加载 lang。启动期 createHighlighter 只装
+  // doc 用到的 lang,其余在用户首次遇到时 ensureLanguage 异步追加。
+  it('13. pre-scan 门控:getHighlighter 显式 langs 只装传入的 grammar', async () => {
+    // 显式只装 javascript(python 不在初始 langs 列表)
+    const hl = await getHighlighter(['javascript'])
+    // shiki 装 javascript 时会顺带 register 同 grammar 的 alias('js'/'cjs'/'mjs'),
+    // getLoadedLanguages 返回带 alias 的完整集,但**不会**扩展到未传入的 lang
+    // (如 python)。这是 pre-scan 门控的核心:只装 doc 用到的,其余靠 lazy。
+    expect(hl.getLoadedLanguages()).toContain('javascript')
+    expect(hl.getLoadedLanguages()).not.toContain('python')
+  })
+
+  it('14. runtime 懒加载:ensureLanguage 装新 lang 后 token 出现', async () => {
+    const hl = await getHighlighter(['javascript'])
+    expect(hl.getLoadedLanguages()).toContain('javascript')
+    expect(hl.getLoadedLanguages()).not.toContain('python')
+
+    const view = makeView('```python\nx = 1\n```')
+    await flushHighlighter()
+    // 显式 await ensureLanguage(plugin 的 fire-and-forget 已触发过,
+    // 二次 await 是幂等 noop,只确保当前 microtask resolve)
+    await ensureLanguage('python')
+    expect(hl.getLoadedLanguages()).toContain('python')
+    // plugin view factory 已注册 rebuild callback,ensureLanguage resolve
+    // 后会自动 dispatch setMeta → 但 rAF 节流到下一帧。setTimeout 兜底等
+    // 帧让 rebuild 走完。
+    await new Promise(r => setTimeout(r, 50))
+    const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
+    expect(styledSpans.length).toBeGreaterThan(0)
+    view.destroy()
+  })
+
+  it('15. 未注册 lang → bundledLanguages gate 拦住,不触发 loadLanguage', async () => {
+    const hl = await getHighlighter(['javascript'])
+    const loadSpy = vi.spyOn(hl, 'loadLanguage')
+
+    // bundleLanguages gate 在 getTokensSync 里 — 未注册 lang 直接 return
+    // null,连 ensureLanguage 都不会调,避免无效 load 触发 ShikiError warn。
+    const view = makeView('```xyz-not-registered\nfoo\n```')
+    await flushHighlighter()
+
+    expect(hl.getLoadedLanguages()).not.toContain('xyz-not-registered')
+    expect(loadSpy).not.toHaveBeenCalled()
+    const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
+    expect(styledSpans.length).toBe(0)
+    loadSpy.mockRestore()
+    view.destroy()
+  })
+
+  it('16. extractLangsFromDoc 走 mdast 正确扫出 fenced code lang', async () => {
+    // 直接调 markdownIO 的 helper,跟 App.vue 走同一路径
+    const { extractLangsFromDoc } = await import('../editor/markdownIO')
+    const md = [
+      '# title',
+      '',
+      '```javascript',
+      'const a = 1',
+      '```',
+      '',
+      '```python',
+      'x = 1',
+      '```',
+      '',
+      '```JAVASCRIPT',  // 大小写重复,小写化后去重
+      'const b = 2',
+      '```',
+      '',
+      '```',
+      'plain',
+      '```',  // 无 lang,不计入
+    ].join('\n')
+    const langs = extractLangsFromDoc(md)
+    expect(new Set(langs)).toEqual(new Set(['javascript', 'python']))
   })
 })
 

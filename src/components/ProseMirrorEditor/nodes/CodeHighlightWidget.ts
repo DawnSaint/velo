@@ -41,6 +41,7 @@ import {
   getTokensSync,
   hashCode,
   ensureTheme,
+  setDecorationRebuildCallback,
   DEFAULT_LIGHT_THEME,
   DEFAULT_DARK_THEME,
 } from './CodeBlockLangs'
@@ -462,7 +463,40 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
     })().catch((err) => {
       console.warn('[codeHighlight] shiki highlighter 加载失败:', err)
     })
-    return { destroy: () => { /* no-op */ } }
+
+    // **Deco rebuild 通知钩子**:ensureLanguage resolve 后通过这个 callback
+    // 通知 plugin 重新跑 `decorations(state)`(rAF 节流避免一帧多次 rebuild)。
+    // 一次粘贴 10 个未装 lang → 10 个 ensureLanguage resolve 全部 coalesce
+    // 到下一帧一次 dispatch。destroy 时清空 callback + 取消未触发的 rAF,
+    // 防止 zombie dispatch 到已销毁 view(否则 throw)。
+    let rafId = 0
+    setDecorationRebuildCallback(() => {
+      if (view.isDestroyed) return
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        if (view.isDestroyed) return
+        const s = codeHighlightKey.getState(view.state)
+        if (!s) return
+        // dispatch 同 highlighter / 主题的 setMeta → state.apply 跑 → 新 state
+        // 触发 `decorations(state)` 重新跑 → getTokensSync 重新调到(此时
+        // ensureLanguage 已 resolve,lang 已 in hl.getLoadedLanguages())→ 出 token
+        view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
+          highlighter: s.highlighter,
+          lightTheme: s.lightTheme,
+          darkTheme: s.darkTheme,
+        }))
+      })
+    })
+    return {
+      destroy: () => {
+        if (rafId) {
+          cancelAnimationFrame(rafId)
+          rafId = 0
+        }
+        setDecorationRebuildCallback(null)
+      },
+    }
   },
 })
 

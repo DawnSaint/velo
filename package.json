@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vue-tsc --build --force && vite build",
+    "build": "vue-tsc --build --force && vite build && node scripts/clean-katex.mjs",
     "preview": "vite preview",
     "type-check": "vue-tsc --build --force",
     "tauri": "tauri",
@@ -17,15 +17,12 @@
     "version": "node scripts/sync-tauri-version.mjs && git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
   },
   "dependencies": {
-    "@shikijs/langs": "^4.2.0",
-    "@shikijs/themes": "^4.2.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "shiki": "^4.2.0",
     "dompurify": "^3.4.10",
     "katex": "^0.17.0",
     "mdast-util-find-and-replace": "^3.0.2",
@@ -49,6 +46,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
+    "shiki": "^4.2.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "vue": "^3.5.13"
