@@ -26,12 +26,14 @@ import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeVi
 import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
 import { footnoteEditPlugin } from './nodes/FootnoteNodeViews'
+import { tocDecoration } from './nodes/TocDecoration'
 import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
+import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
@@ -231,6 +233,11 @@ const basePlugins: Plugin[] = [
   dollarEnterToMathBlock,
   imageKeymapPlugin,
   imageUploadPlugin,
+  // markdownPastePlugin 接管 text/plain 粘贴 → 走 fromMarkdown,绕开 ProseMirror
+  // 默认 plain-text fallback 的 normalizeSiblings 错误合并;与 imageUploadPlugin
+  // 不冲突(imageUploadPlugin 只 handlePaste 拦截 image/* 文件,非图片返回 false;
+  // clipboardTextParser 是独立 prop,仅在 text/plain 路径生效,text/html 不受影响)
+  markdownPastePlugin,
   linkClickPlugin,
   linkEditEscapeKeymap,
   syntaxAutoFormatPlugin,
@@ -241,6 +248,7 @@ const basePlugins: Plugin[] = [
   mermaidDecoration,
   taskListPlugin,
   footnoteEditPlugin,
+  tocDecoration,
   findHighlight,
 ]
 

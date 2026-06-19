@@ -8,11 +8,16 @@
    - **必读**（每次开发前都读）：用 Read 工具读取完整内容（不要只读前若干行）
      - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本 To-Do
      - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — 技术栈、目录结构、ProseMirror 插件链、数据流与设计要点
-   - **按需读取**（排查遗留代码 / 用户显式询问"为什么这里这样设计" / 回溯某次重构的取舍时才读）
+   - **按需读取**（排查遗留代码 / 显式询问"为什么这里这样设计" / 回溯某次重构的取舍时才读）
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 重大架构决策与重大重构的 ADR
-2. 把 ROADMAP 当作"接下来做什么"的 source of truth；把 ARCHITECTURE 当作"代码长什么样 / 为什么这么设计"的 source of truth。
-3. 当用户的需求与 ROADMAP 中已规划的某个版本目标相关时，优先沿用该版本的设计意图，不要另起炉灶。
-4. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。CHANGELOG 是"那次重构的决策与上下文"的时间线视角，ARCHITECTURE 写不下时再查 CHANGELOG。
+2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。CHANGELOG 是"那次重构的决策与上下文"的时间线视角，ARCHITECTURE 写不下时再查 CHANGELOG。
+
+## 仓库速览
+
+- **项目**：Velo — 基于 Vue 3 + Tauri 2 + ProseMirror 的本地 markdown 编辑器
+- **主分支**：`master`
+- **目录入口**：`src/App.vue`、`src/components/ProseMirrorEditor/`、`src-tauri/`
+
 
 ## 文档同步规则（重要）
 
@@ -68,7 +73,7 @@
 | 9 | **CHANGELOG** | `docs/CHANGELOG.md` 当前版本 `feat` 段（发布后写） | 发版时普通条目靠 `git log`；如属"重大决策"再补 ADR 块 |
 | 10 | **ARCHITECTURE** | `docs/ARCHITECTURE.md` | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍;**纯模板化不需要改** |
 
-**最易漏的项**:
+**容易遗漏的项**:
 - 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效,且无警告,纯静默
 - 第 4 列双向——`fromMarkdown` 加了,`toMarkdown` 忘了,文件保存再加载会丢数据
 - 第 9 列留痕——发版时该语法的 feat/fix 走 `git log` 即可；如属"重大决策"必须补 ADR 块（"为什么走 X 不走 Y"的取舍不写在 commit message 里）
@@ -79,6 +84,7 @@
 - `alert` 涉及 schema + remark(remarkAlert) + markdownIO 双向 + syntax/block/alert + 注册
 - `footnote` 涉及 schema + NodeView + FootnoteNumberPlugin + syntax/inline/footnoteRef + 注册
 - `_italic` / `~~strike~~` 涉及 schema + syntax/inline + 注册(无 NodeView / 无 remark)
+- `[TOC]` 涉及 schema + Decoration.widget(TocDecoration) + markdownIO 双向 + syntax/block/toc + 注册(无 NodeView / 无 remark)
 
 
 
@@ -92,7 +98,7 @@
 
 
 
-## Commit 格式规约
+## Commit Message 格式规约
 
 ```
 <type>(version): <summary>
@@ -111,7 +117,7 @@ Feat:
 Fix:
 - 中文 bullet
 
-依赖变更：xxx@^4.2.0
+依赖变更：xxx@yyy
 ```
 
 
@@ -121,13 +127,19 @@ Fix:
 
 **Body**
 
-按改动类型分组，每组用 `<Type>:` 开头；英文 bullet 在前，中文 bullet 复述在后。依赖变更（`Cargo.toml` / `package.json`）单独用 `依赖变更：…` section 收口。
+按改动类型分组，每组用 `<Type>:` 开头；英文 bullet 在前，中文 bullet 复述在后。依赖变更（`Cargo.toml` / `package.json`）单独用 `依赖变更：` section 收口，如果没有则可以跳过此项。
+
+## 版本发布
+
+用户说"升级版本"或类似意图时，自动执行：
+
+```bash
+npm version <level> -f -m <commit message>
+```
+
+- `<level>` 为 `patch` / `minor` / `major`，由用户指定或根据改动范围判断
+- `npm version` 会自动： bumped `package.json` version → `version` lifecycle（`scripts/sync-tauri-version.mjs` 同步 Tauri 版本 + git add） → git commit → git tag
+- 完成后提醒用户 `git push --follow-tags` 推送 commit 和 tag
 
 
 
-
-## 仓库速览
-
-- **项目**：Velo — 基于 Vue 3 + Tauri 2 + ProseMirror 的本地 markdown 编辑器
-- **主分支**：`master`
-- **目录入口**：`src/App.vue`、`src/components/ProseMirrorEditor/`、`src-tauri/`

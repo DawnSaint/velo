@@ -17,6 +17,7 @@ import { blockquoteSyntax } from './block/blockquote'
 import { bulletListSyntax } from './block/bulletList'
 import { orderedListSyntax } from './block/orderedList'
 import { hrSyntax } from './block/hr'
+import { tocSyntax } from './block/toc'
 import { alertSyntax } from './block/alert'
 
 import { emphasisUnderscoreSyntax } from './inline/emphasis'
@@ -34,6 +35,7 @@ registerBlockSyntax(blockquoteSyntax)
 registerBlockSyntax(bulletListSyntax)
 registerBlockSyntax(orderedListSyntax)
 registerBlockSyntax(hrSyntax)
+registerBlockSyntax(tocSyntax)
 // alert 必须在 blockquote 之后:它依赖 blockquote 已成形,不抢同级触发
 registerBlockSyntax(alertSyntax)
 
