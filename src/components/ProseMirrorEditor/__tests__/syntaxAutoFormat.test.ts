@@ -13,17 +13,18 @@ import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { linkClickPlugin } from '../plugins/linkClick'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
+import { taskListPlugin } from '../nodes/TaskListNodeView'
 import {
   registerBlockSyntax,
   registerInlineSyntax,
   _resetSyntaxRegistry,
 } from '../editor/syntaxRegistry'
 import { headingSyntax } from '../syntax/block/heading'
-import { codeBlockSyntax } from '../syntax/block/codeBlock'
+import { codeBlockEnterCommand, codeBlockSyntax } from '../syntax/block/codeBlock'
 import { blockquoteSyntax } from '../syntax/block/blockquote'
 import { bulletListSyntax } from '../syntax/block/bulletList'
 import { orderedListSyntax } from '../syntax/block/orderedList'
-import { hrSyntax } from '../syntax/block/hr'
+import { hrEnterCommand, hrSyntax } from '../syntax/block/hr'
 import { alertSyntax } from '../syntax/block/alert'
 import { footnoteRefSyntax } from '../syntax/inline/footnoteRef'
 import { linkSyntax } from '../syntax/inline/link'
@@ -63,7 +64,7 @@ function mountView(blocks: ReturnType<typeof schema.node>[] = [schema.node('para
     schema,
     doc,
     selection: TextSelection.atEnd(doc),
-    plugins: [linkClickPlugin, syntaxAutoFormatPlugin],
+    plugins: [linkClickPlugin, syntaxAutoFormatPlugin, taskListPlugin],
   })
   const view = new EditorView(host, { state })
   return { view, cleanup: () => { view.destroy(); host.remove() } }
@@ -151,6 +152,33 @@ describe('syntaxAutoFormat: block syntaxes', () => {
     cleanup()
   })
 
+  it('先输入 "- " 生成列表,再输入 "[ ] " → 升级为未勾选 task item', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '- ')
+    typeAt(view, 3, '[ ] ')
+    const item = view.state.doc.firstChild!.firstChild!
+    expect(item.attrs.checked).toBe(false)
+    expect(item.firstChild!.textContent).toBe('')
+    const li = view.dom.querySelector('li')!
+    expect(li.getAttribute('data-item-type')).toBe('task')
+    expect(li.querySelector('.task-checkbox')).not.toBeNull()
+    cleanup()
+  })
+
+  it('先输入 "- " 生成列表,再输入 "[x] " → 升级为已勾选 task item', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '- ')
+    typeAt(view, 3, '[x] ')
+    const item = view.state.doc.firstChild!.firstChild!
+    expect(item.attrs.checked).toBe(true)
+    expect(item.firstChild!.textContent).toBe('')
+    const li = view.dom.querySelector('li')!
+    expect(li.getAttribute('data-item-type')).toBe('task')
+    expect(li.getAttribute('data-checked')).toBe('true')
+    expect(li.querySelector('.task-checkbox')).not.toBeNull()
+    cleanup()
+  })
+
   it('"1. " 段首键入 → 转 ordered_list,start=1', () => {
     const { view, cleanup } = mountView()
     typeAt(view, 1, '1. ')
@@ -167,18 +195,39 @@ describe('syntaxAutoFormat: block syntaxes', () => {
     cleanup()
   })
 
-  it('"```js " 段首键入 → 转 code_block,language=js', () => {
+  it('"```js " 段首键入不立即转 code_block,允许继续编辑 language', () => {
     const { view, cleanup } = mountView()
     typeAt(view, 1, '```js ')
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('paragraph')
+    expect(block.textContent).toBe('```js ')
+    cleanup()
+  })
+
+  it('"```js" + Enter → code_block,language=js', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '```js')
+    expect(codeBlockEnterCommand(view.state, view.dispatch.bind(view))).toBe(true)
     const block = view.state.doc.firstChild!
     expect(block.type.name).toBe('code_block')
     expect(block.attrs.language).toBe('js')
     cleanup()
   })
 
-  it('"``` " 段首键入(无 lang)→ code_block,language 为空', () => {
+  it('"``` js" + Enter → code_block,language=js', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '``` js')
+    expect(codeBlockEnterCommand(view.state, view.dispatch.bind(view))).toBe(true)
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('code_block')
+    expect(block.attrs.language).toBe('js')
+    cleanup()
+  })
+
+  it('"``` " + Enter(无 lang)→ code_block,language 为空', () => {
     const { view, cleanup } = mountView()
     typeAt(view, 1, '``` ')
+    expect(codeBlockEnterCommand(view.state, view.dispatch.bind(view))).toBe(true)
     const block = view.state.doc.firstChild!
     expect(block.type.name).toBe('code_block')
     expect(block.attrs.language).toBe('')
@@ -189,6 +238,48 @@ describe('syntaxAutoFormat: block syntaxes', () => {
     const { view, cleanup } = mountView()
     typeAt(view, 1, '--- ')
     expect(view.state.doc.firstChild!.type.name).toBe('hr')
+    cleanup()
+  })
+
+  it('CommonMark thematic break 空格触发:*** / ___ / ---- / - - - 均转 hr', () => {
+    for (const text of ['*** ', '___ ', '---- ', ' - - - ']) {
+      const { view, cleanup } = mountView()
+      typeAt(view, 1, text)
+      expect(view.state.doc.firstChild!.type.name).toBe('hr')
+      cleanup()
+    }
+  })
+
+  it('"---" 不在第三个连字符处立即转 hr,等待空格或 Enter 触发', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '---')
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('paragraph')
+    expect(block.textContent).toBe('---')
+    cleanup()
+  })
+
+  it('"---" + Enter → 转 hr', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '---')
+    expect(hrEnterCommand(view.state, view.dispatch.bind(view))).toBe(true)
+    expect(view.state.doc.firstChild!.type.name).toBe('hr')
+    cleanup()
+  })
+
+  it('非 thematic break 行 Enter 不转 hr', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, 'abc---')
+    expect(hrEnterCommand(view.state, view.dispatch.bind(view))).toBe(false)
+    expect(view.state.doc.firstChild!.type.name).toBe('paragraph')
+    cleanup()
+  })
+
+  it('4 个前导空格的 "---" 按 CommonMark 不作为 hr 自动转换', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '    --- ')
+    expect(view.state.doc.firstChild!.type.name).toBe('paragraph')
+    expect(hrEnterCommand(view.state, view.dispatch.bind(view))).toBe(false)
     cleanup()
   })
 

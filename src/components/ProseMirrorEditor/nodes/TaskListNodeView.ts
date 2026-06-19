@@ -32,6 +32,12 @@ function createListItemView(node: any, view: any, getPos: () => number) {
       contentDOM: li, // children 直接渲进 li
       update(newNode: any) {
         if (newNode.type !== node.type) return false
+        // 关键:checked 从 null 升级到 true/false(`- ` 后续追打 `[ ] ` / `[x] `
+        // 走 bulletListSyntax 的两段式分支)时,DOM 结构必须从「裸 li」切到
+        // 「li > checkbox + task-content」。这里返回 false,让 ProseMirror 销毁
+        // 当前 NodeView 并重新调用工厂函数走到下面的「任务项」分支。否则
+        // attrs.checked 虽已变更,视觉上仍是普通项,看似自动转换没生效。
+        if (newNode.attrs.checked != null) return false
         node = newNode
         return true
       },

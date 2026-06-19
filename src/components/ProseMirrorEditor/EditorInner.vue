@@ -10,7 +10,7 @@
 
 import { onBeforeUnmount, watch } from 'vue'
 import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
-import { inputRules, emDash, ellipsis } from 'prosemirror-inputrules'
+import { inputRules, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { history, undo, redo } from 'prosemirror-history'
 import { dropCursor } from 'prosemirror-dropcursor'
@@ -35,6 +35,8 @@ import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
+import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
+import { hrEnterCommand } from './syntax/block/hr'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
 import { buildShortcutKeymap } from './editor/shortcuts'
@@ -201,9 +203,14 @@ const imageInlineViewPlugin = new Plugin({
 // ============================================================
 
 const basePlugins: Plugin[] = [
-  // 自定义 Backspace / Delete:heading 前退化为段落;不命中走 baseKeymap
+  // 自定义 Backspace / Delete:
+  //   1. codeBlockBackspaceCommand:在 code_block 首位按 Backspace —— 有内容时
+  //      吞掉事件(不允许影响外面的行),空代码块转回 paragraph。必须排在
+  //      baseKeymap 前,否则 joinBackward 会把代码块降级合并到上一段。
+  //   2. headingToParagraph:heading 前退化为段落
+  //   3. baseKeymap['Backspace']:兜底
   keymap({
-    Backspace: chainCommands(headingToParagraph, baseKeymap['Backspace']),
+    Backspace: chainCommands(codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
     Delete: chainCommands(headingToParagraph, baseKeymap['Delete']),
   }),
   keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
@@ -219,6 +226,8 @@ const basePlugins: Plugin[] = [
     Enter: chainCommands(
       codeBlockEnter,
       dollarEnterCmd,
+      codeBlockEnterCommand,
+      hrEnterCommand,
       splitListItem(schema.nodes.list_item),
       liftListItem(schema.nodes.list_item),
       splitBlock,
@@ -255,7 +264,7 @@ const basePlugins: Plugin[] = [
 // 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
 // 加 mark 的语法都走 syntaxAutoFormatPlugin。
 const inputRulesPlugin = inputRules({
-  rules: [ellipsis, emDash],
+  rules: [ellipsis],
 })
 
 // 快捷键 keymap(declarative registry)—— 优先级在 history / baseKeymap 之后,
