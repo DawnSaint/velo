@@ -75,7 +75,8 @@ velo/
 | history | 撤销/重做栈 |
 | tabIndent | Tab 缩进/反缩进;代码/段落插4空格;非列表 Shift-Tab 消费 |
 | imageKeymapPlugin | atom 节点删除保护 (Backspace/Delete 紧贴先选中不直接删) |
-| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点 |
+| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点(只接 image/*,文本返回 false) |
+| markdownPastePlugin | text/plain 粘贴走 fromMarkdown,绕开 ProseMirror 默认 plain-text fallback 的 normalizeSiblings 错误合并(见设计要点) |
 | linkClickPlugin + linkEditEscapeKeymap | 链接单击进源码编辑 / Cmd 跳转 / Escape 还原 |
 | syntaxAutoFormatPlugin | dirty-range 局部扫,registry 驱动 (见设计要点) |
 | codeHighlightPlugin | shiki dual-theme 代码高亮 + toolbar widget (见设计要点) |
@@ -129,6 +130,7 @@ velo/
 - **shiki 预扫 + 懒加载 lang**:`createHighlighter` 启动时只装 doc 实际用到的 lang(由 App.vue 调 `extractLangsFromDoc` 走 mdast 扫 `code` 节点的 lang 字段),`∪ BASELINE_LANGS`(5 项兜底:js/ts/py/bash/json)→ 5-8 项代替 30 项全表,首屏 grammar 加载从 ~6MB 降到 ~1-1.6MB。**运行时兜底**:`getTokensSync` 用 `hl.getLoadedLanguages()` 探活(不能用 `hl.getLanguage()`,后者 miss 时 throw ShikiError);未装 → `bundledLanguages` gate 拦(未注册 lang 直接 return null,不 warn),否则 `void ensureLanguage(lang)` 异步追加,resolve 后 plugin `view` factory 注册的 `setDecorationRebuildCallback` 走 rAF 节流后 dispatch setMeta 触发 rebuild。**坑**: `getTokensSync` 是 sync 接口,异步加载要 fire-and-forget(不能 await),所以**首次 miss 那一帧的 decoration 是无 token 的**;rebuild 触发后下一帧才出 token,这是有意为之的"先骨架后着色",不是 bug
 - **语法实时转换走 appendTransaction + dirty-range**(不走 InputRule 末尾匹配): `syntaxAutoFormat.ts` 从 `tr.mapping.maps` 提取 dirty range → 对包含的 textblock 跑 block 段首检测 + inline 正则扫描。黑名单(code_block/html_block/mermaid/math_block)、code mark、link session 框架统一过滤。新增语法 = 写一个文件 + `syntax/index.ts` 注册一行。**坑**: block detector pattern 带 `^` 不带 `g`;inline 反过来带 `g` 不带 `^/$`;inline 扫描前把段内 atom 用 NBSP 占位防穿透;语法 apply 直接修改框架传入的 `tr`,不要自己 dispatch
 - **NodeView 隔离**: `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
+- **粘贴 text/plain 必须注册 `clipboardTextParser`**:ProseMirror 默认 plain-text fallback(`prosemirror-view/dist/index.js:2836-2844`)把整段文本按 `\n+` 拆成多个 `<p>`,再 `normalizeSiblings(:2881, :2901-2930)` 自动找 wrapper(常用 `blockquote`)把这些 `<p>` 包起来,产出 `Fragment([blockquote(p1, p2)])`。Paste 进 paragraph 内时 `Fitter.dropNode(:1402)` 把内容 mix 进原 paragraph,后续 syntaxAutoFormatPlugin 在错位 doc 上跑 heading + strong,字符被搅乱。**注册 `clipboardTextParser` 走 fromMarkdown 直接解析**(`plugins/markdownPastePlugin.ts`),输出封闭 slice `(0, 0)` 而不是 `Slice.maxOpen(...)` —— maxOpen 让两端 open,paragraph 边界 paste block 反而无法 fit;封闭 slice 走 ProseMirror 标准 "join 前后 paragraph" 路径把 blocks merge 进 doc 顶层
 - **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注走 SCSS partial
 
 ---
