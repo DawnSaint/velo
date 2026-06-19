@@ -88,6 +88,20 @@ const nodes: Record<string, NodeSpec> = {
     ],
   },
 
+  // TOC (Table of Contents):[TOC] 独占段落的渲染节点。
+  // 由 nodes/TocDecoration.ts 的 Decoration.widget 接管真实渲染;
+  // schema 只占槽位,toDOM 输出空 div。
+  // 注意:不能加 atom: true —— setBlockType 要求目标类型是 textblock,
+  // atom 类型会被拒绝(报 "Type given to setBlockType should be a textblock")。
+  toc: {
+    group: 'block',
+    marks: '',
+    parseDOM: [{
+      tag: 'div[data-type="toc"]',
+    }],
+    toDOM: () => ['div', { 'data-type': 'toc' }],
+  },
+
   bullet_list: {
     content: 'list_item+',
     group: 'block',

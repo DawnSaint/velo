@@ -116,8 +116,14 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
   }
 
   switch (node.type) {
-    case 'paragraph':
+    case 'paragraph': {
+      // [TOC] 独占段落 → toc 节点(trim 容忍首尾空白,不误伤正文含 [TOC] 的段落)
+      const text = node.children.map(c => (c as any).type === 'text' ? (c as any).value : '').join('')
+      if (text.trim() === '[TOC]') {
+        return [schema.node('toc')]
+      }
       return [schema.node('paragraph', null, mdastInlineToPM(node.children, schema))]
+    }
 
     case 'heading':
       return [schema.node('heading', { level: node.depth },
@@ -514,6 +520,12 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
 
     case 'table':
       return pmTableToMdast(node)
+
+    case 'toc':
+      // toc 节点序列化回 [TOC] 独占段落。
+      // 用 html 节点而非 text 节点:remark-stringify 对 text 节点里的 `[` 会
+      // 转义成 `\[`(防 link reference 歧义),html 节点不受此规则,原样输出。
+      return { type: 'paragraph', children: [{ type: 'html', value: '[TOC]' }] }
 
     default:
       return null

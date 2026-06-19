@@ -36,11 +36,12 @@ velo/
 │       └── ProseMirrorEditor/
 │           ├── index.vue          壳 (CSS 变量)
 │           ├── EditorInner.vue    useProseMirror() + 裸 ProseMirror EditorView
-│           ├── nodes/             自定义节点 (公式/mermaid/任务列表/脚注/代码块)
+│           ├── nodes/             自定义节点 (公式/mermaid/任务列表/脚注/代码块/TOC)
 │           │   ├── MathNodeViews.ts
 │           │   ├── MermaidSyntax.ts + MermaidDecoration.ts
 │           │   ├── TaskListNodeView.ts
 │           │   ├── FootnoteNodeViews.ts
+│           │   ├── TocDecoration.ts        TOC 目录 Decoration.widget (v0.4.5)
 │           │   ├── CodeHighlightWidget.ts
 │           │   └── TextareaEditor.ts  多行 textarea 编辑壳
 │           ├── findreplace/       查找替换 (浮层UI + 高亮plugin + 匹配函数)
@@ -52,7 +53,7 @@ velo/
 │           │   └── syntaxAutoFormat.ts 语法实时转换框架
 │           └── syntax/            实时语法注册表
 │               ├── index.ts            注册入口
-│               ├── block/              段首: heading / codeBlock / blockquote / list / hr
+│               ├── block/              段首: heading / codeBlock / blockquote / list / hr / toc
 │               └── inline/             段内: emphasis / strike / inlineMath / footnoteRef / link
 └── src-tauri/
     ├── capabilities/default.json  fs:allow-** (通用文本编辑器)
@@ -85,6 +86,7 @@ velo/
 | mermaidDecoration | Decoration.widget 渲染 SVG / 编辑态切换 (见设计要点) |
 | taskListPlugin | `- [ ]` / `- [x]` checkbox NodeView |
 | footnoteEditPlugin | 脚注 NodeView + 位置收集 |
+| tocDecoration | `[TOC]` 目录 Decoration.widget (嵌套标题列表 + 点击跳转) |
 | findHighlight | 查找替换高亮 |
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册 |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
@@ -131,7 +133,8 @@ velo/
 - **语法实时转换走 appendTransaction + dirty-range**(不走 InputRule 末尾匹配): `syntaxAutoFormat.ts` 从 `tr.mapping.maps` 提取 dirty range → 对包含的 textblock 跑 block 段首检测 + inline 正则扫描。黑名单(code_block/html_block/mermaid/math_block)、code mark、link session 框架统一过滤。新增语法 = 写一个文件 + `syntax/index.ts` 注册一行。**坑**: block detector pattern 带 `^` 不带 `g`;inline 反过来带 `g` 不带 `^/$`;inline 扫描前把段内 atom 用 NBSP 占位防穿透;语法 apply 直接修改框架传入的 `tr`,不要自己 dispatch
 - **NodeView 隔离**: `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
 - **粘贴 text/plain 必须注册 `clipboardTextParser`**:ProseMirror 默认 plain-text fallback(`prosemirror-view/dist/index.js:2836-2844`)把整段文本按 `\n+` 拆成多个 `<p>`,再 `normalizeSiblings(:2881, :2901-2930)` 自动找 wrapper(常用 `blockquote`)把这些 `<p>` 包起来,产出 `Fragment([blockquote(p1, p2)])`。Paste 进 paragraph 内时 `Fitter.dropNode(:1402)` 把内容 mix 进原 paragraph,后续 syntaxAutoFormatPlugin 在错位 doc 上跑 heading + strong,字符被搅乱。**注册 `clipboardTextParser` 走 fromMarkdown 直接解析**(`plugins/markdownPastePlugin.ts`),输出封闭 slice `(0, 0)` 而不是 `Slice.maxOpen(...)` —— maxOpen 让两端 open,paragraph 边界 paste block 反而无法 fit;封闭 slice 走 ProseMirror 标准 "join 前后 paragraph" 路径把 blocks merge 进 doc 顶层
-- **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注走 SCSS partial
+- **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注/TOC 走 SCSS partial
+- **TOC 目录走 Decoration.widget 不走 NodeView**: 跟 mermaid 同范式——`toc` 节点 atom + defining,toDOM 输出空 div 占位。`TocDecoration.ts` 的 widget 扫描 doc headings 构建嵌套树,渲染为 `<ul>/<li>` 列表 + Back to top 链接。widget key = `toc-widget:${pos}:${headingsHash}`,headings 变化时 hash 变 → ProseMirror 自动重建 widget。**坑**: `[TOC]` 回写 toMarkdown 时必须用 mdast `html` 节点(不是 text 节点)包裹——text 节点里的 `[` 在 start-of-inline 位置会被 remark-stringify escape 成 `\[`
 
 ---
 

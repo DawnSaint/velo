@@ -87,6 +87,15 @@ const samples: Array<{ name: string, md: string }> = [
     name: 'HTML 块级 details + 行内 abbr',
     md: '<details>\n<summary>点击展开</summary>\n带标题的缩写：<abbr title="Cascading Style Sheets">CSS</abbr>\n</details>',
   },
+  {
+    name: 'TOC marker',
+    md: '[TOC]',
+  },
+  {
+    // TOC 前后有空行也要 round-trip 正常
+    name: 'TOC marker with surrounding blank lines',
+    md: 'hello\n\n[TOC]\n\nworld',
+  },
 ]
 
 describe('markdownIO round-trip', () => {

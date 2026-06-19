@@ -26,6 +26,7 @@ import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeVi
 import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
 import { footnoteEditPlugin } from './nodes/FootnoteNodeViews'
+import { tocDecoration } from './nodes/TocDecoration'
 import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
@@ -247,6 +248,7 @@ const basePlugins: Plugin[] = [
   mermaidDecoration,
   taskListPlugin,
   footnoteEditPlugin,
+  tocDecoration,
   findHighlight,
 ]
 
