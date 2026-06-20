@@ -10,8 +10,12 @@
 // 7. 主题切换:切 <html class="dark"> → CSS 变量值变 → token span DOM 的 style 不变
 // 8. CONTAINER_BLACKLIST 回归:在 code_block 内键入 ### 不应转 heading
 // 9. 复制按钮 click → CustomEvent('velo:copy-code') 冒泡,detail 包含 pos
-// 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHighlight 出 toolbar(shiki 出 mermaid 语法高亮);
-//     MermaidDecoration widget 叠加 SVG 预览。两条 widget 共存不冲突(本 plugin side: -1 / mermaid widget 默认 side: 0)。
+// 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHighlight 出 toolbar(共用);
+//     v0.4.7+:mermaid **语法高亮**走自写轻量 tokenizer(旁路 shiki,因 shiki
+//     mermaid grammar 是"摆设"全输出默认色),颜色从当前代码块主题动态提取 hex,
+//     inline decoration 写 --shiki-light/dark 局部 CSS 变量(跟 shiki token 同形,
+//     代码块主题切换 + dark/light 切换都自动生效);MermaidDecoration widget
+//     叠加 SVG 预览。两条 widget 共存不冲突(本 plugin side: -1 / mermaid widget 默认 side: 0)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -252,16 +256,35 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('10b. v0.4.6+ mermaid 走 shiki mermaid 语法高亮(token 颜色写入 inline style)', async () => {
-    // 验证 shiki bundled mermaid grammar 出 token,inline decoration 写 --shiki-* 变量。
-    // shiki mermaid grammar 是粗粒度(整行一 token),但至少能给整行一个 token 颜色。
-    // 期望 pre > code 内有 span 带 --shiki-light / --shiki-dark style。
+  it('10b. mermaid 走自写 tokenizer(旁路 shiki),颜色从当前代码块主题动态提取 hex', async () => {
+    // v0.4.7+:诊断发现 shiki mermaid grammar 是"摆设"(codeToTokens 全输出
+    // defaultText 默认色,无 scope),改走自写轻量 tokenizer 完全旁路 shiki
+    // codeToTokens。颜色不从 shiki mermaid grammar 来,而是从当前代码块主题
+    // (light/dark theme)的 settings 按 scope 提取代表性 hex,写进 inline
+    // `--shiki-light:${hex};--shiki-dark:${hex}` 局部 CSS 变量 —— 跟 shiki
+    // token **完全同形**,SCSS `color: var(--shiki-light)` 接管选色。
+    // 这样代码块主题切换(App.vue watch → rebuild)和 dark/light 切换(纯 CSS)
+    // 两条路径都自动生效。
     const md = '```mermaid\ngraph TD\n  A --> B\n```'
     const view = makeView(md)
     await flushHighlighter()
+    // mermaid token span:style 含 --shiki-light / --shiki-dark(跟普通 code_block 同形)
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
-    // mermaid 现在跟普通 code_block 一样走 codeHighlight shiki 扫描:>0 token span
     expect(styledSpans.length).toBeGreaterThan(0)
+    // 至少一个 span 同时定义 light / dark(双主题)
+    const hasDualThemes = Array.from(styledSpans).some((s) => {
+      const st = s.getAttribute('style') || ''
+      return st.includes('--shiki-light:') && st.includes('--shiki-dark:')
+    })
+    expect(hasDualThemes).toBe(true)
+    // mermaid 颜色来自主题 hex(不是固定的 #383A42 默认色 —— 那是 shiki mermaid
+    // grammar "摆设"的输出,旁路后不应再出现整块默认色)。验证至少有一个 span
+    // 的 --shiki-light 不是 default fg #383A42(graph 关键字应为强调色)。
+    const hasNonDefault = Array.from(styledSpans).some((s) => {
+      const st = s.getAttribute('style') || ''
+      return !st.includes('--shiki-light:#383A42')
+    })
+    expect(hasNonDefault).toBe(true)
     view.destroy()
   })
 

@@ -45,6 +45,7 @@ import {
   DEFAULT_LIGHT_THEME,
   DEFAULT_DARK_THEME,
 } from './CodeBlockLangs'
+import { tokenizeMermaid } from './mermaidTokenizer'
 
 // ============================================================
 //  Plugin state
@@ -302,6 +303,101 @@ async function writeToClipboard(text: string, btn: HTMLElement): Promise<void> {
 }
 
 // ============================================================
+//  Mermaid token 颜色 —— 从 shiki 主题动态提取 hex
+// ============================================================
+
+// mermaid 6 类 token 映射到 shiki TextMate scope(语义近似):
+//   keyword   → keyword        (图类型词,跟 const/return 同类)
+//   direction → keyword        (TD/LR 也是关键字性质,复用 keyword 色)
+//   shape     → string         (节点形状 [],跟字符串同色系)
+//   edge      → keyword.operator (箭头 --> 是操作符性质)→ fallback keyword
+//   label     → string         (label 文字,跟字符串同类)
+//   comment   → comment        (%% 注释)
+//
+// **为什么要从 shiki 主题提色**:mermaid 走自写 tokenizer 旁路 shiki,但颜色
+// 必须**跟随用户选的代码块主题**(vitesse-light → dracula 时 mermaid 也得变)。
+// shiki 路径靠 `codeToTokensWithThemes` 把每个 token 的 hex 写进 inline style;
+// mermaid 路径没有 token → hex 的现成映射,所以手动从 `hl.getTheme(theme).settings`
+// 按 scope 提取代表性 hex,再以 `--shiki-light:${hex};--shiki-dark:${hex}` 局部
+// CSS 变量写进 inline decoration —— 跟 shiki token **完全同形**,SCSS 那边
+// `color: var(--shiki-light)` 的 cascade 选色机制直接复用,代码块主题切换
+// (App.vue watch → dispatch setMeta → rebuild)和 dark/light 切换(纯 CSS)
+// 两条路径都不用额外处理。
+const MERMAID_TYPE_TO_SCOPE: Record<string, string> = {
+  keyword: 'keyword',
+  direction: 'keyword',
+  shape: 'string',
+  edge: 'keyword.operator',
+  label: 'string',
+  comment: 'comment',
+}
+
+/** 从 shiki 主题 settings 数组找指定 scope 的前景色 hex。
+ *  scope 匹配:精确 / 前缀(如 'keyword.operator' 命中 'keyword.operator' 也命中
+ *  'keyword' 前缀)。返回首个非空 foreground,找不到返回 null(调用方 fallback)。 */
+function extractScopeColor(
+  settings: any[] | undefined,
+  scopeMatch: string,
+): string | null {
+  if (!settings) return null
+  for (const s of settings) {
+    const raw = Array.isArray(s.scope) ? s.scope : [s.scope]
+    for (const sc of raw) {
+      if (typeof sc !== 'string') continue
+      // scope 可能是逗号分隔的复合 "entity.name.class,entity.name.type.class"
+      for (const part of sc.split(',')) {
+        const trimmed = part.trim()
+        if (trimmed === scopeMatch || trimmed.startsWith(scopeMatch)) {
+          const fg = s.settings?.foreground
+          if (fg) return fg
+        }
+      }
+    }
+  }
+  return null
+}
+
+/** 给 mermaid token type 算出当前 [light, dark] 主题下的 hex 颜色对。
+ *  - 优先取主题里 scope 对应的 foreground
+ *  - edge 的 keyword.operator 在不少主题里是 default 色(不可区分),fallback 到 keyword
+ *  - 全部 miss 时返回 null,调用方跳过该 token(让默认色接管)
+ *
+ *  返回的 hex 直接写进 inline `--shiki-light:${light};--shiki-dark:${dark}`,
+ *  跟 shiki token 完全同形,SCSS `color: var(--shiki-light)` 接管选色。 */
+function getMermaidColors(
+  hl: Highlighter | null,
+  lightTheme: string,
+  darkTheme: string,
+): Partial<Record<string, { light: string, dark: string }>> | null {
+  if (!hl) return null
+  let lightSettings: any[] | undefined
+  let darkSettings: any[] | undefined
+  try {
+    lightSettings = hl.getTheme(lightTheme as any)?.settings
+    darkSettings = hl.getTheme(darkTheme as any)?.settings
+  }
+  catch { return null }
+  if (!lightSettings && !darkSettings) return null
+
+  const result: Partial<Record<string, { light: string, dark: string }>> = {}
+  for (const [type, scope] of Object.entries(MERMAID_TYPE_TO_SCOPE)) {
+    let light = extractScopeColor(lightSettings, scope)
+    let dark = extractScopeColor(darkSettings, scope)
+    // edge 的 keyword.operator 在很多主题里就是默认色(不可区分箭头),
+    // fallback 到 keyword 让它至少有强调色
+    if (type === 'edge' && (!light || light === extractScopeColor(lightSettings, 'keyword'))) {
+      // operator 跟 keyword 同色或没找到 → 直接用 keyword 色(已是强调色)
+      light = light || extractScopeColor(lightSettings, 'keyword')
+      dark = dark || extractScopeColor(darkSettings, 'keyword')
+    }
+    if (light || dark) {
+      result[type] = { light: light || dark || '', dark: dark || light || '' }
+    }
+  }
+  return result
+}
+
+// ============================================================
 //  构造 decorations
 // ============================================================
 
@@ -351,8 +447,48 @@ function buildDecorations(
         ignoreSelection: true,
       }),
     )
-    if (!lang || !hl) return
+    if (!lang) return
     if (blockStart >= blockEnd) return
+
+    // ★ mermaid 旁路:shiki mermaid grammar 实际是"摆设"(codeToTokens 全输出
+    // defaultText 默认色,无 scope),不调 shiki codeToTokens,走自写轻量
+    // tokenizer。tokenizeMermaid 输出 {content, offset, type},type 是我们定义
+    // 的 keyword/direction/shape/edge/label/comment。
+    //
+    // **颜色来自当前代码块主题**:getMermaidColors 从 hl.getTheme(light/dark)
+    // .settings 按 scope 提取代表性 hex,写进 inline `--shiki-light:${hex};
+    // --shiki-dark:${hex}` 局部 CSS 变量 —— 跟 shiki token **完全同形**,SCSS
+    // 那边 `color: var(--shiki-light)` 的 cascade 选色机制直接复用:
+    //   - 代码块主题切换(App.vue watch → dispatch setMeta → rebuild)→ 新 hex
+    //   - dark/light 切换(纯 CSS cascade,零重渲)
+    // hl 还没 ready 时 colors 为 null,本次不出 inline decoration(走默认色),
+    // 等 hl ready 后 App.vue / plugin view factory 会 dispatch setMeta 触发 rebuild。
+    if (lang === 'mermaid') {
+      const colors = getMermaidColors(hl, lightTheme, darkTheme)
+      if (!colors) return
+      const mermaidLines = tokenizeMermaid(code)
+      for (const line of mermaidLines) {
+        for (const token of line) {
+          const from = blockStart + token.offset
+          const to = from + token.content.length
+          if (from >= to || from < blockStart || to > blockEnd) continue
+          const c = colors[token.type]
+          if (!c) continue
+          const parts: string[] = []
+          if (c.light) parts.push(`--shiki-light:${c.light}`)
+          if (c.dark) parts.push(`--shiki-dark:${c.dark}`)
+          if (parts.length === 0) continue
+          decos.push(
+            Decoration.inline(from, to, {
+              style: parts.join(';'),
+            }),
+          )
+        }
+      }
+      return
+    }
+
+    if (!hl) return
     // inline decoration:code_block 内部的 text 加 token color
     const result = getTokensSync(hl, code, lang, lightTheme, darkTheme)
     if (!result) return

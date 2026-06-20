@@ -11,7 +11,7 @@
 
 **refactor** (在 v0.4.6 周期内追加,跟"源代码模式"并列)
 
-- [x] mermaid 节点 → code_block { language: 'mermaid' } 升级:```mermaid 改走 fenced code 通用管线,shiki 出 mermaid 语法高亮 + 走 codeHighlight toolbar(语言切换 / 复制按钮复用),MermaidDecoration 扫 code_block 渲染 SVG widget + 编辑壳。决策见 `docs/CHANGELOG.md` v0.4.6 ADR-20260620-001。
+- [x] mermaid 节点 → code_block { language: 'mermaid' } 升级:```mermaid 改走 fenced code 通用管线,走 codeHighlight toolbar(语言切换 / 复制按钮复用),MermaidDecoration 扫 code_block 渲染 SVG widget + 编辑壳。决策见 `docs/CHANGELOG.md` v0.4.6 ADR-20260620-001。~~shiki 出 mermaid 语法高亮~~ → 诊断发现 shiki mermaid grammar 是"摆设"(codeToTokens 全输出默认色无 scope),改走自写轻量 tokenizer(`mermaidTokenizer.ts`)旁路 shiki,颜色从当前代码块主题动态提取 hex 写进 `--shiki-light`/`--shiki-dark` 局部变量(跟 shiki token 同形,主题切换 + dark/light 都自动生效)。
 
 
 #### v0.4.7 — 表格增强
