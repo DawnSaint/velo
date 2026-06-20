@@ -34,7 +34,7 @@ import { linkClickPluginKey } from './linkClick'
 const CONTAINER_BLACKLIST = new Set([
   'code_block',
   'html_block',
-  'mermaid',
+  // mermaid v0.4.6+ 走 code_block { language: 'mermaid' },自动被 code_block 分支拦截
   'math_block',
   // math_inline / html_inline / footnote_reference / image 都是 atom,
   // 没有 text 子节点,inline detector 自然跳过,不需要单独列

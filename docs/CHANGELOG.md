@@ -127,3 +127,27 @@
   - `toggleMarkWithWrap` 统一行为:选区非空 toggle / 选区空插包裹符 + setStoredMark / 已在 mark 内 removeStoredMark / `code_block` 与 `code` mark 黑名单 / linkClick session 内只 setStoredMark 不插包裹符(保护源码编辑态不被改)
   - link mark(`Mod-k`)走 `triggerLinkEdit` 单独实现:`setMeta(syntaxAutoFormatPlugin, false)` 防止 syntaxAutoFormat 抢转 link mark,源码插入后启动 linkClick session 进入编辑态
 
+
+
+## v0.4.6 — mermaid 重构：走 `code_block` + SVG widget
+
+### ADR-20260620-001: mermaid 节点 → `code_block { language: 'mermaid' }` 升级
+
+- **Context**: v0.4.5 引入 shiki 代码块高亮后,```mermaid 在编辑器内被 `syntax/block/codeBlock.ts` 的 `codeBlockEnterCommand` 路由到普通 `code_block` 节点(`language: 'mermaid'`),但 `markdownIO.fromMarkdown` 保留旧路径把 ```mermaid 还原回 `mermaid` 节点 + textarea 编辑器 —— 两条平行宇宙各自正确、接缝处出错:编辑器里输入 ```mermaid + Enter 产生的 `code_block` 永远不渲染 SVG(必须经一次磁盘往返 → reload 才"激活")。评估 A (保留 textarea + mermaid 节点) vs B (改走 code_block + SVG widget) 时关键发现:**A 已经是坏的**(不是 0 改动修复路径),而 **B 已实现一半**——shiki mermaid 语法高亮已在工作,差的只是把 SVG 预览挂上去。用户原话:"我倾向于高亮代码块 + mermaid 图的方式"
+
+- **Decision**: 选方案 B —— mermaid 节点废弃,```mermaid 改走 `code_block { language: 'mermaid' }`(与其他 fenced code 同管线),由 `nodes/MermaidDecoration.ts` 的 `Decoration.widget` 扫 code_block 渲染 SVG + 自管 toolbar。实施:特性开关 `MERMAID_AS_CODE_BLOCK` 灰度 → 切 markdownIO + 重写 widget → 跑测试 → 删旧分支
+  - `MermaidDecoration` 挂两件 decoration:**Decoration.node** 在 pre 上写 `data-mermaid-source="hidden"/"visible"` 控制"看源码"态;**Decoration.widget(side: 1, block: true)** 锚在 block 末尾之后挂 SVG 容器 + 自管 toolbar(切换源码 / 删除)
+  - **widget 几何分工**:`codeHighlightPlugin` toolbar(side: -1, pre 前)继续提供 mermaid 的语言选择 + 复制按钮(同 code_block 共享,不重复);`MermaidDecoration` widget(side: 1, pre 后)专管 SVG 切换 / 删除;两个 widget side 不同,PM 内部排序不互踩
+  - **toolbar 行为**:`codeHighlightPlugin` 在 lang='mermaid' 上**不**挂 toolbar 注释是因为原 plan 写时还没意识到与 MermaidDecoration widget 协作 —— 最终实现是两者并存,MermaidDecoration 自管的 toolbar (chevron 切换 / 删除) 与 codeHighlight 的 lang/copy toolbar 各管各的按钮
+
+- **Consequences**:
+  - **净删代码**:`MermaidDecoration` 的 fillEditor / textarea / 实时预览 / commit / cancel / autoHeight 一整块 ~250 行删掉;用户输入即所得 + reload 即所得对齐
+  - **shiki mermaid 语法高亮白送**(用户最想要);复制按钮 / 语言切换 / 行选择 / 查找替换 / `codeBlockBackspaceCommand` 自动覆盖 mermaid(空 code_block Backspace 转 paragraph,等价"删除空 mermaid"行为)
+  - **不再 atom**:选区/键盘 navigation 行为变(从"整块选中 + Backspace 删整块" → "逐字符编辑 + 空时 Backspace 转 paragraph");但更符合直觉
+  - **SVG 浮在 pre 下方**:整块视觉布局变化,需要新 CSS 校准(`.mermaid-svg-area` 样式重置)
+  - **测试一次性破坏 5-7 个**:`markdownIO.test.ts` mermaid round-trip / `markdownPaste.test.ts` "mermaid 节点"用例 / `codeHighlight.test.ts` 第 10 项("widget 不被 mermaid 节点触发"前提失效,换成"code_block lang=mermaid 既出 toolbar 又出 SVG 双 widget");careful 重写
+  - **实施踩坑**(沉淀到 ARCHITECTURE 设计要点):
+    - widget promise resolve 后**不要** dispatch setMeta 触发 rebuild decorations(否则新 Decoration 实例 `WidgetType.eq` 比对失败 → widget 复用失效 → 死循环),直接在 widget dom 上写 svg
+    - 主题切换走 widget 工厂里挂 `velo:theme-change` window listener 自己改 dom,不走 plugin setMeta(同上死循环);`spec.destroy` 钩子负责 `removeEventListener` 防泄漏
+    - `tr.mapping.map(pos)` 默认 `assoc=+1`(关联"变更之后"),把"content 起点"映射到"插入文本末尾" → `editNodeSet` 里的 absolutePos 跑偏,buildDecorations 找不到匹配 → pre 被误判 hidden;apply 必须用 `mapping.map(pos, -1)` 保留"在变更之前"语义
+

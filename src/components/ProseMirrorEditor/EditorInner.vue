@@ -9,14 +9,14 @@
 //   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
 import { onBeforeUnmount, watch } from 'vue'
-import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
+import { EditorState, Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import { inputRules, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { history, undo, redo } from 'prosemirror-history'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
-import { baseKeymap, chainCommands, splitBlock } from 'prosemirror-commands'
+import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-commands'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
@@ -75,7 +75,34 @@ function headingToParagraph(state: any, dispatch?: any): boolean {
 //  列表项 + 代码类节点的 Tab 缩进(对齐旧 tabIndent)
 // ============================================================
 
-const CODE_LIKE = new Set(['code_block', 'math_inline', 'math_block', 'mermaid'])
+const CODE_LIKE = new Set(['code_block', 'math_inline', 'math_block'])
+
+// ============================================================
+//  code_block 内 Mod-a(全选)只选 block 范围,而不是整个 doc
+//  (baseKeymap 的 selectAll 用 AllSelection(state.doc)→ 选全部,
+//   对代码块用户期望是"选 block 内的代码",贴近普通编辑器行为)。
+//  其他位置(段落 / heading / list_item / ...)放行走 baseKeymap 默认全选。
+// ============================================================
+
+const selectInsideCodeBlock: import('prosemirror-state').Command = (state, dispatch) => {
+  const { $from } = state.selection
+  // $from.parent 是直接父节点;在 code_block 内时,父节点就是 code_block 本身
+  if ($from.parent.type.name !== 'code_block') return false
+  const blockStart = $from.start() // code_block 起点(含 opening token)
+  const blockEnd = $from.end() // code_block 终点(含 closing token)
+  if (blockStart === blockEnd) {
+    // 空 block:dispatch 一个 collapsed selection 让光标落在 block 内,
+    // 而不是 return false 走 baseKeymap 全选
+    if (dispatch) {
+      dispatch(state.tr.setSelection(TextSelection.create(state.doc, blockStart)))
+    }
+    return true
+  }
+  if (dispatch) {
+    dispatch(state.tr.setSelection(TextSelection.create(state.doc, blockStart, blockEnd)))
+  }
+  return true
+}
 
 const tabIndent = keymap({
   Tab: (state, dispatch) => {
@@ -212,6 +239,8 @@ const basePlugins: Plugin[] = [
   keymap({
     Backspace: chainCommands(codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
     Delete: chainCommands(headingToParagraph, baseKeymap['Delete']),
+    // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
+    'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),
   }),
   keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
   // Enter 链:

@@ -103,12 +103,13 @@ describe('markdownPastePlugin: 多段 paste', () => {
     cleanup()
   })
 
-  it('含 mermaid fence 解析为 mermaid 节点', () => {
+  it('含 mermaid fence 解析为 code_block lang=mermaid(v0.4.6+;MermaidDecoration widget 渲染 SVG)', () => {
     const { view, cleanup } = mountView()
     paste(view, '```mermaid\ngraph TD\n  A-->B\n```')
     const doc = view.state.doc
     expect(doc.childCount).toBe(1)
-    expect(doc.child(0).type.name).toBe('mermaid')
+    expect(doc.child(0).type.name).toBe('code_block')
+    expect((doc.child(0) as unknown as { attrs: { language: string } }).attrs.language).toBe('mermaid')
     cleanup()
   })
 
@@ -133,10 +134,10 @@ describe('markdownPastePlugin: code_block 内粘贴', () => {
     cleanup()
   })
 
-  it('光标在 mermaid 等 code 类容器内 → 同样 return null', () => {
-    // mermaid 节点本身就是 spec.code,验证 schema.spec.code 字段判断覆盖它
-    const mermaid = schema.nodes.mermaid.create({ value: '' })
-    const doc = schema.node('doc', null, [mermaid])
+  it('光标在 code_block { language: "mermaid" } 等 code 类容器内 → 同样 return null', () => {
+    // v0.4.6+ mermaid 走 code_block { language: 'mermaid' },spec.code 字段判断覆盖它
+    const cb = schema.nodes.code_block.create({ language: 'mermaid' }, [schema.text('graph TD\n  A-->B')])
+    const doc = schema.node('doc', null, [cb])
     const state = EditorState.create({
       schema,
       doc,

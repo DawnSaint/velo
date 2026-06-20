@@ -80,7 +80,7 @@
 - 第 10 列过度——简单语法也写一段"设计要点"反而稀释文档信号
 
 **已落地的语法参照**:
-- `mermaid` 涉及 schema + NodeView + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(不走 syntax)
+- `mermaid` v0.4.6+ 涉及 schema(`code_block { language: 'mermaid' }`,无独立节点) + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(扫 code_block 渲染 SVG widget,不走 syntax)。codeHighlight 工具条 + mermaid SVG widget 双 widget 共存(不同 side)
 - `alert` 涉及 schema + remark(remarkAlert) + markdownIO 双向 + syntax/block/alert + 注册
 - `footnote` 涉及 schema + NodeView + FootnoteNumberPlugin + syntax/inline/footnoteRef + 注册
 - `_italic` / `~~strike~~` 涉及 schema + syntax/inline + 注册(无 NodeView / 无 remark)

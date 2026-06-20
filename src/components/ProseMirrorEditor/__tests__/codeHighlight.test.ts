@@ -10,7 +10,8 @@
 // 7. 主题切换:切 <html class="dark"> → CSS 变量值变 → token span DOM 的 style 不变
 // 8. CONTAINER_BLACKLIST 回归:在 code_block 内键入 ### 不应转 heading
 // 9. 复制按钮 click → CustomEvent('velo:copy-code') 冒泡,detail 包含 pos
-// 10. widget 不被 mermaid 节点触发(markdownIO 分流到 mermaid 节点,plugin 过滤)
+// 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHighlight 出 toolbar(shiki 出 mermaid 语法高亮);
+//     MermaidDecoration widget 叠加 SVG 预览。两条 widget 共存不冲突(本 plugin side: -1 / mermaid widget 默认 side: 0)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -237,13 +238,30 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('10. mermaid 节点不被 codeHighlightPlugin 接管(只对 code_block 生效)', async () => {
+  it('10. v0.4.6+ mermaid 共用 codeHighlight toolbar(语言选择 + 复制)+ MermaidDecoration 自管 SVG 切换/删除/关闭', async () => {
+    // v0.4.6+:mermaid 走 code_block { language: 'mermaid' }。
+    // 两个 widget 在不同 DOM 位置共挂:
+    //   - CodeHighlight 在 pos + side: -1(pre 前)→ 提供语言选择 + 复制按钮
+    //   - MermaidDecoration 在 pos + nodeSize + side: 1(pre 后)→ 提供 SVG + 切换/删除/关闭
+    // 验证 codeHighlight 的 toolbar 在 mermaid 上仍挂上(不再 skip)。
     const md = '```mermaid\ngraph TD\n  A --> B\n```'
     const view = makeView(md)
     await flushHighlighter()
-    // mermaid 节点不应该有工具条 widget
     const allToolbars = view.dom.querySelectorAll('.velo-code-toolbar-widget')
-    expect(allToolbars.length).toBe(0)
+    expect(allToolbars.length).toBe(1)
+    view.destroy()
+  })
+
+  it('10b. v0.4.6+ mermaid 走 shiki mermaid 语法高亮(token 颜色写入 inline style)', async () => {
+    // 验证 shiki bundled mermaid grammar 出 token,inline decoration 写 --shiki-* 变量。
+    // shiki mermaid grammar 是粗粒度(整行一 token),但至少能给整行一个 token 颜色。
+    // 期望 pre > code 内有 span 带 --shiki-light / --shiki-dark style。
+    const md = '```mermaid\ngraph TD\n  A --> B\n```'
+    const view = makeView(md)
+    await flushHighlighter()
+    const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
+    // mermaid 现在跟普通 code_block 一样走 codeHighlight shiki 扫描:>0 token span
+    expect(styledSpans.length).toBeGreaterThan(0)
     view.destroy()
   })
 

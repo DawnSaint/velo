@@ -21,6 +21,7 @@ import { TextSelection } from 'prosemirror-state'
 import type { Command, Transaction } from 'prosemirror-state'
 import type { Schema } from 'prosemirror-model'
 import type { BlockSyntax } from '../../editor/syntaxRegistry'
+import { mermaidDecoKey } from '../../nodes/MermaidDecoration'
 
 const CODE_BLOCK_LINE_PATTERN = /^```[ \t]*([^\s`]*)[ \t]*$/
 
@@ -63,9 +64,14 @@ export const codeBlockEnterCommand: Command = (state, dispatch) => {
   const match = CODE_BLOCK_LINE_PATTERN.exec(text)
   if (!match) return false
 
+  const lang = (match[1] || '').toLowerCase()
+
   if (dispatch) {
     const tr = state.tr
-    convertParagraphToCodeBlock(tr, state.schema, blockStart, blockEnd, match[1] || '')
+    convertParagraphToCodeBlock(tr, state.schema, blockStart, blockEnd, lang)
+    if (lang === 'mermaid') {
+      tr.setMeta(mermaidDecoKey, { toggleEditAt: blockStart })
+    }
     dispatch(tr)
   }
   return true

@@ -303,7 +303,7 @@ const nodes: Record<string, NodeSpec> = {
   },
 
   // ============================================================
-  //  自定义节点(math / mermaid)—— 见各 NodeView 文件
+  //  自定义节点(math)—— 见各 NodeView 文件
   // ============================================================
 
   // math_inline / math_block:LaTeX 公式。
@@ -343,31 +343,8 @@ const nodes: Record<string, NodeSpec> = {
     ],
   },
 
-  // mermaid:atom block,内容存 attrs.value。toDOM 输出 height:0 占位 —
-  // 真实渲染由 MermaidDecoration.ts 的 widget plugin 接管。
-  // 详见 ARCHITECTURE.md "mermaid 走 widget 不走 NodeView"。
-  mermaid: {
-    content: 'text*',
-    group: 'block',
-    marks: '',
-    defining: true,
-    atom: true,
-    isolating: true,
-    code: true,
-    attrs: {
-      value: { default: '' },
-    },
-    parseDOM: [{
-      tag: 'div[data-type="mermaid"]',
-      preserveWhitespace: 'full',
-      getAttrs: (dom: HTMLElement) => ({ value: dom.dataset.value ?? '' }),
-    }],
-    toDOM: () => {
-      const dom = document.createElement('span')
-      dom.style.cssText = 'display:none'
-      return dom
-    },
-  },
+  // mermaid 节点已废弃(v0.4.6+ 走 code_block { language: 'mermaid' },与其他 fenced
+  // code 同管线;MermaidDecoration widget 扫描 code_block 渲染 SVG / 编辑壳)。
 
   // html_block / html_inline:atom 节点,attrs.value 存原始 HTML 字符串。
   // toDOM 输出占位(数据传递),真实渲染由 nodes/HtmlNodeView.ts 的 NodeView

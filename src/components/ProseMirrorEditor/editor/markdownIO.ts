@@ -7,8 +7,9 @@
 // - mdast `html` 节点 → html_block / html_inline(原样存 attrs.value,
 //   NodeView 用 DOMPurify sanitize 后 innerHTML 写入)
 //
-// mermaid:mdast 里就是 `code` with `lang === 'mermaid'`,我们映射到 PM 的
-// mermaid 节点(attrs.value = code.value)。反向同理。
+// mermaid(v0.4.6+):mdast `code` lang='mermaid' → PM `code_block { language: 'mermaid' }`,
+// 与其他 fenced code 同管线(codeHighlight 出 shiki 高亮 + toolbar,
+// MermaidDecoration widget 叠加 SVG 预览)。`mermaid` atom 节点已废弃。
 
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
@@ -137,10 +138,8 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
       return [schema.node('hr')]
 
     case 'code': {
-      // mermaid 走自己的节点;其他语言进 code_block
-      if (node.lang === 'mermaid') {
-        return [schema.node('mermaid', { value: node.value })]
-      }
+      // mermaid 与其他 fenced code 一视同仁 → code_block { language: 'mermaid' }。
+      // MermaidDecoration widget 负责在 pre 之后叠加 SVG 预览。
       const content = node.value ? [schema.text(node.value)] : []
       return [schema.node('code_block', { language: node.lang ?? '' }, content)]
     }
@@ -483,9 +482,6 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
         lang: (node.attrs.language as string) || null,
         value: node.textContent,
       }
-
-    case 'mermaid':
-      return { type: 'code', lang: 'mermaid', value: node.attrs.value as string }
 
     case 'math_block':
       return { type: 'math', value: node.attrs.value as string } as RootContent

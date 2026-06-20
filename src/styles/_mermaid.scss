@@ -1,18 +1,90 @@
 /* ========== Mermaid 节点 ========== */
 
+/* 默认态下:pre(code_block 自身)被 MermaidDecoration 用 Decoration.node 加
+   data-mermaid-source="hidden" → 隐藏显示;is-editing 态下
+   data-mermaid-source="visible" → 显示 pre 源码。
+   属性选择器选 pre,直接控制 code_block 的 toDOM 根。 */
+.velo-editor pre[data-mermaid-source="hidden"] {
+  display: none;
+}
+
 .velo-editor .mermaid-node {
-  cursor: pointer;
   border-radius: 8px;
   padding: 12px;
   margin: 1em 0;
   transition: background 0.15s;
   min-height: 60px;
   border: 1px solid transparent;
+  position: relative;
+  background: transparent;
 }
 
 .velo-editor .mermaid-node:not(.is-editing):hover {
   background: rgba(128, 128, 128, 0.05);
   border-color: rgba(128, 128, 128, 0.15);
+}
+
+.velo-editor .mermaid-node.is-editing {
+  border-color: rgba(128, 128, 128, 0.25);
+}
+
+/* SVG area(默认态点击切到编辑) */
+.velo-editor .mermaid-svg-area {
+  cursor: pointer;
+  border-radius: 6px;
+  min-height: 40px;
+  position: relative;
+}
+
+.velo-editor .mermaid-node.is-editing .mermaid-svg-area {
+  cursor: default;
+}
+
+/* 自管 toolbar(沿用 .velo-code-toolbar-widget 视觉风格) */
+.velo-editor .mermaid-toolbar {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.velo-editor .mermaid-node:hover .mermaid-toolbar,
+.velo-editor .mermaid-node:focus-within .mermaid-toolbar,
+.velo-editor .mermaid-node.is-editing .mermaid-toolbar {
+  opacity: 1;
+}
+
+.velo-editor .mermaid-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: rgb(156 163 175);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.velo-editor .mermaid-btn:hover {
+  background: rgba(128, 128, 128, 0.12);
+  color: rgb(75 85 99);
+}
+
+.velo-editor .mermaid-btn-delete:hover {
+  color: rgb(220 38 38);
+}
+
+.velo-editor .mermaid-btn.velo-copy-flash-ok {
+  color: rgb(34 197 94);
 }
 
 /* 空态占位 */
@@ -23,8 +95,6 @@
   height: 80px;
   color: #999;
   font-style: italic;
-  border: 2px dashed #ddd;
-  border-radius: 8px;
 }
 
 /* Loading */
@@ -43,7 +113,6 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  border: 1px dashed #e5534b;
   border-radius: 6px;
   color: #e5534b;
   gap: 4px;
@@ -56,13 +125,9 @@
   font-size: 1.2em;
 }
 
-.velo-editor .mermaid-error-hint {
-  font-size: 0.8em;
-  color: #999;
-}
 
 /* SVG 响应式 */
-.velo-editor .mermaid-node svg {
+.velo-editor .mermaid-svg-area svg {
   max-width: 100%;
   max-height: 400px;
   height: auto;
@@ -89,7 +154,19 @@
   color: #f77878;
 }
 
-.dark .mermaid-error-hint,
-.velo-editor.dark .mermaid-error-hint {
-  color: #888;
+
+.dark .mermaid-btn,
+.dark .velo-editor .mermaid-btn {
+  color: rgb(156 163 175);
+}
+
+.dark .mermaid-btn:hover,
+.dark .velo-editor .mermaid-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgb(229 231 235);
+}
+
+.dark .mermaid-btn-delete:hover,
+.dark .velo-editor .mermaid-btn-delete:hover {
+  color: rgb(248 113 113);
 }

@@ -219,11 +219,6 @@ Markdown 允许使用脚注语法为正文添加参考资料[^syntax]，每个�
 | <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>7</kbd> | 有序列表 |
 | <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> | 引用 |
 | <kbd>Mod</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | 代码块 |
-
-#### 表格
-
-| 快捷键 | 作用 |
-|--------|------|
 | <kbd>Mod</kbd>+<kbd>T</kbd> | 插入 2×2 表格 |
 
 

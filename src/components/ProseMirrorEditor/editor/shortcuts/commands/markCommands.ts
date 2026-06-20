@@ -33,9 +33,9 @@ export function toggleMarkWithWrap(
     const $from = state.doc.resolve(from)
     const stored = state.storedMarks ?? []
 
-    // 黑名单:code mark / code_block / mermaid / math_block 内不切换
+    // 黑名单:code mark / code_block / math_block 内不切换
+    // (mermaid v0.4.6+ 走 code_block { language: 'mermaid' },自动被 code_block 分支拦截)
     if ($from.parent.type.name === 'code_block') return false
-    if ($from.parent.type.name === 'mermaid') return false
     if ($from.parent.type.name === 'math_block') return false
     if ($from.marks().some(m => m.type.name === 'code')) return false
 

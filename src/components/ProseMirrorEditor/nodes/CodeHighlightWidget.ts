@@ -315,6 +315,10 @@ function buildDecorations(
   state.doc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'code_block') return
     const lang = (node.attrs.language as string) || ''
+    // 注意:mermaid 与普通 code_block 共用本 toolbar(语言选择 + 复制)。
+    // MermaidDecoration 的 widget 锚在 pos + nodeSize + side: 1(pre 之后),
+    // 本 toolbar 锚在 pos + side: -1(pre 之前)→ 两个 widget DOM 位置不冲突,
+    // mermaid 走 MermaidDecoration 的额外 SVG / 切换源码 / 删除按钮 / 关闭按钮。
     // 工具条 widget —— key 含 lang + 文本 hash,lang 变 / 文本变都强制重挂,
     // 否则 ProseMirror 复用旧 DOM 按钮文字不更新。
     const blockStart = pos + 1

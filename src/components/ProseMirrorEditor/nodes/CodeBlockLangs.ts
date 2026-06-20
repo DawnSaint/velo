@@ -45,7 +45,8 @@ export const LANG_OPTIONS: readonly string[] = [
   'sql', 'bash', 'shell', 'powershell',
   'markdown', 'diff', 'dockerfile', 'makefile',
   'vue', 'svelte',
-]
+  'mermaid',
+]  
 
 /** 启动期最小预装 lang 清单(空 doc / 首次打开新文件时兜底用)。
  *  覆盖 markdown 编辑器最高频的 5 种:js / ts / py / bash / json。
@@ -53,7 +54,8 @@ export const LANG_OPTIONS: readonly string[] = [
  *  export 是给 App.vue 拼"doc 用到的 ∪ baseline"用。 */
 export const BASELINE_LANGS: readonly string[] = [
   'javascript', 'typescript', 'python', 'bash', 'json',
-]
+  'mermaid',
+] 
 
 // ============================================================
 //  主题清单(给设置面板下拉用,按 displayName 字母排序)
