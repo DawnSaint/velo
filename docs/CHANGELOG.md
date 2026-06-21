@@ -129,7 +129,7 @@
 
 
 
-## v0.4.6 — mermaid 重构：走 `code_block` + SVG widget
+## v0.4.6 — mermaid 重构 + 源代码模式 (CodeMirror 6)  (2026-06-21)
 
 ### ADR-20260620-001: mermaid 节点 → `code_block { language: 'mermaid' }` 升级
 
@@ -150,4 +150,38 @@
     - widget promise resolve 后**不要** dispatch setMeta 触发 rebuild decorations(否则新 Decoration 实例 `WidgetType.eq` 比对失败 → widget 复用失效 → 死循环),直接在 widget dom 上写 svg
     - 主题切换走 widget 工厂里挂 `velo:theme-change` window listener 自己改 dom,不走 plugin setMeta(同上死循环);`spec.destroy` 钩子负责 `removeEventListener` 防泄漏
     - `tr.mapping.map(pos)` 默认 `assoc=+1`(关联"变更之后"),把"content 起点"映射到"插入文本末尾" → `editNodeSet` 里的 absolutePos 跑偏,buildDecorations 找不到匹配 → pre 被误判 hidden;apply 必须用 `mapping.map(pos, -1)` 保留"在变更之前"语义
+
+
+### ADR-20260621-001: 源代码模式从 pre+textarea overlay 换成 CodeMirror 6
+
+- **Context**: 旧源码模式是 `<pre>` 渲染 + 同尺寸 `<textarea>` overlay 叠加。软换行下 textarea 拿不到"第 N 行折到哪个像素 Y",要手搓一层像素测量层对齐 pre 与 textarea 的折行;行号、语法高亮(旧版纯文本无高亮)都要自补。评估 A(留 textarea overlay + 自补行号/高亮/折行测量) vs B(换 CM6)时:B 的 `lineNumbers()` + `lineWrapping` 免费覆盖行号与软换行对齐,且 shiki 高亮可走 CM6 `ViewPlugin`(`shikiCmPlugin.ts`)逐 token 转 `Decoration.mark`,与 WYSIWYG 侧 `CodeHighlightWidget` 同形(token hex 写 `--shiki-light/dark` 局部变量),SCSS `.velo-cm-source .cm-line span` 接管选色 —— 跨模式复用同一套 shiki 主题镜像 + `ensureTheme` 串行机制
+- **Decision**: 选 B —— `SourceModeEditor.vue` 独立 CM6 `EditorView`,与 `ProseMirrorEditor` 经 `v-if` 互斥挂载,`documentStore.sourceMode` 单开关。`documentStore.content` 仍是唯一数据源:CM6 `updateListener`(docChanged)→ emit → store;外部 `watch(modelValue)` 用 `lastSelfEmitted` echo 哨兵跳过自身回写,真外部变化 dispatch changes 替换 doc 并夹住光标。主题镜像机制等价于旧版(本地 ref 镜像 + `ensureTheme` 串行),dispatch target 从 Vue ref 改 CM6 `setShikiTheme` StateEffect —— store mutate 本身不触发 rebuild,只有 effect dispatch 后(= `ensureTheme` 已 resolve = shiki 拿到真 hex)才 rebuild,防"未 resolve 期间全黑"。`token.offset` 即 CM6 doc pos(shiki offset 是相对输入串全局偏移,CM6 单文档 pos 等于字符串偏移,两者同构)
+- **Consequences**:
+  - 删掉旧 pre+textarea overlay + 像素测量层;行号 / 软换行 / 选区 / 特殊字符高亮 / 撤销栈全由 CM6 免费
+  - shiki 语法高亮白送(旧源码模式无高亮),与 WYSIWYG 代码块同主题同配色
+  - 双编辑器栈并存(PM + CM6),后续跨模式功能(光标同步 / 查找替换)需要双后端适配(见 ADR-20260621-002 / -003)
+  - **源码模式禁止拖入 / 粘贴图片**(对齐 Typora):`forbidFileDropPaste`(`EditorView.domEventHandlers`)对文件型 drop `preventDefault`(否则 `dragDropEnabled:false` 下 webview 把文件当"打开"导航掉)、image/* paste 吞掉;PM 模式由 `imageUploadPlugin` 兜这个 preventDefault,源码模式无等价 PM 插件,这里补
+
+
+### ADR-20260621-002: 跨模式光标 + 滚动同步走 token 序列 + LCS 对齐
+
+- **Context**: `toggleSourceMode()` 翻转 `sourceMode` → `v-if` 互换两个编辑器,两边卸载重挂,光标 / 滚动在 DOM 层丢失,切模式后总是跳回文档顶。需要"最佳努力"把出方向光标位置迁到入方向对应处。评估 A(整窗归一化文本 `indexOf` 子串匹配) vs B(token 化 + LCS 最长公共子序列对齐)时关键发现:链接 `[text](url)` 的 URL、表格 `|` / `|---|---|` 分隔行是 CM6 侧多出、PM 侧没有的 token,会卡在光标窗口中间 —— 整窗子串匹配砍不掉这些多余段 → 失败跳顶;LCS 把多余 token 当"未对齐"自动跳过
+- **Decision**: 选 B —— `crossModeSync.ts`。两边各 token 化(剥 markdown 标记字符 `#*~_\`-+[]()!>|`——**`|` 入集是关键**,否则无空格表格 `|cell|cell` 粘成一个 token;标记与空白都作分隔,`**bold**`→`bold`、`well-known`→`well`+`known`,两边对称即可)。`captureAnchor` 取光标所在 token ±64 个 token 的文本序列 + 光标 token 索引 + token 内字符偏移;`applyAnchor` 在入方向全 token 上跑 LCS,光标 token 映到对端对应 token,迁移 intraOffset,设选区 + 滚动居中。App.vue 单点 `watch(sourceMode, cb, { flush: 'pre' })` 覆盖全部切换入口(Ctrl+\` / 工具栏 / Esc 都走这一个布尔翻转);`flush:'pre'` 保证读到**出**方向 view(卸载在 render 阶段,晚于 pre-flush watcher)→ 抓锚点,`await nextTick()` 后**入**方向 `onMounted` 已建 view → 应用。滚动:CM6 `EditorView.scrollIntoView(pos,{y:'center'})`;PM 不用 `tr.scrollIntoView()`(默认"最小滚入视口",光标在视口下方只露底边 = 表现成跳到最底下),改手动 `coordsAtPos` + 祖先 `scrollBy` 居中
+- **Consequences**:
+  - 切模式光标落在视觉对应处,不再跳顶;光标 token 自身是多余方(如落在 URL 里)→ 退到最近对齐邻居 token 边界
+  - **最佳努力**语义:空文档 / view 未就绪 → 静默放弃留默认;LCS 矩阵超 4M 格(token > ~31k 的大文档)→ 退线性首现匹配,防 O(n²) 卡顿
+  - 单点 `watch(sourceMode)` 覆盖所有入口,后续新加切模式触发点无需改同步逻辑
+  - 入方向主动 focus(PM 手动滚动依赖 view 已布局)
+
+
+### ADR-20260621-003: 查找替换走 PM / CM6 双后端抽象 + 意图上提 provide/inject
+
+- **Context**: v0.4.5 的 `FindReplace.vue` 写死绑 ProseMirror(`editorViewGetter` 返回 PM `EditorView`,内部 `findMatchesInDoc` / `findHighlight` PM 插件 / `TextSelection.create` / `tr.replaceWith`)。源码模式(CM6)下 `ProseMirrorEditor` 整个 `v-if` 卸载,`FindReplace` 跟着消失,工具栏搜索按钮还被 `:disabled="sourceMode"` 显式禁用。要在两模式共用同一份面板,评估 A(把 FindReplace 上提到 App.vue,App 跨编辑器取 view 构造后端) vs B(每编辑器各挂一份 FindReplace,各自用自己 view 构造后端) vs C(FindReplace 内部 mode 条件分支)。C 让组件耦合两套编辑器 API,放弃。A vs B:B 的 `backendGetter` 平凡(用自己 view)、面板定位天然落在各自 card 内、无需 App 跨编辑器取 view;选 B
+- **Decision**: 选 B + 后端抽象。新建 `FindReplaceBackend` 接口(`findreplace/backend.ts`):`getSelectionText` / `getRangeText` / `findMatches` / `setSelection` / `scrollMatchIntoView` / `setHighlight` / `clearHighlight` / `replaceRange` / `focus`,`createPmBackend(view)` / `createCmBackend(view)` 两份实现,FindReplace 不直接依赖任一编辑器 API。两份 `FindReplace.vue` 分别挂 `ProseMirrorEditor/index.vue`(PM)与 `SourceModeEditor.vue`(CM6),`v-if/v-else` 互斥同一时刻只一份活着。**用户意图(query / 选项 / 替换文 / showReplace)上提到 App.vue 经 `provide(findIntentKey)` → FindReplace `inject` 共享**:切模式时 PM 份卸载、CM6 份新挂,意图在 App.vue 存活 → query 跨模式保留;`matches` / `currentIndex` 不上提(模式相关,新挂载时用当前后端重算)。CM6 高亮走新 `cmFindHighlightField` StateField + `cmFindHighlightEffect`(镜像 PM 侧 `findHighlight` 插件,`Decoration.mark({class}).range`),class 复用 `velo-find-match`/`velo-find-current`(CSS 提到 `_editor-base.scss` 全局层两套编辑器共用)
+- **Consequences**:
+  - `replaceAll` 编辑器无关化:倒序遍历 matches(逆序避免位置错位),每个 match 取 `getRangeText` → `replaceInText` → `replaceRange`;PM(match 不跨文本节点)/ CM6(match 可跨行)统一成立
+  - 两后端语义差异各自符合该模式用户所见文本:PM `findMatches` 搜 prose 文本(不含 markdown 标记,match 不跨块)、CM6 搜原始 markdown 全串(含 `**`/`|`/`[]()`,match 可跨行)
+  - `scrollMatchIntoView` 两套:PM 手动 `coordsAtPos`+祖先 `scrollBy`(焦点在 find 输入里时 `tr.scrollIntoView` 早退)、CM6 `EditorView.scrollIntoView(pos,{y:'center'})` effect(不依赖焦点)
+  - 意图上提的踩坑:切模式 findOpen 保持 true,新挂载 FindReplace 的 `open` watcher(immediate)在 setup 阶段跑 recompute,但此时入方向 view 未建好(backendGetter 返回 null → matches=[]),之后 query/选项是 inject 的同一 ref 值没变不触发 watch → matches 停空,要手动改 query 才重算。修法:`onMounted` + `nextTick` 补一次 recompute(nextTick 时父组件 onMounted 已同步建好 view)
+  - FindReplace 无 provide 时回退本地 ref(独立挂载 / 测试自洽);`backend.test.ts` 覆盖 PM / CM6 两后端 round-trip
 

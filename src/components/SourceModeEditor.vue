@@ -28,17 +28,25 @@ import {
   shikiExtensions,
   setShikiTheme,
 } from '@/components/ProseMirrorEditor/nodes/shikiCmPlugin'
+import FindReplace from '@/components/ProseMirrorEditor/findreplace/FindReplace.vue'
+import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
+import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
 
 const props = withDefaults(defineProps<{
   modelValue: string
   darkMode?: boolean
+  /** 查找面板开关。v-model:find-open 双绑,App.vue 持有(与 ProseMirrorEditor 对仗)。 */
+  findOpen?: boolean
 }>(), {
   modelValue: '',
   darkMode: false,
+  findOpen: false,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  /** v-model:find-open 的 update 端。FindReplace 关闭时触发,父级翻成 false。 */
+  'update:findOpen': [open: boolean]
 }>()
 
 const documentStore = useDocumentStore()
@@ -96,6 +104,36 @@ const escKeymap = keymap.of([{
   },
 }])
 
+// 源代码模式禁止拖入 / 粘贴图片(对齐 Typora 源码模式设计)。
+// 两件事:
+//   1. 文件型 drop 必须 preventDefault —— 否则 webview(dragDropEnabled:false
+//      下拿到原生 drag 事件)把拖入的文件当"打开"导航掉,整页跳走。PM 模式由
+//      imageUploadPlugin.handleDOMEvents.drop 兜这个 preventDefault,源码模式
+//      没有等价 PM 插件,这里补上。
+//   2. image/* paste 吞掉 —— CM6 默认 paste 不处理 File,但浏览器可能把图片
+//      当 HTML <img data:...> 塞进来产生垃圾文本。源码模式不插图,直接拦。
+// 非图片的纯文本 drop/paste 放行给 CM6 默认处理(返回 false)。
+const forbidFileDropPaste = EditorView.domEventHandlers({
+  drop(event: DragEvent) {
+    const dt = event.dataTransfer
+    const isFileDrop = dt?.types && Array.from(dt.types).includes('Files')
+    if (!isFileDrop) return false
+    event.preventDefault()
+    return true
+  },
+  paste(event: ClipboardEvent) {
+    const files = event.clipboardData?.files
+    if (!files || files.length === 0) return false
+    for (let i = 0; i < files.length; i++) {
+      if (files[i]?.type.startsWith('image/')) {
+        event.preventDefault()
+        return true
+      }
+    }
+    return false
+  },
+})
+
 // ============================================================
 //  mount CM6
 // ============================================================
@@ -111,7 +149,12 @@ function createView(): EditorView {
       tabKeymap,
       escKeymap,
       keymap.of([...defaultKeymap, ...historyKeymap]),
+      forbidFileDropPaste,
       shikiExts,
+      // 查找替换高亮 StateField(与 PM 侧 findHighlight 对仗,FindReplace 经
+      // CM6 后端 dispatch cmFindHighlightEffect 驱动)。必须装在 state 里,
+      // 后端 setHighlight 才有 effect 接收方。
+      cmFindHighlightField,
       // docChanged → 回写 documentStore.content
       EditorView.updateListener.of((u) => {
         if (!u.docChanged) return
@@ -210,6 +253,14 @@ defineExpose({
         <div ref="hostRef" class="velo-cm-host" />
       </div>
     </div>
+    <!-- 查找替换面板:与 ProseMirrorEditor 共用同一份 FindReplace.vue,
+         仅后端不同(CM6)。findOpen 由 App.vue 透传;用户意图(query / 选项)经
+         App.vue provide → FindReplace inject 共享,切模式时面板保持打开、query 保留。 -->
+    <FindReplace
+      :open="props.findOpen"
+      :backend-getter="() => viewRef ? createCmBackend(viewRef) : null"
+      @close="emit('update:findOpen', false)"
+    />
   </div>
 </template>
 

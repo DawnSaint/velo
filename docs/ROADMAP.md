@@ -3,20 +3,6 @@
 > 规划后续版本的迭代方向
 
 
-#### v0.4.6 — 源代码模式
-
-**feat**
-
-- [x] 源代码模式
-- [ ] 源代码模式搜索(FindReplace 共用)
-
-
-**refactor** (在 v0.4.6 周期内追加,跟"源代码模式"并列)
-
-- [x] 源代码模式换 CodeMirror 6 + shiki 高亮 + 行号(软换行;取代旧 pre+textarea overlay;主题镜像 + ensureTheme 串行机制等价于 v0.4.6,dispatch target 从 Vue ref 改 CM6 StateEffect)
-- [x] 跨模式光标 + 浏览状态同步(最佳努力文本锚点;归一化文本 + posMap 反向映射,App.vue `watch(sourceMode, flush:'pre')` 单点覆盖全部切换入口)
-
-
 #### v0.4.7 — 表格增强
 
 **feat**

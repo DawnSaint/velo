@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
 import CodeBlockLanguagePicker from './CodeBlockLanguagePicker.vue'
+import { createPmBackend } from './findreplace/backend'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -14,10 +15,6 @@ const props = withDefaults(defineProps<{
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
   findOpen?: boolean
-  /** Ctrl+F/Ctrl+H 触发时由父级写入,FindReplace watch open 时读一次后清空用。 */
-  findInitialQuery?: string
-  /** Ctrl+H 触发时为 true,FindReplace 初始化时展开 replace 行。 */
-  findInitialShowReplace?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '14px',
@@ -25,8 +22,6 @@ const props = withDefaults(defineProps<{
   isMacCodeBlock: true,
   darkMode: false,
   findOpen: false,
-  findInitialQuery: '',
-  findInitialShowReplace: false,
 })
 
 const emit = defineEmits<{
@@ -122,9 +117,7 @@ defineExpose({ getEditorView })
     </div>
     <FindReplace
       :open="props.findOpen"
-      :editor-view-getter="getEditorView"
-      :initial-query="props.findInitialQuery"
-      :initial-show-replace="props.findInitialShowReplace"
+      :backend-getter="() => { const v = getEditorView(); return v ? createPmBackend(v) : null }"
       @close="onFindClose"
     />
     <CodeBlockLanguagePicker ref="pickerRef" :view="getEditorView()" />

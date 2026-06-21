@@ -2,42 +2,47 @@
 // 浮动在编辑器卡片右上角的查找替换面板。
 //
 // 设计要点:
-//   - 父级传 editorViewGetter:每次操作都重新拿 view —— 切文件时 inner 重建,
-//     view 会换,getter 永远拿当前最新的。
-//   - v-if 卸载:每次重开都是干净状态,不保留上次的 query。
+//   - 父级传 backendGetter:每次操作都重新拿后端 —— 切文件 / 切模式时编辑器重建,
+//     后端跟着换(PM / CM6 各一份实现,见 backend.ts)。
+//   - 用户意图(query / 选项 / 替换文 / showReplace)由 App.vue provide,本组件 inject
+//     共享 —— 切模式时 PM 份卸载、CM6 份新挂,意图在 App.vue 存活,query 不丢。
+//     matches / currentIndex 是模式相关的,不上提,新挂载时用当前后端重算。
 //   - query / options 变化时自动 recompute matches,跳到第一个;空 query 清空。
 //   - Enter / Shift+Enter 在 find 输入里走 next / prev;Enter 在 replace 里走 replace。
-//   - 替换后从光标处继续找下一个 match;全部替换走 per-text-node String.replace 支持 $1 $2。
+//   - 替换后从光标处继续找下一个 match;全部替换走倒序循环 String.replace 支持 $1 $2。
 //   - 关闭时把焦点还给编辑器,回到编辑态。
 
-import { computed, nextTick, ref, watch } from 'vue'
-import type { EditorView } from 'prosemirror-view'
-import { TextSelection } from 'prosemirror-state'
-import { findMatchesInDoc, replaceInText, type FindOptions, type Match } from './findMatches'
-import { findHighlightKey } from './findHighlight'
+import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import { replaceInText, type FindOptions, type Match } from './findMatches'
+import type { FindReplaceBackend } from './backend'
+import { findIntentKey } from './findIntent'
 
 const props = defineProps<{
   open: boolean
-  /** 切文件时 inner 重建,view 会换,getter 永远拿当前最新的 */
-  editorViewGetter: () => EditorView | null
-  /** Ctrl+F 时父级把当前选中的文本塞过来作为初始 query */
-  initialQuery?: string
-  /** Ctrl+H vs Ctrl+F 决定是否展开 replace 行 */
-  initialShowReplace?: boolean
+  /** 每次操作重新取后端 —— 切文件 / 切模式时编辑器重建,后端跟着换。
+   *  后端把 PM / CM6 差异收敛,本组件不直接依赖任一编辑器 API。 */
+  backendGetter: () => FindReplaceBackend | null
 }>()
 
 const emit = defineEmits<{
   close: []
 }>()
 
-const query = ref('')
-const replacement = ref('')
-const caseSensitive = ref(false)
-const wholeWord = ref(false)
-const regex = ref(false)
+// 用户意图来自 App.vue(跨模式保留)。App 始终 provide;独立挂载(如测试)无 provide
+// 时回退本地 ref,组件自洽不崩(此时无跨实例共享,但生产路径不受影响)。
+const intent = inject(findIntentKey) ?? {
+  query: ref(''),
+  replacement: ref(''),
+  caseSensitive: ref(false),
+  wholeWord: ref(false),
+  regex: ref(false),
+  showReplace: ref(false),
+}
+const { query, replacement, caseSensitive, wholeWord, regex, showReplace } = intent
+
+// 模式相关的本地状态:切模式重挂时重算。
 const matches = ref<Match[]>([])
 const currentIndex = ref(0)
-const showReplace = ref(false)
 
 const findInputRef = ref<HTMLInputElement | null>(null)
 const replaceInputRef = ref<HTMLInputElement | null>(null)
@@ -62,27 +67,16 @@ const matchCountText = computed(() => {
   return `${currentIndex.value + 1} / ${matches.value.length}`
 })
 
-// 打开时:初始化 query / showReplace,然后 focus 到输入框
+// 打开 → 用 App.vue 已下发的意图(query / 选项)重算 + 跳第一个 + 推高亮 + 聚焦。
+// query / 选项由 App.vue 的 openFind / openReplace 在置 findOpen=true 前写好,这里只读。
+// 关闭 → 清本地 match 状态 + 清高亮(意图归 App.vue,不动 —— 下次打开由 openFind 重置)。
 watch(() => props.open, async (isOpen) => {
   if (!isOpen) {
-    // 关闭 → 清空 query + 清掉高亮。
-    // 为什么也要清 query:之前 find/replace 在编辑器里设过 selection,这个 selection
-    // 在 panel 关闭后还留在 ProseMirror state 里。下次按 Ctrl+F / 点工具栏打开时,
-    // App.vue 的 currentSelectionText() 会读到那个旧 selection(可能是上次 match
-    // 的第一个字符),然后通过 initialQuery 灌回 input —— 用户看到的就是
-    // "关掉再打开,留有上次第一个字符"。直接在这里 query='' 把残留路径切断,
-    // 重新打开时 watch initialQuery 会用新 selection / 空串覆盖。
-    query.value = ''
+    matches.value = []
+    currentIndex.value = 0
     clearHighlight()
     return
   }
-  query.value = props.initialQuery ?? ''
-  replacement.value = ''
-  showReplace.value = props.initialShowReplace ?? false
-  caseSensitive.value = false
-  wholeWord.value = false
-  regex.value = false
-  currentIndex.value = 0
   recomputeMatches()
   pushHighlightToEditor()
   if (matches.value.length > 0) selectMatch(0)
@@ -105,102 +99,58 @@ watch([query, caseSensitive, wholeWord, regex], () => {
   if (matches.value.length > 0) selectMatch(0)
 })
 
-// 父级重新塞 initialQuery(用户在编辑器里换了一段选区再按 Ctrl+F)→
-// 面板已开的话上面那个 open watch 不会触发,要靠这个 watch 把查找框更新掉。
-// 故意不复位三档选项:用户辛苦切到 caseSensitive / regex 时,不应该被
-// 重新按 Ctrl+F 时清掉;只更新 query 和重算。
-watch(() => props.initialQuery, (newQuery) => {
+// 切模式时 findOpen 保持 true,新挂载的 FindReplace 其 open watcher(immediate)在
+// setup 阶段就跑 recomputeMatches —— 但此时入方向编辑器 view 还没建好(backendGetter
+// 返回 null)→ matches=[]。之后 view 就绪,但 query/选项是 inject 的同一 ref、值没变,
+// 上面的 watch 不触发;open 也没变。结果 matches 停在空,要手动改 query 才重算。
+// 这里在 onMounted + nextTick 补一次:nextTick 时父组件 onMounted 已同步建好 view
+// (PM: EditorInner 子组件先 mount;CM6: SourceModeEditor onMounted 同步 createView),
+// backendGetter 拿得到真后端。切模式是新挂载,onMounted 每次都跑,覆盖两路径。
+onMounted(() => {
   if (!props.open) return
-  query.value = newQuery ?? ''
-  recomputeMatches()
-  currentIndex.value = 0
-  pushHighlightToEditor()
-  if (matches.value.length > 0) selectMatch(0)
-  // 重新聚焦 find 输入,选中文本 → 用户按 Enter 立刻找下一个
-  findInputRef.value?.focus()
-  findInputRef.value?.select()
+  void nextTick().then(() => {
+    if (!props.open) return
+    recomputeMatches()
+    pushHighlightToEditor()
+    if (matches.value.length > 0) selectMatch(0)
+  })
 })
 
 function recomputeMatches() {
-  const view = props.editorViewGetter()
-  if (!view) {
+  const be = props.backendGetter()
+  if (!be) {
     matches.value = []
     return
   }
-  matches.value = findMatchesInDoc(view.state.doc, query.value, options.value)
+  matches.value = be.findMatches(query.value, options.value)
 }
 
 /**
- * 把当前 matches / currentIndex 推到编辑器的高亮插件。
- * 必须在 matches 或 currentIndex 变化后调一次,否则装饰不会刷新。
- * 没有 setMeta 的话插件会保留旧数据(空或上次 dispatch 的)。
+ * 把当前 matches / currentIndex 推到编辑器的高亮(PM 走 setMeta,CM6 走 effect,
+ * 由后端屏蔽)。必须在 matches / currentIndex 变化后调一次,否则装饰不刷新。
  */
 function pushHighlightToEditor() {
-  const view = props.editorViewGetter()
-  if (!view) return
-  const tr = view.state.tr.setMeta(findHighlightKey, {
-    matches: matches.value,
-    currentIndex: currentIndex.value,
-  })
-  view.dispatch(tr)
+  const be = props.backendGetter()
+  if (!be) return
+  be.setHighlight(matches.value, currentIndex.value)
 }
 
 function clearHighlight() {
-  const view = props.editorViewGetter()
-  if (!view) return
-  const tr = view.state.tr.setMeta(findHighlightKey, {
-    matches: [],
-    currentIndex: 0,
-  })
-  view.dispatch(tr)
-}
-
-/**
- * 把 match 滚动到容器中央。
- *
- * 为什么不用 tr.scrollIntoView():
- *   tr.scrollIntoView() 内部走 view.scrollIntoView(),该方法在 view 没焦点
- *   时会早退(只滚动当前 selection,而我们要滚动指定位置)。find 面板打开
- *   时焦点一直在 find 输入里,view.scrollIntoView 永远命中早退分支,
- *   用户按 Enter 跳转 match 时编辑器完全不动。
- *
- * 改成手动:用 coordsAtPos 拿 match 的屏幕坐标,沿 DOM 向上找第一个
- * overflow-y: auto/scroll 的祖先,scrollBy 把 match 居中。
- */
-function scrollMatchIntoView(view: EditorView, from: number) {
-  const coords = view.coordsAtPos(from)
-  if (!coords) return
-  let el: HTMLElement | null = view.dom as HTMLElement
-  while (el && el !== document.body) {
-    const style = getComputedStyle(el)
-    if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-      const containerRect = el.getBoundingClientRect()
-      const matchCenter = (coords.top + coords.bottom) / 2
-      const containerCenter = containerRect.top + el.clientHeight / 2
-      const delta = matchCenter - containerCenter
-      // 差 < 4px 时不滚,避免用户连续 Enter 时每一下都来个微小 smooth 抖动
-      if (Math.abs(delta) > 4) {
-        el.scrollBy({ top: delta, behavior: 'smooth' })
-      }
-      return
-    }
-    el = el.parentElement
-  }
+  const be = props.backendGetter()
+  if (!be) return
+  be.clearHighlight()
 }
 
 function selectMatch(index: number) {
-  const view = props.editorViewGetter()
-  if (!view) return
+  const be = props.backendGetter()
+  if (!be) return
   const m = matches.value[index]
   if (!m) return
-  const tr = view.state.tr
-  tr.setSelection(TextSelection.create(view.state.doc, m.from, m.to))
-  view.dispatch(tr)
-  // 不用 tr.scrollIntoView() —— 焦点在 find 输入里,view.scrollIntoView
-  // 命中"没焦点"早退分支不会滚。手动滚,见 scrollMatchIntoView 注释。
-  scrollMatchIntoView(view, m.from)
-  // 不 view.focus() —— Enter 在 find 输入里连按会一直切 match,
-  // 把焦点交出去会让用户没法连续 navigate。
+  be.setSelection(m.from, m.to)
+  // 滚动逻辑在后端:PM 焦点在 find 输入里时 tr.scrollIntoView 早退 → 手动居中;
+  // CM6 的 scrollIntoView effect 不依赖焦点,直接居中。都不 view.focus() ——
+  // Enter 在 find 输入里连按要能连续 navigate,焦点不能交出去。
+  be.scrollMatchIntoView(m.from)
 }
 
 function findNext() {
@@ -218,24 +168,19 @@ function findPrev() {
 }
 
 /**
- * 替换当前 match。和 replaceAll 走同一条路径:用 doc.textBetween 拿到 match
- * 实际文本,过 replaceInText(支持 regex $1/$2 反向引用),结果 dispatch 进 doc。
- * 保持单条替换 / 全部替换的语义一致 —— 用户切到 regex 后两边行为可预期。
+ * 替换当前 match。从后端拿 match 实文本,过 replaceInText(支持 regex $1/$2),
+ * 结果经后端 replaceRange 落回文档(PM tr.replaceWith / CM6 dispatch changes)。
+ * 单条替换与全部替换语义一致 —— 用户切到 regex 后两边行为可预期。
  */
 function replaceCurrent() {
-  const view = props.editorViewGetter()
-  if (!view || matches.value.length === 0) return
+  const be = props.backendGetter()
+  if (!be || matches.value.length === 0) return
   const m = matches.value[currentIndex.value]
   if (!m) return
   // 拿到 match 实际文本,跑一遍 replaceInText → 支持 $1/$2
-  const matchedText = view.state.doc.textBetween(m.from, m.to, '\n', '\n')
+  const matchedText = be.getRangeText(m.from, m.to)
   const replacedText = replaceInText(matchedText, query.value, options.value, replacement.value)
-  const cursorPos = m.from + replacedText.length
-  const tr = view.state.tr
-  tr.replaceWith(m.from, m.to, view.state.schema.text(replacedText))
-  tr.setSelection(TextSelection.create(tr.doc, cursorPos))
-  tr.scrollIntoView()
-  view.dispatch(tr)
+  const cursorPos = be.replaceRange(m.from, m.to, replacedText)
   // 重新算所有 match,从新光标处找下一个
   recomputeMatches()
   pushHighlightToEditor()
@@ -251,38 +196,29 @@ function replaceCurrent() {
 }
 
 /**
- * 全部替换:per-text-node 用 String.prototype.replace 算新 text,支持 regex 的 $1, $2。
- * 先把所有 text node 的 (from, to, newText) 算好(doc 不变,可以安全遍历),
- * 再倒序 dispatch 避免位置错位。
+ * 全部替换:编辑器无关的倒序循环。逆序替换避免位置错位(改后面的不影响前面 match 的坐标)。
+ * 每个 match 取实文本 → replaceInText(全局正则在 match 子串上重跑,等价于旧 PM per-text-node)
+ * → 后端 replaceRange 落回。PM match 不跨文本节点、CM6 match 可跨行,两边统一成立。
  */
 function replaceAll() {
-  const view = props.editorViewGetter()
-  if (!view) return
-  const replacements: { from: number, to: number, newText: string }[] = []
-  view.state.doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) return
-    const newText = replaceInText(node.text, query.value, options.value, replacement.value)
-    if (newText !== node.text) {
-      replacements.push({ from: pos, to: pos + node.nodeSize, newText })
-    }
-  })
-  if (replacements.length === 0) return
-  const tr = view.state.tr
-  for (let i = replacements.length - 1; i >= 0; i--) {
-    const r = replacements[i]
-    tr.replaceWith(r.from, r.to, view.state.schema.text(r.newText))
+  const be = props.backendGetter()
+  if (!be) return
+  for (let i = matches.value.length - 1; i >= 0; i--) {
+    const m = matches.value[i]
+    const matched = be.getRangeText(m.from, m.to)
+    const replaced = replaceInText(matched, query.value, options.value, replacement.value)
+    if (replaced !== matched) be.replaceRange(m.from, m.to, replaced)
   }
-  view.dispatch(tr)
   // 全部替换后没有"当前 match"了,清空状态
   matches.value = []
   currentIndex.value = 0
   pushHighlightToEditor()
-  view.focus()
+  be.focus()
 }
 
 function close() {
-  const view = props.editorViewGetter()
-  if (view) view.focus()
+  const be = props.backendGetter()
+  if (be) be.focus()
   emit('close')
 }
 

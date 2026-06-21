@@ -48,19 +48,21 @@
   .ProseMirror ::selection {
     background: #b4d5ff;
   }
+}
 
-  // 查找替换高亮(findHighlightPlugin 加的 Decoration)。
-  // ::selection 只在选区处于焦点元素时绘制——焦点在 find 输入里时 ::selection
-  // 不会画,所以必须用 Decoration 才能在用户 navigate 时持续看到高亮。
-  .velo-find-match {
-    background-color: rgba(255, 215, 0, 0.35);
-    border-radius: 2px;
-  }
-  .velo-find-current {
-    background-color: rgba(255, 165, 0, 0.6);
-    border-radius: 2px;
-    box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.7);
-  }
+// 查找替换高亮(PM findHighlightPlugin / CM6 cmFindHighlightField 加的 Decoration)。
+// 提到 .velo-editor 之外的全局层 —— 两套编辑器共用同一份 FindReplace,高亮 class
+// 须同时作用于 PM(.velo-editor 内)与 CM6(.velo-cm-source 内)。
+// ::selection 只在选区处于焦点元素时绘制——焦点在 find 输入里时 ::selection
+// 不会画,所以必须用 Decoration 才能在用户 navigate 时持续看到高亮。
+.velo-find-match {
+  background-color: rgba(255, 215, 0, 0.35);
+  border-radius: 2px;
+}
+.velo-find-current {
+  background-color: rgba(255, 165, 0, 0.6);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.7);
 }
 
 // ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)

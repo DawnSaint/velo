@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
@@ -7,6 +7,8 @@ import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type Pe
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
+import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
+import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
@@ -214,18 +216,39 @@ const editorRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
 // 源代码模式编辑器 ref —— 跨模式光标/滚动同步要读 CM6 view(见 watch(sourceMode))
 const srcRef = ref<InstanceType<typeof SourceModeEditor> | null>(null)
 const findOpen = ref(false)
-// 一次性的初始参数:openFind / openReplace 时由 App.vue 写入,
-// FindReplace 内部 watch open → 读这两个初始化。后续用户改 query 不影响这里。
-const findInitialQuery = ref('')
-const findInitialShowReplace = ref(false)
+// 查找替换的"用户意图" —— 上提到 App.vue 并 provide,两份 FindReplace(PM / CM6)
+// inject 共享。切模式时 PM 份卸载、CM6 份新挂,意图在这里存活 → query 不丢。
+// matches / currentIndex 不上提(模式相关,新挂载时重算)。
+const findQuery = ref('')
+const findReplacement = ref('')
+const findCaseSensitive = ref(false)
+const findWholeWord = ref(false)
+const findRegex = ref(false)
+const findShowReplace = ref(false)
+provide(findIntentKey, {
+  query: findQuery,
+  replacement: findReplacement,
+  caseSensitive: findCaseSensitive,
+  wholeWord: findWholeWord,
+  regex: findRegex,
+  showReplace: findShowReplace,
+})
 
 function currentSelectionText(): string {
-  const view = editorRef.value?.getEditorView()
-  if (!view) return ''
-  const { from, to } = view.state.selection
-  if (from === to) return ''
-  // '\n' 隔开:多行选区能正常拿来搜
-  return view.state.doc.textBetween(from, to, '\n', '\n')
+  // 源代码模式从 CM6 取选区文本,WYSIWYG 从 PM 取 —— 都经后端 getSelectionText,
+  // 与 FindReplace 用同一套抽象。空选区返回 ''。
+  const be = activeBackend()
+  return be ? be.getSelectionText() : ''
+}
+
+/** 当前活跃编辑器的查找替换后端(sourceMode → CM6,否则 PM)。null 表示未就绪。 */
+function activeBackend() {
+  if (documentStore.sourceMode) {
+    const v = srcRef.value?.view
+    return v ? createCmBackend(v) : null
+  }
+  const v = editorRef.value?.getEditorView()
+  return v ? createPmBackend(v) : null
 }
 
 // ========== 跨模式光标 + 浏览状态同步 ==========
@@ -250,16 +273,41 @@ watch(
   { flush: 'pre' },
 )
 
+// 打开查找:从当前活跃编辑器选区取初始 query。
+// - 面板当前关着 → 完整重置意图(query=选区、选项清零、替换文清空),再 open。
+// - 面板已开(焦点在编辑器时又按 Ctrl+F)→ 只重填 query,保留用户辛苦切的选项
+//   (与旧 watch(initialQuery) 语义一致)。findOpen 已 true 不变,FindReplace 的
+//   query watcher 会自动重算。
 function openFind() {
-  findInitialQuery.value = currentSelectionText()
-  findInitialShowReplace.value = false
-  findOpen.value = true
+  const sel = currentSelectionText()
+  if (!findOpen.value) {
+    findQuery.value = sel
+    findReplacement.value = ''
+    findCaseSensitive.value = false
+    findWholeWord.value = false
+    findRegex.value = false
+    findShowReplace.value = false
+    findOpen.value = true
+  }
+  else {
+    findQuery.value = sel
+  }
 }
 
 function openReplace() {
-  findInitialQuery.value = currentSelectionText()
-  findInitialShowReplace.value = true
-  findOpen.value = true
+  const sel = currentSelectionText()
+  if (!findOpen.value) {
+    findQuery.value = sel
+    findReplacement.value = ''
+    findCaseSensitive.value = false
+    findWholeWord.value = false
+    findRegex.value = false
+    findShowReplace.value = true
+    findOpen.value = true
+  }
+  else {
+    findQuery.value = sel
+  }
 }
 
 function toggleFind() {
@@ -545,9 +593,7 @@ onBeforeUnmount(() => {
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           :class="{
             'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen,
-            'opacity-30 pointer-events-none': documentStore.sourceMode,
           }"
-          :disabled="documentStore.sourceMode"
           title="搜索 (Ctrl+F)"
           @click="toggleFind"
         >
@@ -604,8 +650,6 @@ onBeforeUnmount(() => {
           v-if="!documentStore.sourceMode"
           ref="editorRef"
           v-model:find-open="findOpen"
-          :find-initial-query="findInitialQuery"
-          :find-initial-show-replace="findInitialShowReplace"
           :model-value="documentStore.content"
           :font-family="store.fontFamily"
           :font-size="store.fontSize"
@@ -617,6 +661,7 @@ onBeforeUnmount(() => {
         <SourceModeEditor
           v-else
           ref="srcRef"
+          v-model:find-open="findOpen"
           :model-value="documentStore.content"
           :dark-mode="store.darkMode"
           @update:model-value="documentStore.setContent"
