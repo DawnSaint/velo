@@ -1,0 +1,77 @@
+// 导出 HTML 专用样式表 —— 直接复用 editor/ 的 partials。
+//
+// 关键设计:导出 HTML body 挂 class="velo-editor"(以及可选 .velo-export 标识
+// 用途),让所有 .velo-editor 选择器直接命中 —— 无需 @extend 或重写规则。
+// .velo-editor.dark 或 .velo-export.dark 触发 dark 命中(html.dark / body.dark
+// 也走同套 .velo-editor pre 的三路 dark 命中规则,见 _editor-code.scss:94-103)。
+//
+// 不带 Tailwind base/components/utilities —— 只 forward 必要的 partials,让
+// 导出 HTML 文件尽量小(目标 < 50KB)。
+//
+// 切色:editor 内的 dual themes(--shiki-light / --shiki-dark 局部变量)仍然
+// 写 token inline style;导出 HTML 没有 class 切换,但 @media (prefers-color-scheme: dark)
+// 接管 dark 命中 —— 跟 GitHub README 自适应同款。
+
+@forward '../../styles/editor-typography';
+@forward '../../styles/editor-lists';
+@forward '../../styles/editor-code';
+@forward '../../styles/editor-tables';
+@forward '../../styles/editor-image';
+@forward '../../styles/editor-html-blocks';
+@forward '../../styles/editor-alerts';
+@forward '../../styles/editor-toc';
+@forward '../../styles/math';
+@forward '../../styles/mermaid';
+@forward '../../styles/footnote';
+@forward '../../styles/plugin-common';
+
+// 最小 body reset + 自适应 dark 命中(编辑器内靠 <html class="dark"> 翻面,
+// 导出 HTML 没那个 class,改用媒体查询接管;跟 _editor-code.scss:94-103 的
+// 三路命中规则同语义)
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+.velo-editor {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2em 1.5em 4em;
+}
+
+// 任务列表项:导出 walker 给 task <li> 挂 class="velo-task-item",去默认 disc
+// 圆点(否则圆点 + checkbox 同时出现)。editor 侧靠 li[data-item-type="task"]
+// 去圆点,导出走原生 <input type="checkbox">,用 class 单独兜。
+.velo-editor li.velo-task-item {
+  list-style: none;
+}
+
+// 自适应 dark:导出 HTML 走 prefers-color-scheme(浏览器 / 打印机系统暗色)
+// 跟 _editor-code.scss 已有的 dark 命中同源 —— _editor-code.scss:94-103 的
+// 三路规则(html.dark / .dark / .velo-editor.dark)在导出 HTML 里都不会触发
+// (没有 <html class="dark"> 也没有父 .dark 容器),所以这里显式补一条。
+@media (prefers-color-scheme: dark) {
+  .velo-editor {
+    background: #1a1a1a;
+    color: #e5e5e5;
+  }
+  .velo-editor pre,
+  .velo-editor pre span {
+    background-color: var(--shiki-dark-bg);
+    border-color: var(--shiki-dark-border);
+    color: var(--shiki-dark);
+  }
+  .velo-editor code {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ff7b72;
+  }
+  .velo-editor blockquote {
+    color: #aaa;
+  }
+  .velo-editor h1, .velo-editor h2, .velo-editor h3, .velo-editor h4 {
+    color: var(--md-primary-color, #6aa3e0);
+  }
+}
+
+// 导出场景不需要 find 高亮、ProseMirror 选区、drop-cursor 等编辑器内部装饰
+// 也没事 —— CSS 没命中选择器就不会画,零视觉干扰。

@@ -1,187 +1,231 @@
-# Velo Changelog
+# Changelog
 
-> 重大架构决策与重大重构的 ADR（Architecture Decision Records）。
+All notable changes to this project are documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> 重大架构决策的取舍记录见 [`DECISIONS.md`](./DECISIONS.md)；当前设计状态与踩坑记录见
+> [`ARCHITECTURE.md`](./ARCHITECTURE.md) 的"设计要点 / 维护者注意点"。本文件只记
+> **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
-## v0.3.2 — 图片  (2026-06-12)
+## [Unreleased]
 
-### ADR-20260612-001: Tauri 2.5 `plugin-fs` 必须显式开 `watch` feature
+### Added
+- **导出功能 (HTML / PDF)**：顶栏新增"导出"按钮（位于"另存为"与"搜索"之间），快捷键 `Ctrl/Cmd+Shift+E`。点击弹原生 saveDialog，filter 列出 HTML / PDF：
+  - **HTML**：自包含 HTML 文档，mermaid SVG / KaTeX 公式 / shiki 代码高亮 / 任务列表 / 警告框 / GFM 表格 / 脚注 / kbd / mark 等全部 inline CSS 内嵌；图片走 `asset://` 协议在 Tauri webview 内可显示；自适应浏览器 / 打印机的 `prefers-color-scheme` 暗色；导出失败有 warnings 收集而非中断。
+  - **PDF**：经 Tauri command `export_pdf` 调平台原生 PrintToPDF API（Windows WebView2 `ICoreWebView2_7::PrintToPdf`，通过 `with_webview` escape hatch），静默写到 `saveDialog` 拿到的目标路径，**不弹任何系统对话框**（与 Typora / Obsidian 同款 UX）。macOS / Linux 当前返回 `PdfError::Unsupported`，前端展示 "not supported on this platform yet" 错误。
+  - 复用现有 shiki / KaTeX / mermaid / DOMPurify，零前端新依赖。Rust 端新增 `webview2-com` / `windows`（仅 Windows target）调 WebView2 COM API。
 
-- **Context**: JS 端 `invoke('plugin:fs|watch')` 报 `Command watch not found`；upstream `@tauri-apps/plugin-fs@2` 默认 `features = ["fs"]` 不含 `watch`，`Cargo.toml` 写 `"2"` 也不会自动开
-- **Decision**: `src-tauri/Cargo.toml` 显式写 `features = ["watch"]`
-- **Consequences**: 跨平台文件监听可用（`tauri-plugin-fs` 的 `watch` feature）；新增 feature flag 需要在 CI 多平台矩阵中验证
+### Changed
+- 阶段 3 测试组件引入：`htmlRenderer` 端到端 18 例（语法覆盖 + 降级路径）+ `export store` 合约 7 例（saveDialog / writeTextFile / `invoke('export_pdf')` 路径 / 错误反馈 / reentrant 守门）。
 
+## [0.4.6] — 2026-06-21
 
+### Added
+- **Mermaid 图表升级为代码块一体化**：`​```mermaid` 节点废弃，改走标准 `code_block { language: 'mermaid' }` 管线，shiki 语法高亮 + SVG 预览 + 语言切换 / 复制工具条一体化。用户输入即所得，无需磁盘往返"激活"。
+- **Mermaid 自带主题感知配色**：新增轻量 `mermaidTokenizer`（6 类：keyword / direction / shape / edge / label / comment）旁路 shiki 薄弱的 mermaid grammar，颜色跟随当前代码块主题与 dark / light 切换。
+- **源代码模式迁移到 CodeMirror 6**：替换旧 `pre + textarea overlay`。软换行、持久行号、shiki 双主题高亮、撤销栈、特殊字符高亮全部由 CM6 提供；主题切换走 StateEffect + ViewPlugin rebuild。
+- **跨模式光标与浏览状态同步**：切换 WYSIWYG ↔ 源码模式时，光标与滚动位置走 token 序列 + LCS 对齐，落在视觉对应处而非跳回文档顶（最佳努力，超大文档退线性首现匹配）。
+- **源代码模式查找替换**：经 `FindReplaceBackend` 抽象共用 `FindReplace` 面板（`createPmBackend` / `createCmBackend`），跨模式 query 保留（意图上提 App.vue `provide/inject`），CM6 高亮 StateField 镜像 PM 侧插件。
+- **`code_block` Backspace 隔离**：在 code_block 起点按 Backspace 吞掉事件（有内容）或转 paragraph（空块），覆盖 base keymap 的 `joinBackward` 误拆 defining code_block。
+- **任务列表两阶段升级**：在已有 `-` list_item 内键入 `[ ] ` / `[x] ` 升级 attrs.checked，PM 重建 NodeView 切换 task DOM。
+- **完整 CommonMark 主题分隔线**：`-` / `_` / `*`（≤3 前导空格、≥3 标记符、单一标记符贯穿、可选内部空白），段末 Enter 提交，无需尾随空格。
+- 源码模式禁止拖入文件 / 粘贴图片（对齐 Typora，防 webview 把文件当"打开"导航掉）。
 
-## v0.3.3 — BUG 修复和部分重构  (2026-06-13)
+### Changed
+- Mermaid 不再是 atom 节点：选区 / 键盘 navigation 从"整块选中"变为"逐字符编辑"，空块 Backspace 转 paragraph。
 
-### ADR-20260613-001: mermaid 走 `Decoration.widget`，不走 NodeView
+### Fixed
+- **Mermaid 删除按钮范围错位**：`tr.delete` 误用 `absolutePos`（= descendant pos + 1）而非 block 边界，残留 code_block open token 并把下一段并进来。
+- **Mermaid pre 首次插入后自动隐藏**：`tr.mapping.map(pos)` 默认 `assoc=+1` 把 content 起点映到插入文本末尾，丢失 `editNodeSet` 条目；统一改 `assoc=-1` 保留"变更之前"语义。
+- **查找替换切模式后找不到匹配**：入方向 view 未就绪时 recompute 出空；入方向 `onMounted` + `nextTick` 补一次重算。
 
-- **Context**: mermaid SVG 渲染需要改写 atom 节点 outer dom 的 `innerHTML`；ProseMirror 的 `DOMObserver` 会把它当外部突变 → `readDOMChange` → `view.updateState` → 整个 view tree 重 mount，所有 NodeView destroy + recreate，用户每敲一字符 mermaid 全闪 loader
-- **Decision**: 改用 `Decoration.widget`（`WidgetViewDesc.ignoreMutation` 默认忽略所有非 selection 突变），NodeView 整层移除
-- **Consequences**:
-  - schema toDOM 输出 `height: 0` 隐藏占位（atom 节点必须有 dom 用于 `posAtCoords` / selection 映射，藏视觉即可）
-  - plugin promise resolve 后**直接**在 widget dom 上写 svg，**不要** dispatch setMeta 触发 `buildDecorations`（否则新 Decoration 实例的 `WidgetType.eq` 比对失败 → widget 复用失效 → 死循环）
-  - 主题切换走 widget 工厂里挂 `velo:theme-change` window listener 自己改 dom，不走 plugin setMeta 路径（同上死循环原因）；decoration `spec.destroy` 钩子负责 `removeEventListener` 防泄漏
+### Removed
+- Mermaid 旧 textarea / commit / cancel / autoHeight 实时预览路径（约 250 行）。
+- `MERMAID_REFACTOR_EVAL.md`（决策已沉淀为 ADR-20260620-001）。
 
-
-
-## v0.4.0 — milkdown 重构  (2026-06-13)
-
-### ADR-20260613-002: 编辑器从 Milkdown 迁到 ProseMirror + remark/unified
-
-- **Context**: Milkdown 抽象层（`$prose` / `$inputRule` / `$remark` 包装）遮蔽 ProseMirror 原生行为，upstream `markRule` 正则 bug 要写补丁绕开；传递依赖 96 个包冗余；`@milkdown/vue` 的生命周期 hook 不够灵活
-- **Decision**: 拆 3 阶段（feature flag 灰度 → 接入 → 清理），逐步迁到裸 ProseMirror + `remark-parse` / `remark-stringify` + 自写 mdast↔PM 转换
-- **Consequences**:
-  - 净减 96 传递包（删 `@milkdown/*`）
-  - 后续 ProseMirror 原生能力（`Decoration.widget` / `appendTransaction` / NodeView API）可直接用
-  - 失去 Milkdown 插件生态（但本项目不需要，自己写 NodeView / remark 插件更直接）
-
-
-
-## v0.4.1 — 增加语法渲染  (2026-06-15)
-
-### ADR-20260615-001: 语法实时转换走 `appendTransaction` 框架
-
-- **Context**: 历史上每条语法各自一个 `InputRule`（末尾紧贴 `$` 锚）+ link 单独一份 `linkAutoFormatPlugin`（全文扫描）。问题：① 反向输入（如先 `]` 再补 `[^xxx`）不触发 InputRule；② 粘贴 / 中间编辑不响应 InputRule；③ 块级语法（`### ` / `> ` / `- ` 等）根本无人接管，**只能渲染已写好的、不能输入触发**；④ 每条规则各自处理黑名单 / 编辑态 session，扩展成本高
-- **Decision**: 新框架 `plugins/syntaxAutoFormat.ts` 单 `appendTransaction`，从 `tr.mapping.maps` 提 dirty range → 扩展到 textblock → 对每个 textblock 跑 `syntax/block/*` 段首检测 + `syntax/inline/*` 段内 g 正则检测
-- **Consequences**:
-  - 敲一字符 = 扫一段；粘贴整段 = 扫被粘入的 N 段；无全文重扫
-  - 黑名单（`code_block` / `html_block` / `mermaid` / `math_block`）、`code` mark、`linkClickPluginKey.session` 范围由框架统一过滤，语法定义只写 `pattern + apply`
-  - 新增语法 = 写一个文件 + 在 `syntax/index.ts` 注册一行
-  - `InputRule` 仅保留 `ellipsis` / `emDash` 这种纯文本→纯文本的快速路径
-  - 坑：block detector 要求 `pattern` 带 `^`、不带 `g`；inline 反过来要求带 `g` 不带 `^/$`，框架做 `pattern.global` 防御但不自动改写
+### Dependencies
+- 新增 `@codemirror/commands@^6.10.3`、`@codemirror/state@^6.6.0`、`@codemirror/view@^6.43.1`。
 
 
+## [0.4.5] — 2026-06-19
 
-## v0.4.2 — 代码整理  (2026-06-15)
+### Added
+- **`[TOC]` 目录支持**：`[TOC]` 独占段落自动渲染为动态目录（点击跳转 + 闪烁反馈），实时键入自动转换（syntaxAutoFormat 驱动）；hover 显示垃圾桶图标，点击还原为 `[TOC]` 段落（保留撤销）。
 
-### ADR-20260615-002: 编辑器重建走 `view.updateState(EditorState.create(...))`
-
-- **Context**: 旧路径用 `innerKey` ref 触发整个 `EditorView` destroy + recreate（`:focus-on-create` prop），`modelValue` 变化时（切文件 / 新建 / 外部同步）频繁闪烁且丢失 IME composition 状态
-- **Decision**: `EditorInner.vue` 内部直接 `view.updateState(EditorState.create(...))` 替换内部 state，plugin state 因 init 跑归零（等价 destroy + recreate 但不销毁 view 实例）；`index.vue` 不再参与重建控制
-- **Consequences**:
-  - 删除 `innerKey` ref + `onRebuildRequest` + `:focus-on-create` prop
-  - 外部 modelValue 变化用 `lastSelfEmitted` 哨兵探测（自己 emit 的 echo 跳过），不匹配时 `view.updateState` 替换内部 state
-  - 比 `isInternalChange + nextTick` 时序标志更稳，避免竞态
+### Fixed
+- **多段 Markdown 粘贴错位**：新增 `markdownPastePlugin` 持有 `clipboardTextParser`，粘贴的 `text/plain` 走 `fromMarkdown` 解析返回封闭 slice（0/0），绕开 ProseMirror 默认 plain-text fallback 的 `normalizeSiblings` + `Fitter.dropNode` 错误合并（典型症状：`## TL;DR` 与 `**结论**` 粘贴后 heading 与 strong 错位）。code 容器内粘贴保留源代码语义；空 / 空白 / 解析失败回退默认 fallback。
 
 
+## [0.4.4] — 2026-06-18
 
-## v0.4.3 — 代码块升级
+### Added
+- **声明式快捷键注册表**：`registerShortcut({ key, command, label, group })` API + `bindings.ts` 集中注册，内置 17 个键位（文本 mark 5 + 段落 1 + 标题 6 + 列表 2 + 引用 1 + 代码块 1 + 表格 1）。`label` / `group` 字段为后续命令面板 / 速查 overlay 预留接口。改键位改一处即可。
+- **`==highlight==` 高亮 mark**：schema + remark 插件 + markdownIO 双向 + 实时键入全链路打通。
+- **`**bold**` / `__bold__` / `*italic*` 实时键入**：strong 与 emphasis 实时转换。
 
-### ADR-20260616-001: 代码块高亮 shiki Dual Themes
-
-- **Context**: highlight.js 不支持 token 级主题切换(整块一个色)，且需要手写色板对齐 VS Code 主题；shiki 早期试过 `createCssVariablesTheme` 模式，官方不推荐 + 跟 VS Code 真实主题有色差
-- **Decision**: `codeToTokensWithThemes(code, { themes: { light, dark } })` 返回 `ThemedTokenWithVariants[][]`，每个 token span 写 `--shiki-light:${hex}; --shiki-dark:${hex}` 局部 CSS 变量；`pre` 自身 `color: var(--shiki-light)` 选色，切 `<html class="dark">` 走 CSS cascade 翻面（零重渲，ProseMirror / shiki 不参与）。pre 背景 / border 写死（白/深灰），跟代码块主题解耦
-- **Consequences**:
-  - 用户从 shiki 66 个 bundled 主题里自选，`createHighlighter` 启动只装当前 2 个主题
-  - **切主题要 rebuild**（hex 变了）：走 App.vue `watch store.codeLightTheme` → `ensureTheme` 追加 + `dispatch setMeta` 触发，跟 darkMode toggle 路径**正交**
-  - `getLanguage` 在 lang 未注册时**同步 throw ShikiError**（不是返回 null），try 兜住后走 plain text 降级，不阻断其他 code block 高亮
-  - 引入 30 个开放语种清单 + 浮层语言选择 UI（Teleport 挂 body）、一键复制（`@tauri-apps/plugin-clipboard-manager`）
-
-### ADR-20260616-002: 代码块工具条 widget 几何同步
-
-- **Context**: 工具条用 `Decoration.widget(side: -1)`，widget 是 `<pre>` 兄弟节点，几何无绑定；侧边栏开合改容器宽度但不触发 `window.resize` / `scroll`，工具条漂位
-- **Decision**: RAF 之后再 `ro.observe(wrap.offsetParent)` + 同时观察 pre 自身 + offsetParent，覆盖"内部 layout 变化"路径
-- **坑**：① 同步执行 `makeToolbarDom` 时 widget 未挂 DOM，`offsetParent === null`，`ro.observe(null)` 报 null 错被吞、RO 整个没建立；② 祖先有 `transform` / `filter` 让 absolute 子元素的 offsetParent 跳走，未来加 splitter / 抽屉时记得回头补 RO
-
-### ADR-20260616-003: 启动期零闪烁双层保险
-
-- **Context**: shiki 装错主题只能 `loadTheme` 追加再 rebuild → 闪；`state.init` 是同步函数不能 await，PM mount 时 hl 可能 null → token span 继承 SCSS 默认色 → "先黑后用户主题色"闪烁
-- **Decision**: 双层保险
-  1. App.vue `codeBlockReady` 守门 PM mount（**不用顶层 await** —— 会变 async setup，根模板没 `<Suspense>` 包裹会白屏无报错）
-  2. `CodeBlockLangs.cachedHighlighter` 在 `getHighlighter()` resolve 时填；`getHighlighterSync()` 同步可读；`state.init` 直接填好 highlighter，首次 `decorations(state)` 就有 token style
-- shiki 加载失败 → `codeBlockReady` 翻 true 走 SCSS 默认色降级，不卡白屏
-
-### ADR-20260616-004: dev web 端 Tauri API 统一 `isTauri()` 守门
-
-- **Context**: `npm run dev` 调 Tauri API 同步 throw，单行 throw 让 onMounted async 链整条 reject，后续 watch 挂不上 → 切代码主题失灵根因
-- **Decision**: 顶层 `const tauri = isTauri()` 同步算一次，Tauri API 调用分两类 ——
-  1. **fire-and-forget 异步**（`invoke('set_window_theme')` 等）走 `if (tauri)` 守门
-  2. **onMounted await 链路里的 Tauri 同步**（`get_cli_args` / `listen('cli-args', ...)` / `onCloseRequested`）整段 `if (tauri) { ... }` 包裹，不让单行 throw 阻断整条 async 链
-  persistence 模块统一加 `tauriOnly()` 守门：web 端 load=null / save=noop，store 走默认值继续渲染
-
-### ADR-20260618-001: shiki 预扫 + 懒加载 lang
-
-- **Context**: 启动期 `createHighlighter` 装 30 个 lang 全集约 6MB grammar,实际单篇 doc 只会用其中 2-5 个;完全懒加载又会让首屏代码块第一帧走 SCSS 默认色,出现"先骨架后着色"的明显两段
-- **Decision**: 启动期 mdast 预扫 doc 的 fenced code lang(由 App.vue 调 `extractLangsFromDoc`)∪ 5 项 `BASELINE_LANGS` 兜底(js/ts/py/bash/json) → `createHighlighter` 只装这一小撮;运行时 miss 走 `ensureLanguage` fire-and-forget 异步追加,resolve 后 plugin 端 rAF 节流一次 dispatch setMeta 触发 rebuild
-- **Consequences**:
-  - 首屏 grammar 从 ~6MB 降到 ~1-1.6MB
-  - `getTokensSync` 改用 `hl.getLoadedLanguages()` 探活
-  - `bundledLanguages` Record gate 拦未注册 lang,避免无效 `loadLanguage` 触发 ShikiError warn 刷屏
-  - 首次 miss 那一帧的 decoration 是无 token 的;rebuild 下一帧才出 token —— 这是有意为之的"先骨架后着色",不是 bug
-  - `setDecorationRebuildCallback` 单 slot 钩子,一次粘贴 N 个未装 lang resolve 后 coalesce 到下一帧一次 dispatch;多 PM instance 场景要改 `Set<cb>`
+### Deprecated
+- 水平线快捷键（`Mod-Shift-h`）验收未生效，延期后续版本；`insertHr` 函数保留待启用。
 
 
-## v0.4.4 — 快捷键与高亮  (2026-06-18)
+## [0.4.3] — 2026-06-18
 
-### ADR-20260618-002: 快捷键走 declarative registry
+### Added
+- **shiki 双主题代码高亮**：替换 CDN 加载的 highlight.js。每个 token 内联 `--shiki-light` / `--shiki-dark` 局部 CSS 变量，`<html class="dark">` 切换走级联翻色（零重渲，ProseMirror / shiki 不参与）。
+- **代码块工具条 + 语言选择**：`codeHighlightPlugin` 在 code_block 节点挂工具条（复制 + 语言选择浮层，Teleport-to-body），含 20+ 常用语言清单，全部本地打包无 CDN。
+- **主题设置**：支持 66 个 shiki 主题下拉选择，启动仅懒加载当前主题对。
+- **首屏零闪烁守门**：`codeBlockReady` 等 highlighter 就绪再挂载 PM，`state.init` 同步拿 cached highlighter，消除首屏黑屏闪烁。
+- **崩溃恢复草稿**：脏盘期间每 30s 自动保存草稿到 `appDataDir/drafts/`，启动时通过弹窗展示可恢复文档。
+- **代码块启动期预扫 + 懒加载语言**：`extractLangsFromDoc` 走 mdast 扫 doc 的 fenced code lang ∪ 5 项 BASELINE 兜底，首屏 grammar 从 ~6MB 降到 ~1-1.6MB；运行时 miss 走 `ensureLanguage` 异步追加，resolve 后 rAF 节流 dispatch setMeta rebuild。
+- **工具条几何同步**：`ResizeObserver` + scroll / resize 监听修复侧边栏开合导致的工具条漂位。
+- **`isTauri()` 守门**：dev web 端 Tauri API 同步 throw 不再阻断 async 链。
 
-- **Context**: 历史上 ProseMirror keymap 在 `EditorInner.vue` 的 allPlugins 里手写,keymap 项散落在多处代码中,改一个键位要翻全栈;命令与键位耦合(没法独立复用 command);且没有任何机制能枚举当前有哪些键位。用户提出"快捷键介绍"需求时,这一缺口立刻显现
-- **Decision**: 新建 `editor/shortcuts/registry.ts` 单例 + `registerShortcut({ key, command, label, group })` API;`editor/shortcuts/commands/` 按命令类型分文件(`toggleMarkWithWrap` / `setHeading` / `wrapIn*` / `insertTable2x2` / `triggerLinkEdit`);`editor/shortcuts/bindings.ts` 集中所有 `registerShortcut` 调用;`EditorInner.vue` 仅 `import './editor/shortcuts'` 触发副作用注册 + `buildShortcutKeymap()` 进 allPlugins。`label` / `group` 字段为后续命令面板 / 速查 overlay 留好接口
-- **Consequences**:
-  - 新加快捷键 = 1 个 command 文件 + `bindings.ts` 加 1 行 registerShortcut,**不碰** `EditorInner.vue` / `registry.ts`(除非改 API)
-  - `getShortcuts()` 一处可见所有键位,改键位 = 改 `bindings.ts` 一处
-  - v0.4.4 共发布 17 个键位(文本 mark 5 + 段落 1 + 标题 6 + 列表 2 + 引用 1 + 代码块 1 + 表格 1);水平线快捷键(`Mod-Shift-h`)验收未生效,延期后续版本,`insertHr` 函数保留以便复用,启用只需在 `bindings.ts` 加 1 行
-  - `toggleMarkWithWrap` 统一行为:选区非空 toggle / 选区空插包裹符 + setStoredMark / 已在 mark 内 removeStoredMark / `code_block` 与 `code` mark 黑名单 / linkClick session 内只 setStoredMark 不插包裹符(保护源码编辑态不被改)
-  - link mark(`Mod-k`)走 `triggerLinkEdit` 单独实现:`setMeta(syntaxAutoFormatPlugin, false)` 防止 syntaxAutoFormat 抢转 link mark,源码插入后启动 linkClick session 进入编辑态
+### Changed
+- 代码块主题弃用跟随 darkMode（`codeBlockTheme` 字段在 `PersistedSettings` 类型里保留作 shape 锚点，不再读写，旧 settings 文件残留字段被忽略）。
+- 升级示例 markdown（Vite `?raw` 引入），覆盖全语法演示。
 
+### Fixed
+- `code_block` 内 Enter 误拆：新增 `codeBlockEnter` keymap 拦住 base keymap 的 `splitBlock`，光标在 code_block 内按 Enter 只插换行不拆段。
+- WASM 在 Tauri build 中失效：CSP 加 `'wasm-unsafe-eval'`。
 
-
-## v0.4.6 — mermaid 重构 + 源代码模式 (CodeMirror 6)  (2026-06-21)
-
-### ADR-20260620-001: mermaid 节点 → `code_block { language: 'mermaid' }` 升级
-
-- **Context**: v0.4.5 引入 shiki 代码块高亮后,```mermaid 在编辑器内被 `syntax/block/codeBlock.ts` 的 `codeBlockEnterCommand` 路由到普通 `code_block` 节点(`language: 'mermaid'`),但 `markdownIO.fromMarkdown` 保留旧路径把 ```mermaid 还原回 `mermaid` 节点 + textarea 编辑器 —— 两条平行宇宙各自正确、接缝处出错:编辑器里输入 ```mermaid + Enter 产生的 `code_block` 永远不渲染 SVG(必须经一次磁盘往返 → reload 才"激活")。评估 A (保留 textarea + mermaid 节点) vs B (改走 code_block + SVG widget) 时关键发现:**A 已经是坏的**(不是 0 改动修复路径),而 **B 已实现一半**——shiki mermaid 语法高亮已在工作,差的只是把 SVG 预览挂上去。用户原话:"我倾向于高亮代码块 + mermaid 图的方式"
-
-- **Decision**: 选方案 B —— mermaid 节点废弃,```mermaid 改走 `code_block { language: 'mermaid' }`(与其他 fenced code 同管线),由 `nodes/MermaidDecoration.ts` 的 `Decoration.widget` 扫 code_block 渲染 SVG + 自管 toolbar。实施:特性开关 `MERMAID_AS_CODE_BLOCK` 灰度 → 切 markdownIO + 重写 widget → 跑测试 → 删旧分支
-  - `MermaidDecoration` 挂两件 decoration:**Decoration.node** 在 pre 上写 `data-mermaid-source="hidden"/"visible"` 控制"看源码"态;**Decoration.widget(side: 1, block: true)** 锚在 block 末尾之后挂 SVG 容器 + 自管 toolbar(切换源码 / 删除)
-  - **widget 几何分工**:`codeHighlightPlugin` toolbar(side: -1, pre 前)继续提供 mermaid 的语言选择 + 复制按钮(同 code_block 共享,不重复);`MermaidDecoration` widget(side: 1, pre 后)专管 SVG 切换 / 删除;两个 widget side 不同,PM 内部排序不互踩
-  - **toolbar 行为**:`codeHighlightPlugin` 在 lang='mermaid' 上**不**挂 toolbar 注释是因为原 plan 写时还没意识到与 MermaidDecoration widget 协作 —— 最终实现是两者并存,MermaidDecoration 自管的 toolbar (chevron 切换 / 删除) 与 codeHighlight 的 lang/copy toolbar 各管各的按钮
-
-- **Consequences**:
-  - **净删代码**:`MermaidDecoration` 的 fillEditor / textarea / 实时预览 / commit / cancel / autoHeight 一整块 ~250 行删掉;用户输入即所得 + reload 即所得对齐
-  - **shiki mermaid 语法高亮白送**(用户最想要);复制按钮 / 语言切换 / 行选择 / 查找替换 / `codeBlockBackspaceCommand` 自动覆盖 mermaid(空 code_block Backspace 转 paragraph,等价"删除空 mermaid"行为)
-  - **不再 atom**:选区/键盘 navigation 行为变(从"整块选中 + Backspace 删整块" → "逐字符编辑 + 空时 Backspace 转 paragraph");但更符合直觉
-  - **SVG 浮在 pre 下方**:整块视觉布局变化,需要新 CSS 校准(`.mermaid-svg-area` 样式重置)
-  - **测试一次性破坏 5-7 个**:`markdownIO.test.ts` mermaid round-trip / `markdownPaste.test.ts` "mermaid 节点"用例 / `codeHighlight.test.ts` 第 10 项("widget 不被 mermaid 节点触发"前提失效,换成"code_block lang=mermaid 既出 toolbar 又出 SVG 双 widget");careful 重写
-  - **实施踩坑**(沉淀到 ARCHITECTURE 设计要点):
-    - widget promise resolve 后**不要** dispatch setMeta 触发 rebuild decorations(否则新 Decoration 实例 `WidgetType.eq` 比对失败 → widget 复用失效 → 死循环),直接在 widget dom 上写 svg
-    - 主题切换走 widget 工厂里挂 `velo:theme-change` window listener 自己改 dom,不走 plugin setMeta(同上死循环);`spec.destroy` 钩子负责 `removeEventListener` 防泄漏
-    - `tr.mapping.map(pos)` 默认 `assoc=+1`(关联"变更之后"),把"content 起点"映射到"插入文本末尾" → `editNodeSet` 里的 absolutePos 跑偏,buildDecorations 找不到匹配 → pre 被误判 hidden;apply 必须用 `mapping.map(pos, -1)` 保留"在变更之前"语义
+### Dependencies
+- 新增 `shiki@^4.2.0`、`@shikijs/langs`、`@shikijs/themes`、`@tauri-apps/plugin-clipboard-manager@^2.3.2`、`tauri-plugin-clipboard-manager`。
+- Tauri 加 `devtools` feature + `open_devtools` command。
 
 
-### ADR-20260621-001: 源代码模式从 pre+textarea overlay 换成 CodeMirror 6
+## [0.4.2] — 2026-06-15
 
-- **Context**: 旧源码模式是 `<pre>` 渲染 + 同尺寸 `<textarea>` overlay 叠加。软换行下 textarea 拿不到"第 N 行折到哪个像素 Y",要手搓一层像素测量层对齐 pre 与 textarea 的折行;行号、语法高亮(旧版纯文本无高亮)都要自补。评估 A(留 textarea overlay + 自补行号/高亮/折行测量) vs B(换 CM6)时:B 的 `lineNumbers()` + `lineWrapping` 免费覆盖行号与软换行对齐,且 shiki 高亮可走 CM6 `ViewPlugin`(`shikiCmPlugin.ts`)逐 token 转 `Decoration.mark`,与 WYSIWYG 侧 `CodeHighlightWidget` 同形(token hex 写 `--shiki-light/dark` 局部变量),SCSS `.velo-cm-source .cm-line span` 接管选色 —— 跨模式复用同一套 shiki 主题镜像 + `ensureTheme` 串行机制
-- **Decision**: 选 B —— `SourceModeEditor.vue` 独立 CM6 `EditorView`,与 `ProseMirrorEditor` 经 `v-if` 互斥挂载,`documentStore.sourceMode` 单开关。`documentStore.content` 仍是唯一数据源:CM6 `updateListener`(docChanged)→ emit → store;外部 `watch(modelValue)` 用 `lastSelfEmitted` echo 哨兵跳过自身回写,真外部变化 dispatch changes 替换 doc 并夹住光标。主题镜像机制等价于旧版(本地 ref 镜像 + `ensureTheme` 串行),dispatch target 从 Vue ref 改 CM6 `setShikiTheme` StateEffect —— store mutate 本身不触发 rebuild,只有 effect dispatch 后(= `ensureTheme` 已 resolve = shiki 拿到真 hex)才 rebuild,防"未 resolve 期间全黑"。`token.offset` 即 CM6 doc pos(shiki offset 是相对输入串全局偏移,CM6 单文档 pos 等于字符串偏移,两者同构)
-- **Consequences**:
-  - 删掉旧 pre+textarea overlay + 像素测量层;行号 / 软换行 / 选区 / 特殊字符高亮 / 撤销栈全由 CM6 免费
-  - shiki 语法高亮白送(旧源码模式无高亮),与 WYSIWYG 代码块同主题同配色
-  - 双编辑器栈并存(PM + CM6),后续跨模式功能(光标同步 / 查找替换)需要双后端适配(见 ADR-20260621-002 / -003)
-  - **源码模式禁止拖入 / 粘贴图片**(对齐 Typora):`forbidFileDropPaste`(`EditorView.domEventHandlers`)对文件型 drop `preventDefault`(否则 `dragDropEnabled:false` 下 webview 把文件当"打开"导航掉)、image/* paste 吞掉;PM 模式由 `imageUploadPlugin` 兜这个 preventDefault,源码模式无等价 PM 插件,这里补
+### Changed
+- **CSS 分层**：`ProseMirrorEditor/index.vue` 660 行 `<style>` 拆到 `src/styles/_editor-{base,typography,lists,code,tables,image,html-blocks,alerts,dark}.scss` 9 个 partial，SCSS 嵌套。
+- **命名清理**：`.milkdown-editor` / `.milkdown-image-inline` / `.milkdown-icon` / `milkdownRef` 全部改 `velo-` 前缀（11 文件、100+ 选择器）。
+- **编辑器重建路径简化**：删 `innerKey` + `rebuildRequest` + `focus-on-create` prop，`EditorInner` 内部 `watch modelValue` 改用 `view.updateState` 替换内部 state（view 实例稳定，plugin state 因 init 归零）。
 
+### Fixed
+- `velo-drop-cursor` 不显示：SCSS 嵌套选择器匹配不上 `document.body` 上的元素，改全局选择器。
+- 链接 `[text](url 含内部空格)` 解析失败：实时路径放宽正则，解析路径经 `remarkEncodeLinkUrls` 预处理让 remark-parse 接受，doc 里 href 保持用户友好形态（已 decode）。
+- 锚点跳转不匹配：`scrollToAnchor` 加 slug 化降级匹配，`# Markdown Syntax` 这类带空格链接能正确跳到 `#markdown-syntax` heading。
 
-### ADR-20260621-002: 跨模式光标 + 滚动同步走 token 序列 + LCS 对齐
-
-- **Context**: `toggleSourceMode()` 翻转 `sourceMode` → `v-if` 互换两个编辑器,两边卸载重挂,光标 / 滚动在 DOM 层丢失,切模式后总是跳回文档顶。需要"最佳努力"把出方向光标位置迁到入方向对应处。评估 A(整窗归一化文本 `indexOf` 子串匹配) vs B(token 化 + LCS 最长公共子序列对齐)时关键发现:链接 `[text](url)` 的 URL、表格 `|` / `|---|---|` 分隔行是 CM6 侧多出、PM 侧没有的 token,会卡在光标窗口中间 —— 整窗子串匹配砍不掉这些多余段 → 失败跳顶;LCS 把多余 token 当"未对齐"自动跳过
-- **Decision**: 选 B —— `crossModeSync.ts`。两边各 token 化(剥 markdown 标记字符 `#*~_\`-+[]()!>|`——**`|` 入集是关键**,否则无空格表格 `|cell|cell` 粘成一个 token;标记与空白都作分隔,`**bold**`→`bold`、`well-known`→`well`+`known`,两边对称即可)。`captureAnchor` 取光标所在 token ±64 个 token 的文本序列 + 光标 token 索引 + token 内字符偏移;`applyAnchor` 在入方向全 token 上跑 LCS,光标 token 映到对端对应 token,迁移 intraOffset,设选区 + 滚动居中。App.vue 单点 `watch(sourceMode, cb, { flush: 'pre' })` 覆盖全部切换入口(Ctrl+\` / 工具栏 / Esc 都走这一个布尔翻转);`flush:'pre'` 保证读到**出**方向 view(卸载在 render 阶段,晚于 pre-flush watcher)→ 抓锚点,`await nextTick()` 后**入**方向 `onMounted` 已建 view → 应用。滚动:CM6 `EditorView.scrollIntoView(pos,{y:'center'})`;PM 不用 `tr.scrollIntoView()`(默认"最小滚入视口",光标在视口下方只露底边 = 表现成跳到最底下),改手动 `coordsAtPos` + 祖先 `scrollBy` 居中
-- **Consequences**:
-  - 切模式光标落在视觉对应处,不再跳顶;光标 token 自身是多余方(如落在 URL 里)→ 退到最近对齐邻居 token 边界
-  - **最佳努力**语义:空文档 / view 未就绪 → 静默放弃留默认;LCS 矩阵超 4M 格(token > ~31k 的大文档)→ 退线性首现匹配,防 O(n²) 卡顿
-  - 单点 `watch(sourceMode)` 覆盖所有入口,后续新加切模式触发点无需改同步逻辑
-  - 入方向主动 focus(PM 手动滚动依赖 view 已布局)
+### Removed
+- 删 `paragraph.attrs.empty` 死属性（0 处使用；空段落改用 `childCount === 0` 检测）。
+- 删 `prosemirror-caret-hidden` 老 bug 代码（3 文件；旧 CSS 选择器从未匹配）。
 
 
-### ADR-20260621-003: 查找替换走 PM / CM6 双后端抽象 + 意图上提 provide/inject
+## [0.4.1] — 2026-06-15
 
-- **Context**: v0.4.5 的 `FindReplace.vue` 写死绑 ProseMirror(`editorViewGetter` 返回 PM `EditorView`,内部 `findMatchesInDoc` / `findHighlight` PM 插件 / `TextSelection.create` / `tr.replaceWith`)。源码模式(CM6)下 `ProseMirrorEditor` 整个 `v-if` 卸载,`FindReplace` 跟着消失,工具栏搜索按钮还被 `:disabled="sourceMode"` 显式禁用。要在两模式共用同一份面板,评估 A(把 FindReplace 上提到 App.vue,App 跨编辑器取 view 构造后端) vs B(每编辑器各挂一份 FindReplace,各自用自己 view 构造后端) vs C(FindReplace 内部 mode 条件分支)。C 让组件耦合两套编辑器 API,放弃。A vs B:B 的 `backendGetter` 平凡(用自己 view)、面板定位天然落在各自 card 内、无需 App 跨编辑器取 view;选 B
-- **Decision**: 选 B + 后端抽象。新建 `FindReplaceBackend` 接口(`findreplace/backend.ts`):`getSelectionText` / `getRangeText` / `findMatches` / `setSelection` / `scrollMatchIntoView` / `setHighlight` / `clearHighlight` / `replaceRange` / `focus`,`createPmBackend(view)` / `createCmBackend(view)` 两份实现,FindReplace 不直接依赖任一编辑器 API。两份 `FindReplace.vue` 分别挂 `ProseMirrorEditor/index.vue`(PM)与 `SourceModeEditor.vue`(CM6),`v-if/v-else` 互斥同一时刻只一份活着。**用户意图(query / 选项 / 替换文 / showReplace)上提到 App.vue 经 `provide(findIntentKey)` → FindReplace `inject` 共享**:切模式时 PM 份卸载、CM6 份新挂,意图在 App.vue 存活 → query 跨模式保留;`matches` / `currentIndex` 不上提(模式相关,新挂载时用当前后端重算)。CM6 高亮走新 `cmFindHighlightField` StateField + `cmFindHighlightEffect`(镜像 PM 侧 `findHighlight` 插件,`Decoration.mark({class}).range`),class 复用 `velo-find-match`/`velo-find-current`(CSS 提到 `_editor-base.scss` 全局层两套编辑器共用)
-- **Consequences**:
-  - `replaceAll` 编辑器无关化:倒序遍历 matches(逆序避免位置错位),每个 match 取 `getRangeText` → `replaceInText` → `replaceRange`;PM(match 不跨文本节点)/ CM6(match 可跨行)统一成立
-  - 两后端语义差异各自符合该模式用户所见文本:PM `findMatches` 搜 prose 文本(不含 markdown 标记,match 不跨块)、CM6 搜原始 markdown 全串(含 `**`/`|`/`[]()`,match 可跨行)
-  - `scrollMatchIntoView` 两套:PM 手动 `coordsAtPos`+祖先 `scrollBy`(焦点在 find 输入里时 `tr.scrollIntoView` 早退)、CM6 `EditorView.scrollIntoView(pos,{y:'center'})` effect(不依赖焦点)
-  - 意图上提的踩坑:切模式 findOpen 保持 true,新挂载 FindReplace 的 `open` watcher(immediate)在 setup 阶段跑 recompute,但此时入方向 view 未建好(backendGetter 返回 null → matches=[]),之后 query/选项是 inject 的同一 ref 值没变不触发 watch → matches 停空,要手动改 query 才重算。修法:`onMounted` + `nextTick` 补一次 recompute(nextTick 时父组件 onMounted 已同步建好 view)
-  - FindReplace 无 provide 时回退本地 ref(独立挂载 / 测试自洽);`backend.test.ts` 覆盖 PM / CM6 两后端 round-trip
+### Added
+- **链接渲染**：Cmd / Ctrl+click 跳转外部链接，`[text](url)` 自动补全，选中内容自动格式化。
+- **GitHub 风格警告框**：5 种变体（note / tip / important / warning / caution），完整双向 markdown 映射 + round-trip。
+- **HTML 透传**：通过 DOMPurify 安全渲染标签（如 `<kbd>`、`<details>`），合并行内 HTML 防渲染错位。
+- **语法实时转换框架**：`syntax/*` registry + `syntaxAutoFormat.ts`，dirty-range 局部扫描；新增语法只需写一个文件并在 `syntax/index.ts` 注册一行。
+- **键入即转化的块级语法**：heading / blockquote / bullet_list（含 task）/ ordered_list / code_block / hr / alert（blockquote 内）共 7 类。
+- **行内语法反向输入修复**：footnote / link / math / emphasis / strike 修复"先 `]` 再补 `[^xxx`"反向输入不触发的问题（框架用 `g` 正则统一覆盖）。
 
+### Changed
+- **InputRule 收敛**：5 个 InputRule + `linkAutoFormatPlugin` 合并进 `syntax/*` registry；`EditorInner` 的 `inputRulesPlugin` 仅保留 `ellipsis` / `emDash` 纯文本快速路径。
+
+### Fixed
+- **list_item Enter 行为错误**：v0.4.0 迁移漏挂 `splitListItem`；Enter 链补齐为 `chainCommands(dollarEnterCmd, splitListItem, liftListItem, splitBlock)`，空 list_item 按 Enter 正确退化为普通段落。
+- **空行保留**：调整注入公式并用文本占位符处理空段落，修复显示与 round-trip 翻倍问题。
+- **CRLF / CR 文件**：`preprocessBlankLines` 加行尾规范化（CRLF / CR → LF），`\r` 不再破坏正则；`Math.ceil` 显式化消除隐性不变量。修复 Windows 文件多空行识别。
+
+### Dependencies
+- 新增 `dompurify`、`@tauri-apps/plugin-shell`。
+
+
+## [0.4.0] — 2026-06-13
+
+### Added
+- **编辑器从 Milkdown 迁移到裸 ProseMirror + remark/unified**：Milkdown 抽象层对每条自定义语法（math / mermaid / footnote / image）都是纯开销，upstream `markRule` 正则 bug 还要写补丁绕开。迁移后净减 96 个传递依赖。
+- 自建 schema（22 节点 / 5 mark，对齐 Milkdown preset 默认）+ unified pipeline（remark-parse + remark-gfm + remark-math）+ 自写 mdast ↔ PM 转换。
+
+### Changed
+- 迁移 11 个 nodes / + findreplace / + image / + plugins 文件（仅 `import` + 解包 `$prose` / `$inputRule` / `$remark` 包装）。
+
+### Removed
+- 删 `src/components/MilkdownEditor/`（18 文件）。
+- 卸载 `@milkdown/kit` / `@milkdown/plugin-clipboard` / `@milkdown/plugin-math` / `@milkdown/vue`（净 -96 传递依赖）。
+- 删 `VITE_USE_PM` feature flag，硬切到 ProseMirrorEditor。
+
+### Fixed
+- 迁移期回归（均补回归测试）：
+  - Enter 不换行：`keymap(baseKeymap)` 缺失，`splitBlock` 需显式 `chainCommands` 串接。
+  - Backspace 选整段：`imageKeymap` 误用 `isAtom`（ProseMirror 陷阱：`$pos.nodeBefore` 在 text 内返回 atom-ized text slice），改 `type.name` 检查。
+  - `$x$` 不转 math_inline：remark-math 只管外部 markdown 解析，实时键入需显式 InputRule。
+  - Shift-Tab 非列表上下文失焦：返回 `false` 让浏览器抢走 contentEditable 焦点，改返回 `true` 消费。
+
+
+## [0.3.3] — 2026-06-13
+
+### Changed
+- **Mermaid 改用 `Decoration.widget`**：渲染 SVG 时改写 atom 节点 outer dom 的 `innerHTML` 会被 ProseMirror `DOMObserver` 当外部突变，触发整块 destroy + recreate，用户每敲一字符 mermaid 全闪 loader。改走 `Decoration.widget`（`WidgetViewDesc.ignoreMutation` 默认忽略非 selection 突变），NodeView 整层移除。
+- **编辑器目录拆分**：`MilkdownEditor/` 拆为 `nodes/` + `findreplace/` + `image/` + `plugins/` 子目录，根目录仅留 `index.vue` 与 `EditorInner.vue`。
+
+### Removed
+- 删 `MermaidNodeView.ts`（改走 widget 方案）。
+
+
+## [0.3.2] — 2026-06-12
+
+### Added
+- **图片粘贴 / 拖拽落盘**：保存到 `<fileDir>/assets/`（已保存文档）或 `<appDataDir>/assets/`（未命名文档），markdown 使用相对路径便于文档迁移。
+- **SHA-256 内容级去重**：重复导入同一张图时复用已有文件，不重复写盘。
+- **image-inline NodeView** + Tauri `asset://` 协议代理，本地图片经 `proxyDomURL` 转 asset URL 渲染。
+- **Atom 节点删除保护**：Backspace / Delete 紧贴 atom 节点（图片 / mermaid / 公式块）时先选中再删。
+- **图片上传插件**：通过 `handleDOMEvents` 拦截粘贴与拖拽，落盘后插入图片节点。
+- **图片路径工具链**：落点决策、markdown src → 物理路径、MIME / 扩展名双向转换。
+- **Tauri asset 协议**：`protocol-asset` Cargo feature、CSP 增 `asset:` 规则、`assetProtocol` 作用域、二进制 I/O 所需 fs 权限。
+
+### Fixed
+- **tauri-plugin-fs watch feature 门控**：`Cargo.toml` 显式启用 `watch` feature，修复 Tauri 2.5 默认不含 watch 导致的 `Command watch not found` 错误。
+
+
+## [0.3.1] — 2026-06-09
+
+### Added
+- **编辑器内查找 / 替换**（Ctrl+F / Ctrl+H）：支持大小写 / 全词 / 正则匹配、命中高亮、计数、导航与替换。
+- 工具栏搜索按钮（带激活高亮与切换关闭），全局 Ctrl+F / Ctrl+H 快捷键拦截。
+- **行首 `$$` + Enter** 快速插入空数学公式块并进入编辑态。
+- 查找匹配与空行保留单元测试。
+
+### Fixed
+- 行内公式编辑后不显示。
+- Mermaid 主题检测错误，以及切换主题时的渲染闪烁与高度坍缩。
+- 大纲 scroll-spy 在文档顶部未高亮首个标题。
+- 大纲当前标题高亮样式未正确应用主题色。
+- 脚注输入规则在段落开头误触发。
+- 移除孤儿脚注的波浪下划线（避免与拼写检查标记混淆）。
+- 隐藏 ProseMirror 自动追加的末尾不可见元素。
+
+
+## [0.3.0] — 2026-06-08
+
+### Added
+- **设置持久化**：字号 / 主色 / 字体 / 暗色 / 代码块主题 / 自动保存等全部持久化到 `app_data_dir`。
+- **大纲折叠状态持久化**，按文件路径区分。
+- **崩溃恢复**：脏盘期间每 30s 落盘草稿，启动时检测并提示恢复。
+- **任务列表**：`[ ]` / `[x]` 编辑器内点选切换。
+- **脚注语法**：渲染、Ctrl / Cmd+点击跳转 def、def 末尾回链 ref。
+- **状态栏**：字数 / 词数 / 行数。
+
+### Changed
+- **编辑器生命周期交给 `@milkdown/vue`**：删手写的 `createEditor` / `onMounted` / `onUnmounted` / `watch(modelValue)` / `isInternalChange` / 220ms `setTimeout` 守卫，改用 `EditorInner.vue` + `useEditor()` + `<Milkdown />` 自管挂载；外部 modelValue 变化用 `lastSelfEmitted` 值对比探测，emit `rebuildRequest` 让外层 bump `innerKey` 触发整体重挂。
+- 抽 `src/utils/outline.ts` 共享大纲解析；抽 `plugin-common.ts` 共享 input 隔离。
+
+### Fixed
+- 左侧大纲超长无滚动条。
+- 大纲标题里 `_` `*` 等符号被多余反斜杠显示。
+- 粘贴 markdown 源码（`**bold**` 等）不被识别为富文本（集成 `@milkdown/plugin-clipboard`）。
+- Mermaid / math textarea 粘贴内容被外层 ProseMirror 抢走（抽出 `plugin-common.ts` 统一隔离）。
+- `save` / `saveAs` / `openPath` 失败时缺反馈，改为弹原生 message。
+- 行内公式编辑态键入抛 `ReferenceError: autoHeight is not defined`。
+- `recoverDraft` 后被 focus / fs:watch 静默用磁盘旧版本覆盖。
+- 切文件后编辑器不自动获取焦点。
+- `syncTitle` 在非 Tauri 浏览器环境同步抛 `TypeError` 致白屏。
+
+### Test
+- 引入 Vitest + jsdom + Tauri mock（`src/test/setup.ts`）。
+- 纯函数测试：大纲解析（`stripFormatting` / `unescapeMarkdown` / `parseHeadings`）。
+- Pinia store 测试：document store 完整状态机 + editor 默认值。
+- ProseMirror 插件集成测试：Footnote NodeView 编号 / Ctrl+click 跳转 / 回链。
+- 共 101 个测试。

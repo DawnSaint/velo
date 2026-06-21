@@ -56,7 +56,9 @@
   }
 
   // 引用
+  // margin:1em 0 —— reset 浏览器默认的 `margin: 1em 40px`
   blockquote {
+    margin: 0;
     padding: 0.25em 1em;
     font-style: italic;
     border-left: 4px solid #ddd;

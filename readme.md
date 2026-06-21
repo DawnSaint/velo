@@ -10,7 +10,8 @@
 
 > 技术细节、目录结构、ProseMirror 插件链、架构决策 → 见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 > 当前 / 下一版本 To-Do → 见 [`docs/ROADMAP.md`](docs/ROADMAP.md)
-> 重大架构决策与重构记录 → 见 [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+> 版本变更日志 → 见 [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+> 重大架构决策与重构记录 → 见 [`docs/DECISIONS.md`](docs/DECISIONS.md)
 > 测试策略 → 见 [`docs/TESTING.md`](docs/TESTING.md)
 
 ---

@@ -3,6 +3,7 @@ import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
+import { useExportStore } from '@/stores/export'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
@@ -11,6 +12,7 @@ import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
+import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
@@ -25,6 +27,7 @@ const tauri = isTauri()
 const store = useEditorStore()
 const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
+const exportStore = useExportStore()
 
 const sampleMd = sampleMdRaw.replace(
   '/src/assets/Velo.png',
@@ -347,6 +350,12 @@ function onKeydown(e: KeyboardEvent) {
     e.stopPropagation()
     documentStore.toggleSourceMode()
   }
+  else if (k === 'e' && e.shiftKey) {
+    // 导出(Ctrl/Cmd+Shift+E):走原生 saveDialog 多 filter(HTML / PDF)
+    e.preventDefault()
+    e.stopPropagation()
+    void exportStore.exportDocument()
+  }
 }
 
 let unlistenCli: UnlistenFn | null = null
@@ -587,6 +596,8 @@ onBeforeUnmount(() => {
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
         </button>
+        <!-- 导出 (Ctrl+Shift+E) -->
+        <ExportButton />
         <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
         <!-- 搜索(Ctrl+F) — toggle:点一次开,再点一次关。active 样式跟设置按钮一样 -->
         <button

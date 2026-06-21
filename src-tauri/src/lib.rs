@@ -54,6 +54,23 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+/// PDF 导出 (v0.4.7 后) —— 把 HTML 字符串通过平台原生 PrintToPDF API 写到磁盘。
+///
+/// 当前支持 Windows (WebView2 ICoreWebView2_7::PrintToPdf);macOS / Linux 在
+/// `pdf::export_pdf` 里返回 `PdfError::Unsupported`。
+#[tauri::command]
+async fn export_pdf(
+    window: tauri::WebviewWindow,
+    output_path: String,
+    html: String,
+) -> Result<(), pdf::PdfError> {
+    pdf::export_pdf(window, output_path, html).await
+}
+
+/// 仅在桌面端引入 pdf 模块(避免 mobile entry 编译失败)。
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+mod pdf;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -75,7 +92,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![set_window_theme, get_cli_args, open_devtools])
+        .invoke_handler(tauri::generate_handler![
+            set_window_theme,
+            get_cli_args,
+            open_devtools,
+            export_pdf,
+        ])
         .setup(|app| {
             // 首次启动：把 argv 里的文件路径暂存进 state，等前端 onMounted 主动来拉
             let args: Vec<String> = std::env::args().skip(1).collect();
