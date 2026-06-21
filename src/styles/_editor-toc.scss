@@ -84,7 +84,11 @@
 }
 
 // 点击 TOC 项跳转后 heading 闪烁反馈
-:global(.velo-toc-highlight) {
+// 原本写 :global(.velo-toc-highlight) 是 CSS Modules 语法,但本文件是普通
+// SCSS partial(走 @forward 复用,不是 .module.scss),CSS Modules 不生效,
+// :global() 被原样输出给 lightningcss → 'global' is not a valid pseudo-class
+// 警告(也不影响功能,只是 prod build 噪)。这里不做 scope,直接写类名。
+.velo-toc-highlight {
   animation: toc-flash 1.5s ease-out;
 }
 

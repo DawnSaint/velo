@@ -58,6 +58,7 @@ import { renderKatexHtml } from './katexHtml'
 import { renderMermaidSvg, mermaidErrorHtml } from './mermaidHtml'
 import { renderCodeBlockHtml, codeBlockFallbackHtml } from './shikiHtml'
 import { sanitizeHtml } from './sanitizeHtml'
+import { loadKatexCssWithFontsInlined } from './katexCss'
 
 // ========== 入口 ==========
 
@@ -144,9 +145,14 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   // editor stylesheet 通过 ?inline 拿到编译后 CSS 字符串(同 _editor-base.scss 等所有 partials)
   // 走 Vite ?inline 静态 import 编译时 inline 进 bundle,运行时是字符串变量
   const editorCss = (await import('./exportStyles.scss?inline')).default
-  // KaTeX CSS 单独 inline —— editor 在 EditorInner.vue:45 走 import 'katex/dist/katex.min.css',
-  // 那个 import 是 side-effect,不会出现在我们的 bundle 里;导出场景走 ?inline 拿字符串
-  const katexCss = (await import('katex/dist/katex.min.css?inline')).default
+  // KaTeX CSS 单独处理 —— 见 ./katexCss.ts:走 Vite ?raw 拿 katex.min.css
+  // 原文(注意是 ?raw 不是 ?inline —— Vite 的 ?inline 在 dev/SSR 走 CSS 插件
+  // 改写 url()、在 prod build 把 url() 变成 `new URL(...,import.meta.url).href`
+  // JS 表达式,两类形态 regex 都匹配不到,见维护者注意点 #22),然后把每个
+  // @font-face 的 src 改写成 woff2 base64 data URI 并 strip woff/ttf 引用,
+  // 让导出 HTML 完全自包含(否则 url(fonts/...) 在外部 webview / 打印机 webview
+  // 都解析不到,公式字体回退到系统字体,与编辑器内不一致)。
+  const katexCss = await loadKatexCssWithFontsInlined()
 
   const title = fileName || 'Velo Export'
   const html = `<!DOCTYPE html>

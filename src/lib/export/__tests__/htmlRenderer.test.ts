@@ -237,6 +237,30 @@ describe('htmlRenderer', () => {
       expect(html).toMatch(/math-error/)
       expect(warnings.some(w => w.includes('公式'))).toBe(true)
     })
+
+    it('inlines KaTeX woff2 fonts as base64 data URIs (no relative url(fonts/...) left)', async () => {
+      // 测纯函数 inlineKatexWoff2Fonts —— vitest 跑 ?inline 对 .css / binary
+      // 的处理跟 prod build 不同(返回空),经 buildExportHtml 拿到的 css 串
+      // 在 test 环境下为空,这里直接喂 css 字符串 + 字体 map,验转换逻辑。
+      const { inlineKatexWoff2Fonts } = await import('../katexCss')
+
+      // 截一段 katex.min.css 原结构当 fixture
+      const fixture = `@font-face{font-display:block;font-family:KaTeX_AMS;font-style:normal;font-weight:400;src:url(fonts/KaTeX_AMS-Regular.woff2) format("woff2"),url(fonts/KaTeX_AMS-Regular.woff) format("woff"),url(fonts/KaTeX_AMS-Regular.ttf) format("truetype")}`
+      const fontMap = {
+        'KaTeX_AMS-Regular.woff2': 'data:font/woff2;base64,AAAA',
+      }
+      const out = inlineKatexWoff2Fonts(fixture, fontMap)
+
+      // url(fonts/...) 全部应被替换
+      expect(out).not.toMatch(/url\(fonts\/KaTeX_[^)]+\)/)
+      // 出现 data URI 形式
+      expect(out).toMatch(/url\(data:font\/woff2;base64,AAAA\)\s*format\("woff2"\)/)
+      // 不应再出现 woff / ttf 引用 / format 声明
+      expect(out).not.toMatch(/url\(fonts\/[^)]+\.woff\)/)
+      expect(out).not.toMatch(/url\(fonts\/[^)]+\.ttf\)/)
+      expect(out).not.toMatch(/format\("woff"\)/)
+      expect(out).not.toMatch(/format\("truetype"\)/)
+    })
   })
 
   describe('html_block / html_inline', () => {

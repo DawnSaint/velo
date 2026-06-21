@@ -5,8 +5,9 @@
 // "公式语法错 + 原文 + 错误提示",而不是整段不见。
 //
 // 注:导出 HTML 跟编辑器内的 KaTeX 渲染走同一份 katex 库,字体 / 主题色一致;
-// 仅缺失 .katex 样式表 —— 导出 stylesheet 包含 _math.scss(全量 katex.min.css
-// 在 _math.scss 顶部 @import 过一次),保证渲染一致。
+// .katex 样式表来自 ./katexCss.ts —— Vite `?raw` 拿 katex.min.css 原文
+// 再走 inlineKatexWoff2Fonts 把 woff2 inline 成 base64 data URI 并 strip
+// woff/ttf 引用,保证导出 HTML 完全自包含(无 fonts/ 目录也能渲染)。
 
 import katex from 'katex'
 

@@ -47,9 +47,7 @@ fontDirs.forEach(dir => {
     });
     
     if (deletedCount > 0) {
-      console.log(`已在 ${dir} 中删除 ${deletedCount} 个冗余字体文件`);
+      console.log(`KaTeX 资源优化：删除 ${deletedCount} 个冗余字体文件`);
     }
   }
 });
-
-console.log('KaTeX 资源优化完成！');
