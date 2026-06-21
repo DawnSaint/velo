@@ -7,11 +7,14 @@
 
 **feat**
 
-- [ ] 源代码模式
+- [x] 源代码模式
+- [ ] 源代码模式搜索(FindReplace 共用)
+
 
 **refactor** (在 v0.4.6 周期内追加,跟"源代码模式"并列)
 
-- [x] mermaid 节点 → code_block { language: 'mermaid' } 升级:```mermaid 改走 fenced code 通用管线,走 codeHighlight toolbar(语言切换 / 复制按钮复用),MermaidDecoration 扫 code_block 渲染 SVG widget + 编辑壳。决策见 `docs/CHANGELOG.md` v0.4.6 ADR-20260620-001。~~shiki 出 mermaid 语法高亮~~ → 诊断发现 shiki mermaid grammar 是"摆设"(codeToTokens 全输出默认色无 scope),改走自写轻量 tokenizer(`mermaidTokenizer.ts`)旁路 shiki,颜色从当前代码块主题动态提取 hex 写进 `--shiki-light`/`--shiki-dark` 局部变量(跟 shiki token 同形,主题切换 + dark/light 都自动生效)。
+- [x] 源代码模式换 CodeMirror 6 + shiki 高亮 + 行号(软换行;取代旧 pre+textarea overlay;主题镜像 + ensureTheme 串行机制等价于 v0.4.6,dispatch target 从 Vue ref 改 CM6 StateEffect)
+- [x] 跨模式光标 + 浏览状态同步(最佳努力文本锚点;归一化文本 + posMap 反向映射,App.vue `watch(sourceMode, flush:'pre')` 单点覆盖全部切换入口)
 
 
 #### v0.4.7 — 表格增强
@@ -81,3 +84,5 @@
 - [ ] 保持窗口最前
 - [ ] 查找文件(Ctrl+P)、命令面板(Ctrl+shift+P)
 - [ ] 字体配置
+- [ ] WYSIWYG code_block 行号(可选开关)
+- [ ] 功能更新弹窗

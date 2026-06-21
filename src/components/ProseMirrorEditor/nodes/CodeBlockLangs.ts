@@ -223,9 +223,12 @@ export async function ensureLanguage(lang: string): Promise<void> {
 }
 
 /**
- * 测试用:重置 singleton,让下一次 getHighlighter() 重新创建。生产代码
- * 不应调用。
+ * 懒加载 markdown grammar（append-only,不重建 highlighter）。
+ * 源码模式高亮用。已加载直接 resolve。
  */
+export async function ensureMarkdownGrammar(): Promise<void> {
+  await ensureLanguage('markdown')
+}
 export function __resetHighlighterForTest(): void {
   highlighterPromise = null
   cachedHighlighter = null

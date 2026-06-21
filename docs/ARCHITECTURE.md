@@ -11,7 +11,8 @@
 | 语言 | TypeScript |
 | 构建 | Vite |
 | 桌面壳 | Tauri 2.0 |
-| 编辑器 | ProseMirror |
+| 编辑器 | ProseMirror (WYSIWYG) |
+| 源代码模式编辑器 | CodeMirror 6 |
 | 数学公式 | KaTeX |
 | 图表 | Mermaid |
 | CSS | Tailwind 3 + Sass |
@@ -43,6 +44,7 @@ velo/
 │           │   ├── FootnoteNodeViews.ts
 │           │   ├── TocDecoration.ts        TOC 目录 Decoration.widget (v0.4.5)
 │           │   ├── CodeHighlightWidget.ts
+│           │   ├── shikiCmPlugin.ts    源代码模式 CM6 shiki 高亮 ViewPlugin
 │           │   └── TextareaEditor.ts  多行 textarea 编辑壳
 │           ├── findreplace/       查找替换 (浮层UI + 高亮plugin + 匹配函数)
 │           ├── image/             图片 paste/drop 上传 + 删除保护 keymap
@@ -55,6 +57,8 @@ velo/
 │               ├── index.ts            注册入口
 │               ├── block/              段首: heading / codeBlock / blockquote / list / hr / toc
 │               └── inline/             段内: emphasis / strike / inlineMath / footnoteRef / link
+│       ├── SourceModeEditor.vue    源代码模式 (CodeMirror 6 + shiki 高亮 + 行号)
+│       └── crossModeSync.ts        跨模式光标/滚动同步:token 序列 + LCS 对齐
 └── src-tauri/
     ├── capabilities/default.json  fs:allow-** (通用文本编辑器)
     └── src/{main,lib}.rs          窗口主题 / CLI args / single-instance
@@ -101,6 +105,8 @@ velo/
 
 **生命周期**: `EditorInner.vue` onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时用 `lastSelfEmitted` 值对比探测自 emit 的 echo,非 echo 则 `view.updateState(EditorState.create(...))` 替换内部 state。
 
+**源代码模式**: `documentStore.sourceMode` 控制渲染哪个编辑器实例。`true` = `SourceModeEditor.vue`（CodeMirror 6 `EditorView`，软换行 + 持久行号 + shiki 高亮，无 schema / 无 PM plugin，用户输入经 `EditorView.updateListener` → `emit('update:modelValue')` 回写 `documentStore.content`）；`false` = `ProseMirrorEditor`（WYSIWYG）。切换时两个组件通过 `v-if` 互斥挂载，`documentStore.content` 始终是唯一数据源，自动保存 / 失焦保存 / 草稿 / 外部文件监听全部透明穿透，无需额外改动。**代码块主题切换**:SourceModeEditor 自管 `watch(codeLightTheme/codeDarkTheme) → ensureTheme(light) → ensureTheme(dark) 串行 → dispatch setShikiTheme effect → shikiCmPlugin 的 ViewPlugin.update rebuild decorations`。ViewPlugin.build **不**直接读 `editorStore.codeXxxTheme`,只读 `StateField` 里的主题名镜像 —— 因为直接读会让 store mutate 立刻触发 rebuild,而此时 ensureTheme 还没 resolve → shiki 拿到未注册主题 → token.variants.light.color 静默返回 undefined → fallback 到 `:root --shiki-light` 默认 `#24292e` → **整片全黑**(原 v0.4.6 bug 症状)。镜像只在 ensureTheme 完成、effect dispatch 后才更新,等价于 "shiki 已拿到真 hex 再 rebuild",不会出现中间全黑帧。跟 App.vue 第 4.5 段 PM 路径对仗 —— 那里是 dispatch setMeta 让 PM plugin state 拿到新 highlighter/theme 后 rebuild decorations;这里是 await ensureTheme 后 dispatch CM6 state effect 让 ViewPlugin rebuild。dispatch target 不同(PM setMeta vs CM6 StateEffect)但同步语义一致。**echo 哨兵**:`updateListener` 记 `lastSelfEmitted`,外部 `watch(modelValue)` 拿到回写若等于它则跳过,避免编辑时光标被重置(对照 PM 路径的 `lastSelfEmitted` 语义)。
+
 **文件操作**:
 
 - 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`)
@@ -137,6 +143,8 @@ velo/
 - **粘贴 text/plain 必须注册 `clipboardTextParser`**:ProseMirror 默认 plain-text fallback(`prosemirror-view/dist/index.js:2836-2844`)把整段文本按 `\n+` 拆成多个 `<p>`,再 `normalizeSiblings(:2881, :2901-2930)` 自动找 wrapper(常用 `blockquote`)把这些 `<p>` 包起来,产出 `Fragment([blockquote(p1, p2)])`。Paste 进 paragraph 内时 `Fitter.dropNode(:1402)` 把内容 mix 进原 paragraph,后续 syntaxAutoFormatPlugin 在错位 doc 上跑 heading + strong,字符被搅乱。**注册 `clipboardTextParser` 走 fromMarkdown 直接解析**(`plugins/markdownPastePlugin.ts`),输出封闭 slice `(0, 0)` 而不是 `Slice.maxOpen(...)` —— maxOpen 让两端 open,paragraph 边界 paste block 反而无法 fit;封闭 slice 走 ProseMirror 标准 "join 前后 paragraph" 路径把 blocks merge 进 doc 顶层
 - **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注/TOC 走 SCSS partial
 - **TOC 目录走 Decoration.widget 不走 NodeView**: 跟 mermaid 同范式——`toc` 节点 atom + defining,toDOM 输出空 div 占位。`TocDecoration.ts` 的 widget 扫描 doc headings 构建嵌套树,渲染为 `<ul>/<li>` 列表 + Back to top 链接。widget key = `toc-widget:${pos}:${headingsHash}`,headings 变化时 hash 变 → ProseMirror 自动重建 widget。**坑**: `[TOC]` 回写 toMarkdown 时必须用 mdast `html` 节点(不是 text 节点)包裹——text 节点里的 `[` 在 start-of-inline 位置会被 remark-stringify escape 成 `\[`
+- **源代码模式**: `SourceModeEditor` 是独立的 CodeMirror 6 `EditorView` 组件,与 `ProseMirrorEditor` 通过 `v-if` 互斥挂载。`documentStore.sourceMode` 是唯一开关,`toggleSourceMode()` 翻转。extensions:`lineNumbers()`(持久行号,无开关) + `EditorView.lineWrapping`(软换行) + `drawSelection` + `highlightSpecialChars` + `history` + 自定义 keymap(Tab 插 2 空格,覆盖 `indentWithTab`;Escape → `toggleSourceMode`) + shiki 高亮 ViewPlugin(`shikiCmPlugin.ts`) + `updateListener`(docChanged → emit)。外部 `watch(modelValue)` 同步时,用 `lastSelfEmitted` echo 哨兵跳过自身回写,避免抢光标;真外部变化时 dispatch changes 替换 doc 并夹住光标到末尾。`documentStore.content` 始终是唯一数据源。**shiki 高亮走 CM6 ViewPlugin**(`shikiCmPlugin.ts`):每次 doc change / 收到 `setShikiTheme` effect 跑 `getTokensSync(hl, doc.toString(), 'markdown', light, dark)`,逐 token 转 `Decoration.mark({ attributes: { style: '--shiki-light:..;--shiki-dark:..' } })`。**token.offset 即 CM6 doc pos**(shiki offset 是相对输入串的全局偏移,CM6 单文档 pos 也等于字符串偏移,两者同构,同 `CodeHighlightWidget.ts:507` 性质)。SCSS `.velo-cm-source .cm-line span { color: var(--shiki-light) }` 让 token span 在自身解析局部变量(同 WYSIWYG `pre span` 机制)。**dark/light 切换纯 CSS**(零重渲,`<html class="dark">` 翻 `--shiki-light/dark` cascade);**切主题**才 rebuild(effect dispatch,新 hex 不同)。主题名镜像在 `StateField` 里,build 只读镜像不读 store(防 ensureTheme 未 resolve 期间全黑,机制等价于 v0.4.6 旧版的本地 ref 镜像,dispatch target 从 Vue ref 改 CM6 StateEffect)。**不做**(留后续版本):源码模式搜索(FindReplace 当前在 source mode 禁用)、分屏。
+- **跨模式光标 + 浏览状态同步**: `toggleSourceMode()` 翻转 `sourceMode` → `v-if` 互换两个编辑器,两边卸载重挂,光标/滚动在 DOM 层丢失。App.vue 单点 `watch(sourceMode, cb, { flush: 'pre' })` 覆盖全部切换入口(Ctrl+\` / 工具栏 / Esc 都走这一个布尔翻转,无需改调用点)。`flush:'pre'` 保证读到**出**方向 view(卸载在 render 阶段,晚于 pre-flush watcher)→ 抓文本锚点;`await nextTick()` 后**入**方向 `onMounted` 已建 view → 应用。锚点机制见 `crossModeSync.ts`:两边各 token 化(剥 markdown 标记字符 `#*~_\`-+[]()!>|`——**`|` 入集是关键**,否则无空格表格 `|cell|cell` 粘成一个 token;标记与空白都作分隔,`**bold**`→`bold`、`well-known`→`well`+`known`,两边对称即可)。`captureAnchor` 取光标所在 token ±64 个 token 的文本序列 + 光标 token 索引 + token 内字符偏移;`applyAnchor` 在入方向全 token 上跑 **LCS 最长公共子序列**对齐,光标 token 映到对端对应 token,迁移 intraOffset,设选区 + 滚动居中。**LCS 而非整窗 indexOf**:链接 `[text](url)` 的 URL、表格 `|` / `|---|---|` 分隔行是 CM6 侧多出、PM 侧没有的 token,会卡在光标窗口中间——整窗子串匹配砍不掉 → 失败跳顶;LCS 把多余 token 当"未对齐"自动跳过。光标 token 自身是多余方(如光标落在 URL 里)→ 退到最近对齐邻居 token 的边界。**最佳努力**:空文档 / view 未就绪 → 静默放弃留默认;LCS 矩阵超 4M 格(token > ~31k 的大文档)→ 退线性首现匹配。滚动:CM6 `EditorView.scrollIntoView(pos,{y:'center'})`;PM **不用** `tr.scrollIntoView()`(默认"最小滚入视口",光标在视口下方只露底边 = 表现成跳到最底下),改手动 `coordsAtPos` + 祖先 `scrollBy` 居中(同 `FindReplace.scrollMatchIntoView` 范式),两边都把光标拉到容器中线。入方向主动 focus(PM 手动滚动依赖 view 已布局)。
 
 ---
 

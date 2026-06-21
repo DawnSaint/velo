@@ -300,3 +300,110 @@ html.dark .velo-lang-list li:hover {
 html.dark .velo-lang-custom-suggest {
   border-top-color: #30363d;
 }
+
+// ============================================================
+//  源代码模式
+//
+//  设计要点(与 WYSIWYG `pre` 对仗):
+//  - token 颜色:shikiCmPlugin 把每个 token 的 hex 写进 inline
+//    `--shiki-light`/`--shiki-dark` 局部 CSS 变量(Decoration.mark)。
+//    `.cm-line` 自身用 `color: var(--shiki-light)` 兜底(无 token 包裹的
+//    空白),token span 在自身解析拿 shiki 写的局部变量。切 <html class="dark">
+//    时翻面到 var(--shiki-dark),CM6 / shiki 不参与(零重渲)。
+//  - 行号 gutter:背景透明、色兑水(opacity 0.5)、无边框。
+//  - 软换行:EditorView.lineWrapping,折行的后续视觉行不另给号(CM6 标准)。
+//  - 选区/光标色:对齐旧 textarea 的 caret-color / ::selection。
+//  - 容器透明背景、无边框,叠在 card 白底上(纯视觉层,与旧 backdrop 一致)。
+// ============================================================
+
+.velo-cm-source {
+  font-family: var(--md-font-family, -apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif);
+  font-size: var(--md-font-size, 14px);
+
+  .cm-editor {
+    background: transparent;
+    color: var(--shiki-light, #24292e);
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    outline: none;
+    &.cm-focused { outline: none; }
+  }
+
+  // 行内容兜底色(无 token 包裹的空白走 :root --shiki-light)
+  .cm-line {
+    color: var(--shiki-light, #24292e);
+    caret-color: #24292e;
+    padding-left: 0.75em;
+  }
+
+  // 文本居中收窄(对齐 WYSIWYG 的 max-w-[64vw] 居中列),且行号 gutter 紧贴
+  // 文本列左侧。.cm-scroller 是 flex 行,gutter + content 是其两个 flex 子项:
+  // gutter 的 margin-left:auto 吃掉左侧空隙、content 的 margin-right:auto 吃掉
+  // 右侧空隙 → 两个 auto margin 平分剩余空间 → 「gutter+content」整组居中;
+  // content 的 margin-left:0 使 gutter 紧贴其左缘。.cm-scroller 全宽自滚 →
+  // 滚动条落卡片最右 + CM6 auto-scroll 完整保留。
+  .cm-gutters {
+    margin-left: auto;
+  }
+  .cm-content {
+    max-width: 64vw;
+    margin-left: 0;
+    margin-right: auto;
+    padding: 2em 0;
+    font-weight: 600;
+  }
+
+  // token span:shikiCmPlugin 写 inline --shiki-light/dark(局部变量定义),
+  // 这里给 span 自身 color: var(--shiki-light) 才会在 span 上下文解析到该 token
+  // 的 hex(同 WYSIWYG `.velo-editor pre span` 机制)。不写则 span 继承 .cm-line
+  // 已解析的 :root 默认色,token 颜色失效。
+  .cm-line span {
+    color: var(--shiki-light, #24292e);
+  }
+
+  // 选区:文字透明编辑器里 selection 背景需独立可见
+  .cm-selectionBackground,
+  .cm-content ::selection {
+    background: rgba(15, 76, 129, 0.35);
+  }
+
+  // 行号 gutter
+  .cm-gutters {
+    background: transparent;
+    border: none;
+    color: var(--shiki-light, #24292e);
+  }
+  .cm-lineNumbers .cm-gutterElement {
+    color: var(--shiki-light, #24292e);
+    opacity: 0.5;
+  }
+
+  // 光标
+  .cm-cursor {
+    border-left-color: #24292e;
+  }
+}
+
+// 暗色模式三路(同 WYSIWYG pre 的 .dark 命中规则)
+html.dark .velo-cm-source,
+.dark .velo-cm-source,
+.velo-cm-source.dark {
+  .cm-editor { color: var(--shiki-dark, #c9d1d9); }
+  .cm-content,
+  .cm-line {
+    color: var(--shiki-dark, #c9d1d9);
+    caret-color: #fff;
+  }
+  .cm-line span {
+    color: var(--shiki-dark, #c9d1d9);
+  }
+  .cm-selectionBackground,
+  .cm-content ::selection {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .cm-gutters { color: var(--shiki-dark, #c9d1d9); }
+  .cm-lineNumbers .cm-gutterElement { color: var(--shiki-dark, #c9d1d9); }
+  .cm-cursor { border-left-color: #fff; }
+}
+

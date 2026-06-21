@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
+import SourceModeEditor from '@/components/SourceModeEditor.vue'
+import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
 import EditorSettings from '@/components/EditorSettings.vue'
 import EditorOutline from '@/components/EditorOutline.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
@@ -209,6 +211,8 @@ function onWindowFocus() {
 // 顶栏按钮的 active 样式、Ctrl+F 打开、X / Esc 关闭、按钮再点关闭 —— 全部
 // 直接改 findOpen 这一份,不存在 mirror。
 const editorRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
+// 源代码模式编辑器 ref —— 跨模式光标/滚动同步要读 CM6 view(见 watch(sourceMode))
+const srcRef = ref<InstanceType<typeof SourceModeEditor> | null>(null)
 const findOpen = ref(false)
 // 一次性的初始参数:openFind / openReplace 时由 App.vue 写入,
 // FindReplace 内部 watch open → 读这两个初始化。后续用户改 query 不影响这里。
@@ -223,6 +227,28 @@ function currentSelectionText(): string {
   // '\n' 隔开:多行选区能正常拿来搜
   return view.state.doc.textBetween(from, to, '\n', '\n')
 }
+
+// ========== 跨模式光标 + 浏览状态同步 ==========
+// toggleSourceMode() 翻转 sourceMode → v-if 互换两个编辑器,两边卸载重挂,
+// 光标/滚动在 DOM 层丢失。这里在翻转**前**(flush:'pre',出方向组件尚未卸载)
+// 从出方向 view 抓文本锚点,翻转后(nextTick,入方向 onMounted 已建 view)应用。
+// 最佳努力:定位失败静默放弃。三个切换入口(Ctrl+` / 工具栏 / Esc)都走
+// sourceMode 翻转,此 watch 单点覆盖,无需改调用点。
+watch(
+  () => documentStore.sourceMode,
+  async (now, prev) => {
+    // 出方向:prev=true 曾是源码(CM6 出),prev=false 曾是 WYSIWYG(PM 出)
+    const anchor = prev
+      ? captureAnchor(srcRef.value?.view, 'cm')
+      : captureAnchor(editorRef.value?.getEditorView(), 'pm')
+    await nextTick()
+    if (!anchor) return // 抓不到(空文档 / 极短)→ 静默放弃
+    // 入方向:now=true 进源码(CM6 入),now=false 进 WYSIWYG(PM 入)
+    if (now) applyAnchor(srcRef.value?.view, 'cm', anchor)
+    else applyAnchor(editorRef.value?.getEditorView(), 'pm', anchor)
+  },
+  { flush: 'pre' },
+)
 
 function openFind() {
   findInitialQuery.value = currentSelectionText()
@@ -267,6 +293,11 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     e.stopPropagation()
     openReplace()
+  }
+  else if (k === '`') {
+    e.preventDefault()
+    e.stopPropagation()
+    documentStore.toggleSourceMode()
   }
 }
 
@@ -512,7 +543,11 @@ onBeforeUnmount(() => {
         <!-- 搜索(Ctrl+F) — toggle:点一次开,再点一次关。active 样式跟设置按钮一样 -->
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen }"
+          :class="{
+            'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen,
+            'opacity-30 pointer-events-none': documentStore.sourceMode,
+          }"
+          :disabled="documentStore.sourceMode"
           title="搜索 (Ctrl+F)"
           @click="toggleFind"
         >
@@ -520,6 +555,15 @@ onBeforeUnmount(() => {
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
+        </button>
+        <!-- 源代码模式 (Ctrl+\`) -->
+        <button
+          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': documentStore.sourceMode }"
+          title="源代码模式 (Ctrl+\`)"
+          @click="documentStore.toggleSourceMode()"
+        >
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
         </button>
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
@@ -555,20 +599,29 @@ onBeforeUnmount(() => {
         decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
         setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。
       -->
-      <ProseMirrorEditor
-        v-if="codeBlockReady"
-        ref="editorRef"
-        v-model:find-open="findOpen"
-        :find-initial-query="findInitialQuery"
-        :find-initial-show-replace="findInitialShowReplace"
-        :model-value="documentStore.content"
-        :font-family="store.fontFamily"
-        :font-size="store.fontSize"
-        :primary-color="store.primaryColor"
-        :is-mac-code-block="store.isMacCodeBlock"
-        :dark-mode="store.darkMode"
-        @update:model-value="documentStore.setContent"
-      />
+      <template v-if="codeBlockReady">
+        <ProseMirrorEditor
+          v-if="!documentStore.sourceMode"
+          ref="editorRef"
+          v-model:find-open="findOpen"
+          :find-initial-query="findInitialQuery"
+          :find-initial-show-replace="findInitialShowReplace"
+          :model-value="documentStore.content"
+          :font-family="store.fontFamily"
+          :font-size="store.fontSize"
+          :primary-color="store.primaryColor"
+          :is-mac-code-block="store.isMacCodeBlock"
+          :dark-mode="store.darkMode"
+          @update:model-value="documentStore.setContent"
+        />
+        <SourceModeEditor
+          v-else
+          ref="srcRef"
+          :model-value="documentStore.content"
+          :dark-mode="store.darkMode"
+          @update:model-value="documentStore.setContent"
+        />
+      </template>
 
       <!-- 设置面板 -->
       <aside

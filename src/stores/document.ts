@@ -35,10 +35,15 @@ export const useDocumentStore = defineStore('document', () => {
   const currentFilePath = ref<string | null>(null)
   const autoSaveEnabled = ref(false)
   const autoSaveOnBlur = ref(false)
+  const sourceMode = ref(false)
 
   let echosToAccept = 0
 
   const dirty = computed(() => content.value !== lastSavedContent.value)
+
+  function toggleSourceMode() {
+    sourceMode.value = !sourceMode.value
+  }
 
   const fileName = computed(() =>
     currentFilePath.value
@@ -394,6 +399,8 @@ export const useDocumentStore = defineStore('document', () => {
     dirty,
     autoSaveEnabled,
     autoSaveOnBlur,
+    sourceMode,
+    toggleSourceMode,
     fileName,
     pendingRecoveryDrafts,
     init,

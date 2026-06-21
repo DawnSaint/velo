@@ -54,10 +54,9 @@
 
 ### 3. 新增 markdown 语法支持(完整闭环 checklist)
 
-> 一条新语法(mermaid 升级 / 高亮 mark / 新 callout / 新链接形式等)要落地,
-> 看清楚涉及哪些层 — 每层都问自己一遍,缺哪补哪。
+> 一条新语法要落地，看清楚涉及哪些层 — 每层都问自己一遍，缺哪补哪。
 >
-> 这是 checklist,不是规约每条必做 —— 多数简单语法只碰其中 2-3 个文件,
+> 这是 checklist，不是规约每条必做 —— 多数简单语法只碰其中 2-3 个文件，
 > 但**用这张表扫一遍**能避免漏。
 
 | # | 涉及层 | 文件 | 何时需要动 |
@@ -65,22 +64,22 @@
 | 1 | **schema** | `editor/schema.ts` | 新增节点类型 / mark / attrs |
 | 2 | **NodeView / widget** | `nodes/*.ts` 或 `editor/imageNodeView.ts` 等 | 需要特殊视觉(数学渲染 / mermaid SVG / 任务 checkbox / 链接源编辑) |
 | 3 | **remark 插件**(外部解析) | `plugins/remark*.ts` + `editor/markdownIO.ts` 里 `.use()` | mdast 树需要重写(如 alert / preserveEmptyLine)或补缺 |
-| 4 | **markdownIO 双向** | `editor/markdownIO.ts` | 新节点要进 fromMarkdown / toMarkdown;新 mark 要在 pmInlineToMdast 加分支 |
-| 5 | **syntax registry**(实时键入) | `syntax/{block,inline}/*.ts` + `syntax/index.ts` | 用户键入也要转(块级 / 行内带匹配) |
+| 4 | **markdownIO 双向** | `editor/markdownIO.ts` | 新节点要进 fromMarkdown / toMarkdown；新 mark 要在 pmInlineToMdast 加分支 |
+| 5 | **syntax registry**(实时键入) | `syntax/{block，inline}/*.ts` + `syntax/index.ts` | 用户键入也要转(块级 / 行内带匹配) |
 | 6 | **ProseMirror 插件** | `EditorInner.vue` 的 `allPlugins` 数组 | 需要新装饰 / 行为插件(查找高亮 / 自动补全 / 原子保护) |
 | 7 | **keymap** | `EditorInner.vue` | 新快捷键(如 `$$` + Enter) |
-| 8 | **测试** | `__tests__/*.ts` | 每条语法至少 1 happy + 1 反例;`markdownIO` 改动必加 round-trip |
+| 8 | **测试** | `__tests__/*.ts` | 每条语法至少 1 happy + 1 反例；`markdownIO` 改动必加 round-trip |
 | 9 | **CHANGELOG** | `docs/CHANGELOG.md` 当前版本 `feat` 段（发布后写） | 发版时普通条目靠 `git log`；如属"重大决策"再补 ADR 块 |
-| 10 | **ARCHITECTURE** | `docs/ARCHITECTURE.md` | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍;**纯模板化不需要改** |
+| 10 | **ARCHITECTURE** | `docs/ARCHITECTURE.md` | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍；**纯模板化不需要改** |
 
 **容易遗漏的项**:
-- 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效,且无警告,纯静默
-- 第 4 列双向——`fromMarkdown` 加了,`toMarkdown` 忘了,文件保存再加载会丢数据
+- 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效，且无警告，纯静默
+- 第 4 列双向——`fromMarkdown` 加了，`toMarkdown` 忘了，文件保存再加载会丢数据
 - 第 9 列留痕——发版时该语法的 feat/fix 走 `git log` 即可；如属"重大决策"必须补 ADR 块（"为什么走 X 不走 Y"的取舍不写在 commit message 里）
 - 第 10 列过度——简单语法也写一段"设计要点"反而稀释文档信号
 
 **已落地的语法参照**:
-- `mermaid` v0.4.6+ 涉及 schema(`code_block { language: 'mermaid' }`,无独立节点) + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(扫 code_block 渲染 SVG widget,不走 syntax)。codeHighlight 工具条 + mermaid SVG widget 双 widget 共存(不同 side)
+- `mermaid` 涉及 schema(`code_block { language: 'mermaid' }`，无独立节点) + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(扫 code_block 渲染 SVG widget，不走 syntax)。codeHighlight 工具条 + mermaid SVG widget 双 widget 共存(不同 side)
 - `alert` 涉及 schema + remark(remarkAlert) + markdownIO 双向 + syntax/block/alert + 注册
 - `footnote` 涉及 schema + NodeView + FootnoteNumberPlugin + syntax/inline/footnoteRef + 注册
 - `_italic` / `~~strike~~` 涉及 schema + syntax/inline + 注册(无 NodeView / 无 remark)
@@ -90,10 +89,10 @@
 
 ## 工作风格约定
 
-- **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先问用户
+- **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先询问
 - **修 bug 先看 ARCHITECTURE 的"设计要点"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
-- **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全绿
+- **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全部通过
 - **类型严格**：TypeScript strict 模式，`vue-tsc --noEmit` 必须 0 错
 
 
@@ -121,13 +120,12 @@ Fix:
 ```
 
 
-- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore`
+- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` 等
 - **version**：当前项目版本（`v<major>.<minor>.<patch>`），同一版本的多个 commit 共用同一 scope
 - **summary**：1 句概括性的的英文，描述"这次 commit 干了什么"
+- **bullet**：按改动类型分组，英文 bullet 在前，中文 bullet 复述在后
+- **依赖变更**：包括 `Cargo.toml` / `package.json`，如果没有变更则不加入此项
 
-**Body**
-
-按改动类型分组，每组用 `<Type>:` 开头；英文 bullet 在前，中文 bullet 复述在后。依赖变更（`Cargo.toml` / `package.json`）单独用 `依赖变更：` section 收口，如果没有则可以跳过此项。
 
 ## 版本发布
 
@@ -139,7 +137,7 @@ npm version <level> -f -m <commit message>
 
 - `<level>` 为 `patch` / `minor` / `major`，由用户指定或根据改动范围判断
 - `npm version` 会自动： bumped `package.json` version → `version` lifecycle（`scripts/sync-tauri-version.mjs` 同步 Tauri 版本 + git add） → git commit → git tag
-- 完成后提醒用户 `git push --follow-tags` 推送 commit 和 tag
+- 完成后执行 `git push --follow-tags` 推送 commit 和 tag
 
 
 
