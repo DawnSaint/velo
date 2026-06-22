@@ -8,8 +8,17 @@
 // 5) 完整 HTML 文档结构(<!DOCTYPE html><head><style>...</style><body>)
 
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import { buildExportHtml, resolveExportThemes } from '../htmlRenderer'
 import { __resetMermaidExportIdForTest } from '../mermaidHtml'
+
+// 用于 SCSS 源读取:vitest 跑 `?inline` / `?raw` 对 .scss 都返回空(同 katex
+// woff2 测试,见 katexCss.ts 注释)。直接从 fs 读 SCSS 源更可靠。
+const FOOTNOTE_SCSS_PATH = resolvePath(__dirname, '../../../styles/_footnote.scss')
+function readFootnoteScss(): string {
+  return readFileSync(FOOTNOTE_SCSS_PATH, 'utf8')
+}
 
 const baseOpts = (content: string) => resolveExportThemes({
   content,
@@ -164,6 +173,36 @@ describe('htmlRenderer', () => {
       expect(html).toContain('这是脚注描述')
     })
 
+    it('inlines .footnote-ref CSS rule into export <style> (not just the markup class)', async () => {
+      // 修 v0.4.7 回归:htmlRenderer 早先 <sup class="footnote-ref"> 但 _footnote.scss
+      // 只配 .footnote-ref-node → 导出 HTML 拿浏览器默认 sup 灰色小字,无蓝字
+      // 无 hover 高亮。修法:_footnote.scss 给 .footnote-ref 单独写镜像规则
+      // (共享 --md-primary-color + 同款 hover,<a> inherit color + 去 underline)。
+      // 此处断言 SCSS 源里必须能找到这些规则,防止未来 SCSS 改动把 .footnote-ref
+      // 块丢掉而 walker 端 class 字符串照旧,测试才不掉链。
+      //
+      // 注:跟 katex woff2 内联测试同理 —— vitest 跑 `?inline` / `?raw` 对 .scss
+      // 处理跟 prod build 不同(都返回空),直接用 fs 读 SCSS 源 + 验源里有规则。
+      // SCSS 编译产物在 prod build 由 Vite 走 sass-loader 展开 @forward + 嵌套,
+      // 这些规则块落到 .velo-editor 容器里,跟此处断言的"在 .velo-editor
+      // .footnote-ref 块内"语义同源。
+      const scss = readFootnoteScss()
+      // .footnote-ref 自身:主色 + 圆角 + 字号 + 走 --md-primary-color 变量
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*color:\s*var\(--md-primary-color/)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*border-radius:\s*3px/)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*font-size:\s*0\.85em/)
+      // hover 高亮 —— 跟编辑器内 .footnote-ref-node:hover 同款 color-mix
+      // (SCSS 源是嵌套 &:hover,编译后展开成 .velo-editor .footnote-ref:hover,
+      // 断言 SCSS 源里 .footnote-ref 块下含 &:hover { + 同款 color-mix)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[\s\S]*?&:hover\s*\{[\s\S]*?color-mix\([^)]*--md-primary-color/)
+      // <a> 在 sup 内:inherit color + 去 underline(否则浏览器默认蓝下划线盖掉主色)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s+a\s*\{[^}]*color:\s*inherit/)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s+a\s*\{[^}]*text-decoration:\s*none/)
+      // 反例:_footnote.scss 必须保留编辑器侧的 .footnote-ref-node 规则,
+      // 两套规则共享视觉但分头定义(导出侧不需要 contentEditable 专有样式)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref-node\s*\{/)
+    })
+
     it('slugifies non-ASCII footnote labels consistently for ref + def', async () => {
       // FootnoteNodeViews.ts:slug 把非 [A-Za-z0-9_-] 替成 _,导出端 footnoteSlug 必须同款
       const md = '看[^中文标签]\n\n[^中文标签]: 描述'
@@ -199,6 +238,119 @@ describe('htmlRenderer', () => {
     expect(html).toContain('note body')
     expect(html).toContain('warn body')
     expect(html).not.toContain('[!NOTE]')
+  })
+
+  describe('TOC ([TOC])', () => {
+    it('renders [TOC] paragraph as nested ul/li tree of all headings', async () => {
+      // [TOC] 段落:整段只有一个 text 节点 + value === '[TOC]'。
+      // walker 必须有 toc 分支,否则只走 <p>[TOC]</p>(旧 bug)。
+      const md = [
+        '# H1 Top',
+        '## H1.1',
+        '### H1.1.1',
+        '## H1.2',
+        '# H2 Sibling',
+        '',
+        '[TOC]',
+        '',
+        '正文段落。',
+      ].join('\n')
+      const { html } = await buildExportHtml(baseOpts(md))
+      // 容器 + 嵌套 ul/li + velo-toc-link class 都在
+      expect(html).toContain('<div class="velo-toc">')
+      expect(html).toContain('<ul class="velo-toc-list">')
+      expect(html).toContain('<li class="velo-toc-item"')
+      expect(html).toContain('<a class="velo-toc-link"')
+      // 文字没被 escape 错位(textOfChildren 拼出 plain text)
+      expect(html).toContain('>H1 Top</a>')
+      expect(html).toContain('>H1.1</a>')
+      expect(html).toContain('>H1.1.1</a>')
+      expect(html).toContain('>H2 Sibling</a>')
+      // 反例:[TOC] 不能落到 <p>[TOC]</p>(必须被识别为 toc 段落)
+      expect(html).not.toMatch(/<p>\[TOC\]<\/p>/)
+      // 反例:正文段落仍然渲染为 <p>
+      expect(html).toContain('<p>正文段落。</p>')
+    })
+
+    it('TOC link href uses the same slugify as heading id (so clicks jump correctly)', async () => {
+      // heading id 走 slugify(toLowerCase + space→dash);
+      // TOC 链接 href 必须用同款 slug 才能命中浏览器锚点跳转。
+      // 复刻维护者注意点 #21:不能保留字面空格 / 大写。
+      const md = '## Hello World\n\n[TOC]'
+      const { html } = await buildExportHtml(baseOpts(md))
+      expect(html).toMatch(/<h2[^>]*id="hello-world"/)
+      expect(html).toContain('href="#hello-world"')
+      expect(html).not.toMatch(/href="#Hello World"/)
+      expect(html).not.toMatch(/href="#Hello%20World"/)
+    })
+
+    it('--toc-level CSS var mirrors TocDecoration.ts: level - 1 (h1 → 0)', async () => {
+      const md = '# A\n## B\n### C\n\n[TOC]'
+      const { html } = await buildExportHtml(baseOpts(md))
+      expect(html).toMatch(/<li[^>]*--toc-level: 0[^>]*>[\s\S]*?>A</)
+      expect(html).toMatch(/<li[^>]*--toc-level: 1[^>]*>[\s\S]*?>B</)
+      expect(html).toMatch(/<li[^>]*--toc-level: 2[^>]*>[\s\S]*?>C</)
+    })
+
+    it('renders empty-state message when doc has no headings', async () => {
+      // 对齐 TocDecoration.ts:makeTocWidget 的 "No headings in this document" 分支
+      const { html } = await buildExportHtml(baseOpts('[TOC]\n\n正文无标题。'))
+      expect(html).toContain('<div class="velo-toc">')
+      expect(html).toContain('<p class="velo-toc-empty">No headings in this document</p>')
+      // 没有 velo-toc-list(空树不渲染列表)
+      expect(html).not.toContain('<ul class="velo-toc-list">')
+    })
+
+    it('does NOT treat paragraphs that merely contain [TOC] as TOC', async () => {
+      // 段落里只是包含 [TOC] 文本(不是独占段落)→ 走普通 paragraph 渲染。
+      // markdownIO.ts:121-124 也只识别"整段只有 [TOC] 文本",不误伤正文。
+      const md = '正文里写着 [TOC] 是占位符。'
+      const { html } = await buildExportHtml(baseOpts(md))
+      // 普通 <p> 包文本
+      expect(html).toContain('<p>正文里写着 [TOC] 是占位符。</p>')
+      // 没被升级成 velo-toc
+      expect(html).not.toContain('<div class="velo-toc">')
+    })
+
+    it('collects headings from the whole doc regardless of [TOC] position', async () => {
+      // 对齐编辑器:doc.descendants 走全文 —— heading 在 [TOC] 之前 / 之后都收集
+      const md = [
+        '# Before',
+        '',
+        '[TOC]',
+        '',
+        '## After',
+      ].join('\n')
+      const { html } = await buildExportHtml(baseOpts(md))
+      expect(html).toContain('>Before</a>')
+      expect(html).toContain('>After</a>')
+    })
+
+    it('collects headings nested inside blockquote / alert / list', async () => {
+      // remarkAlert / blockquote / list 都递归走 children 收集 heading
+      const md = [
+        '[TOC]',
+        '',
+        '> ## Quoted',
+        '',
+        '- item',
+        '  - nested',
+        '',
+      ].join('\n')
+      const { html } = await buildExportHtml(baseOpts(md))
+      // blockquote 内的 ## Quoted 应该被收集
+      expect(html).toContain('>Quoted</a>')
+    })
+
+    it('headings inside headings (text with marks) flatten to plain text for the link', async () => {
+      // heading ## **Hello** *World* → plain text "Hello World"
+      // TOC 链接文字与 heading id 都按 plain text 算 → 两边对得上
+      const md = '## **Hello** *World*\n\n[TOC]'
+      const { html } = await buildExportHtml(baseOpts(md))
+      expect(html).toMatch(/<h2[^>]*id="hello-world"/)
+      expect(html).toContain('>Hello World</a>')
+      expect(html).toContain('href="#hello-world"')
+    })
   })
 
   describe('mermaid', () => {

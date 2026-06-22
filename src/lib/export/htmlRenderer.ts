@@ -130,12 +130,18 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   // 同步预装只对 list 中存在的 lang 起效;shiki 内部去重,重复 call 安全
   await Promise.all(usedLangs.map((l: string) => ensureLanguage(l).catch(() => {})))
 
-  // 3) mdast → HTML
+  // 3) 预扫 headings —— [TOC] 段落需要整篇 headings 来构建目录树,
+  //    不能只看到 [TOC] 之后的内容(对齐编辑器:doc.descendants 走全文)
+  const headings = collectMdastHeadings(tree.children as any[])
+  const tocTree = buildTocTree(headings)
+
+  // 4) mdast → HTML
   const bodyHtml = await mdastToHtml(tree.children, {
     currentFilePath,
     lightTheme,
     darkTheme,
     warnings,
+    tocTree,
   })
 
   // 4) 组装完整 HTML 文档
@@ -224,6 +230,8 @@ interface WalkContext {
   lightTheme: string
   darkTheme: string
   warnings: string[]
+  /** 预扫整篇 doc 得到的 heading 树 —— 给 [TOC] 段落渲染用。 */
+  tocTree: TocTreeNode[]
 }
 
 async function mdastToHtml(nodes: RootContent[], ctx: WalkContext): Promise<string> {
@@ -237,6 +245,14 @@ async function mdastToHtml(nodes: RootContent[], ctx: WalkContext): Promise<stri
 async function mdastNodeToHtml(node: RootContent | any, ctx: WalkContext): Promise<string> {
   switch (node.type) {
     case 'paragraph': {
+      // [TOC] 独占段落 → 渲染成目录 widget。对齐 markdownIO.ts:121-124
+      // 的识别规则(整段只有一个 text 节点 + 内容是 "[TOC]" + 容忍首尾空白),
+      // 以及编辑器内 TocDecoration.ts 的 DOM 结构(.velo-toc > .velo-toc-list
+      // > .velo-toc-item > .velo-toc-link + 嵌套 ul)—— _editor-toc.scss 已
+      // 通过 @forward 包含到 exportStyles.scss,所以样式自动命中。
+      // 区别:编辑器走 span + JS click 滚动;导出 HTML 是静态,改用
+      // <a href="#slug"> 让浏览器原生锚点跳转生效(对应 heading id)。
+      if (isTocParagraph(node)) return renderTocHtml(ctx.tocTree)
       const children = await mdastInlineToHtml(node.children as PhrasingContent[], ctx)
       // preserveEmptyLine 注入的 <br /> 占位代表"1 个空段" —— 不渲染空 <p>
       if (isEmptyBrPlaceholder(node) || !children.trim()) return ''
@@ -516,8 +532,13 @@ async function inlineNodeToHtml(node: PhrasingContent | any, ctx: WalkContext): 
     }
     case 'footnoteReference': {
       // 对齐编辑器 NodeView:id=velo-fnref-{slug},href=#velo-fn-{slug}。
-      // class 用 footnote-ref(无 velo- 前缀,跟 _footnote.scss 的 .footnote-ref-node 同源,
-      // 但导出场景不需要 contentEditable 编辑态,纯文本 <sup><a> 即可)。
+      // class 用 footnote-ref(无 velo- 前缀)而非编辑器的 .footnote-ref-node:
+      // 编辑器内 <sup> 是 contentEditable 的(NodeView 把 textContent 当 label),
+      // .footnote-ref-node 的规则带 cursor:text / outline:none / user-select /
+      // :focus 等 contentEditable 专有样式,套在静态 <sup><a> 上要么无意义要么
+      // 冲突;故 walker 拆开类名,_footnote.scss 给 .footnote-ref 单独写一份
+      // 镜像规则(共享 --md-primary-color 主色 + 同款 hover 高亮,<a> 继承
+      // color + 去 underline),保证导出 HTML 视觉与编辑器对齐。
       const label = String(node.identifier ?? '')
       const slug = footnoteSlug(label)
       const labelEsc = escapeHtml(label)
@@ -549,6 +570,93 @@ function textOfChildren(children: any[]): string {
     else if (c.children) parts.push(textOfChildren(c.children))
   }
   return parts.join('').trim()
+}
+
+// ========== [TOC] ==========
+
+interface TocTreeNode {
+  level: number  // 1..6
+  text: string
+  slug: string
+  children: TocTreeNode[]
+}
+
+/**
+ * 判断 mdast paragraph 是否就是 [TOC] 占位 —— 对齐 markdownIO.ts:121-124
+ * 的识别规则(整段只有一个 text 节点 + value 是 "[TOC]" + 容忍首尾空白)。
+ * 正文段落里含 `[TOC]` 不会被误识别,因为那些段落的 children 不止一个 text 节点
+ * (含 strong/em/link 等,或 text 值长度/内容不同)。
+ */
+function isTocParagraph(node: any): boolean {
+  if (!node || node.type !== 'paragraph') return false
+  const children = node.children ?? []
+  if (children.length !== 1) return false
+  if (children[0].type !== 'text') return false
+  return (children[0].value ?? '').trim() === '[TOC]'
+}
+
+/**
+ * 预扫整篇 mdast 树收集所有 heading —— 给 [TOC] 用。对齐编辑器
+ * TocDecoration.ts:collectHeadings(doc.descendants) 走全文(不看 [TOC]
+ * 出现位置)。heading 文本走 textOfChildren 抽 plain text,与 walker
+ * 给 `<h{level} id=...>` 写 id 时用的 slug 源同款,保证目录链接跟
+ * heading id 一一对得上。
+ */
+function collectMdastHeadings(nodes: any[]): { level: number; text: string; slug: string }[] {
+  const headings: { level: number; text: string; slug: string }[] = []
+  const visit = (ns: any[]) => {
+    for (const n of ns) {
+      if (n.type === 'heading') {
+        const level = Math.min(Math.max(n.depth ?? 1, 1), 6)
+        const text = textOfChildren(n.children ?? [])
+        if (text) headings.push({ level, text, slug: slugify(text) })
+        continue  // heading 不递归(它没有 block children)
+      }
+      if (Array.isArray(n.children)) visit(n.children)
+    }
+  }
+  visit(nodes)
+  return headings
+}
+
+/** 把线性 heading 列表按 level 嵌套成树(同 TocDecoration.ts:buildTree 语义)。 */
+function buildTocTree(flat: { level: number; text: string; slug: string }[]): TocTreeNode[] {
+  const root: TocTreeNode[] = []
+  const stack: TocTreeNode[] = []
+  for (const h of flat) {
+    const node: TocTreeNode = { level: h.level, text: h.text, slug: h.slug, children: [] }
+    while (stack.length && stack[stack.length - 1].level >= node.level) stack.pop()
+    if (stack.length === 0) root.push(node)
+    else stack[stack.length - 1].children.push(node)
+    stack.push(node)
+  }
+  return root
+}
+
+function renderTocHtml(tree: TocTreeNode[]): string {
+  if (tree.length === 0) {
+    // 对齐 TocDecoration.ts:makeTocWidget 的空态文案
+    return `<div class="velo-toc"><p class="velo-toc-empty">No headings in this document</p></div>`
+  }
+  const items = tree.map(renderTocItem).join('')
+  return `<div class="velo-toc"><ul class="velo-toc-list">${items}</ul></div>`
+}
+
+function renderTocItem(node: TocTreeNode): string {
+  // 用 <a href="#slug"> 代替编辑器的 <span> + JS click —— 静态导出无 JS,
+  // 原生锚点跳转即可。_editor-toc.scss 里 .velo-toc-link 已经 text-decoration:none
+  // + color:#666,挂在 <a> 上视觉与编辑器一致(不被默认蓝色 underline 影响)。
+  const text = escapeHtml(node.text)
+  const href = node.slug ? `#${escapeHtml(node.slug)}` : '#'
+  // 对齐 TocDecoration.ts:buildItem 的 --toc-level = level - 1(h1 → 0)
+  const levelVar = node.level - 1
+  const inner = node.children.length
+    ? `<ul class="velo-toc-list">${node.children.map(renderTocItem).join('')}</ul>`
+    : ''
+  return `<li class="velo-toc-item" style="--toc-level: ${levelVar}">`
+    + `<a class="velo-toc-link" href="${href}">${text}</a>`
+    + inner
+    + `</li>`
 }
 
 function slugify(s: string): string {
