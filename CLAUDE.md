@@ -11,6 +11,7 @@
      - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本的迭代方向
      - [`docs/DECISIONS.md`](./docs/DECISIONS.md) — 重大架构决策与重大重构的 ADR
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 版本变更日志
+     - [`docs/TESTING.md`](./docs/TESTING.md) — 测试规约与维护约定；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
 2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。如果 ARCHITECTURE 找不到时再选择查找 DECISIONS.md。
 
 ## 仓库速览
@@ -67,6 +68,12 @@
 - 编号 `ADR-YYYYMMDD-NNN`，按写入顺序递增
 - 写入时机：**版本发布时整批入**（与 ROADMAP 整章删除、CHANGELOG 同步），不要零散追加
 - 改 ADR（修正事实 / 补充后果）直接在原条目改，不要新开条目覆盖；如有"已被新决策取代"用 `Superseded by ADR-XXX` 在 Status 里标注
+
+### 5. TESTING.md — 测试规约与现状同步
+
+- TESTING.md 记**稳定的测试规约**（选型、Tauri 隔离层、目录命名、维护约定、反过度测试原则）+ 一句话现状快照（文件数 / 用例数 / 耗时）；**不记阶段勾选式进度表**，向前的测试规划走 ROADMAP
+- 同步触发：新增 / 删除测试文件、动测试基建（`vitest.config.ts` / `src/test/setup.ts`）、测试规约本身变化时更新；纯加用例不触发同步，发版时更新现状快照数字
+- 反过度测试原则（测行为不测实现、最便宜层优先、不测薄封装、敢删死重用例）见 TESTING.md，新增测试前对照
 
 
 

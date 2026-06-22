@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.7] — 2026-06-22
+
 ### Added
 - **导出功能 (HTML / PDF)**：顶栏新增"导出"按钮（`Ctrl/Cmd+Shift+E`），弹原生 saveDialog 选 HTML / PDF。
   - **HTML**：自包含文档，mermaid / KaTeX / 代码高亮 / 任务列表 / 警告框 / GFM 表格 / 脚注 / kbd / mark 全部内嵌；图片走 `asset://` 协议在 Tauri webview 内可显示；自适应 `prefers-color-scheme` 暗色；导出失败有 warnings 收集而非中断。
-  - **PDF**：经 Tauri 调平台原生 PrintToPDF 静默写盘，**不弹任何系统对话框**（与 Typora / Obsidian 同款 UX）。Windows 已实现；macOS / Linux 暂不支持。
-
-### Changed
-- 引入导出管线端到端 + store 合约测试。
+  - **PDF**：经平台原生打印能力静默写盘，**不弹任何系统对话框**（与 Typora / Obsidian 同款 UX）。Windows 已实现；macOS / Linux 暂不支持。
 
 ### Fixed
 - 导出 HTML / PDF 中 `[TOC]` 不被识别为目录（原当普通段落输出，目录结构丢失）。
