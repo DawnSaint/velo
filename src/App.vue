@@ -4,14 +4,15 @@ import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, type PersistedSettings } from '@/stores/persistence'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspaces, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import EditorSettings from '@/components/EditorSettings.vue'
-import EditorOutline from '@/components/EditorOutline.vue'
+import Sidebar from '@/components/Sidebar.vue'
 import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
@@ -28,6 +29,7 @@ const store = useEditorStore()
 const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
 const exportStore = useExportStore()
+const workspaceStore = useWorkspaceStore()
 
 const sampleMd = sampleMdRaw.replace(
   '/src/assets/Velo.png',
@@ -97,6 +99,7 @@ void initSettings()
 
 const showOutline = ref(false)
 const showSettings = ref(false)
+const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效；
 // 同时把暗色状态推到原生窗口，让 title bar 跟着变
@@ -191,6 +194,13 @@ const debouncedOutlineSave = debounce(() => {
     version: 1,
     files: outlineStore.snapshot(),
   })
+}, 500)
+
+// ========== 工作区持久化(v0.5.0) ==========
+// 启动时把磁盘上 active root + per-workspace 状态灌进 workspaceStore。
+// 后续任意状态变化 → 500ms debounce 落盘。
+const debouncedWorkspaceSave = debounce(() => {
+  void saveWorkspaces(workspaceStore.snapshot())
 }, 500)
 
 // 失焦保存：window blur 时静默写盘
@@ -360,6 +370,87 @@ function onKeydown(e: KeyboardEvent) {
 
 let unlistenCli: UnlistenFn | null = null
 
+// ========== 工作区根目录 fs.watch(v0.5.0)==========
+//
+// 单 recursive 句柄挂在 activeRoot。回调拿 watch event 推断脏目录,
+// 100ms debounce 后让 Sidebar.refreshDir 重拉那棵子树。**不做 path diff**,
+// 重拉整 dir 简单可靠,目录中数十个文件 readDir < 5ms。
+//
+// 与"当前文件 watch"(documentStore.startWatchOf)共存:当前文件也落在根树
+// 下,会收到两份事件 —— 但 documentStore 内 `disk === lastSavedContent`
+// 短路 + externalCheckInFlight 重入保护已足够去重,不需要在此特殊处理。
+//
+// 网络盘 / 同步工具的 notify-rs 漏报:window-focus 兜底已覆盖当前文件;
+// 工作区根侧没有等价兜底(代价高 —— 重新整树 walk),v0.5.0 接受这个限制,
+// 用户切回应用时手动点工作区刷新按钮(后续版本再补)。
+import { watch as watchFs, type UnwatchFn as FsUnwatchFn } from '@/tauri/fs'
+
+let workspaceUnwatch: FsUnwatchFn | null = null
+const dirtyDirs = new Set<string>()
+let dirtyFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleDirtyFlush() {
+  if (dirtyFlushTimer) return
+  dirtyFlushTimer = setTimeout(() => {
+    dirtyFlushTimer = null
+    const dirs = Array.from(dirtyDirs)
+    dirtyDirs.clear()
+    for (const d of dirs) {
+      sidebarRef.value?.refreshDir(d)
+    }
+  }, 120)
+}
+
+/** 从 fs.watch 事件中的路径反推所属目录,以便定位要刷新哪棵子树。 */
+function dirnameOf(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i <= 0 ? p : p.slice(0, i)
+}
+
+async function startWorkspaceWatch(root: string) {
+  await stopWorkspaceWatch()
+  if (!tauri) return
+  try {
+    workspaceUnwatch = await watchFs(
+      root,
+      (event) => {
+        const paths = Array.isArray(event.paths) ? event.paths : []
+        for (const p of paths) {
+          dirtyDirs.add(dirnameOf(p))
+        }
+        // 极端情况下没解析到 path,至少刷一下根
+        if (paths.length === 0) dirtyDirs.add(root)
+        scheduleDirtyFlush()
+      },
+      { recursive: true, delayMs: 150 },
+    )
+  }
+  catch (e) {
+    console.error('工作区 watch 启动失败', e)
+  }
+}
+
+async function stopWorkspaceWatch() {
+  if (!workspaceUnwatch) return
+  try { await workspaceUnwatch() }
+  catch (e) { console.warn('工作区 watch 停止失败', e) }
+  workspaceUnwatch = null
+}
+
+// activeRoot 变化:重建 watch。先 stop 后 start,沿用 documentStore.startWatchOf
+// 的 race 容忍策略 —— 用户快速切换工作区时,新 watch 句柄会赢,旧的就算回调
+// 漏过来也只是多刷一次树,无副作用。
+watch(() => workspaceStore.activeRoot, async (r) => {
+  if (r) await startWorkspaceWatch(r)
+  else await stopWorkspaceWatch()
+})
+
+// 当前打开文件变化 → 同步到 workspaceStore.lastFile,用户切回工作区时能恢复。
+// 无活跃工作区时 setLastFile 内部直接 return,不污染状态。
+watch(() => documentStore.currentFilePath, (p) => {
+  workspaceStore.setLastFile(p)
+})
+
 // ========== 草稿定时落盘 ==========
 // dirty 时每 DRAFT_SAVE_INTERVAL_MS 写一份到 appDataDir/drafts/,崩溃 / 强杀时
 // 下次启动能恢复。store 自己已经在 save() / saveAs() 成功后清掉了,这里只管"周期"。
@@ -387,6 +478,13 @@ onMounted(async () => {
   const outlineLoaded = await loadOutlineState()
   if (outlineLoaded?.files) outlineStore.loadFrom(outlineLoaded.files)
 
+  // 0.1) 工作区状态(v0.5.0)。在 CLI 打开文件之前 load —— 若上次激活的
+  //      工作区里有 lastFile,等于把"当前文档"的初始路径准备好;后续 CLI
+  //      参数若指定了文件,会覆盖这个 lastFile。失败一律不抛,沿用 settings
+  //      / outline 同款降级:store 走默认值(无工作区),不阻塞 UI。
+  const workspacesLoaded = await loadWorkspaces()
+  if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded)
+
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
   //      注意:draft 落盘 / 恢复扫描必须放 CLI 打开文件之后(见下面 1.5)。
@@ -412,6 +510,15 @@ onMounted(async () => {
   watch(
     () => outlineStore.collapsedByPath,
     () => { debouncedOutlineSave() },
+    { deep: true },
+  )
+
+  // 工作区任意状态变化 → debounce 落盘。
+  // deep:true 必加 —— per-workspace state(expandedDirs / lastFile / sidebarTab)
+  // 是嵌套对象,无 deep 改子字段不会触发。
+  watch(
+    () => [workspaceStore.activeRoot, workspaceStore.workspaces, workspaceStore.sidebarTab] as const,
+    () => { debouncedWorkspaceSave() },
     { deep: true },
   )
 
@@ -531,6 +638,11 @@ onBeforeUnmount(() => {
     clearInterval(draftTimer)
     draftTimer = null
   }
+  if (dirtyFlushTimer) {
+    clearTimeout(dirtyFlushTimer)
+    dirtyFlushTimer = null
+  }
+  void stopWorkspaceWatch()
   window.removeEventListener('keydown', onKeydown, { capture: true })
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('focus', onWindowFocus)
@@ -549,7 +661,7 @@ onBeforeUnmount(() => {
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': showOutline }"
-          title="大纲"
+          title="侧边栏(大纲 / 文件)"
           @click="showOutline = !showOutline"
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
@@ -635,12 +747,13 @@ onBeforeUnmount(() => {
 
     <!-- 主体 -->
     <div class="flex flex-1 overflow-hidden">
-      <!-- 大纲面板 -->
+      <!-- 侧边栏(大纲 / 文件 tab 切换) -->
       <aside
         class="outline-panel shrink-0 overflow-hidden border-gray-200 bg-[#f5f5f5] dark:border-gray-800 dark:bg-[#1a1a1a]"
         :class="showOutline ? 'w-64' : 'w-0'"
       >
-        <EditorOutline
+        <Sidebar
+          ref="sidebarRef"
           :model-value="documentStore.content"
           :file-path="documentStore.currentFilePath"
         />
