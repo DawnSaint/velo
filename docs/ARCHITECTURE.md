@@ -28,12 +28,15 @@
 velo/
 ├── docs/ARCHITECTURE.md
 ├── src/
-│   ├── App.vue                    顶栏 + 大纲 + 编辑器 + 设置
-│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / export / persistence IO
+│   ├── App.vue                    顶栏 + 侧边栏(大纲 / 文件) + 编辑器 + 设置
+│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / export / persistence IO
+│   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
 │   ├── styles/                    Tailwind + Sass partial
 │   └── components/
-│       ├── EditorOutline.vue
+│       ├── Sidebar.vue            大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
+│       ├── EditorOutline.vue      hideHeader prop 嵌入 Sidebar 时不画 h2
+│       ├── FileTree.vue           工作区根 + 子目录懒加载,点击 .md 打开
 │       ├── EditorSettings.vue
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
@@ -133,7 +136,9 @@ velo/
 
 **崩溃恢复**: 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
 
-**持久化**: `appDataDir/{velo-settings.json, velo-outline-state.json, drafts/}`,失败降级不阻塞 UI。
+**持久化**: `appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走"active root + 每个根的 expandedDirs / lastFile / sidebarTab"格式,跨工作区切换记忆各自展开状态与 sidebar tab。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
+
+**工作区**: `workspaceStore` 持有 `activeRoot` / `workspaces[root].{expandedDirs,lastFile,sidebarTab}` / `sidebarTab`。`Sidebar.vue` 走 tab 互斥渲染(v-if 而非 v-show,免得 EditorOutline scroll-spy DOM 监听与 FileTree dirIndex 同时活着争 scroll container)。工作区根挂单 recursive `fs.watch`(delayMs:150 + 前端 120ms 二次防抖,脏目录集驱动 `FileTree.refreshDir` 子树重拉)。`documentStore.currentFilePath` 变化同步到 `workspaceStore.lastFile`,重开工作区时可恢复。
 
 ---
 
@@ -160,6 +165,10 @@ velo/
 
 - **store (`stores/export.ts`)**: `exportDocument()` 调 `saveDialog` 多 filter(HTML / PDF),按扩展名 dispatch:`.html` → `buildExportHtml` + `writeTextFile`;`.pdf` → `invoke('export_pdf', { outputPath, html })`。**reentrant 守门**(`exporting.value` 期间第二次调用立刻返回);成功/失败弹原生 `message`(故 Rust 端走隐藏打印窗口保主 webview 活着);**不**改 `currentFilePath`/`lastSavedContent`/`fs:watch` —— 导出是"产出一份静态文件",与"切换到那个文件继续编辑"是不同语义(见 DECISIONS ADR-20260621-001)
 
+- **工作区根 fs.watch 走单 recursive 句柄 + 脏目录集 debounce**: `activeRoot` 变化时先 stop 后 start(沿用 documentStore 同款 race 容忍策略),回调把 `dirnameOf(event.paths)` 入 `dirtyDirs` Set,前端 120ms `setTimeout` 二次 debounce flush → 对每个脏目录调 `FileTree.refreshDir(dir)` 重拉那棵子树。`readDir` 一次 < 5ms,**不做 path diff**,简单可靠。当前文件 watch 与工作区根 watch 共存:当前文件也落在根树下会收到两份事件,documentStore 内 `disk === lastSavedContent` 短路 + `externalCheckInFlight` 重入保护已足够去重,不需要协调。**已知限制**:notify-rs 对网络盘 / OneDrive 漏报在目录级比文件级更严重,window-focus 兜底只覆盖当前文件,工作区根侧暂无等价兜底(代价高),见 DECISIONS ADR-20260623-001
+
+- **Tauri API 业务侧只 import `src/tauri/*`**: `src/tauri/{fs,dialog,path}.ts` 是 `@tauri-apps/*` 的薄 re-export,业务代码不再直 import `@tauri-apps/plugin-fs` / `plugin-dialog` / `api/path`。`tauriOnly()` 命名导出从 persistence 内部 helper 提升到 `@/tauri/fs`,所有需要 web dev 端降级的地方统一通过它判断。封装层**不**统一错误形态 —— 调用方各自降级策略(persistence 走默认值 / document.save 弹 message / imageStorage throw)消化原 plugin-fs 不一致的错误形态。后续测试 mock 可逐步从 `@tauri-apps/*` 收敛到 `src/tauri/*`,本期保留旧 mock 形态借 vi.mock 透传(见 DECISIONS ADR-20260623-002)
+
 ---
 
 ## 维护者注意点
@@ -183,6 +192,7 @@ velo/
 > - 导出 KaTeX 字体不要漏 inline —— 见 #20
 > - 新增暗色规则不要只写一边 —— 见 #21
 > - 新增 mdast node 类型不要漏 walker case(walker 不自动递归未知 children) —— 见 #22
+> - FileTree 新增节点不要 raw 对象,必须 `reactive()` 包 —— 见 #23
 > - `[TOC]` 回写 toMarkdown 不要用 text 节点 —— 见设计要点「TOC 目录走 Decoration.widget」
 
 1. **路径别名**: `@/` → `src/`
@@ -207,3 +217,4 @@ velo/
 20. **导出 KaTeX 字体必须 inline**: katex.min.css 里 `@font-face` 引用 `url(fonts/KaTeX_*.{woff2,woff,ttf})`,编辑器侧 Vite side-effect import 会改写 url();但**导出走 `?inline` 拿 CSS 原文,Vite 不改 url()**,导出旁无 `fonts/` → 字体回退。`lib/export/katexCss.ts` 顶层 `import.meta.glob` 拿 20 个 woff2 base64 data URI,`inlineKatexWoff2Fonts` 把每条 `@font-face` 的 src 改写成单条 woff2 data URI 并 strip woff/ttf(现代浏览器含 WebView2 首选 woff2,后两条只是 fallback;只 inline woff2 压到 ~340KB 而非全部 60 文件 ~1.3MB)。vitest 走纯函数 `inlineKatexWoff2Fonts(css, fontMap)` 验转换逻辑(`?inline` 在 vitest 与 prod build 行为不一致返回空)
 21. **新增暗色规则要两处同步**: editor 走 `_editor-dark.scss` 的 `:is(.dark .velo-editor, .velo-editor.dark)`(Vue 控制 `<html class="dark">`),export 走 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)`(**自写副本,不 forward `_editor-dark.scss`**,导出 HTML 无 `.velo-editor.dark` 依赖)。两套语义不等价:导出只跟系统暗色偏好走,不能跟应用内 toggle 走。新增暗色规则必须两边写
 22. **新增 mdast node 类型必须改 walker + CSS**: 导出 walker 的 `mdastNodeToHtml` switch `default: return ''` **静默丢节点**(无 warn 无错误)—— 任何 mdast 类型 walker 不显式 case,导出 HTML 直接消失。规约:新增自定义 mdast type = walker 加 case + 输出 DOM + class 名跟 editor NodeView 一致(联动 #16);新增 block 容器类型(children-recurse,类似 alert/blockquote)也要加专门 case 内部 `node.children.map(mdastNodeToHtml)`,**不要假设 walker 会自动递归未知 children** —— walker 只对已知 case 递归。checklist:加新 syntax 同时 grep `case '` 看 walker 是否覆盖
+23. **FileTree 的 TreeNode 必须 `reactive()` 包装**: `dirIndex: Map<string, TreeNode>` 与 `rootNode = ref<TreeNode>` 持有同一份引用,如果用 raw 对象,`rootNode.value = node` 后 ref 里是 proxy,Map 里是 raw,异步 `loadDirChildren` 对 raw 改 `node.loading=false / node.children=[...]` 不触发模板重渲 → UI 永远卡在"加载中…"且**控制台无报错**。`makeNode` 统一返回 `reactive({...})`,保证 dirIndex 与 rootNode 内全是 proxy

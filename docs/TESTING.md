@@ -29,8 +29,8 @@
 
 ## 3. 现状快照
 
-> 31 个测试文件 / 486 用例 / 全绿 / ~20s。
-> 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)。
+> 34 个测试文件 / 506 用例 / 全绿 / ~20s。
+> 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(Sidebar tab 切换 / FileTree 过滤排序)。
 >
 > 向前规划(组件层按需补、E2E 何时启动)见 ROADMAP,不在此维护阶段表。
 
@@ -73,7 +73,9 @@ src/
 └── components/
     ├── __tests__/
     │   ├── crossModeSync.test.ts
-    │   └── SourceModeEditor.test.ts
+    │   ├── SourceModeEditor.test.ts
+    │   ├── FileTree.test.ts
+    │   └── Sidebar.test.ts
     └── ProseMirrorEditor/
         ├── __tests__/                    # 编辑器核心:markdownIO / 语法 / 键位 / NodeView / 插件
         ├── nodes/__tests__/

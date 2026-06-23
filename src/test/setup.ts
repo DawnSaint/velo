@@ -60,6 +60,8 @@ vi.mock('@tauri-apps/api/path', () => ({
   join: vi.fn(async (...parts: string[]) => parts.join('/').replace(/\\/g, '/')),
   // imageStorage 拿 dirname(currentFilePath) 算 fileDir
   dirname: vi.fn(async (p: string) => p.split('/').slice(0, -1).join('/') || '/'),
+  // FileTree rootDisplay 用 sep 拿路径分隔符
+  sep: vi.fn(() => '/'),
 }))
 
 // 默认 isTauri() 在 jsdom 里返回 false(globalThis.isTauri 没注入),

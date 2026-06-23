@@ -219,3 +219,46 @@
   - **跨平台一致性**:Windows 已完整实现 + 编译通过;macOS / Linux 暂时返回 Unsupported,需 macOS / Linux 环境开发者补完(独立子任务,不会污染 Windows 实现)
   - 已知遗留:HTML 注入 navigate(data_url) 后**不**自动 restore 主 webview URL,用户导出期间短暂看到 PDF 内容;可接受,后续可优化(在 PrintToPdf 完成后 navigate 回原 URL)
   - 导出测试 18 + 7 = 25 例,覆盖核心语法 / 降级 / store 合约(invoke PDF 路径) / reentrant 守门
+
+
+
+## v0.5.0 — 工作区与文件树骨架  (2026-06-23)
+
+### ADR-20260623-001: 工作区根走 recursive 单 watch 句柄,而非逐目录懒 watch
+
+- **Context**: v0.5.0 文件树需要反映外部对工作区下任意子目录的增删改。两条候选:
+  - A) 工作区根一个 `watch(root, { recursive: true, delayMs })` 单句柄,notify-rs 自带 delayMs burst 合并,cb 拿事件 paths 推断脏目录 → 重拉对应子树
+  - B) 每展开一个目录挂一个 watch,折叠 unwatch,`Map<dir, UnwatchFn>` 管多句柄
+  - 关键观察:`documentStore` 现有 `startWatchOf` / `stopWatch` 是 fire-and-forget 单句柄串行,理论 race 但单文件场景下被 `disk === lastSavedContent` 短路 + `externalCheckInFlight` 重入保护兜住,从未真触发。B 的多句柄生命周期把 race 风险从"理论"变"现实"(用户快速展开/折叠时 await stopWatch/await watch 交错可泄漏 / 串台),要做就得 per-dir 串行化队列,复杂度跳一档
+- **Decision**: 选 A。工作区根挂单 recursive watch,事件回调把 `dirnameOf(event.paths)` 入脏目录集,前端 120ms 二次 debounce flush → `FileTree.refreshDir(dir)` 逐个重拉。activeRoot 变化时先 stop 后 start,沿用 documentStore 同款 race 容忍策略
+- **Consequences**:
+  - 生命周期单句柄,跟 documentStore 单文件 watch 同形,认知负担小
+  - 当前文件 watch(documentStore)+ 工作区根 watch 共存,当前文件落在根树下会收到两份事件;documentStore 内 `disk === lastSavedContent` 短路已经去重,不需要额外协调
+  - 深目录树事件量大,前端二次 debounce 的同时只对"脏目录集"按目录重拉(`readDir` 一次 < 5ms),不重拉整树
+  - **已知限制**:notify-rs 对网络盘 / OneDrive / Dropbox 漏报在目录级比文件级更严重;窗口聚焦兜底(window-focus → checkExternalChange)只覆盖当前文件,工作区根侧无等价兜底,v0.5.0 接受。后续视用户反馈再决定加"重拉整树"按钮 / 自动
+
+
+### ADR-20260623-002: 新建 `src/tauri/` 薄封装层,业务侧不再直 import `@tauri-apps/*`
+
+- **Context**: v0.4.x 业务代码(`document.ts` / `persistence.ts` / `imageStorage.ts` / `export.ts` / `App.vue`)直接 import `@tauri-apps/plugin-fs` / `plugin-dialog` / `api/path`,测试 mock 散落打在各个 `@tauri-apps/*` 模块上。v0.5.x 起 fs 调用点会成倍增长(目录遍历 / 批量重命名 / 资产移动 / 文件树 watch / 多工作区切换);若不收敛,后续接 tauri-driver E2E 时需要逐处补 mock / 桩。候选:
+  - A) 建 `src/tauri/{fs,dialog,path}.ts` 薄封装(re-export + 一个 `tauriOnly` 守门 helper),业务侧只 import 封装;测试 mock 单一入口
+  - B) 沿用现状,业务直 import `@tauri-apps/*`
+- **Decision**: 选 A。`src/tauri/fs.ts` 暴露 readDir / readTextFile / writeTextFile / readFile / writeFile / mkdir / remove / rename / exists / watch + `tauriOnly()`;`src/tauri/dialog.ts` 暴露 open / save / confirm / message;`src/tauri/path.ts` 暴露 appDataDir / join / dirname / basename / sep。一次性迁移 `persistence.ts` / `document.ts` / `imageStorage.ts` / `export.ts` / `App.vue` 全部调用点。封装层**不**统一错误形态 —— plugin-fs 自家不一致的错误形态(Error vs string)由调用方各自的降级策略消化(persistence 走默认值 / document.save 弹 message / imageStorage throw 透传),封装层重新包一层会破坏现有降级语义
+- **Consequences**:
+  - 业务代码不再出现 `@tauri-apps/*` import;测试 mock 后续可逐步从 `@tauri-apps/*` 收敛到 `src/tauri/*`(本次保留旧 mock 形态,vi.mock 透传,避免大改测试)
+  - tauri-driver E2E 接入时,fs 边界是单一入口,横切关心(如"E2E 期间打 fixture 桩")集中加在 `src/tauri/*` 即可
+  - `tauriOnly()` 守门从 persistence 模块内部 helper 提升为 `src/tauri/fs.ts` 命名导出,业务代码统一通过它判断 web dev 端降级
+  - 封装层本身不写测试(测它等于测 mock,见 TESTING.md §8 反过度测试),保留薄度
+
+
+### ADR-20260623-003: capability fs scope 保持 `**`,不收紧到工作区根内
+
+- **Context**: `capabilities/default.json` 自 v0.3.x 起开 fs read-text-file / write-text-file / exists / watch / unwatch / mkdir / write-file / read-file / read-dir / remove / rename 全部 `allow: [{ path: "**" }]`。v0.5.x 起 fs 操作面变宽(目录遍历 / 资产移动 / 大量重命名),"是否要收紧到当前工作区根内"自然冒出来。三条候选:
+  - A) 保持 `**`,UI 层做约束(destructive op 必弹 confirm)
+  - B) 放弃 plugin-fs 直连,所有 fs op 改走自写 Rust command,在 Rust 侧校验路径必须在工作区根内
+  - C) 动态 capability / scope 变量:Tauri 2 fs scope 是静态 glob,不支持引用运行时选的根路径,技术上无法直接表达"仅当前工作区根" —— C 退化为 B
+- **Decision**: 选 A。理由:Velo 是本地单用户桌面编辑器,威胁模型是"用户主动打开的文件",`**` 不 worsen;对标 Typora / Obsidian / VS Code,本地编辑器 fs scope 本就是 `**`。B 等于重写 fs 访问层,只在"处理不可信工作区 / 多租户"时才有意义,Velo 不是。安全性靠 UI 层 destructive op 二次确认(删除 / 移动资产 / 跨工作区操作 pre-confirm)
+- **Consequences**:
+  - 工作区切换 / 文件树打开任意位置文件均不受 scope 限制,实现简单
+  - v0.5.1 资产面板"复制图片到工作区 assets/" 需要 `fs:allow-copy`,届时补 capability;`fs:allow-stat`(资产元数据)同理按需补
+  - **不会**反复推翻:把"scope 不收紧"显式 ADR 留痕,避免日后"应该收紧"的直觉再次被翻出来

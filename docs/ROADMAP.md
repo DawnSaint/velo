@@ -5,24 +5,7 @@
 
 ## v0.5.x — 工作区与文件管理
 
-**主线**：从"单文件编辑器"跃迁到"目录级工作区"。设计取舍调研见 [`v0.5-research.md`](./v0.5-research.md)，定稿后并入 DECISIONS 并删除该文档。
-
-
-### v0.5.0 — 基建 + 工作区骨架
-
-**目标**：把"工作区根目录"概念落地，侧边栏统一收纳大纲与文件树。本版本主要是基建 + 骨架，文件操作能力最小可用。
-
-**refactor**
-
-- [ ] 抽 `src/tauri/fs.ts` 封装层，迁移 `persistence.ts` / `document.ts` 现有 fs 调用走它（为 E2E + 测试 mock 单一入口铺路）
-
-**feat**
-
-- [ ] 工作区概念：`workspaceStore` + 持久化 `velo-workspaces.json`（active root + per-workspace 展开状态 / 上次打开文件）
-- [ ] 侧边栏骨架：tab 切换"大纲 / 文件树"，互斥渲染，沿用现有侧栏宽度
-- [ ] 文件树最小可用：目录懒加载、点击打开 .md 文件、展开状态持久化
-- [ ] 工作区根 recursive fs.watch（单句柄，notify-rs delayMs 合并），变更后防抖重拉子树
-
+**主线**：从"单文件编辑器"跃迁到"目录级工作区"。
 
 
 ### v0.5.1 — 文件操作 + 资产管理 + E2E 启动

@@ -12,7 +12,7 @@
 //
 // 文件名展示:basename。完整路径走 :title 浮 tooltip。
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { readDir, type DirEntry } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -33,14 +33,21 @@ interface TreeNode {
   error?: string
 }
 
-/** 工作区根节点。activeRoot 变化时整树重置。 */
+/**
+ * 工作区根节点。activeRoot 变化时整树重置。
+ *
+ * 关键:所有 TreeNode 必须经 reactive() 包,保证 loadDirChildren / refreshDir
+ * 里对 node.loading / node.children 的 mutate 触发模板重渲;否则 dirIndex
+ * 里持有的 raw 对象与 rootNode.value 的 proxy 是两份,异步 readDir 完成后
+ * 模板仍读到 loading=true,卡死在"加载中…"。
+ */
 const rootNode = ref<TreeNode | null>(null)
 
-/** dirPath → TreeNode 索引,用于外部 fs.watch 回调按子树重拉。 */
+/** dirPath → reactive TreeNode 索引,用于外部 fs.watch 回调按子树重拉。 */
 const dirIndex = new Map<string, TreeNode>()
 
 function makeNode(fullPath: string, name: string, isDir: boolean): TreeNode {
-  return { name, fullPath, isDir }
+  return reactive({ name, fullPath, isDir }) as TreeNode
 }
 
 function basename(p: string): string {
@@ -48,10 +55,20 @@ function basename(p: string): string {
   return i === -1 ? p : p.slice(i + 1)
 }
 
+/** 仅展示 .md / .markdown / .mdown 文件;隐藏目录(以 . 开头,如 .git/.vscode)整段过滤。
+ *  非隐藏目录无论是否含 .md 都保留(不递归预扫,违背懒加载;空文件夹用户可自行收起)。 */
+const MD_EXT_RE = /\.(md|markdown|mdown)$/i
+function isVisible(entry: DirEntry): boolean {
+  if (!entry.name) return false
+  if (entry.isDirectory) return !entry.name.startsWith('.')
+  return MD_EXT_RE.test(entry.name)
+}
+
 /** 排序:目录在前,同类按 name 字典序(本地化对比,中文按拼音). */
 function sortEntries(entries: DirEntry[]): DirEntry[] {
-  const dirs = entries.filter(e => e.isDirectory)
-  const files = entries.filter(e => !e.isDirectory)
+  const visible = entries.filter(isVisible)
+  const dirs = visible.filter(e => e.isDirectory)
+  const files = visible.filter(e => !e.isDirectory)
   const cmp = (a: DirEntry, b: DirEntry) => a.name.localeCompare(b.name, 'zh-Hans-CN')
   dirs.sort(cmp)
   files.sort(cmp)
@@ -67,7 +84,6 @@ async function loadDirChildren(node: TreeNode): Promise<void> {
     const sorted = sortEntries(entries)
     const children: TreeNode[] = []
     for (const e of sorted) {
-      if (!e.name) continue
       const childPath = await join(node.fullPath, e.name)
       const child = makeNode(childPath, e.name, e.isDirectory)
       children.push(child)
@@ -124,14 +140,13 @@ async function toggleDir(node: TreeNode) {
   }
 }
 
-/** 点击文件:仅 .md / .markdown / .mdown 走打开;其余文件忽略(v0.5.0 不处理). */
-const MD_EXT = /\.(md|markdown|mdown)$/i
+/** 点击文件:已在 sortEntries 阶段过滤过非 .md;此处只是兜底重复一次,防外部 refresh 漏过. */
 async function onFileClick(node: TreeNode) {
   if (node.isDir) {
     await toggleDir(node)
     return
   }
-  if (!MD_EXT.test(node.name)) return
+  if (!MD_EXT_RE.test(node.name)) return
   if (!(await documentStore.confirmDiscardIfDirty())) return
   await documentStore.openPath(node.fullPath)
   workspace.setLastFile(node.fullPath)
@@ -199,33 +214,19 @@ const rootDisplay = computed(() => {
 
 <template>
   <div class="velo-file-tree flex h-full min-w-64 flex-col">
-    <!-- 工作区头:展示根名 + 切换 / 关闭按钮 -->
-    <div class="flex items-center justify-between gap-1 px-4 py-2">
-      <div class="flex min-w-0 items-center gap-1.5">
-        <span class="text-sm font-semibold uppercase tracking-wider text-gray-400">
-          文件
-        </span>
-        <span v-if="workspace.activeRoot" class="truncate text-xs text-gray-500" :title="workspace.activeRoot ?? ''">
-          / {{ rootDisplay }}
-        </span>
-      </div>
-      <div class="flex shrink-0 items-center gap-0.5">
-        <button
-          class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :title="workspace.activeRoot ? '更换工作区' : '打开工作区'"
-          @click="chooseWorkspace"
-        >
-          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-        </button>
-        <button
-          v-if="workspace.activeRoot"
-          class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="关闭工作区"
-          @click="workspace.closeWorkspace()"
-        >
-          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-        </button>
-      </div>
+    <!-- 工作区头:仅显示当前工作区文件夹名 + 切换按钮(更换工作区);不再有"文件 /"前缀,
+         也不再有关闭按钮 —— 关闭工作区是低频且容易误触的操作。 -->
+    <div v-if="workspace.activeRoot" class="flex items-center justify-between gap-1 px-4 pt-2 pb-1">
+      <span class="truncate text-xs font-semibold text-gray-500 dark:text-gray-400" :title="workspace.activeRoot ?? ''">
+        {{ rootDisplay }}
+      </span>
+      <button
+        class="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        title="更换工作区"
+        @click="chooseWorkspace"
+      >
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+      </button>
     </div>
 
     <!-- 空态:没选工作区 -->
@@ -239,14 +240,14 @@ const rootDisplay = computed(() => {
     </div>
 
     <!-- 文件列表 -->
-    <div v-else class="min-h-0 flex-1 overflow-y-auto pb-2">
-      <div v-if="rootNode?.loading" class="px-4 py-2 text-xs text-gray-400">
+    <div v-else class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-2">
+      <div v-if="rootNode?.loading" class="px-4 py-0.5 text-xs text-gray-400">
         加载中…
       </div>
-      <div v-else-if="rootNode?.error" class="px-4 py-2 text-xs text-red-500" :title="rootNode.error">
+      <div v-else-if="rootNode?.error" class="px-4 py-0.5 text-xs text-red-500" :title="rootNode.error">
         读取目录失败
       </div>
-      <div v-else-if="flatItems.length === 0" class="px-4 py-2 text-xs text-gray-400">
+      <div v-else-if="flatItems.length === 0" class="px-4 py-0.5 text-xs text-gray-400">
         空目录
       </div>
       <div v-else>
@@ -254,7 +255,7 @@ const rootDisplay = computed(() => {
           v-for="item in flatItems"
           :key="item.node.fullPath"
           :style="indentStyle(item.depth)"
-          class="group flex cursor-pointer items-center gap-1 py-0.5 pr-2 transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
+          class="group flex cursor-pointer items-center gap-1 py-1 pr-2 text-xs transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
           :class="{
             'bg-gray-200 dark:bg-gray-800': !item.node.isDir && item.node.fullPath === activeFile,
           }"
@@ -285,7 +286,7 @@ const rootDisplay = computed(() => {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
-          <span class="truncate text-xs text-gray-700 dark:text-gray-300">
+          <span class="truncate text-gray-700 dark:text-gray-300">
             {{ item.node.name }}
           </span>
         </div>
