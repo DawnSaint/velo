@@ -265,3 +265,69 @@ export async function deleteAllDrafts(): Promise<void> {
     console.error('清空草稿失败', e)
   }
 }
+
+// ========== 工作区(v0.5.0) ==========
+//
+// `velo-workspaces.json` 记录:用户打开过的工作区根目录列表 + 当前激活的一个
+// + 每个工作区下的展开目录路径 / 上次打开文件 / 当前 sidebar tab。
+//
+// 大纲折叠状态(`velo-outline-state.json`)**仍按文件 path** 存,不迁进
+// per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
+//
+// 设计选择见 docs/DECISIONS.md ADR-20260623-001(持久化拆分粒度)。
+
+const WORKSPACES_FILE = 'velo-workspaces.json'
+const WORKSPACES_VERSION = 1
+
+export type SidebarTab = 'outline' | 'files'
+
+export interface WorkspaceState {
+  /** 该工作区下处于展开态的目录绝对路径 */
+  expandedDirs: string[]
+  /** 该工作区上次活跃的文件绝对路径(用户切回工作区时恢复) */
+  lastFile?: string | null
+  /** 该工作区下用户上次看的侧边栏 tab */
+  sidebarTab?: SidebarTab
+}
+
+export interface PersistedWorkspaces {
+  version: number
+  /** 当前活跃的工作区根路径(null = 没有任何工作区,走"无工作区"模式) */
+  active: string | null
+  /** rootPath → 该工作区的局部状态 */
+  workspaces: Record<string, WorkspaceState>
+}
+
+export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    const path = await join(dir, WORKSPACES_FILE)
+    if (!(await exists(path))) return null
+    const json = await readTextFile(path)
+    const parsed = JSON.parse(json)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    if (parsed.version !== WORKSPACES_VERSION) return null
+    if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return null
+    return parsed as PersistedWorkspaces
+  }
+  catch (e) {
+    console.warn('加载工作区状态失败', e)
+    return null
+  }
+}
+
+export async function saveWorkspaces(s: PersistedWorkspaces): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    if (!(await exists(dir))) {
+      await mkdir(dir, { recursive: true })
+    }
+    const path = await join(dir, WORKSPACES_FILE)
+    await writeTextFile(path, JSON.stringify(s, null, 2))
+  }
+  catch (e) {
+    console.error('保存工作区状态失败', e)
+  }
+}
