@@ -34,9 +34,11 @@ velo/
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
 │   ├── styles/                    Tailwind + Sass partial
 │   └── components/
-│       ├── Sidebar.vue            大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
-│       ├── EditorOutline.vue      hideHeader prop 嵌入 Sidebar 时不画 h2
-│       ├── FileTree.vue           工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1)
+│       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树
+│       │   ├── Sidebar.vue         大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
+│       │   ├── EditorOutline.vue   hideHeader prop 嵌入 Sidebar 时不画 h2
+│       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示)
+│       │   └── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定"点外部")
 │       ├── EditorSettings.vue
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
@@ -132,6 +134,8 @@ velo/
 3. `!dirty` → 静默 reload
 4. `dirty` → 弹确认
 
+**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。
+
 **单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。
 
 **崩溃恢复**: 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
@@ -195,6 +199,9 @@ velo/
 > - FileTree 新增节点不要 raw 对象,必须 `reactive()` 包 —— 见 #23
 > - 异步图片 drop 不要直接 `tr.insert(dropPos)`,必须 clamp + 比对 currentFilePath snapshot —— 见 #24
 > - `[TOC]` 回写 toMarkdown 不要用 text 节点 —— 见设计要点「TOC 目录走 Decoration.widget」
+> - FileTree CRUD 写盘后不要 `loadDirChildren` 全量重建,要复用旧 TreeNode —— 见 #28
+> - FileTree CRUD 后 children 更新与 inline 关闭不要跨 await(否则两帧闪烁) —— 见 #28
+> - FileTreeContextMenu 不要在组件内自己挂全局 close listener,统一走父级 —— 见 #29
 
 1. **路径别名**: `@/` → `src/`
 2. **fs.watch 生命周期 race**: `startWatchOf`/`stopWatch` fire-and-forget 理论可泄漏;`checkExternalChange` 早退故无实际影响
@@ -223,3 +230,10 @@ velo/
 24. **treeDrop / imageUploadPlugin 异步 drop 的 dropPos 越界 + race 守卫**:
     - `dropPos` 在落盘(含 `saveImageAssetFromPath` 磁盘读 + SHA-256 + 写,可达数秒)之前就已捕获,用户在此期间继续编辑导致 doc 变长/变短 → 原先的 pos 可能越界。`insertImageNode` 里做了 `Math.min(Math.max(dropPos, 0), doc.content.size)` clamp,**不 clmap 会 silent swallow RangeError → 图丢了用户无反馈**。
     - `.md drop → confirmDiscardIfDirty → openPath` 这条链如果等待对话框期间又来了一次图片 drop,那张图的 `dropPos` / `srcForMarkdown` 都是针对旧 doc 算的。`handleTreePathDrop` 产出的 `InsertImageFn` 签名带了 `capturedCurrentFilePath` 参数,`imageUploadPlugin` / `SourceModeEditor` 两侧在回调开头对比当前 `documentStore.currentFilePath` vs `captured`,不一致就跳过插入。**不跳则图插到新 doc 里 src 用了旧 assets/ 相对路径 → 图片裂开**。
+25. **行内 input 校验失败不要自动关闭**: v0.5.1 起新建 / 重命名不再走 modal,改行内 input(对齐 VSCode / Finder 约定)。Enter 提交、Esc 取消、点外部提交。submit 时跑 validate(空名 / `.` `..` / 禁用字符 / 同名),失败把 `inlineNew.error` / `inlineRename.error` 写进 input 的 `title` 属性,row 仍存在,焦点回 input。**空名校验必须落在 input value 上,不能在 finalName(已拼 `.md`)上** —— 空 + ".md" = ".md" 仍非空,会漏过 trim 后的检查。同名冲突这种"前端 children 视图可能不完整"的情况也只放在 submit 时校验,不在 typing 阶段报红字打扰用户。父目录若未展开,`openInlineNew` 须先 `setDirExpanded(true) + loadDirChildren`,否则 inline row 落到不可见的折叠子树
+26. **重命名 / 删除当前打开文件 → 走 `documentStore` 既有契约,不要在 FileTree 内自起 watch**:
+    - 删除:`deleteContainsOpenFile(pathToDelete)` 判 `currentFilePath === pathToDelete || currentFilePath.startsWith(pathToDelete + sep())`,命中就 `loadContent('', null)` 让 documentStore 走自己的 stopWatch + 清 currentFilePath 路径(等价"用户从 OS 删了再打开")
+    - 重命名:`currentFilePath === node.fullPath` 时调 `loadContent(documentStore.content, newPath)` —— 不动 content / lastSavedContent,只换 path + 内部 stopWatch + startWatchOf(newPath)(等价 `saveAs` 的 watch 切换路径)。**不要**自己 dispatch watch / 自己 mutate currentFilePath,store 内部 `loadContent` 才同步触发 stopWatch / startWatchOf + syncTitle,漏走一条 watch 路径都会让外部修改检测漂到旧路径上,文件重命名后再编辑 = checkExternalChange 拿旧路径读文件找不到
+27. **Tauri 2 plugin-opener 只能 desktop**: `revealItemInDir` 移动端 unsupported,Velo 当前只打 desktop,future 加 mobile entry 时需自行在 capability / 调用点降级(消息弹"不支持")
+28. **FileTree 节点复用 + mutation 后立即清 inline 状态,避免整树闪烁**: v0.5.1 起 CRUD 写盘后,`loadDirChildren` **必须**按 name + isDir 复用旧 `TreeNode` 引用,只对新增 / 删除的 entry 建新对象。否则父级 `flatItems` computed 看到新 proxy 引用就 reconcile 整树 → 整树重渲闪烁;复用后未变化的子树 props 不变,Vue 跳过。`submitInline` / `confirmAndDelete` 中 `loadDirChildren` 与 `cancelInline` / `loadContent('', null)` 之间**不能有 await**(会跨 microtask 边界,Vue 分两帧 flush),必须同一 microtask 同步排列,Vue 一次 flush 渲染。`loadDirChildren` 内部 `node.loading` 切换在子目录不可见(只有根 root 触发"加载中…"),所以根的 loading 由 `rebuildFromRoot` 单独 toggle,`loadDirChildren` 不再 toggle,免得在没必要的子树触发 2 次额外 reactive 通知
+29. **FileTreeContextMenu 抽组件 + rootEl expose**: 右键菜单 5 项固定 UI + 5 个 emit,跟 FileTree 状态机耦合很浅,内联在 FileTree 会撑长模板。`FileTreeContextMenu.vue` 自管 `<Teleport to="body">` 并 `defineExpose({ rootEl })` 暴露 Teleport 后的 DOM 节点;FileTree 全局 `pointerdown` handler 拿 `contextMenuRef.value?.rootEl` 判定"点外部"关闭。**不**在组件内自己挂全局 listener(会和 FileTree 的 inline input close 逻辑竞争),也不在组件 emit close(让父级统一管理 `contextMenu.value` 状态)

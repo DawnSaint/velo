@@ -12,7 +12,7 @@ import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
-import Sidebar from '../Sidebar.vue'
+import Sidebar from '../Sidebar/Sidebar.vue'
 import { readDir } from '@tauri-apps/plugin-fs'
 
 describe('Sidebar', () => {

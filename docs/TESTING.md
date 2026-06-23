@@ -28,9 +28,7 @@
 
 
 ## 3. 现状快照
-
-> 34 个测试文件 / 506 用例 / 全绿 / ~20s。
-> 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(Sidebar tab 切换 / FileTree 过滤排序)。
+> 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(Sidebar tab 切换 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)。
 >
 > 向前规划(组件层按需补、E2E 何时启动)见 ROADMAP,不在此维护阶段表。
 

@@ -3,6 +3,12 @@
 // 拿到的也是这里的 stub。
 import { vi } from 'vitest'
 
+// jsdom 不实现 Element.prototype.scrollIntoView(规格上是 HTMLElement 方法,
+// 但 jsdom 团队没补)。FileTree 在行内 input 出现时调用,生产是浏览器原生支持。
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function () {}
+}
+
 // jsdom 不实现 CSS.escape(W3C CSSOM spec 的一部分)。linkClickPlugin 用它
 // 做 querySelector `[id="..."]` 时转义 heading id 里的特殊字符。
 // 这里补一个 spec 的 ASCII 子集实现,够我们用(production 用浏览器原生)。
@@ -43,6 +49,12 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 // 同 plugin-dialog 的 open 不同名模块,保持各自 stub 独立。
 vi.mock('@tauri-apps/plugin-shell', () => ({
   open: vi.fn(async () => {}),
+}))
+
+// v0.5.1 文件树右键"在资源管理器中显示"用 plugin-opener.revealItemInDir。
+// plugin-shell 没有 reveal 能力 —— 它的 open(path) 走默认应用打开,不是高亮。
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  revealItemInDir: vi.fn(async () => {}),
 }))
 
 // getCurrentWindow 整个进程是单例 —— 真实 Tauri 运行时也是同一个 window 对象。
