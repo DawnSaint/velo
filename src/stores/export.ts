@@ -25,8 +25,8 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { save as saveDialog, message } from '@tauri-apps/plugin-dialog'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { save as saveDialog, message } from '@/tauri/dialog'
+import { writeTextFile } from '@/tauri/fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { useDocumentStore } from './document'
 import { useEditorStore } from './editor'

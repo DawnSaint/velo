@@ -1,5 +1,4 @@
-import { appDataDir, join } from '@tauri-apps/api/path'
-import { isTauri } from '@tauri-apps/api/core'
+import { appDataDir, join } from '@/tauri/path'
 import {
   exists,
   readTextFile,
@@ -8,21 +7,11 @@ import {
   readDir,
   remove,
   rename,
-} from '@tauri-apps/plugin-fs'
+  tauriOnly,
+} from '@/tauri/fs'
 
-// ============================================================
-//  Tauri 环境检测
-// ============================================================
-//
-// dev web 端(只跑 `npm run dev`,不起 Tauri 进程)用 @tauri-apps/api/* 调
-// `invoke('plugin:fs|...')` 会 throw `Cannot read properties of undefined
-// (reading 'invoke')` —— __TAURI_INTERNALS__ 没注入。Persistence 这层
-// 一律先 isTauri() 守门,web 端 load 返回 null / save 是 noop,store
-// 走默认值继续渲染,不阻塞 dev 体验。
-
-function tauriOnly(): boolean {
-  return isTauri()
-}
+// `tauriOnly()` 来自 `@/tauri/fs` —— dev web 端 load 返回 null / save 是
+// noop,store 走默认值继续渲染,不阻塞 dev 体验。
 
 // ========== 用户设置 ==========
 

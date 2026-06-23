@@ -8,7 +8,7 @@
 // 错误一律 throw(不静默吞)—— 调用方根据上下文决定 fallback
 // (paste 路径可以降级到 base64;删除失败可以让用户再试一次)。
 
-import { appDataDir, dirname, join } from '@tauri-apps/api/path'
+import { appDataDir, dirname, join } from '@/tauri/path'
 import {
   exists,
   mkdir,
@@ -16,7 +16,7 @@ import {
   readFile,
   remove,
   writeFile,
-} from '@tauri-apps/plugin-fs'
+} from '@/tauri/fs'
 import {
   extFromFileName,
   extToMime,

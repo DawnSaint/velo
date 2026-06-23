@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/2.x/tooling/cli/schema.json",
-  "productName": "velo",
+  "productName": "Velo",
   "version": "0.4.7",
   "identifier": "com.velo.editor",
   "build": {

@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { open as openDialog, save as saveDialog, confirm, message } from '@tauri-apps/plugin-dialog'
-import { readTextFile, writeTextFile, watch, type UnwatchFn } from '@tauri-apps/plugin-fs'
+import { open as openDialog, save as saveDialog, confirm, message } from '@/tauri/dialog'
+import { readTextFile, writeTextFile, watch, type UnwatchFn } from '@/tauri/fs'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   saveDraft as saveDraftToFs,

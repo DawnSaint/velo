@@ -19,7 +19,7 @@ import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { confirm } from '@tauri-apps/plugin-dialog'
+import { confirm } from '@/tauri/dialog'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 
 const tauri = isTauri()
