@@ -49,7 +49,7 @@ describe('FileTree', () => {
 
   // ── 过滤规则 ──
 
-  it('隐藏目录(.git/.vscode 等)不显示,仅保留 .md/.markdown/.mdown 文件', async () => {
+  it('隐藏目录(.git/.vscode 等)不显示;保留 .md/.markdown/.mdown + 图片文件,过滤其它', async () => {
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
 
@@ -62,6 +62,10 @@ describe('FileTree', () => {
       entry('.env', false),
       entry('CHANGELOG.markdown', false),
       entry('TODO.mdown', false),
+      entry('cover.png', false),
+      entry('photo.JPG', false), // 大小写不敏感
+      entry('icon.svg', false),
+      entry('build.log', false),
     ])
 
     const wrapper = mount(FileTree)
@@ -69,16 +73,46 @@ describe('FileTree', () => {
     await nextTick()
 
     const text = wrapper.text()
-    // 应该可见
-    expect(text).toContain('node_modules')
+    // .md 系列应该可见
     expect(text).toContain('README.md')
     expect(text).toContain('CHANGELOG.markdown')
     expect(text).toContain('TODO.mdown')
+    // 图片应该可见(v0.5.1 起树里也展示图片,以便拖入编辑器)
+    expect(text).toContain('cover.png')
+    expect(text).toContain('photo.JPG')
+    expect(text).toContain('icon.svg')
+    // 非隐藏目录可见
+    expect(text).toContain('node_modules')
     // 应该过滤
     expect(text).not.toContain('.git')
     expect(text).not.toContain('.vscode')
     expect(text).not.toContain('.env')
     expect(text).not.toContain('index.ts')
+    expect(text).not.toContain('build.log')
+  })
+
+  // ── v0.5.1 拖拽源 ──
+
+  it('文件行 draggable=true,目录行 draggable=false', async () => {
+    const workspace = useWorkspaceStore()
+    workspace.activeRoot = '/test/root'
+
+    vi.mocked(readDir).mockResolvedValue([
+      entry('subdir', true),
+      entry('note.md', false),
+      entry('pic.png', false),
+    ])
+
+    const wrapper = mount(FileTree)
+    await flushPromises()
+    await nextTick()
+
+    const items = wrapper.findAll('.group')
+    expect(items.length).toBe(3)
+    // 排序:目录在前
+    expect(items[0].attributes('draggable')).toBe('false')
+    expect(items[1].attributes('draggable')).toBe('true')
+    expect(items[2].attributes('draggable')).toBe('true')
   })
 
   // ── 排序 ──

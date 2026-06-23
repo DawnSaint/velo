@@ -84,6 +84,18 @@ export function resolveImagePath(opts: {
 // ========== 扩展名工具 ==========
 
 /**
+ * 支持的图片扩展名(不含点,小写)。
+ * 与 mimeToExt / extToMime 的覆盖范围一致 —— 这是图片落盘 / 文件树过滤 /
+ * drop 分流的单一真相源,避免三处各写一份正则散落。
+ */
+export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'] as const
+
+/** 扩展名(不含点,大小写不敏感)是否是支持的图片类型。 */
+export function isImageExt(ext: string): boolean {
+  return (IMAGE_EXTS as readonly string[]).includes(ext.toLowerCase())
+}
+
+/**
  * MIME type → 文件扩展名(不含点)。仅覆盖常见图片类型,未知返回 'bin'。
  * 优先用 file.type 拿 MIME,失败时回退到文件名后缀(见 extFromFileName)。
  */

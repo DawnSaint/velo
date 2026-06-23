@@ -17,6 +17,8 @@ import { readDir, type DirEntry } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
+import { isImageExt } from '@/utils/imagePath'
+import { TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 
 const workspace = useWorkspaceStore()
 const documentStore = useDocumentStore()
@@ -55,13 +57,26 @@ function basename(p: string): string {
   return i === -1 ? p : p.slice(i + 1)
 }
 
-/** 仅展示 .md / .markdown / .mdown 文件;隐藏目录(以 . 开头,如 .git/.vscode)整段过滤。
+/** 仅展示 .md / .markdown / .mdown 文件,以及图片(png/jpg/jpeg/gif/webp/svg/bmp/avif,
+ *  见 imagePath.IMAGE_EXTS —— 图片能拖进编辑器插入,故也需在树里可见)。
+ *  隐藏目录(以 . 开头,如 .git/.vscode)整段过滤。
  *  非隐藏目录无论是否含 .md 都保留(不递归预扫,违背懒加载;空文件夹用户可自行收起)。 */
 const MD_EXT_RE = /\.(md|markdown|mdown)$/i
 function isVisible(entry: DirEntry): boolean {
   if (!entry.name) return false
   if (entry.isDirectory) return !entry.name.startsWith('.')
-  return MD_EXT_RE.test(entry.name)
+  if (MD_EXT_RE.test(entry.name)) return true
+  // 图片:取末尾扩展名比对 isImageExt(无扩展 / 末尾是点 → extFromFileName 兜底为 'bin',不命中)
+  const dot = entry.name.lastIndexOf('.')
+  if (dot === -1 || dot === entry.name.length - 1) return false
+  return isImageExt(entry.name.slice(dot + 1))
+}
+
+/** 判断文件名是否图片(供 drop 源 / 模板图标分支共用)。 */
+function isImageName(name: string): boolean {
+  const dot = name.lastIndexOf('.')
+  if (dot === -1 || dot === name.length - 1) return false
+  return isImageExt(name.slice(dot + 1))
 }
 
 /** 排序:目录在前,同类按 name 字典序(本地化对比,中文按拼音). */
@@ -198,6 +213,32 @@ async function chooseWorkspace() {
   await workspace.pickWorkspace()
 }
 
+/**
+ * 文件树行 → 编辑器的拖拽信号 MIME(定义在 treeDrop.ts,与编辑器 drop 处理器共用,
+ * 避免两处各写一份字符串漂移)。
+ *
+ * 用自定义 MIME(而非纯 text/plain)承载 fullPath,让编辑器的 drop 处理器
+ * 能区分"从 velo 文件树拖"与"从操作系统拖文件进来"两种来源:
+ *  - 树拖 .md:打开该文件(confirmDiscardIfDirty + openPath)
+ *  - 树拖图片:走 saveImageAssetFromPath 落盘 + 插入
+ *  - OS 拖:走原生 imageUploadPlugin(富文本)/ 文件型 drop 处理(源码模式)
+ *
+ * 同时也写一份 text/plain = fullPath,系统外消费(例如拖到终端贴路径)无害。
+ */
+
+/** 拖拽源:把 fullPath 写进 dataTransfer。目录由模板 `:draggable="!item.node.isDir"`
+ *  阻断,此处不再重复守卫。 */
+function onRowDragStart(event: DragEvent, node: TreeNode) {
+  if (!event.dataTransfer) return
+  event.dataTransfer.setData(TREE_PATH_MIME, node.fullPath)
+  event.dataTransfer.setData('text/plain', node.fullPath)
+  // 用 'copyLink' 而不是单一 'copy'/'link':PM / CM6 的 dragover 不会把 dropEffect 强制
+  // 设成 'link',若 effectAllowed 写死 'link' 与 UA 默认计算出的 dropEffect 不兼容,
+  // 浏览器会把 dropEffect 钉成 'none' → 编辑器上显示禁止符,严格 UA 直接吞 drop。
+  // 'copyLink' 同时接纳 copy / link 两种 effect,语义上图片=复制引用、.md=导航打开都能匹配。
+  event.dataTransfer.effectAllowed = 'copyLink'
+}
+
 onMounted(() => {
   // 已激活工作区在 watch immediate 里建过了;此处只是占位让组件挂上后立刻有内容
 })
@@ -260,7 +301,9 @@ const rootDisplay = computed(() => {
             'bg-gray-200 dark:bg-gray-800': !item.node.isDir && item.node.fullPath === activeFile,
           }"
           :title="item.node.fullPath"
+          :draggable="!item.node.isDir"
           @click="onFileClick(item.node)"
+          @dragstart="onRowDragStart($event, item.node)"
         >
           <!-- 展开箭头 / 文件占位 -->
           <span class="flex size-4 shrink-0 items-center justify-center">
@@ -278,9 +321,15 @@ const rootDisplay = computed(() => {
               <path d="M9 18l6-6-6-6" />
             </svg>
           </span>
-          <!-- 图标(目录 / 文件) -->
+          <!-- 图标(目录 / 图片 / .md 文件) -->
           <svg v-if="item.node.isDir" class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          <!-- 图片行:用图片图标,提示"可拖入编辑器插入" -->
+          <svg v-else-if="isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
           </svg>
           <svg v-else class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

@@ -1,0 +1,135 @@
+// 文件树 → 编辑器的拖拽:把"从 velo 文件树拖一行进编辑器"这件事抽成共享逻辑,
+// 让富文本(imageUploadPlugin)与源码模式(SourceModeEditor)走同一条决策路径。
+//
+// 两种来源、一种信号:
+//  - 树拖:FileTree.vue onRowDragStart 把 fullPath 写进 application/x-velo-tree-path
+//    (自定义 MIME,避免与 OS 拖文件进来的 text/uri-list 混淆)。
+//  - OS 拖:走原生 dataTransfer.files(imageUploadPlugin 的 Files 通道)。
+//
+// 决策(树路径非空时):
+//  - .md/.markdown/.mdown:打开文件 —— confirmDiscardIfDirty 通过后 openPath + setLastFile
+//  - 图片扩展名:落盘(saveImageAssetFromPath)→ 走回调插图
+//    (富文本插 image 节点;源码模式插 ![](src) markdown 文本)
+//  - 其它:忽略(return false 让默认/后续处理器接管)
+//
+// 落盘复用 imageStorage.saveImageAssetFromPath —— 它从磁盘路径造 File 再走
+// saveImageAsset 的同一套(去重 + resolveImagePath),与粘贴/OS 拖图完全一致。
+
+import { useDocumentStore } from '@/stores/document'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { saveImageAssetFromPath, type SaveImageAssetResult } from '@/services/imageStorage'
+import { isImageExt } from '@/utils/imagePath'
+
+/** 文件树行 → 编辑器的拖拽信号 MIME(与 FileTree.vue 的 TREE_PATH_MIME 保持一致)。 */
+export const TREE_PATH_MIME = 'application/x-velo-tree-path'
+
+const MD_EXT_RE = /\.(md|markdown|mdown)$/i
+
+/**
+ * 从 FileList 里挑第一个 image/* 文件;没有返回 null。
+ * 富文本(imageUploadPlugin)与源码模式(SourceModeEditor)共用 —— 避免两处各写一份。
+ */
+export function pickImageFile(fileList: FileList | null | undefined): File | null {
+  if (!fileList) return null
+  for (let i = 0; i < fileList.length; i++) {
+    const f = fileList[i]
+    if (f && f.type && f.type.startsWith('image/')) return f
+  }
+  return null
+}
+
+function basename(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i === -1 ? p : p.slice(i + 1)
+}
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.')
+  if (i === -1 || i === name.length - 1) return ''
+  return name.slice(i + 1)
+}
+
+/**
+ * 把文件名 / 路径里可能破坏 markdown 链接语法的字符转义掉。
+ *  - alt 里的 `[` `]` 会被 CommonMark 当成 reference link / 结束 alt → `\[` `\]`
+ *  - src 里的 `(` `)` 同理 → `\(` `\)`,空格保留(CommonMark 允许行内有空格)
+ *
+ * 抽出来共用:富文本走 image 节点的 attrs 不需要转(PM 写盘时由 markdownIO 处理),
+ * 但源码模式 / OS 拖图直接把文本插进 markdown 串,必须自己保护好语法。
+ */
+export function escapeMdAlt(s: string): string {
+  return s.replace(/[\\\[\]]/g, m => `\\${m}`)
+}
+export function escapeMdUrl(s: string): string {
+  return s.replace(/[\\()]/g, m => `\\${m}`)
+}
+
+export interface TreeDropResult {
+  /** true = 已处理(preventDefault + 自行落地);false = 不是树拖,放行给后续处理器 */
+  handled: boolean
+}
+
+/** insertImage 回调签名:第三个参数是 drop 当时的 currentFilePath snapshot,
+ *  调用方据此判断"落盘期间用户是否切走了文档",切走了应当跳过插入(避免插到新 doc 里). */
+export type InsertImageFn = (
+  result: SaveImageAssetResult,
+  alt: string,
+  capturedCurrentFilePath: string | null,
+) => void
+
+/**
+ * 处理一次 drop 事件中的"文件树路径"来源。
+ *
+ * @param event 原生 DragEvent
+ * @param insertImage 落盘成功后,用结果(srcForMarkdown + 原 alt + drop 当时的 currentFilePath
+ *                    snapshot)执行模式特定的插入。
+ *                    富文本:造 image 节点 dispatch;源码模式:插 ![](src) 文本。
+ *                    传入是为异步落盘后回调 —— saveImageAssetFromPath 是 async。
+ *                    capturedCurrentFilePath 让调用方能识别"落盘期间用户切了文档" race —— 切了就跳过插入,
+ *                    因为 result.srcForMarkdown 是相对旧 doc 的 assets/ 算的,新 doc 用上就错。
+ * @returns handled —— 调用方据此决定 preventDefault / 是否 return true
+ */
+export async function handleTreePathDrop(
+  event: DragEvent,
+  insertImage: InsertImageFn,
+): Promise<TreeDropResult> {
+  const dt = event.dataTransfer
+  const path = dt?.getData(TREE_PATH_MIME)
+  if (!path) return { handled: false }
+
+  // 是树拖就一律接管,不让浏览器/CM 把 text/plain 当文本插进来
+  event.preventDefault()
+
+  const name = basename(path)
+
+  // .md → 打开(与 FileTree.onFileClick 同路径:脏盘确认 + openPath + setLastFile)
+  if (MD_EXT_RE.test(name)) {
+    const documentStore = useDocumentStore()
+    if (!(await documentStore.confirmDiscardIfDirty())) return { handled: true }
+    await documentStore.openPath(path)
+    useWorkspaceStore().setLastFile(path)
+    return { handled: true }
+  }
+
+  // 图片 → 落盘 + 插入
+  if (isImageExt(extOf(name))) {
+    const documentStore = useDocumentStore()
+    // snapshot:saveImageAssetFromPath 完成后可能用户已切走文档(并发 .md drop /
+    // 外部 fs.watch 触发 openPath / 手动点别的文件)。capture 现状,callback 里比对。
+    const captured = documentStore.currentFilePath
+    try {
+      const result = await saveImageAssetFromPath({
+        currentFilePath: captured,
+        sourcePath: path,
+      })
+      insertImage(result, name, captured)
+    }
+    catch (e) {
+      console.error('拖入图片落盘失败', path, e)
+    }
+    return { handled: true }
+  }
+
+  // 其它扩展名(树里理论上不会出现,但兜底):吞掉,不插垃圾文本
+  return { handled: true }
+}

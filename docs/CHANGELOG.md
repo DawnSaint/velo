@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **文件树可见图片文件**：文件树现在同时显示 `.md`/`.markdown`/`.mdown` 与图片（`png/jpg/jpeg/gif/webp/svg/bmp/avif`）文件，图片行有独立图标加以区分，其余文件类型保持隐藏。
+- **文件树拖入编辑器**：文件树中的任何文件行现在都可以拖入编辑器区域。
+  - 拖 `.md` 文件：打开到编辑器
+  - 拖图片文件：复制到当前文档的 `assets/`，并在 drop 位置插入图片。
+  - 源码模式行为镜像富文本模式：拖 `.md` 打开文件，拖图片在光标处插入 `![alt](src)`。
 
 ## [0.5.0] — 2026-06-23
 

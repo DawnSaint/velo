@@ -6,6 +6,8 @@ import {
   extToMime,
   dirnameSync,
   resolveImageAssetAbsPath,
+  isImageExt,
+  IMAGE_EXTS,
 } from '../imagePath'
 
 describe('resolveImagePath', () => {
@@ -194,5 +196,42 @@ describe('resolveImageAssetAbsPath', () => {
         'C:\\Users\\foo\\note.md',
       ),
     ).toBe('C:/Users/foo/assets/image.png')
+  })
+})
+
+describe('isImageExt', () => {
+  it('IMAGE_EXTS 覆盖 8 种图片类型(顺序无关)', () => {
+    // 用 Set 比较 —— 只验"集合相等",不绑死数组顺序
+    expect(new Set(IMAGE_EXTS)).toEqual(
+      new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif']),
+    )
+  })
+
+  it('常见扩展名返回 true(大小写不敏感)', () => {
+    expect(isImageExt('png')).toBe(true)
+    expect(isImageExt('PNG')).toBe(true)
+    expect(isImageExt('jpg')).toBe(true)
+    expect(isImageExt('JPG')).toBe(true)
+    expect(isImageExt('jpeg')).toBe(true)
+    expect(isImageExt('gif')).toBe(true)
+    expect(isImageExt('webp')).toBe(true)
+    expect(isImageExt('svg')).toBe(true)
+    expect(isImageExt('bmp')).toBe(true)
+    expect(isImageExt('avif')).toBe(true)
+  })
+
+  it('非图片扩展名返回 false', () => {
+    expect(isImageExt('md')).toBe(false)
+    expect(isImageExt('markdown')).toBe(false)
+    expect(isImageExt('txt')).toBe(false)
+    expect(isImageExt('js')).toBe(false)
+    expect(isImageExt('html')).toBe(false)
+    expect(isImageExt('pdf')).toBe(false)
+    expect(isImageExt('')).toBe(false)
+  })
+
+  it('bin/bmp 不误判(bin 不是图片)', () => {
+    expect(isImageExt('bin')).toBe(false)
+    expect(isImageExt('BIN')).toBe(false)
   })
 })

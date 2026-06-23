@@ -36,7 +36,7 @@ velo/
 │   └── components/
 │       ├── Sidebar.vue            大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
 │       ├── EditorOutline.vue      hideHeader prop 嵌入 Sidebar 时不画 h2
-│       ├── FileTree.vue           工作区根 + 子目录懒加载,点击 .md 打开
+│       ├── FileTree.vue           工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1)
 │       ├── EditorSettings.vue
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
@@ -59,7 +59,7 @@ velo/
 │           │   ├── findMatches.ts    buildPattern / findMatchesInDoc / replaceInText 纯函数
 │           │   ├── findHighlight.ts  PM 高亮 Plugin (Decoration,findHighlightKey)
 │           │   └── cmFindHighlight.ts CM6 高亮 StateField + effect (镜像 PM 侧)
-│           ├── image/             图片 paste/drop 上传 + 删除保护 keymap
+│           ├── image/             图片 paste/drop 上传 + 删除保护 keymap + 树拖共享(treeDrop.ts)
 │           ├── plugins/           通用插件
 │           │   ├── linkClick.ts        链接点击/源码编辑态 session
 │           │   ├── preserveEmptyLine.ts
@@ -92,7 +92,7 @@ velo/
 | history | 撤销/重做栈 |
 | tabIndent | Tab 缩进/反缩进;代码/段落插4空格;非列表 Shift-Tab 消费 |
 | imageKeymapPlugin | atom 节点删除保护 (Backspace/Delete 紧贴先选中不直接删) |
-| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点(只接 image/*,文本返回 false) |
+| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点。OS 拖入只接 image/*(文本返回 false);文件树拖入(自定义 MIME `application/x-velo-tree-path`).md 打开 / 图片落盘插图,共享 `image/treeDrop.ts` |
 | markdownPastePlugin | text/plain 粘贴走 fromMarkdown,绕开 ProseMirror 默认 plain-text fallback 的 normalizeSiblings 错误合并(见设计要点) |
 | linkClickPlugin + linkEditEscapeKeymap | 链接单击进源码编辑 / Cmd 跳转 / Escape 还原 |
 | syntaxAutoFormatPlugin | dirty-range 局部扫,registry 驱动 (见设计要点) |
@@ -156,7 +156,7 @@ velo/
 - **粘贴 text/plain 必须注册 `clipboardTextParser`**: ProseMirror 默认 plain-text fallback 把整段按 `\n+` 拆 `<p>` 再 `normalizeSiblings` 自动包 blockquote,产出错位 doc。`markdownPastePlugin` 走 fromMarkdown 输出**封闭 slice `(0,0)`**(非 `maxOpen`)走标准 "join 前后 paragraph" 路径把 blocks merge 进 doc 顶层
 - **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注/TOC 走 SCSS partial
 - **TOC 目录走 Decoration.widget 不走 NodeView**: 跟 mermaid 同范式;widget key 含 headingsHash,变化自动重建。**坑**: `[TOC]` 回写 toMarkdown 必须用 mdast `html` 节点(非 text)包裹,text 节点里的 `[` 会被 escape 成 `\[`
-- **源代码模式**: `SourceModeEditor` 独立 CodeMirror 6 `EditorView`,与 `ProseMirrorEditor` 经 `v-if` 互斥;`documentStore.sourceMode` 唯一开关。extensions: 持久行号 + 软换行 + drawSelection + highlightSpecialChars + history + 自定义 keymap(Tab 插 2 空格覆盖 `indentWithTab`;Escape → `toggleSourceMode`)+ `forbidFileDropPaste`(源码模式禁拖入/粘贴图片,防 webview `dragDropEnabled:false` 下把文件当"打开"导航掉整页;PM 模式由 `imageUploadPlugin.handleDOMEvents.drop` 兜这个 preventDefault,源码模式无等价 PM 插件)+ shiki 高亮 ViewPlugin(`shikiCmPlugin.ts`,token.offset 即 CM6 doc pos)+ updateListener(docChanged → emit)。**主题名镜像在 StateField**,build 只读镜像不读 store(防 ensureTheme 未 resolve 期间全黑);dark/light 纯 CSS,切主题才 rebuild
+- **源代码模式**: `SourceModeEditor` 独立 CodeMirror 6 `EditorView`,与 `ProseMirrorEditor` 经 `v-if` 互斥;`documentStore.sourceMode` 唯一开关。extensions: 持久行号 + 软换行 + drawSelection + highlightSpecialChars + history + 自定义 keymap(Tab 插 2 空格覆盖 `indentWithTab`;Escape → `toggleSourceMode`)+ `forbidFileDropPaste`(v0.5.1 起分叉:文件树拖入路径(自定义 MIME `application/x-velo-tree-path`) → .md 打开 / 图片落盘插图;OS 文件型 drop 图片同样落盘插 markdown 语法,与富文本行为镜像;非图片文件 drop preventDefault 防 webview 导航;paste 仍保持吞 image/*——源码模式 paste 无"树路径"概念。共享逻辑见 `image/treeDrop.ts`)+ shiki 高亮 ViewPlugin(`shikiCmPlugin.ts`,token.offset 即 CM6 doc pos)+ updateListener(docChanged → emit)。**主题名镜像在 StateField**,build 只读镜像不读 store(防 ensureTheme 未 resolve 期间全黑);dark/light 纯 CSS,切主题才 rebuild
 - **跨模式光标 + 浏览状态同步**: App.vue 单点 `watch(sourceMode, cb, { flush: 'pre' })` 覆盖全部切换入口(Ctrl+\` / 工具栏 / Esc 都走这一个布尔翻转)。`flush:'pre'` 读**出**方向 view(卸载在 render 阶段,晚于 pre-flush watcher)抓锚点;`await nextTick` 后**入**方向 `onMounted` 已建 view → 应用。`crossModeSync.ts`: 两边各 token 化(剥 markdown 标记字符 `#*~_\`-+[]()!>|`——**`|` 入集关键**,否则无空格表格粘成一个 token),`captureAnchor` 取光标 ±64 个 token 序列 + token 内字符偏移,`applyAnchor` 跑 **LCS** 对齐(链接 URL、表格 `|`/`|---|` 分隔行是 CM6 多出、PM 没有的 token,整窗 indexOf 砍不掉 → 失败跳顶;LCS 当"未对齐"跳过)。光标 token 自身是多余方(如落在 URL 里)→ 退最近对齐邻居边界。最佳努力:空文档/view 未就绪放弃;LCS 矩阵超 4M 格(token > ~31k)退线性首现。滚动:CM6 `scrollIntoView(pos,{y:'center'})`;PM **不用** `tr.scrollIntoView()`(默认"最小滚入视口"= 跳到最底),改 `coordsAtPos`+祖先 `scrollBy` 居中;入方向主动 focus
 - **查找替换双后端 (PM / CM6 共用)**: `FindReplace.vue` 经 `FindReplaceBackend` 抽象驱动,`createPmBackend`/`createCmBackend` 两份实现,`v-if/v-else` 互斥同一时刻一份活着。**用户意图(query/选项/替换文/showReplace)上提到 App.vue `provide(findIntentKey)`**,切模式时意图在 App.vue 存活 → query 跨模式保留;`matches`/`currentIndex` 模式相关,新挂载时 recompute。`replaceAll` 编辑器无关化:倒序遍历 matches,每个 `getRangeText` → `replaceInText`(全局正则在 match 子串重跑)→ `replaceRange`,逆序避免位置错位。两后端语义差异各自符合该模式所见文本(PM 走 prose 文本不跨块;CM6 在原始 markdown 全串含 `**`/`|`/`[]()` 可跨行);highlight PM 走 PM plugin setMeta、CM6 走 StateField + effect(镜像 PM 侧)。高亮 CSS `.velo-find-match`/`.velo-find-current` 全局共用
 - **导出管线**: `lib/export/htmlRenderer.ts` 复用 `markdownIO.ts` 的同一份 unified pipeline(7 个 remark 插件)parse 出 mdast,自写轻量 walker 转 HTML 字符串,**不走 ProseMirror doc**(省去 PM doc → mdast 二次桥接)。**必须 `processor.runSync(processor.parse(md))` 而非只 `parse`** —— transformer 类插件(remarkAlert/remarkHighlight/remarkEncodeLinkUrls)在 run 阶段才执行(见维护者注意点 #14)。节点逐个 dispatch:code lang='mermaid' 走 mermaidHtml、其他 code 走 shikiHtml(复用 `CodeBlockLangs` 的 getHighlighterSync/getTokensSync,与编辑器 `CodeHighlightWidget` 同套 API 保证配色一致)、math 走 katexHtml(失败降级 `<span class="math-error">`)、html 走 sanitizeHtml(DOMPurify,配置与 `HtmlNodeView.ts` 同步,见维护者注意点 #11)、行内 html 先 `mergeHtmlInlineRunsMdast` 合并再 sanitize(见维护者注意点 #13)、image src 走 `convertFileSrc` 转 `asset://`(外部浏览器不解析——已知限制)、inline marks 嵌套、list 抽首段 paragraph 解包避免 `<li><p>` 割裂、alert → `<div class="velo-alert velo-alert-{variant}">`(对齐 editor schema toDOM,不包 blockquote)、table 标准化、**[TOC] 独占段落 → `<div class="velo-toc">` 嵌套目录**(headings 整篇预扫,链接用 `<a href="#slug">` 走原生锚点跳转)。降级:mermaid/katex/shiki 任一失败 → 原文/`math-error` + 收进 `warnings`,不中断。Dual theme token 仍写双 hex,dark 靠 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)` 接管(同 GitHub README 自适应);`@media print` 强制 light 给 PDF 用。**KaTeX 字体 inline base64**(`katexCss.ts` 走 `import.meta.glob` 把 20 个 woff2 inline,改写 `@font-face` src,否则相对 `url(fonts/...)` 在导出环境解析不到 → 字体回退,见维护者注意点 #20)
@@ -193,6 +193,7 @@ velo/
 > - 新增暗色规则不要只写一边 —— 见 #21
 > - 新增 mdast node 类型不要漏 walker case(walker 不自动递归未知 children) —— 见 #22
 > - FileTree 新增节点不要 raw 对象,必须 `reactive()` 包 —— 见 #23
+> - 异步图片 drop 不要直接 `tr.insert(dropPos)`,必须 clamp + 比对 currentFilePath snapshot —— 见 #24
 > - `[TOC]` 回写 toMarkdown 不要用 text 节点 —— 见设计要点「TOC 目录走 Decoration.widget」
 
 1. **路径别名**: `@/` → `src/`
@@ -218,3 +219,7 @@ velo/
 21. **新增暗色规则要两处同步**: editor 走 `_editor-dark.scss` 的 `:is(.dark .velo-editor, .velo-editor.dark)`(Vue 控制 `<html class="dark">`),export 走 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)`(**自写副本,不 forward `_editor-dark.scss`**,导出 HTML 无 `.velo-editor.dark` 依赖)。两套语义不等价:导出只跟系统暗色偏好走,不能跟应用内 toggle 走。新增暗色规则必须两边写
 22. **新增 mdast node 类型必须改 walker + CSS**: 导出 walker 的 `mdastNodeToHtml` switch `default: return ''` **静默丢节点**(无 warn 无错误)—— 任何 mdast 类型 walker 不显式 case,导出 HTML 直接消失。规约:新增自定义 mdast type = walker 加 case + 输出 DOM + class 名跟 editor NodeView 一致(联动 #16);新增 block 容器类型(children-recurse,类似 alert/blockquote)也要加专门 case 内部 `node.children.map(mdastNodeToHtml)`,**不要假设 walker 会自动递归未知 children** —— walker 只对已知 case 递归。checklist:加新 syntax 同时 grep `case '` 看 walker 是否覆盖
 23. **FileTree 的 TreeNode 必须 `reactive()` 包装**: `dirIndex: Map<string, TreeNode>` 与 `rootNode = ref<TreeNode>` 持有同一份引用,如果用 raw 对象,`rootNode.value = node` 后 ref 里是 proxy,Map 里是 raw,异步 `loadDirChildren` 对 raw 改 `node.loading=false / node.children=[...]` 不触发模板重渲 → UI 永远卡在"加载中…"且**控制台无报错**。`makeNode` 统一返回 `reactive({...})`,保证 dirIndex 与 rootNode 内全是 proxy
+
+24. **treeDrop / imageUploadPlugin 异步 drop 的 dropPos 越界 + race 守卫**:
+    - `dropPos` 在落盘(含 `saveImageAssetFromPath` 磁盘读 + SHA-256 + 写,可达数秒)之前就已捕获,用户在此期间继续编辑导致 doc 变长/变短 → 原先的 pos 可能越界。`insertImageNode` 里做了 `Math.min(Math.max(dropPos, 0), doc.content.size)` clamp,**不 clmap 会 silent swallow RangeError → 图丢了用户无反馈**。
+    - `.md drop → confirmDiscardIfDirty → openPath` 这条链如果等待对话框期间又来了一次图片 drop,那张图的 `dropPos` / `srcForMarkdown` 都是针对旧 doc 算的。`handleTreePathDrop` 产出的 `InsertImageFn` 签名带了 `capturedCurrentFilePath` 参数,`imageUploadPlugin` / `SourceModeEditor` 两侧在回调开头对比当前 `documentStore.currentFilePath` vs `captured`,不一致就跳过插入。**不跳则图插到新 doc 里 src 用了旧 assets/ 相对路径 → 图片裂开**。

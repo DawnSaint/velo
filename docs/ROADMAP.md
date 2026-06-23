@@ -15,7 +15,7 @@
 **feat**
 
 - [ ] 文件树右键菜单：新建 / 重命名 / 删除 / 在资源管理器中显示（destructive op 必弹 confirm）
-- [ ] 文件树拖入编辑器：拖 .md = 打开、拖图片 = 走 imageUploadPlugin 插入（与源码模式 `forbidFileDropPaste` 协同）
+- [x] 文件树拖入编辑器：拖 .md = 打开、拖图片 = 走 imageUploadPlugin 插入（与源码模式 `forbidFileDropPaste` 协同）
 - [ ] 文件树内拖拽移动：节点跨目录拖动 → `rename`（同盘 mv 语义）；移动后编辑器若打开了该文件，路径同步更新 `currentFilePath` 而不重载内容（避免脏盘丢编辑）
 - [ ] 资产面板（侧边栏第 3 个 tab）：扫描当前文档所有 `image` / `link` 节点，列出本地路径 + 外链分组；点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）；引用计数为 0 的本地资产标灰（孤儿候选）
 - [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）

@@ -31,6 +31,8 @@ import {
 import FindReplace from '@/components/ProseMirrorEditor/findreplace/FindReplace.vue'
 import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
+import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl } from '@/components/ProseMirrorEditor/image/treeDrop'
+import { saveImageAsset } from '@/services/imageStorage'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -104,22 +106,80 @@ const escKeymap = keymap.of([{
   },
 }])
 
-// 源代码模式禁止拖入 / 粘贴图片(对齐 Typora 源码模式设计)。
-// 两件事:
-//   1. 文件型 drop 必须 preventDefault —— 否则 webview(dragDropEnabled:false
-//      下拿到原生 drag 事件)把拖入的文件当"打开"导航掉,整页跳走。PM 模式由
-//      imageUploadPlugin.handleDOMEvents.drop 兜这个 preventDefault,源码模式
-//      没有等价 PM 插件,这里补上。
-//   2. image/* paste 吞掉 —— CM6 默认 paste 不处理 File,但浏览器可能把图片
-//      当 HTML <img data:...> 塞进来产生垃圾文本。源码模式不插图,直接拦。
-// 非图片的纯文本 drop/paste 放行给 CM6 默认处理(返回 false)。
+/**
+ * OS 拖入的 image/* File → 落盘 → 在光标处插 ![](src) markdown 文本。
+ * 与富文本 imageUploadPlugin 对仗:落盘走同一 saveImageAsset(去重 + resolveImagePath),
+ * 区别仅在"插什么"——源码模式插 markdown 文本,富文本插 image 节点。
+ */
+async function insertImageFromOsFile(view: EditorView, file: File): Promise<void> {
+  try {
+    const result = await saveImageAsset({
+      currentFilePath: documentStore.currentFilePath,
+      file,
+    })
+    const md = `![${escapeMdAlt(file.name)}](${escapeMdUrl(result.srcForMarkdown)})\n`
+    view.dispatch(view.state.changeByRange((range) => ({
+      changes: { from: range.from, to: range.to, insert: md },
+      range: EditorSelection.cursor(range.from + md.length),
+    })))
+  }
+  catch (e) {
+    console.error('源码模式拖入图片落盘失败', e)
+  }
+}
+
+// 源代码模式的 drop / paste 处理(对齐 Typora 源码模式设计 + v0.5.1 文件树拖入)。
+//
+// drop 分流(返回 true = 已接管,CM6 不再处理;false = 放行给 CM6):
+//   1. 文件树拖入(application/x-velo-tree-path):
+//        - .md → confirmDiscardIfDirty + openPath(与富文本同路径)
+//        - 图片 → saveImageAssetFromPath 落盘 → 在光标处插 ![](src) markdown 文本
+//      镜像富文本行为(imageUploadPlugin),保证两模式一致。
+//   2. OS 文件型 drop(Files):preventDefault 避免 webview(dragDropEnabled:false
+//      下拿到原生 drag 事件)把文件当"打开"导航掉、整页跳走。
+//      v0.5.1 起同样插图(不再像 v0.4.6 那样全吞),与"镜像富文本"一致。
+//   3. 其它(纯文本 drop):放行给 CM6 默认处理(返回 false)。
+//
+// paste:image/* paste 吞掉 —— CM6 默认 paste 不处理 File,但浏览器可能把图片
+// 当 HTML <img data:...> 塞进来产生垃圾文本。源码模式 paste 无"文件树路径"概念,
+// 仍保持吞图。非图片纯文本 paste 放行。
 const forbidFileDropPaste = EditorView.domEventHandlers({
   drop(event: DragEvent) {
     const dt = event.dataTransfer
+
+    // 文件树拖入优先接管
+    if (dt?.types && Array.from(dt.types).includes('application/x-velo-tree-path')) {
+      const view = viewRef.value
+      // 不 await:domEventHandlers 要求同步返回;落盘/打开异步进行。
+      // preventDefault 由 handleTreePathDrop 内部完成,在此已确保接管。
+      event.preventDefault()
+      void handleTreePathDrop(event, (result, alt, capturedCurrentFilePath) => {
+        if (!view) return
+        // race 守卫:落盘期间用户切了文档 → 相对路径已不再对应,跳过(避免插错路径).
+        if (documentStore.currentFilePath !== capturedCurrentFilePath) return
+        const md = `![${escapeMdAlt(alt)}](${escapeMdUrl(result.srcForMarkdown)})\n`
+        // 在主选区处插入 markdown 图片语法,并把光标移到插入文本末尾
+        view.dispatch(view.state.changeByRange((range) => ({
+          changes: { from: range.from, to: range.to, insert: md },
+          range: EditorSelection.cursor(range.from + md.length),
+        })))
+      })
+      return true
+    }
+
+    // OS 文件型 drop:preventDefault 防 webview 导航;图片也走落盘插图
     const isFileDrop = dt?.types && Array.from(dt.types).includes('Files')
     if (!isFileDrop) return false
     event.preventDefault()
-    return true
+    const view = viewRef.value
+    if (view && dt) {
+      const file = pickImageFile(dt.files)
+      if (file) {
+        void insertImageFromOsFile(view, file)
+        return true
+      }
+    }
+    return true  // 非图片文件:阻止默认(浏览器会打开),但不插图
   },
   paste(event: ClipboardEvent) {
     const files = event.clipboardData?.files
