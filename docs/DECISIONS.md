@@ -262,3 +262,30 @@
   - 工作区切换 / 文件树打开任意位置文件均不受 scope 限制,实现简单
   - v0.5.1 资产面板"复制图片到工作区 assets/" 需要 `fs:allow-copy`,届时补 capability;`fs:allow-stat`(资产元数据)同理按需补
   - **不会**反复推翻:把"scope 不收紧"显式 ADR 留痕,避免日后"应该收紧"的直觉再次被翻出来
+
+
+## v0.5.1 — 文件树 CRUD + E2E 启动  (2026-06-24)
+
+### ADR-20260624-001: E2E 走 WebdriverIO + tauri-driver,不走 Playwright
+
+- **Context**: v0.5.1 工作区主链路稳定,需要端到端 spec 把 "CLI 启动 → 新建 → 编辑保存 → 重命名 → 删除"主链路钉死。原 ROADMAP 文案写"Playwright + tauri-driver",但 tauri-driver 实际是 **WebDriver Classic** 代理,而 Playwright 只支持 CDP / BiDi → 协议层不兼容。三条候选:
+  - A) **WebdriverIO 9 + tauri-driver + msedgedriver(WebView2 后端)** — Tauri 官方 example 同款,WD Classic 链路完整,Windows-only 跑 debug binary
+  - B) **Playwright + 自写 CDP bridge** — Tauri 2 没 CDP,得自己开 CDP server 给 WebView2;工程量大且没人维护
+  - C) **跳过 E2E,只补组件层 mount 测试** — `FileTree.vue` 等已用 vue-test-utils 覆盖右键 / 拖拽 / 行内 input;但"启动期 CLI argv → 工作区根 → 写盘"这条跨进程链路只能 E2E
+- **Decision**: 选 A。Tauri 官方支持 + 协议正确 + 一次性投入(配置 ~150 行 helper),后续 spec 只需写 it 块。Windows-only 跟项目当前只发 Windows 一致,跨平台延后(macOS 走 `tauri-driver` macOS / Linux 分支即可,spec 复用)
+- **Consequences**:
+  - WebView2 + msedgedriver 工具链有三条已知坑,spec 层兜底(见 [`TESTING.md` §10.3-10.5](./TESTING.md)):右键 Actions 不触发 `contextmenu` / `.click()` 偶发 not interactable / msedgedriver 强加 `--` 前缀污染 CLI argv
+  - debug binary 跟 dev / release 共用 `appDataDir`,spec 跑 `setActiveRoot(tempWs)` 会污染用户 `velo-workspaces.json` → `e2e/helpers/appdata.ts` snapshot/restore 三份 JSON
+  - 系统 confirm 对话框 WebDriver 抓不到 → `src/tauri/dialog.ts` 加 `import.meta.env.DEV` + `__VELO_E2E_AUTO_CONFIRM__` window flag,release 经 esbuild dead-code-eliminate
+  - 后续语法 / 工作区相关功能落地时,新增 spec 复用现有 `rightClick` / `jsClick` / `setInlineValue` / `snapshotAppData` helper,**不再**对 WebView2 工具链坑做二次研究
+
+### ADR-20260624-002: CLI argv 解析容忍单层 `--` 前缀
+
+- **Context**: 早期 `parse_cli_args` 只把 `is_file() / is_dir()` 的路径分别归类。但 WebDriver E2E 把 `tauri:options.args = [workspacePath]` 透过 tauri-driver → `ms:edgeOptions.args`,msedgedriver 当成 Chrome flag 强加 `--`,velo.exe 收到 `--C:\path` → `PathBuf::from("--C:\\path")` 既不是 file 也不是 dir → CliArgsPayload 空,持久化的工作区接管。两条候选:
+  - A) **`parse_cli_args` 容忍单层 `--`**(`strip_prefix("--").unwrap_or(s)`)— 真实 CLI 不受影响(用户传 `--help` 在 strip 后仍 `is_file=false` / `is_dir=false` 被过滤),所有 invoke 来源同款受益
+  - B) **改 E2E spec 用 `tauri:options.application` + 启动后 invoke 一个测试专属 command 注入工作区路径** — 业务侧加新 command 仅为 E2E,代价高;且未来若 CLI 还要支持其他工具链(VS Code task / packaged shortcut),还是要解决同款 prefix 问题
+- **Decision**: 选 A。一行修改,边界条件完全可控,所有走 CLI argv 的入口都受益
+- **Consequences**:
+  - 真实 CLI 行为不变 —— Velo 不接受 `--foo=bar` 命名参数,strip 后参数仍走 `is_file` / `is_dir` 路径分类
+  - 未来若引入 `--flag` 形式的命名参数(如 `--readonly`),需在 strip 之前先匹配已知 flag 列表,普通 path 参数仍走 strip 兜底
+  - 给 E2E / 任何走 WebDriver 的工具链留下统一入口,不再绕路

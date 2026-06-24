@@ -8,26 +8,6 @@
 **主线**：从"单文件编辑器"跃迁到"目录级工作区"。
 
 
-### v0.5.1 — 文件操作+ E2E 启动
-
-**目标**：文件树具备完整 CRUD 与拖拽能力；E2E 基建。
-
-**feat**
-
-- [x] 文件树右键菜单：新建 / 重命名 / 删除 / 在资源管理器中显示（destructive op 必弹 confirm）
-- [x] 文件树拖入编辑器：拖 .md = 打开、拖图片 = 走 imageUploadPlugin 插入（与源码模式 `forbidFileDropPaste` 协同）
-- [x] 文件树内拖拽移动：节点跨目录拖动 → `rename`（同盘 mv 语义）；移动后编辑器若打开了该文件，路径同步更新 `currentFilePath` 而不重载内容（避免脏盘丢编辑）
-- [x] 注册文件夹“在 Velo 中打开”菜单
-- [x] 双击空白处在根目录新建 MD 文件
-
-
-
-**test**
-
-- [x] 端到端测试基建：**WebdriverIO + tauri-driver**（原计划 Playwright；tauri-driver 走 WebDriver Classic，Playwright 仅支持 CDP/BiDi 不可用）；首批用例覆盖"打开工作区 → 新建文件 → 编辑保存 → 重命名 → 删除"主链路
-- [x] 组件层测试（按 TESTING.md §8 标准挑）：`FileTree.vue` / `Sidebar.vue` tab 切换 / 右键菜单分发 / ~~资产面板引用聚合纯函数~~ → 推迟到 v0.5.5（资产面板尚不存在）
-
-
 ### v0.5.2 — 搜索增强
 
 **目标**：从"打开当前文件"扩展到"在工作区里找东西"，覆盖大纲内 / 文件名 / 全文三层。
