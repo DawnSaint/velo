@@ -125,4 +125,78 @@ describe('workspace store', () => {
     // 工作区元数据保留,后续切回去 expandedDirs 不丢
     expect(store.knownRoots).toContain('/root')
   })
+
+  // ========== recentFiles(v0.5.2,Ctrl+P 双分区"最近打开"段) ==========
+
+  it('setLastFile 自动把路径推入 recentFiles 头部', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setLastFile('/r/a.md')
+    store.setLastFile('/r/b.md')
+    expect(store.activeWorkspace.recentFiles).toEqual(['/r/b.md', '/r/a.md'])
+  })
+
+  it('再次打开已在 recent 里的文件 → 旧位 dedupe,新位在头', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setLastFile('/r/a.md')
+    store.setLastFile('/r/b.md')
+    store.setLastFile('/r/a.md')
+    expect(store.activeWorkspace.recentFiles).toEqual(['/r/a.md', '/r/b.md'])
+  })
+
+  it('recentFiles cap 10 条 —— 超出从尾部丢', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    for (let i = 0; i < 15; i++) store.setLastFile(`/r/${i}.md`)
+    expect(store.activeWorkspace.recentFiles).toHaveLength(10)
+    // 最新的 14.md 在头,最早保留的是 5.md(0..4 已被挤掉)
+    expect(store.activeWorkspace.recentFiles?.[0]).toBe('/r/14.md')
+    expect(store.activeWorkspace.recentFiles?.[9]).toBe('/r/5.md')
+  })
+
+  it('setLastFile(null) 不入 recent —— 关闭文件 / 新建未保存', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setLastFile('/r/a.md')
+    store.setLastFile(null)
+    expect(store.activeWorkspace.lastFile).toBeNull()
+    expect(store.activeWorkspace.recentFiles).toEqual(['/r/a.md'])
+  })
+
+  it('renamePathPrefix 同步重写 recentFiles 中的旧前缀项', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setLastFile('/r/old/a.md')
+    store.setLastFile('/r/keep.md')
+    store.setLastFile('/r/old/sub/b.md')
+    store.renamePathPrefix('/r/old', '/r/new')
+    expect(store.activeWorkspace.recentFiles).toEqual([
+      '/r/old/sub/b.md'.replace('/r/old', '/r/new'),
+      '/r/keep.md',
+      '/r/old/a.md'.replace('/r/old', '/r/new'),
+    ])
+  })
+
+  it('recentFiles 走 snapshot/loadFrom round-trip', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/x')
+    store.setLastFile('/x/a.md')
+    store.setLastFile('/x/b.md')
+    const snap = store.snapshot()
+    setActivePinia(createPinia())
+    const next = useWorkspaceStore()
+    next.loadFrom(snap)
+    expect(next.activeWorkspace.recentFiles).toEqual(['/x/b.md', '/x/a.md'])
+  })
+
+  it('loadFrom 兼容旧 JSON(无 recentFiles 字段)→ 兜底空数组', () => {
+    const store = useWorkspaceStore()
+    store.loadFrom({
+      version: 1,
+      active: '/old',
+      workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
+    })
+    expect(store.activeWorkspace.recentFiles).toEqual([])
+  })
 })

@@ -16,8 +16,11 @@ import { open as openDialog } from '@/tauri/dialog'
 import type { PersistedWorkspaces, SidebarTab, WorkspaceState } from './persistence'
 
 function emptyWorkspaceState(): WorkspaceState {
-  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline' }
+  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [] }
 }
+
+/** 最近打开文件列表上限。VSCode 同款体量,够 Ctrl+P 面板用又不至于把"其他"区挤掉。 */
+const RECENT_FILES_CAP = 10
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   /** 当前活跃的工作区根路径(null = 无工作区) */
@@ -99,11 +102,25 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return workspaces.value[activeRoot.value]?.expandedDirs.includes(dirPath) ?? false
   }
 
-  /** 记录该工作区下"上次打开的文件",用于重开工作区时恢复。 */
+  /** 记录该工作区下"上次打开的文件",用于重开工作区时恢复。
+   *  同时推到 recentFiles 头部 —— Ctrl+P 双分区"最近打开"段从这里读。
+   *  path=null(关闭文件 / 新建未保存)不入 recent。 */
   function setLastFile(filePath: string | null) {
     if (!activeRoot.value) return
     const ws = ensureWorkspace(activeRoot.value)
     ws.lastFile = filePath
+    if (filePath) pushRecentFile(filePath)
+  }
+
+  /** 把 filePath 推入当前工作区 recentFiles 头部:dedupe(同路径删旧位)+ unshift + cap.
+   *  无活跃工作区 no-op。直接对外暴露也无害,但目前只有 setLastFile 内部调用. */
+  function pushRecentFile(filePath: string) {
+    if (!activeRoot.value) return
+    const ws = ensureWorkspace(activeRoot.value)
+    const list = (ws.recentFiles ?? []).filter(p => p !== filePath)
+    list.unshift(filePath)
+    if (list.length > RECENT_FILES_CAP) list.length = RECENT_FILES_CAP
+    ws.recentFiles = list
   }
 
   /**
@@ -132,6 +149,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     else if (lf && (lf.startsWith(oldSep1) || lf.startsWith(oldSep2))) {
       ws.lastFile = newPath + lf.slice(oldPath.length)
     }
+    // recentFiles 同样需要前缀重写,否则 Ctrl+P 双分区里的"最近"项指向死路径
+    if (ws.recentFiles?.length) {
+      ws.recentFiles = ws.recentFiles.map((p) => {
+        if (p === oldPath) return newPath
+        if (p.startsWith(oldSep1) || p.startsWith(oldSep2)) return newPath + p.slice(oldPath.length)
+        return p
+      })
+    }
   }
 
   function setSidebarTab(tab: SidebarTab) {
@@ -145,11 +170,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 启动时从磁盘灌入(覆盖现有)。**只有这条路径**会把持久化的 sidebarTab
    *  应用到当前 UI —— 用户主动切工作区由 setActiveRoot 保留当前 tab。 */
   function loadFrom(data: PersistedWorkspaces) {
-    workspaces.value = { ...data.workspaces }
+    // 旧 JSON 可能没有 recentFiles 字段,统一兜底为空数组,免得调用方需要判 undefined
+    const ws: Record<string, WorkspaceState> = {}
+    for (const [k, v] of Object.entries(data.workspaces)) {
+      ws[k] = { ...v, recentFiles: v.recentFiles ?? [] }
+    }
+    workspaces.value = ws
     if (data.active && workspaces.value[data.active]) {
       activeRoot.value = data.active
-      const ws = workspaces.value[data.active]
-      if (ws.sidebarTab) sidebarTab.value = ws.sidebarTab
+      const w = workspaces.value[data.active]
+      if (w.sidebarTab) sidebarTab.value = w.sidebarTab
     }
     else {
       setActiveRoot(null)
@@ -164,6 +194,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         expandedDirs: [...v.expandedDirs],
         lastFile: v.lastFile ?? null,
         sidebarTab: v.sidebarTab,
+        recentFiles: [...(v.recentFiles ?? [])],
       }
     }
     return {
@@ -185,6 +216,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setDirExpanded,
     isDirExpanded,
     setLastFile,
+    pushRecentFile,
     renamePathPrefix,
     setSidebarTab,
     loadFrom,

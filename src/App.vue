@@ -15,6 +15,8 @@ import EditorSettings from '@/components/EditorSettings.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
+import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
+import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
@@ -335,6 +337,11 @@ function toggleFind() {
   else openFind()
 }
 
+// ========== Ctrl+P 查找文件(v0.5.2)==========
+// 工作区维度的快速打开面板,与 FindReplace 视觉档次对齐但独立浮层。
+// 无工作区时 onKeydown 直接 return(对齐 ROADMAP 问答约定的"静默无反应"语义)。
+const quickOpenOpen = ref(false)
+
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
  *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
  *  上提到顶栏后,FileTree 顶部"更换工作区"按钮移除(v0.5.1,避免与本按钮重复)。 */
@@ -380,6 +387,14 @@ function onKeydown(e: KeyboardEvent) {
     e.stopPropagation()
     void exportStore.exportDocument()
   }
+  else if (k === 'p' && !e.shiftKey) {
+    // Ctrl+P 查找文件(v0.5.2):无工作区静默 —— 用户从顶栏 / 文件树空态自行进入。
+    // toggle 语义:已开 → 关,未开 → 开。
+    if (!workspaceStore.activeRoot) return
+    e.preventDefault()
+    e.stopPropagation()
+    quickOpenOpen.value = !quickOpenOpen.value
+  }
 }
 
 let unlistenCli: UnlistenFn | null = null
@@ -412,6 +427,8 @@ function scheduleDirtyFlush() {
     for (const d of dirs) {
       sidebarRef.value?.refreshDir(d)
     }
+    // Ctrl+P 索引也作废 —— 任何脏目录事件视为索引失效,下次面板打开重扫(v0.5.2)
+    invalidateQuickOpenIndex(workspaceStore.activeRoot)
   }, 120)
 }
 
@@ -455,6 +472,8 @@ async function stopWorkspaceWatch() {
 // 的 race 容忍策略 —— 用户快速切换工作区时,新 watch 句柄会赢,旧的就算回调
 // 漏过来也只是多刷一次树,无副作用。
 watch(() => workspaceStore.activeRoot, async (r) => {
+  // 切工作区 → Ctrl+P 缓存整张表清掉(新工作区不复用旧索引,且旧路径上的 watch 已停)
+  clearQuickOpenIndex()
   if (r) await startWorkspaceWatch(r)
   else await stopWorkspaceWatch()
 })
@@ -850,6 +869,14 @@ onBeforeUnmount(() => {
       @recover="(id) => void documentStore.recoverDraft(id)"
       @discard="(id) => void documentStore.discardDraft(id)"
       @dismiss="documentStore.dismissRecoveryDialog()"
+    />
+
+    <!-- Ctrl+P 查找文件浮层(v0.5.2):工作区维度,与 FindReplace 独立。
+         v-if 控制实例存活 —— 关闭即销毁,下次打开重新拉索引(配合 quickOpenIndex 缓存). -->
+    <QuickOpenPanel
+      v-if="quickOpenOpen"
+      :open="quickOpenOpen"
+      @update:open="(v) => quickOpenOpen = v"
     />
   </div>
 </template>
