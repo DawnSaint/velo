@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { filterHeadings } from '@/utils/outlineFilter'
+import { trace } from '@/utils/perfTrace'
 
 const props = defineProps<{
   modelValue: string
@@ -92,7 +93,7 @@ function toggleExpand(key: string) {
 }
 
 watch(() => props.modelValue, (v) => {
-  tree.value = parseHeadings(v)
+  tree.value = trace('outline.parseHeadings', () => parseHeadings(v))
   // 删除掉再也不存在的折叠键 —— 保留仍然在树里的，跨编辑保持折叠状态
   const live = new Set<string>()
   function walk(items: HeadingItem[]) {

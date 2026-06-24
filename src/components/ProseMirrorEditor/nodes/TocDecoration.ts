@@ -13,6 +13,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
+import { trace } from '@/utils/perfTrace'
 
 // ============================================================
 //  SVG 图标(lucide 风格,跟 CodeHighlightWidget 对齐)
@@ -231,7 +232,7 @@ const tocDecoPlugin = new Plugin<TocDecoState>({
   },
   props: {
     decorations(state) {
-      return buildDecorations(state)
+      return trace('toc.decorations', () => buildDecorations(state))
     },
   },
   view(view: EditorView) {

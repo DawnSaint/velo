@@ -42,6 +42,7 @@ import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/
 import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { trace } from '@/utils/perfTrace'
 import 'katex/dist/katex.min.css'
 
 // ============================================================
@@ -349,7 +350,7 @@ const { containerRef, getView } = useProseMirror({
   fromMarkdown: (md, s) => fromMarkdown(md, s as VeloSchema),
   plugins: allPlugins,
   onChange: (doc) => {
-    const md = toMarkdown(doc)
+    const md = trace('editor.toMarkdown', () => toMarkdown(doc))
     lastSelfEmitted = md
     emit('update:modelValue', md)
   },

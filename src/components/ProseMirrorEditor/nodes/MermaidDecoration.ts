@@ -1,3 +1,4 @@
+import { trace } from '@/utils/perfTrace'
 // Mermaid SVG 渲染走 ProseMirror Decoration.widget(老教训:atom NodeView 内部改
 // innerHTML 会被 DOMObserver 当外部突变 → 全量 remount + loader 闪烁)。
 //
@@ -468,7 +469,7 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
     decorations(state) {
       const deco = mermaidDecoKey.getState(state)
       if (!deco) return null
-      return buildDecorations(state, deco)
+      return trace('mermaid.decorations', () => buildDecorations(state, deco))
     },
   },
   view: (view: EditorView) => {

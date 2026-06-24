@@ -2,6 +2,7 @@ import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
+import { trace } from '@/utils/perfTrace'
 
 // ============================================================
 //  1. 编号核心
@@ -290,7 +291,7 @@ const footnoteNumberPlugin = new Plugin({
   state: {
     init: (_, state) => makeFootnoteNumberState(state),
     apply: (tr, _old) => {
-      if (tr.docChanged) return makeFootnoteNumberStateFromDoc(tr.doc)
+      if (tr.docChanged) return trace('footnote.computeNumbering', () => makeFootnoteNumberStateFromDoc(tr.doc))
       return _old
     },
   },

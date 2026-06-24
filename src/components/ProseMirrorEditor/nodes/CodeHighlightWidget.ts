@@ -1,3 +1,4 @@
+import { trace } from '@/utils/perfTrace'
 // 代码块高亮 —— inline decoration(高亮) + widget(工具条)。
 //
 // 为什么不走 NodeView:
@@ -558,7 +559,8 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
     decorations(state) {
       const s = codeHighlightKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme)
+      return trace('codeHighlight.decorations', () =>
+        buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme))
     },
   },
   view: (view) => {
