@@ -36,7 +36,7 @@ defineExpose({
          首次点击"文件"不自动弹选择文件夹,空态由 FileTree 内部按钮承担。 -->
     <div class="relative flex shrink-0 items-stretch border-b border-gray-200 px-3 pt-3 dark:border-gray-800">
       <button
-        class="velo-sidebar-tab flex-1 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors"
+        class="velo-sidebar-tab flex-1 px-2 py-1.5 text-sm font-semibold uppercase tracking-wider transition-colors"
         :class="workspace.sidebarTab === 'files'
           ? 'velo-sidebar-tab--active'
           : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"
@@ -45,7 +45,7 @@ defineExpose({
         文件
       </button>
       <button
-        class="velo-sidebar-tab flex-1 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors"
+        class="velo-sidebar-tab flex-1 px-2 py-1.5 text-sm font-semibold uppercase tracking-wider transition-colors"
         :class="workspace.sidebarTab === 'outline'
           ? 'velo-sidebar-tab--active'
           : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"

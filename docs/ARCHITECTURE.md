@@ -177,6 +177,8 @@ velo/
 
 - **"在 Velo 中打开"文件夹右键菜单走 HKCU 注册表 + 每启动 best-effort 重写**: `folder_menu::ensure_registered` 写在 HKCU\Software\Classes\Directory\shell\OpenInVelo(verb 子键 + command 子键),不写 HKLM —— HKCU 不需要 UAC 提升,普通用户启动即可注册;Windows shell 解析 Classes 时合并 HKCU+HKLM,效果等价。每次 `setup()` 重写而非"仅缺时写":自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景),HKCU 写盘是同步快速 op 无可感知开销。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell 空白右键,本菜单挂的是 Directory\shell 即"右键文件夹"),引号必加防止路径含空格被拆词。失败仅 log::warn 不抛 —— Velo 是本地编辑器,菜单是 nice-to-have,启动不该被注册表故障阻塞
 
+- **大纲搜索过滤是视图层独立路径,不污染 tree / 折叠态 / store**: 顶部搜索框按 heading 文本做大小写不敏感的子序列 fuzzy 匹配(`src/utils/outlineFilter.ts:fuzzyMatch` + `fuzzyMatchIndices` + `filterHeadings`,不引第三方库)。filter 阶段完全不动 `outlineStore` / `collapsedKeys`,也不维护祖先链 —— "仅展示命中条目",祖先不命中就不入列;`flatList` walker 在 filter 激活时对非命中祖先跳过 push 但**仍递归走完子树**,防止深层命中被漏掉。filter 模式下隐藏 chevron(`hasChildren = false`):命中条目为扁平列表,没有"展开/折叠"的语义需求,清空 query 后用户原折叠意图原样回归。关键字字符在 displayText 内联渲染主题色高亮段(`buildSegments` 把 `matchIndices` 切成 `{ text, match }[]`,模板逐段渲染,匹配段用 `<span>` 加 `color: var(--md-primary-color)` + `font-semibold`,**不**加背景色避免文字抖动);搜索框 focus 边色同样走 `--md-primary-color`,与大纲高亮色源统一。scroll-spy 沿用 `flatList.visible` 集合自动适配 filter 模式,filter 命中区间外的滚动位置自然失高亮,无需特例分支
+
 ---
 
 ## 维护者注意点

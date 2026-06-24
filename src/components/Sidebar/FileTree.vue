@@ -716,7 +716,7 @@ function displayName(node: TreeNode): string {
     <!-- 文件列表 -->
     <div
       v-else
-      class="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-2"
+      class="min-h-0 flex-1 overflow-y-auto py-2"
       :class="{ 'bg-blue-50/40 dark:bg-blue-950/20': dragOverTarget !== null && dragOverTarget === workspace.activeRoot }"
       @dragover.self="onContainerDragOver"
       @drop.self="onContainerDrop"
