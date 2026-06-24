@@ -288,6 +288,8 @@ export interface WorkspaceState {
   lastFile?: string | null
   /** 该工作区下用户上次看的侧边栏 tab */
   sidebarTab?: SidebarTab
+  /** 该工作区下最近打开的文件路径,头部 = 最新;cap 10。Ctrl+P 双分区用(v0.5.2). */
+  recentFiles?: string[]
 }
 
 export interface PersistedWorkspaces {
