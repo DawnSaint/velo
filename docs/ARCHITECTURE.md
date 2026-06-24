@@ -37,8 +37,10 @@ velo/
 │       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树
 │       │   ├── Sidebar.vue         大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
 │       │   ├── EditorOutline.vue   hideHeader prop 嵌入 Sidebar 时不画 h2
-│       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示)
-│       │   └── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定"点外部")
+│       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD + 内部拖拽 move(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示 / 跨目录拖动 rename)
+│       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定"点外部")
+│       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
+│       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
 │       ├── EditorSettings.vue
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
@@ -134,7 +136,7 @@ velo/
 3. `!dirty` → 静默 reload
 4. `dirty` → 弹确认
 
-**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。
+**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。**内部拖拽 move**:同样的 TREE_PATH_MIME(树内 drop 与拖出编辑器复用一个 MIME,接收端按目标区分);校验链 src===dst / parent(src)===dst / 目录拖入自身后代;成功后 `fs.rename` → `workspace.renamePathPrefix(srcPath, newPath)` 把 expandedDirs / lastFile 前缀重写 → `loadContent(content, newPath)` 当前文件命中或落在被移目录子树时直接前缀拼新路径(单次调用避免双 watch swap) → `pruneDirIndexPrefix(srcPath)` 摘掉脱链子树 dirIndex 孤儿(否则 fs.watch 拿旧路径调 `refreshDir` 会在死节点上置 `node.error`) → 双侧 `loadDirChildren` 同 microtask flush。
 
 **单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。
 
@@ -202,6 +204,7 @@ velo/
 > - FileTree CRUD 写盘后不要 `loadDirChildren` 全量重建,要复用旧 TreeNode —— 见 #28
 > - FileTree CRUD 后 children 更新与 inline 关闭不要跨 await(否则两帧闪烁) —— 见 #28
 > - FileTreeContextMenu 不要在组件内自己挂全局 close listener,统一走父级 —— 见 #29
+> - FileTree 内部拖拽 move 不要先 `loadContent(content, srcPath)` 再切到 newCur,也不要在 fs.rename 成功后 `loadContent(content, oldPath)` —— 见 #30
 
 1. **路径别名**: `@/` → `src/`
 2. **fs.watch 生命周期 race**: `startWatchOf`/`stopWatch` fire-and-forget 理论可泄漏;`checkExternalChange` 早退故无实际影响
@@ -237,3 +240,12 @@ velo/
 27. **Tauri 2 plugin-opener 只能 desktop**: `revealItemInDir` 移动端 unsupported,Velo 当前只打 desktop,future 加 mobile entry 时需自行在 capability / 调用点降级(消息弹"不支持")
 28. **FileTree 节点复用 + mutation 后立即清 inline 状态,避免整树闪烁**: v0.5.1 起 CRUD 写盘后,`loadDirChildren` **必须**按 name + isDir 复用旧 `TreeNode` 引用,只对新增 / 删除的 entry 建新对象。否则父级 `flatItems` computed 看到新 proxy 引用就 reconcile 整树 → 整树重渲闪烁;复用后未变化的子树 props 不变,Vue 跳过。`submitInline` / `confirmAndDelete` 中 `loadDirChildren` 与 `cancelInline` / `loadContent('', null)` 之间**不能有 await**(会跨 microtask 边界,Vue 分两帧 flush),必须同一 microtask 同步排列,Vue 一次 flush 渲染。`loadDirChildren` 内部 `node.loading` 切换在子目录不可见(只有根 root 触发"加载中…"),所以根的 loading 由 `rebuildFromRoot` 单独 toggle,`loadDirChildren` 不再 toggle,免得在没必要的子树触发 2 次额外 reactive 通知
 29. **FileTreeContextMenu 抽组件 + rootEl expose**: 右键菜单 5 项固定 UI + 5 个 emit,跟 FileTree 状态机耦合很浅,内联在 FileTree 会撑长模板。`FileTreeContextMenu.vue` 自管 `<Teleport to="body">` 并 `defineExpose({ rootEl })` 暴露 Teleport 后的 DOM 节点;FileTree 全局 `pointerdown` handler 拿 `contextMenuRef.value?.rootEl` 判定"点外部"关闭。**不**在组件内自己挂全局 listener(会和 FileTree 的 inline input close 逻辑竞争),也不在组件 emit close(让父级统一管理 `contextMenu.value` 状态)
+
+30. **FileTree 内部拖拽 move:状态前缀重写 + dirIndex prune + 单次 loadContent**:
+    - 与重命名 / 删除一样走 `documentStore.loadContent(content, newPath)` 既有契约,**不**自起 watch / 手动 mutate currentFilePath。dir 移动并包含当前文件时,直接合成 `newCur = newPath + cur.slice(srcPath.length)` 一次性传入,**不要**先 loadContent(content, srcPath) 再切到 newCur —— 两次 startWatchOf 会留一个指向已不存在路径的 watch 窗口。
+    - `workspaceStore.renamePathPrefix(oldPath, newPath)` 必须早于 loadContent,把 `expandedDirs` / `lastFile` 中以 oldPath 为前缀的项整体重写;否则下次重开工作区 isDirExpanded 命中旧路径,readDir 抛错,整树降级到只展开根。
+    - `pruneDirIndexPrefix(srcPath)` 必须紧跟 rename 成功:被移走的目录子树在 dirIndex 里全是孤儿(rootNode 已找不到它们,但 dirIndex 持有 key),后续工作区 fs.watch 用旧路径 debounced 调 `refreshDir` 会撞到孤儿,`readDir(deadPath)` reject 写 `node.error` 污染脱链节点。
+    - 同 microtask 收尾(参考 #28):`fs.rename` resolve 之后 → renamePathPrefix → loadContent(必要时)→ pruneDirIndexPrefix → `Promise.all([loadDirChildren(srcParent), loadDirChildren(dstDir)])` 全程无 await 间隔,Vue 单帧 flush。
+    - dragstart 必须先 `closeContextMenu() + cancelInline()`:菜单 / 行内 input 在拖拽期间残留,drop 时全局 pointerdown 会把行内 input 误提交。
+    - `effectAllowed` 必须是 `'all'` 而非 `'copyLink'`:dropEffect='move' 必须在 effectAllowed 子集内,否则浏览器视为非法 → 树内 drop 拒绝;编辑器侧自行计算 dropEffect 不受 source 宽放影响。
+    - **hover-expand**: 拖拽悬停折叠目录 500ms 自动展开(VSCode 行为),`armHoverExpand(dstDir)` 在 `onRowDragOver` 命中目录 row 时挂 timer;切到别的目录 / 文件 row / 容器空白 / dragend / drop 都必须 `clearHoverExpandTimer()`,否则 timer 跨拖拽残留,下次悬停同目录 500ms 内会触发"幽灵展开"。文件 row 解析到的父目录已展开(否则文件不可见),不挂 timer。

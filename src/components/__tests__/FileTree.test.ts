@@ -104,7 +104,7 @@ describe('FileTree', () => {
 
   // ── v0.5.1 拖拽源 ──
 
-  it('文件行 draggable=true,目录行 draggable=false', async () => {
+  it('行 draggable=true(文件 + 目录都可拖,v0.5.1 起目录支持内部 move)', async () => {
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
 
@@ -120,8 +120,8 @@ describe('FileTree', () => {
 
     const items = wrapper.findAll('.group')
     expect(items.length).toBe(3)
-    // 排序:目录在前
-    expect(items[0].attributes('draggable')).toBe('false')
+    // v0.5.1 起目录也可拖(内部 move 语义),不再区分目录 / 文件
+    expect(items[0].attributes('draggable')).toBe('true')
     expect(items[1].attributes('draggable')).toBe('true')
     expect(items[2].attributes('draggable')).toBe('true')
   })

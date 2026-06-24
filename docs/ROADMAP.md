@@ -16,7 +16,7 @@
 
 - [x] 文件树右键菜单：新建 / 重命名 / 删除 / 在资源管理器中显示（destructive op 必弹 confirm）
 - [x] 文件树拖入编辑器：拖 .md = 打开、拖图片 = 走 imageUploadPlugin 插入（与源码模式 `forbidFileDropPaste` 协同）
-- [ ] 文件树内拖拽移动：节点跨目录拖动 → `rename`（同盘 mv 语义）；移动后编辑器若打开了该文件，路径同步更新 `currentFilePath` 而不重载内容（避免脏盘丢编辑）
+- [x] 文件树内拖拽移动：节点跨目录拖动 → `rename`（同盘 mv 语义）；移动后编辑器若打开了该文件，路径同步更新 `currentFilePath` 而不重载内容（避免脏盘丢编辑）
 - [ ] 注册文件夹“在 Velo 中打开”菜单
 - [ ] 双击空白处在根目录新建 MD 文件
 

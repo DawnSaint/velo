@@ -99,6 +99,34 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     ws.lastFile = filePath
   }
 
+  /**
+   * 把 oldPath 在工作区局部状态里出现的位置(expandedDirs / lastFile)
+   * 全量改成 newPath。文件树跨目录拖拽 move(v0.5.1)用 —— 同盘 mv 完成后
+   * 工作区记忆里所有以 oldPath 为前缀的展开目录 / lastFile 都失效,
+   * 必须前缀重写,否则下次重开工作区拿旧路径恢复展开 → 节点早已不存在,
+   * isDirExpanded 命中后 readDir 抛错(目录消失),整树降级到只展开根。
+   *
+   * 双分隔符判定(/ + \)避免引入 `sep()` 异步调用;旧值末尾 + 分隔符判 prefix,
+   * 保证 `/a/b1` 不会被 `/a/b` 匹中。
+   */
+  function renamePathPrefix(oldPath: string, newPath: string) {
+    if (!activeRoot.value) return
+    if (oldPath === newPath) return
+    const ws = ensureWorkspace(activeRoot.value)
+    const oldSep1 = oldPath + '/'
+    const oldSep2 = oldPath + '\\'
+    ws.expandedDirs = ws.expandedDirs.map((d) => {
+      if (d === oldPath) return newPath
+      if (d.startsWith(oldSep1) || d.startsWith(oldSep2)) return newPath + d.slice(oldPath.length)
+      return d
+    })
+    const lf = ws.lastFile
+    if (lf === oldPath) ws.lastFile = newPath
+    else if (lf && (lf.startsWith(oldSep1) || lf.startsWith(oldSep2))) {
+      ws.lastFile = newPath + lf.slice(oldPath.length)
+    }
+  }
+
   function setSidebarTab(tab: SidebarTab) {
     sidebarTab.value = tab
     if (activeRoot.value) {
@@ -147,6 +175,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setDirExpanded,
     isDirExpanded,
     setLastFile,
+    renamePathPrefix,
     setSidebarTab,
     loadFrom,
     snapshot,
