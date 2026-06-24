@@ -296,3 +296,47 @@ export function getTokensSync(
     return null
   }
 }
+
+// ============================================================
+//  Token 缓存(per-keystroke 性能关键路径)
+// ============================================================
+//
+// `props.decorations(state)` 契约无脏区间钩子,每次 transaction 全量重跑;
+// 1000 行文档对所有 code_block 同步跑 `codeToTokensWithThemes` 累计 100ms+
+// 卡顿。按 `(lang + 两套主题 + content-hash)` LRU 缓存 token 数组,普通段落
+// 键入 ~99% 命中,单键 decoration build 从 ~100ms 降到 ~5ms。详见 ARCHITECTURE
+// 维护者注意点 #32。
+//
+// 缓存值是 token 而非 Decoration —— token.offset 是块首相对偏移,与 doc 位置
+// 无关;`buildDecorations` 仍走 `blockStart + offset` 重算绝对 pos。直接缓存
+// Decoration 会脏(`Decoration.inline` from/to 是绝对位置,块在 doc 里移动就过时)。
+const TOKEN_CACHE_CAP = 200
+const tokenCache = new Map<string, ThemedTokenWithVariants[][]>()
+
+/** `getTokensSync` 的带缓存版本 —— 命中跳过 shiki 同步分词。 */
+export function getTokensCached(
+  hl: Highlighter | null,
+  code: string,
+  lang: string,
+  lightTheme: string,
+  darkTheme: string,
+): { tokens: ThemedTokenWithVariants[][] } | null {
+  if (!hl || !lang) return null
+  const key = `${lang}:${lightTheme}:${darkTheme}:${hashCode(code)}`
+  const cached = tokenCache.get(key)
+  if (cached) {
+    // LRU 提到末尾(Map iteration 序 = 插入序)
+    tokenCache.delete(key)
+    tokenCache.set(key, cached)
+    return { tokens: cached }
+  }
+  const result = getTokensSync(hl, code, lang, lightTheme, darkTheme)
+  if (!result) return null
+  if (tokenCache.size >= TOKEN_CACHE_CAP) {
+    // 淘汰最老条目:Map.keys() 迭代序就是插入序,第一个是 LRU 端
+    const oldest = tokenCache.keys().next().value
+    if (oldest !== undefined) tokenCache.delete(oldest)
+  }
+  tokenCache.set(key, result.tokens)
+  return result
+}

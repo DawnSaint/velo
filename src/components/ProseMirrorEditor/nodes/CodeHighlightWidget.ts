@@ -38,7 +38,7 @@ import type { Highlighter } from 'shiki'
 import { useEditorStore } from '@/stores/editor'
 import {
   getHighlighterSync,
-  getTokensSync,
+  getTokensCached,
   hashCode,
   ensureTheme,
   setDecorationRebuildCallback,
@@ -489,8 +489,10 @@ function buildDecorations(
     }
 
     if (!hl) return
-    // inline decoration:code_block 内部的 text 加 token color
-    const result = getTokensSync(hl, code, lang, lightTheme, darkTheme)
+    // inline decoration:code_block 内部的 text 加 token color。
+    // 走 LRU 缓存版本 —— 同 (lang + 两套主题 + content-hash) 命中跳过 shiki 同步分词,
+    // 是 per-keystroke 性能的关键路径(详见 CodeBlockLangs.ts 注释)。
+    const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
     if (!result) return
     const { tokens } = result
     // shiki 的 ThemedToken.offset 是"相对于输入 code 字符串开头"的全局偏移
@@ -619,7 +621,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
         const s = codeHighlightKey.getState(view.state)
         if (!s) return
         // dispatch 同 highlighter / 主题的 setMeta → state.apply 跑 → 新 state
-        // 触发 `decorations(state)` 重新跑 → getTokensSync 重新调到(此时
+        // 触发 `decorations(state)` 重新跑 → getTokensCached 重新调到(此时
         // ensureLanguage 已 resolve,lang 已 in hl.getLoadedLanguages())→ 出 token
         view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
           highlighter: s.highlighter,

@@ -209,6 +209,7 @@ velo/
 > - FileTree CRUD 后 children 更新与 inline 关闭不要跨 await(否则两帧闪烁) —— 见 #28
 > - FileTreeContextMenu 不要在组件内自己挂全局 close listener,统一走父级 —— 见 #29
 > - FileTree 内部拖拽 move 不要先 `loadContent(content, srcPath)` 再切到 newCur,也不要在 fs.rename 成功后 `loadContent(content, oldPath)` —— 见 #30
+> - 不要清理 `getTokensCached` 这层 LRU —— 见 #32
 
 1. **路径别名**: `@/` → `src/`
 2. **fs.watch 生命周期 race**: `startWatchOf`/`stopWatch` fire-and-forget 理论可泄漏;`checkExternalChange` 早退故无实际影响
@@ -259,3 +260,5 @@ velo/
     - dragstart 必须先 `closeContextMenu() + cancelInline()`:菜单 / 行内 input 在拖拽期间残留,drop 时全局 pointerdown 会把行内 input 误提交。
     - `effectAllowed` 必须是 `'all'` 而非 `'copyLink'`:dropEffect='move' 必须在 effectAllowed 子集内,否则浏览器视为非法 → 树内 drop 拒绝;编辑器侧自行计算 dropEffect 不受 source 宽放影响。
     - **hover-expand**: 拖拽悬停折叠目录 500ms 自动展开(VSCode 行为),`armHoverExpand(dstDir)` 在 `onRowDragOver` 命中目录 row 时挂 timer;切到别的目录 / 文件 row / 容器空白 / dragend / drop 都必须 `clearHoverExpandTimer()`,否则 timer 跨拖拽残留,下次悬停同目录 500ms 内会触发"幽灵展开"。文件 row 解析到的父目录已展开(否则文件不可见),不挂 timer。根目录走 `rootCollapsed` 而非 `workspace.expandedDirs`,所以 `armHoverExpand` 对根 path 走独立分支。
+
+32. **shiki token 必须缓存,`getTokensCached` 是 per-keystroke 关键路径**: `props.decorations(state)` 契约无脏区间钩子,每次 transaction 全量重跑;1000 行文档对所有 code_block 同步跑 `codeToTokensWithThemes` 累计 ~100ms 卡顿,实测占输入路径总耗时 90%+。`CodeBlockLangs.ts` 走 LRU(cap 200)按 `(lang + lightTheme + darkTheme + content-hash)` 缓存 token 数组,普通段落键入 ~99% 命中,单次 deco build 从 ~100ms 降到 ~5ms。**不要清理这层 cache,删了立刻退步 20x**。缓存值是 token 而非 Decoration —— `token.offset` 是块首相对偏移,与 doc 位置无关,`buildDecorations` 仍走 `blockStart + offset` 重算绝对 pos;直接缓存 Decoration 会脏(`Decoration.inline` from/to 是绝对位置,块在 doc 里移动就过时)。theme 名进 key 自然处理"切代码块主题"路径,rebuild 触发由 #5 那条 `setDecorationRebuildCallback` 钩子统一管。
