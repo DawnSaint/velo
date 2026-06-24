@@ -122,52 +122,60 @@
 
 ## Commit Message 格式规约
 
+遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
+
 ```
-<type>(version): <summary>
+<type>(<scope>): <summary>
 
-Feat:
-- English bullet 1
-- English bullet 2
+<body>
 
-Fix:
-- English bullet
-
-Feat:
-- 中文 bullet 1
-- 中文 bullet 2
-
-Fix:
-- 中文 bullet
-
-依赖变更：xxx@yyy
+<footer>
 ```
 
+- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `build` / `ci` / `release`
+- **scope**（可选）：模块名，如 `editor` / `sidebar` / `tauri` / `markdownIO`；不写 version
+- **summary**：1 句小写英文祈使句，描述"这次 commit 干了什么"，不带句号
+- **body**（可选）：背景 / 取舍说明 / 非显然之处；段落式英文
+- **footer**（可选）：
+  - `BREAKING CHANGE: <说明>` — 触发 major
+  - `Closes #x` / `Refs #x` — 关联 issue
+  - 依赖变更（包括 `Cargo.toml` / `package.json`）写一行 `Deps: xxx@yyy`
 
-- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` 等
-- **version**：当前项目版本（`v<major>.<minor>.<patch>`），同一版本的多个 commit 共用同一 scope
-- **summary**：1 句概括性的的英文，描述"这次 commit 干了什么"
-- **bullet**：按改动类型分组，英文 bullet 在前，中文 bullet 复述在后
-- **依赖变更**：包括 `Cargo.toml` / `package.json`，如果没有变更则不加入此项
 
 
 ## 版本发布
 
-版本发布提交时，将现有改动都合进一个发版提交，不拆分为 feat commit 和 release commit。流程：
+### 前提
 
-1. `git add -A` 暂存全部改动，不执行 `git commit`。
-2. 执行：
+- 工作树干净，所有 feat/fix 已按 Conventional Commits 单独提交并 push
+- `master` 上的 commit 已通过测试和类型检查
+
+### 流程
 
 ```bash
-npm version <level> -f -m <commit message>
+npm version <level> -m "release(v%s): <summary>"
 ```
 
-- `<level>` 为 `patch` / `minor` / `major`，由用户指定或根据改动范围判断
-- `npm version` 会自动： bumped `package.json` version → `version` lifecycle（`scripts/sync-tauri-version.mjs` 同步 Tauri 版本 + git add） → `git commit`（把暂存区里本次的工作内容连同版本 bump 一起提交进同一个 commit） → git tag
-- `<commit message>` 即发版提交的 message，按上方 Commit Message 格式规约写，type 写 `release`
+- `<level>` 为 `patch` / `minor` / `major`，按 SemVer 判断（feat → minor / fix → patch / BREAKING CHANGE → major）
+- `npm version` 串行触发：
+  1. **preversion**：`type-check` + `test` + `build`，任一失败中止，不会改任何文件
+  2. bumped `package.json` version
+  3. **version** lifecycle：`scripts/sync-tauri-version.mjs` 同步 Tauri 版本 + `git add` 同步过的文件
+  4. `git commit`（只包含本次 version bump 相关文件） + `git tag`
+  5. **postversion**：`git push --follow-tags` 自动推 commit 和 tag
+- 发版 commit message 模板示例：
 
-3. 完成后执行 `git push --follow-tags` 推送 commit 和 tag
+```
+release(v0.5.2): search enhancements + tree DnD
 
-> `npm version` 的 `git commit` 捕获的是**当前暂存区的全部内容**，所以发版前务必先 `git add -A`，让工作内容与版本号 bump、Tauri 版本同步落在同一个 commit 里。
+Highlights:
+- in-editor find/replace ranking by relevance
+- file tree drag-to-move with conflict prompt
+
+Deps: prosemirror-view@1.42.0
+```
+
+详细 user-facing 变更写进 `docs/CHANGELOG.md`，commit message 只放高亮。
 
 
 

@@ -33,7 +33,12 @@ struct PendingCliArgs(Mutex<CliArgsPayload>);
 fn parse_cli_args(args: &[String]) -> CliArgsPayload {
     let mut out = CliArgsPayload::default();
     for a in args {
-        let p = PathBuf::from(a);
+        // E2E via WebDriver:msedgedriver 把 capabilities.args 每条都当 Chrome flag,
+        // 强制加 `--` 前缀。`PathBuf::from("--C:\\path")` 既不是 file 也不是 dir
+        // → 整条 argv 静默丢弃。这里宽容地剥一层 `--`,真实 CLI 不受影响
+        // (用户传 `--help` 也是 is_file=false / is_dir=false,本来就会被过滤)。
+        let raw: &str = a.strip_prefix("--").unwrap_or(a);
+        let p = PathBuf::from(raw);
         if p.is_file() {
             let is_md = p
                 .extension()
@@ -41,11 +46,11 @@ fn parse_cli_args(args: &[String]) -> CliArgsPayload {
                 .map(|e| MD_EXTS.contains(&e.to_ascii_lowercase().as_str()))
                 .unwrap_or(false);
             if is_md {
-                out.files.push(a.clone());
+                out.files.push(raw.to_string());
             }
         }
         else if p.is_dir() {
-            out.dirs.push(a.clone());
+            out.dirs.push(raw.to_string());
         }
     }
     out

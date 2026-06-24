@@ -24,8 +24,8 @@
 
 **test**
 
-- [ ] 端到端测试基建：Playwright + tauri-driver；首批用例覆盖"打开工作区 → 新建文件 → 编辑保存 → 重命名 → 删除"主链路
-- [ ] 组件层测试（按 TESTING.md §8 标准挑）：`FileTree.vue` / `Sidebar.vue` tab 切换 / 右键菜单分发 / 资产面板引用聚合纯函数
+- [x] 端到端测试基建：**WebdriverIO + tauri-driver**（原计划 Playwright；tauri-driver 走 WebDriver Classic，Playwright 仅支持 CDP/BiDi 不可用）；首批用例覆盖"打开工作区 → 新建文件 → 编辑保存 → 重命名 → 删除"主链路
+- [x] 组件层测试（按 TESTING.md §8 标准挑）：`FileTree.vue` / `Sidebar.vue` tab 切换 / 右键菜单分发 / ~~资产面板引用聚合纯函数~~ → 推迟到 v0.5.5（资产面板尚不存在）
 
 
 ### v0.5.2 — 搜索增强

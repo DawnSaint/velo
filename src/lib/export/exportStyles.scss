@@ -23,7 +23,6 @@
 @forward '../../styles/math';
 @forward '../../styles/mermaid';
 @forward '../../styles/footnote';
-@forward '../../styles/plugin-common';
 
 // 最小 body reset + 自适应 dark 命中(编辑器内靠 <html class="dark"> 翻面,
 // 导出 HTML 没那个 class,改用媒体查询接管;跟 _editor-code.scss:94-103 的

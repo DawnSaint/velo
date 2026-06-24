@@ -57,6 +57,7 @@ defineExpose({ rootEl })
         <button
           v-if="showOpenInEditor"
           class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          data-testid="ctx-open-in-editor"
           @click="emit('open-in-editor')"
         >
           在编辑器中打开
@@ -64,6 +65,7 @@ defineExpose({ rootEl })
         <button
           v-if="showOpenAsWorkspace"
           class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          data-testid="ctx-open-as-workspace"
           @click="emit('open-as-workspace')"
         >
           作为工作区打开
@@ -73,12 +75,14 @@ defineExpose({ rootEl })
 
       <button
         class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+        data-testid="ctx-new-file"
         @click="emit('new-file')"
       >
         新建文件
       </button>
       <button
         class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+        data-testid="ctx-new-dir"
         @click="emit('new-dir')"
       >
         新建文件夹
@@ -87,12 +91,14 @@ defineExpose({ rootEl })
         <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
         <button
           class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          data-testid="ctx-rename"
           @click="emit('rename')"
         >
           重命名
         </button>
         <button
           class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          data-testid="ctx-delete"
           @click="emit('delete')"
         >
           删除
@@ -102,6 +108,7 @@ defineExpose({ rootEl })
         <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
         <button
           class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          data-testid="ctx-reveal"
           @click="emit('reveal')"
         >
           在资源管理器中显示
