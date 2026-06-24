@@ -6,8 +6,6 @@ import { parseHeadings, type HeadingItem } from '@/utils/outline'
 const props = defineProps<{
   modelValue: string
   filePath: string | null
-  /** v0.5.0:嵌入 Sidebar.vue 的 tab 时,标题由外层 tab 代表,内部不再渲染 h2。 */
-  hideHeader?: boolean
 }>()
 
 const outlineStore = useOutlineStore()
@@ -253,19 +251,11 @@ onUnmounted(() => {
 <template>
   <!--
     h-full + flex flex-col:撑满外层 aside 的高度,让子项可以 flex-1 分配空间
-    标题 shrink-0:不被挤压,始终占自然高度
     列表 min-h-0 flex-1 overflow-y-auto:拿走剩余空间,内容超出时出滚动条
       (min-h-0 关键 —— flex 子项默认 min-height: auto,会撑到内容高度,
        不加 min-h-0 的话 overflow-y-auto 永远没机会触发,这是经典 flex 坑)
   -->
-  <div
-    class="velo-outline flex h-full min-w-64 flex-col pr-0"
-    :class="props.hideHeader ? 'p-2 pt-2' : 'p-4 pr-0'"
-  >
-    <h2 v-if="!props.hideHeader" class="mb-4 shrink-0 text-sm font-semibold uppercase tracking-wider text-gray-400">
-      大纲
-    </h2>
-
+  <div class="velo-outline flex h-full min-w-64 flex-col p-2 pt-2 pr-0">
     <div v-if="isEmpty" class="py-8 text-center text-xs text-gray-400">
       暂无标题
     </div>

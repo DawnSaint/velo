@@ -20,8 +20,15 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { saveImageAssetFromPath, type SaveImageAssetResult } from '@/services/imageStorage'
 import { isImageExt } from '@/utils/imagePath'
 
-/** 文件树行 → 编辑器的拖拽信号 MIME(与 FileTree.vue 的 TREE_PATH_MIME 保持一致)。 */
+/** 文件树行 → 编辑器的拖拽信号 MIME(与 FileTree.vue 的 TREE_PATH_MIME 保持一致)。
+ *  只在拖**文件**(.md / 图片 / 其它)时写;拖目录走 TREE_DIR_PATH_MIME,编辑器
+ *  侧只看 TREE_PATH_MIME → 目录拖入编辑器自然不触发任何处理(也不携带 text/plain
+ *  让 PM 当文本插)。 */
 export const TREE_PATH_MIME = 'application/x-velo-tree-path'
+
+/** 文件树 → 文件树内部:目录拖拽的独立 MIME。编辑器侧不识别此 MIME,故目录
+ *  无法拖入编辑器(预期行为);FileTree 内部 drop 同时接受两种 MIME 走 rename。 */
+export const TREE_DIR_PATH_MIME = 'application/x-velo-tree-dir-path'
 
 const MD_EXT_RE = /\.(md|markdown|mdown)$/i
 

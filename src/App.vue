@@ -25,6 +25,13 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 
 const tauri = isTauri()
 
+/** 与 Rust 端 `CliArgsPayload` 对齐(v0.5.1):files = .md 文件,dirs = 文件夹。
+ *  目录路径来自 Windows "在 Velo 中打开"右键菜单,文件路径来自文件关联打开。 */
+interface CliArgsPayload {
+  files: string[]
+  dirs: string[]
+}
+
 const store = useEditorStore()
 const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
@@ -328,6 +335,13 @@ function toggleFind() {
   else openFind()
 }
 
+/** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
+ *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
+ *  上提到顶栏后,FileTree 顶部"更换工作区"按钮移除(v0.5.1,避免与本按钮重复)。 */
+function openFolderAsWorkspace() {
+  void workspaceStore.pickWorkspace()
+}
+
 // 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
 //
 // 必须 capture 阶段 + preventDefault 才能压过浏览器自己的 Ctrl+F (find in page)。
@@ -528,11 +542,16 @@ onMounted(async () => {
   //    load/save 的 isTauri 守门一致。`invoke` 在 web 端调会 throw
   //    `Cannot read properties of undefined (reading 'invoke')` 因为
   //    window.__TAURI_INTERNALS__ 没注入。
+  //
+  // v0.5.1: payload 形态从 `string[]`(只有 .md 文件)升级到 `{files, dirs}`
+  // 双数组,新增"目录走 workspace"分支用于"在 Velo 中打开"右键菜单。
+  // dirs 与 files 互不冲突:dirs[0] 决定工作区根,files[0] 决定当前文档。
   if (tauri) {
     let cliFirst: string | undefined
     try {
-      const initial = await invoke<string[]>('get_cli_args')
-      cliFirst = initial?.[0]
+      const initial = await invoke<CliArgsPayload>('get_cli_args')
+      if (initial?.dirs?.[0]) workspaceStore.setActiveRoot(initial.dirs[0])
+      cliFirst = initial?.files?.[0]
       if (cliFirst) await documentStore.openPath(cliFirst)
     }
     catch (e) {
@@ -555,12 +574,17 @@ onMounted(async () => {
   //    dev web 端 listen 也会 throw(__TAURI_INTERNALS__ undefined),加 tauri
   //    守门。这行如果 throw 会让 onMounted async 函数 reject,后续 4.5 段
   //    "切代码主题" watch 就挂不上 —— dev web 端切主题失败的根因。
+  //
+  //    v0.5.1: payload 同 1) 升级为 {files, dirs}。目录优先 setActiveRoot
+  //    (不弹 dirty 确认,工作区切换不动当前文档);文件再走 dirty 确认 + openPath。
   if (tauri) {
-    unlistenCli = await listen<string[]>('cli-args', async (e) => {
-      const first = e.payload?.[0]
-      if (!first) return
+    unlistenCli = await listen<CliArgsPayload>('cli-args', async (e) => {
+      const dir = e.payload?.dirs?.[0]
+      if (dir) workspaceStore.setActiveRoot(dir)
+      const file = e.payload?.files?.[0]
+      if (!file) return
       if (!(await documentStore.confirmDiscardIfDirty())) return
-      void documentStore.openPath(first)
+      void documentStore.openPath(file)
     })
   }
 
@@ -684,13 +708,31 @@ onBeforeUnmount(() => {
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="12" y1="10" x2="12" y2="16" /></svg>
         </button>
-        <!-- 打开 -->
+        <!-- 打开文件 -->
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="打开 (Ctrl+O)"
+          title="打开文件 (Ctrl+O)"
           @click="documentStore.open()"
         >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+          <!-- file-up:文档 + 向上箭头,跟"打开文件夹"的纯 folder 形成视觉区分 -->
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <path d="M12 18v-6" />
+            <path d="m9 15 3-3 3 3" />
+          </svg>
+        </button>
+        <!-- 打开文件夹(作为工作区)-->
+        <button
+          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          title="打开文件夹"
+          @click="openFolderAsWorkspace()"
+        >
+          <!-- folder-open (Lucide):敞开的文件夹,与"打开文件"file-up 区分;
+               跟旧 FileTree 顶部 folder 图标不同形(那个是合上的),避免被误读为同一动作 -->
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+          </svg>
         </button>
         <!-- 保存 -->
         <button

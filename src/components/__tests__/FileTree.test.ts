@@ -34,10 +34,17 @@ function entry(name: string, isDir: boolean): DirEntry {
   } as DirEntry
 }
 
-/** 在挂载好的 FileTree wrapper 里找到名字对应的 .group 行(原生点击 / 右键场景)。 */
+/** 在挂载好的 FileTree wrapper 里找到名字对应的 .group 行(原生点击 / 右键场景)。
+ *  v0.5.1 起根节点 row 也是 .group;按 name 精确匹配过滤,避免误中根。 */
 function findRowByName(wrapper: ReturnType<typeof mount>, name: string) {
   const items = wrapper.findAll('.group')
   return items.find(i => i.text().includes(name))
+}
+
+/** 取所有非根的 .group 行 —— v0.5.1 根 row 进入 flatItems 后,关心子项的断言用这个。 */
+function nonRootRows(wrapper: ReturnType<typeof mount>) {
+  // 根 row 文本 = workspace 的 basename;用 title 属性区分:根的 title 是工作区根全路径
+  return wrapper.findAll('.group').filter(r => r.attributes('title') !== '/test/root')
 }
 
 describe('FileTree', () => {
@@ -118,7 +125,8 @@ describe('FileTree', () => {
     await flushPromises()
     await nextTick()
 
-    const items = wrapper.findAll('.group')
+    // 根 row 也是 .group,但本测试只关心子项 → 用 nonRootRows
+    const items = nonRootRows(wrapper)
     expect(items.length).toBe(3)
     // v0.5.1 起目录也可拖(内部 move 语义),不再区分目录 / 文件
     expect(items[0].attributes('draggable')).toBe('true')
@@ -142,7 +150,7 @@ describe('FileTree', () => {
     await flushPromises()
     await nextTick()
 
-    const items = wrapper.findAll('.group')
+    const items = nonRootRows(wrapper)
     expect(items.length).toBe(3)
     // 目录在前:笔记(bi3) → 资料(zi1) → 读完(du2).md
     expect(items[0].text()).toContain('笔记')
@@ -156,7 +164,8 @@ describe('FileTree', () => {
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
 
-    // readDir 返回一堆非 .md 文件 → sortEntries 全过滤 → flatItems 为空
+    // readDir 返回一堆非 .md 文件 → sortEntries 全过滤 → 子项为空,
+    // 根 row 仍渲染(v0.5.1 根并入树),期望额外显示"空目录"占位
     vi.mocked(readDir).mockResolvedValue([
       entry('.git', true),
       entry('build.js', false),
@@ -256,30 +265,32 @@ describe('FileTree', () => {
 
   // ── 菜单出现 / 关闭 ──
 
-  it('右键文件行 → 菜单出现,5 个菜单项可见', async () => {
+  it('右键 .md 文件行 → 菜单出现,6 个菜单项(含"在编辑器中打开")', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     const menu = await openContextMenuOnRow(wrapper, 'note.md')
     expect(menu).toBeTruthy()
     const items = menu.querySelectorAll('button')
-    // 新建文件 / 新建文件夹 / 重命名 / 删除 / 在资源管理器中显示 = 5
-    expect(items.length).toBe(5)
-    expect(items[0].textContent).toContain('新建文件')
-    expect(items[1].textContent).toContain('新建文件夹')
-    expect(items[2].textContent).toContain('重命名')
-    expect(items[3].textContent).toContain('删除')
-    expect(items[4].textContent).toContain('在资源管理器中显示')
+    // 在编辑器中打开 / 新建文件 / 新建文件夹 / 重命名 / 删除 / 在资源管理器中显示 = 6
+    expect(items.length).toBe(6)
+    expect(items[0].textContent).toContain('在编辑器中打开')
+    expect(items[1].textContent).toContain('新建文件')
+    expect(items[2].textContent).toContain('新建文件夹')
+    expect(items[3].textContent).toContain('重命名')
+    expect(items[4].textContent).toContain('删除')
+    expect(items[5].textContent).toContain('在资源管理器中显示')
 
     wrapper.unmount()
   })
 
-  it('右键目录行 → 删除按钮 enabled(根节点不进视图,所以只测基线)', async () => {
-    // 工作区根不进 flatItems 视图(模板注释:不显示根节点本身),所以测不到根行。
-    // 这里测子目录的"删除 enabled"作基线,反向证明 isRootNode 逻辑只对根生效。
-    // 真正的根 disabled 行为由 isRootNode 函数自身保证 —— 逻辑极简不重复测。
+  it('右键目录行 → 菜单出现,6 个菜单项(含"作为工作区打开",删除可用)', async () => {
+    // 工作区根不进 flatItems 视图(模板注释:不显示根节点本身);
+    // 子目录右键应能"作为工作区打开" + 删除可用(disabled 属性已移除)。
     const wrapper = await mountWithEntries([entry('sub', true)])
-    await openContextMenuOnRow(wrapper, 'sub')
-    const items = document.body.querySelectorAll('.velo-tree-context-menu button')
-    const deleteBtn = items[3] as HTMLButtonElement
+    const menu = await openContextMenuOnRow(wrapper, 'sub')
+    const items = menu.querySelectorAll('button')
+    expect(items.length).toBe(6)
+    expect(items[0].textContent).toContain('作为工作区打开')
+    const deleteBtn = items[4] as HTMLButtonElement
     expect(deleteBtn.disabled).toBe(false)
     wrapper.unmount()
   })
@@ -765,6 +776,186 @@ describe('FileTree', () => {
     await nextTick()
     expect(activeInlineRow()).toBeFalsy()
     expect(document.body.querySelector('.velo-tree-context-menu')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  // ── 容器空白处右键 → 根目录上下文菜单(v0.5.1) ──
+
+  it('容器空白处右键 → 菜单显示 2 项(仅新建,无 重命名 / 删除 / reveal)', async () => {
+    const wrapper = await mountWithEntries([entry('note.md', false)])
+    // 容器空白 = .velo-file-tree 内"min-h-0 flex-1 ..."的滚动容器 div,@contextmenu.self 在它上
+    // findAll('div').filter 找有 @drop.self 标记的可能脆;直接在 row 之外的 listing 容器派发
+    const container = wrapper.find('[class*="overflow-y-auto"]').element as HTMLElement
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
+    container.dispatchEvent(ev)
+    await nextTick()
+
+    const menu = document.body.querySelector('.velo-tree-context-menu')
+    expect(menu).toBeTruthy()
+    const items = menu!.querySelectorAll('button')
+    // 仅"新建文件" + "新建文件夹"
+    expect(items.length).toBe(2)
+    expect(items[0].textContent).toContain('新建文件')
+    expect(items[1].textContent).toContain('新建文件夹')
+    wrapper.unmount()
+  })
+
+  it('容器空白处右键 → 「新建文件」在工作区根目录创建', async () => {
+    const wrapper = await mountWithEntries([entry('sub', true)])
+    const container = wrapper.find('[class*="overflow-y-auto"]').element as HTMLElement
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
+    container.dispatchEvent(ev)
+    await nextTick()
+
+    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+      .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
+    await newFileBtn.click()
+    await nextTick()
+
+    const input = activeInlineInput()!
+    input.value = 'rootfile'
+    input.dispatchEvent(new Event('input'))
+    await nextTick()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(writeTextFile).toHaveBeenCalledWith('/test/root/rootfile.md', '')
+    wrapper.unmount()
+  })
+
+  // ── 展开箭头隐藏:空目录(v0.5.1) ──
+
+  it('已加载且为空的子目录 → 不显示展开箭头(避免误导用户可展开)', async () => {
+    // 根 = sub(目录) + note.md(过滤后剩 sub),并先展开 sub → readDir 返回空。
+    // 期望:sub row 的箭头 SVG 不渲染(空目录无可展开内容)。
+    const workspace = useWorkspaceStore()
+    workspace.activeRoot = '/test/root'
+    workspace.setDirExpanded('/test/root/sub', true)
+    vi.mocked(readDir).mockImplementation(async (p) => {
+      const path = typeof p === 'string' ? p : p.toString()
+      if (path === '/test/root') return [entry('sub', true)]
+      if (path === '/test/root/sub') return []
+      return []
+    })
+
+    const wrapper = mount(FileTree, { attachTo: document.body })
+    await flushPromises()
+    await nextTick()
+    await flushPromises()
+    await nextTick()
+
+    const subRow = findRowByName(wrapper, 'sub')!
+    // 空目录(children = []) → 箭头 SVG 缺席;
+    // 占位 span 仍在(留出对齐空间),但不含 SVG。
+    const arrowSvgs = subRow.element.querySelectorAll('span.size-4 > svg')
+    expect(arrowSvgs.length).toBe(0)
+    wrapper.unmount()
+  })
+
+  // ── v0.5.1 根节点纳入树 ──
+  //
+  // 之前根目录显示成 FileTree 顶部独立 label(不在树里),v0.5.1 改为 flatItems 第一行,
+  // 可右键(走 rootContext 菜单)。其他子节点的行为完全没变。
+
+  it('根节点作为 flatItems 第一行渲染(.group, 显示 workspace basename)', async () => {
+    const wrapper = await mountWithEntries([entry('a.md', false)])
+    const rows = wrapper.findAll('.group')
+    // 根 row + a.md = 2
+    expect(rows.length).toBe(2)
+    // 根 row 排第一,text 含 workspace basename ("root")
+    expect(rows[0].text()).toContain('root')
+    expect(rows[0].attributes('title')).toBe('/test/root')
+    wrapper.unmount()
+  })
+
+  it('右键根节点 → 根上下文菜单(2 项:新建文件 / 新建文件夹)', async () => {
+    const wrapper = await mountWithEntries([entry('a.md', false)])
+    const rows = wrapper.findAll('.group')
+    const rootRow = rows[0]
+    triggerContextMenu(rootRow)
+    await nextTick()
+
+    const menu = document.body.querySelector('.velo-tree-context-menu')
+    expect(menu).toBeTruthy()
+    const items = menu!.querySelectorAll('button')
+    expect(items.length).toBe(2)
+    expect(items[0].textContent).toContain('新建文件')
+    expect(items[1].textContent).toContain('新建文件夹')
+    wrapper.unmount()
+  })
+
+  it('点根节点 → 折叠 / 再点 → 展开(根可折叠,v0.5.1)', async () => {
+    const wrapper = await mountWithEntries([entry('a.md', false)])
+    // 默认展开:根 row + a.md = 2
+    expect(wrapper.findAll('.group').length).toBe(2)
+
+    const rootRow = wrapper.findAll('.group')[0]
+    await rootRow.trigger('click')
+    await flushPromises()
+    // 折叠后:只剩根 row,a.md 不再渲染
+    expect(wrapper.findAll('.group').length).toBe(1)
+
+    await rootRow.trigger('click')
+    await flushPromises()
+    // 再次展开:回到 2 行
+    expect(wrapper.findAll('.group').length).toBe(2)
+    wrapper.unmount()
+  })
+
+  it('根节点 row 始终显示展开箭头,默认展开(rotate-90)', async () => {
+    // workspace 是空目录(根 children = []),箭头仍要显示 —— 根永远是目录,
+    // 保留 expand affordance(子目录加载后为空才隐藏箭头,根例外)
+    const wrapper = await mountWithEntries([])
+    const rootRow = wrapper.findAll('.group')[0]
+    const arrowSvg = rootRow.element.querySelector('span.size-4 > svg')
+    expect(arrowSvg).toBeTruthy()
+    expect(arrowSvg!.classList.contains('rotate-90')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('根折叠态:箭头无 rotate-90 + 子项不渲染 + "空目录"占位也收起', async () => {
+    const wrapper = await mountWithEntries([])
+    // 默认展开,"空目录"占位渲染
+    expect(wrapper.text()).toContain('空目录')
+
+    const rootRow = wrapper.findAll('.group')[0]
+    await rootRow.trigger('click')
+    await flushPromises()
+
+    const arrowSvg = rootRow.element.querySelector('span.size-4 > svg')!
+    expect(arrowSvg.classList.contains('rotate-90')).toBe(false)
+    // 折叠态:"空目录"占位也跟着收起
+    expect(wrapper.text()).not.toContain('空目录')
+    wrapper.unmount()
+  })
+
+  // ── 1 级"空目录"探测(v0.5.1) ──
+
+  it('父目录加载后会后台探测每个子目录是否为空 → 空子目录箭头立即隐藏', async () => {
+    // 根 = [empty/, hasItems/];empty/ readDir → [];hasItems/ readDir → [note.md]。
+    // 探测完成后:empty row 无箭头;hasItems row 有箭头(因为未加载,默认显示)。
+    const workspace = useWorkspaceStore()
+    workspace.activeRoot = '/test/root'
+    vi.mocked(readDir).mockImplementation(async (p) => {
+      const path = typeof p === 'string' ? p : p.toString()
+      if (path === '/test/root') return [entry('empty', true), entry('hasItems', true)]
+      if (path === '/test/root/empty') return []
+      if (path === '/test/root/hasItems') return [entry('note.md', false)]
+      return []
+    })
+
+    const wrapper = mount(FileTree, { attachTo: document.body })
+    await flushPromises()
+    await nextTick()
+    // 探测是 fire-and-forget,再 flush 一轮等 readDir promise resolve + 模板重渲
+    await flushPromises()
+    await nextTick()
+
+    const emptyRow = findRowByName(wrapper, 'empty')!
+    const hasItemsRow = findRowByName(wrapper, 'hasItems')!
+
+    expect(emptyRow.element.querySelectorAll('span.size-4 > svg').length).toBe(0) // 探测发现空 → 无箭头
+    expect(hasItemsRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 有 child → 箭头保留
     wrapper.unmount()
   })
 })

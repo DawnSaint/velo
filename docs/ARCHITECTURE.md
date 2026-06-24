@@ -36,7 +36,7 @@ velo/
 │   └── components/
 │       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树
 │       │   ├── Sidebar.vue         大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
-│       │   ├── EditorOutline.vue   hideHeader prop 嵌入 Sidebar 时不画 h2
+│       │   ├── EditorOutline.vue   嵌在 Sidebar tab 内
 │       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD + 内部拖拽 move(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示 / 跨目录拖动 rename)
 │       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定"点外部")
 │       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
@@ -96,7 +96,7 @@ velo/
 | history | 撤销/重做栈 |
 | tabIndent | Tab 缩进/反缩进;代码/段落插4空格;非列表 Shift-Tab 消费 |
 | imageKeymapPlugin | atom 节点删除保护 (Backspace/Delete 紧贴先选中不直接删) |
-| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点。OS 拖入只接 image/*(文本返回 false);文件树拖入(自定义 MIME `application/x-velo-tree-path`).md 打开 / 图片落盘插图,共享 `image/treeDrop.ts` |
+| imageUploadPlugin | paste/drop 拦截 → 落盘 → 插入 image 节点。OS 拖入只接 image/*(文本返回 false);文件树拖入(自定义 MIME `application/x-velo-tree-path`,仅文件) .md 打开 / 图片落盘插图;**目录走独立 MIME `application/x-velo-tree-dir-path` 且不写 text/plain**,编辑器侧不识别 → 目录自然无法拖入编辑器(防止误把路径串当文本插)。共享 `image/treeDrop.ts` |
 | markdownPastePlugin | text/plain 粘贴走 fromMarkdown,绕开 ProseMirror 默认 plain-text fallback 的 normalizeSiblings 错误合并(见设计要点) |
 | linkClickPlugin + linkEditEscapeKeymap | 链接单击进源码编辑 / Cmd 跳转 / Escape 还原 |
 | syntaxAutoFormatPlugin | dirty-range 局部扫,registry 驱动 (见设计要点) |
@@ -136,15 +136,15 @@ velo/
 3. `!dirty` → 静默 reload
 4. `dirty` → 弹确认
 
-**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。**内部拖拽 move**:同样的 TREE_PATH_MIME(树内 drop 与拖出编辑器复用一个 MIME,接收端按目标区分);校验链 src===dst / parent(src)===dst / 目录拖入自身后代;成功后 `fs.rename` → `workspace.renamePathPrefix(srcPath, newPath)` 把 expandedDirs / lastFile 前缀重写 → `loadContent(content, newPath)` 当前文件命中或落在被移目录子树时直接前缀拼新路径(单次调用避免双 watch swap) → `pruneDirIndexPrefix(srcPath)` 摘掉脱链子树 dirIndex 孤儿(否则 fs.watch 拿旧路径调 `refreshDir` 会在死节点上置 `node.error`) → 双侧 `loadDirChildren` 同 microtask flush。
+**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。**内部拖拽 move**:文件走 TREE_PATH_MIME,**目录走 TREE_DIR_PATH_MIME**(独立 MIME 让目录无法被拖入编辑器,详见 imageUploadPlugin 行);FileTree 内部 drop 两种 MIME 都接受走 `fs.rename`(对 file/dir 同管线);校验链 src===dst / parent(src)===dst / 目录拖入自身后代;成功后 `fs.rename` → `workspace.renamePathPrefix(srcPath, newPath)` 把 expandedDirs / lastFile 前缀重写 → `loadContent(content, newPath)` 当前文件命中或落在被移目录子树时直接前缀拼新路径(单次调用避免双 watch swap) → `pruneDirIndexPrefix(srcPath)` 摘掉脱链子树 dirIndex 孤儿(否则 fs.watch 拿旧路径调 `refreshDir` 会在死节点上置 `node.error`) → 双侧 `loadDirChildren` 同 microtask flush。
 
-**单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。
+**单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。argv 解析(`parse_cli_args`)同时返回 `{files: .md 路径, dirs: 目录路径}`:files 路由 `documentStore.openPath`,dirs 路由 `workspaceStore.setActiveRoot`(目录与文件互不冲突,工作区根 + 当前文档各管各的);二次启动走目录分支**不**弹 dirty 确认——切工作区不动当前编辑文档。Windows "在 Velo 中打开"右键菜单(v0.5.1)由 `folder_menu::ensure_registered` 在 `setup()` 写 HKCU\Software\Classes\Directory\shell\OpenInVelo,启动期 best-effort 每次重写(见设计要点)。
 
 **崩溃恢复**: 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
 
 **持久化**: `appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走"active root + 每个根的 expandedDirs / lastFile / sidebarTab"格式,跨工作区切换记忆各自展开状态与 sidebar tab。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
 
-**工作区**: `workspaceStore` 持有 `activeRoot` / `workspaces[root].{expandedDirs,lastFile,sidebarTab}` / `sidebarTab`。`Sidebar.vue` 走 tab 互斥渲染(v-if 而非 v-show,免得 EditorOutline scroll-spy DOM 监听与 FileTree dirIndex 同时活着争 scroll container)。工作区根挂单 recursive `fs.watch`(delayMs:150 + 前端 120ms 二次防抖,脏目录集驱动 `FileTree.refreshDir` 子树重拉)。`documentStore.currentFilePath` 变化同步到 `workspaceStore.lastFile`,重开工作区时可恢复。
+**工作区**: `workspaceStore` 持有 `activeRoot` / `workspaces[root].{expandedDirs,lastFile,sidebarTab}` / `sidebarTab`。`Sidebar.vue` 走 tab 互斥渲染(v-if 而非 v-show,免得 EditorOutline scroll-spy DOM 监听与 FileTree dirIndex 同时活着争 scroll container)。工作区根挂单 recursive `fs.watch`(delayMs:150 + 前端 120ms 二次防抖,脏目录集驱动 `FileTree.refreshDir` 子树重拉)。`documentStore.currentFilePath` 变化同步到 `workspaceStore.lastFile`,重开工作区时可恢复。**`setActiveRoot` 不强切 sidebarTab**:用户主动切工作区(顶栏"打开文件夹"按钮 / 二次启动 dir argv / 树右键"作为工作区打开")保留当前 tab,只把当前 tab 写回新 workspace 记忆;**唯一**应用持久化 tab 的路径是 `loadFrom`(启动恢复)。否则"用户在文件 tab 时切工作区被强制弹回大纲"反直觉。
 
 ---
 
@@ -174,6 +174,8 @@ velo/
 - **工作区根 fs.watch 走单 recursive 句柄 + 脏目录集 debounce**: `activeRoot` 变化时先 stop 后 start(沿用 documentStore 同款 race 容忍策略),回调把 `dirnameOf(event.paths)` 入 `dirtyDirs` Set,前端 120ms `setTimeout` 二次 debounce flush → 对每个脏目录调 `FileTree.refreshDir(dir)` 重拉那棵子树。`readDir` 一次 < 5ms,**不做 path diff**,简单可靠。当前文件 watch 与工作区根 watch 共存:当前文件也落在根树下会收到两份事件,documentStore 内 `disk === lastSavedContent` 短路 + `externalCheckInFlight` 重入保护已足够去重,不需要协调。**已知限制**:notify-rs 对网络盘 / OneDrive 漏报在目录级比文件级更严重,window-focus 兜底只覆盖当前文件,工作区根侧暂无等价兜底(代价高),见 DECISIONS ADR-20260623-001
 
 - **Tauri API 业务侧只 import `src/tauri/*`**: `src/tauri/{fs,dialog,path}.ts` 是 `@tauri-apps/*` 的薄 re-export,业务代码不再直 import `@tauri-apps/plugin-fs` / `plugin-dialog` / `api/path`。`tauriOnly()` 命名导出从 persistence 内部 helper 提升到 `@/tauri/fs`,所有需要 web dev 端降级的地方统一通过它判断。封装层**不**统一错误形态 —— 调用方各自降级策略(persistence 走默认值 / document.save 弹 message / imageStorage throw)消化原 plugin-fs 不一致的错误形态。后续测试 mock 可逐步从 `@tauri-apps/*` 收敛到 `src/tauri/*`,本期保留旧 mock 形态借 vi.mock 透传(见 DECISIONS ADR-20260623-002)
+
+- **"在 Velo 中打开"文件夹右键菜单走 HKCU 注册表 + 每启动 best-effort 重写**: `folder_menu::ensure_registered` 写在 HKCU\Software\Classes\Directory\shell\OpenInVelo(verb 子键 + command 子键),不写 HKLM —— HKCU 不需要 UAC 提升,普通用户启动即可注册;Windows shell 解析 Classes 时合并 HKCU+HKLM,效果等价。每次 `setup()` 重写而非"仅缺时写":自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景),HKCU 写盘是同步快速 op 无可感知开销。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell 空白右键,本菜单挂的是 Directory\shell 即"右键文件夹"),引号必加防止路径含空格被拆词。失败仅 log::warn 不抛 —— Velo 是本地编辑器,菜单是 nice-to-have,启动不该被注册表故障阻塞
 
 ---
 
@@ -246,6 +248,12 @@ velo/
     - `workspaceStore.renamePathPrefix(oldPath, newPath)` 必须早于 loadContent,把 `expandedDirs` / `lastFile` 中以 oldPath 为前缀的项整体重写;否则下次重开工作区 isDirExpanded 命中旧路径,readDir 抛错,整树降级到只展开根。
     - `pruneDirIndexPrefix(srcPath)` 必须紧跟 rename 成功:被移走的目录子树在 dirIndex 里全是孤儿(rootNode 已找不到它们,但 dirIndex 持有 key),后续工作区 fs.watch 用旧路径 debounced 调 `refreshDir` 会撞到孤儿,`readDir(deadPath)` reject 写 `node.error` 污染脱链节点。
     - 同 microtask 收尾(参考 #28):`fs.rename` resolve 之后 → renamePathPrefix → loadContent(必要时)→ pruneDirIndexPrefix → `Promise.all([loadDirChildren(srcParent), loadDirChildren(dstDir)])` 全程无 await 间隔,Vue 单帧 flush。
+
+31. **根节点纳入 flatItems + 1 级"空目录"探测**: v0.5.1 起根节点作为 `flatItems` 第一行渲染(`depth=0`),不再用顶部独立 label 显示。右键根 row 走 rootContext 上下文菜单(同空白处右键),仅显示"新建文件 / 新建文件夹",其余项(重命名 / 删除 / reveal / 作为工作区打开)对根无意义。
+    - **根折叠态走组件本地 `rootCollapsed` ref,不持久化**:折叠是临时 UI 操作,切工作区 / 重启都视觉默认展开。切工作区的 watch 必须显式重置 `rootCollapsed.value = false` —— FileTree 组件不会 unmount/remount,不重置会从上个工作区继承折叠态。不走 `workspace.expandedDirs` 是为了避开两个问题:一是污染"per-path 展开集"语义,二是要为旧 v0.5.0 工作区记忆做兼容默认展开的反写,徒增 store 复杂度。
+    - "空目录隐藏箭头"逻辑:子目录 `children !== undefined && children.length === 0` 时不渲染展开箭头,但根 row 永远显示(根永远是目录,保留折叠 / 展开 affordance)。
+    - 让"空 / 非空"在父目录加载完后立即生效(而非用户点击展开后才知道),`loadDirChildren` 末尾 fire-and-forget 对每个新 child dir 跑 `probeDirEmptiness`:**只在结果为空时**把 child.children 置 [],非空保留 undefined(留给用户首次展开时 `loadDirChildren` 全量加载)——这样不破坏懒加载初衷,只多打一次"是否为空"的轻量 readDir。
+    - race 守卫:探测 await `readDir` 期间用户可能已点击展开 → `loadDirChildren` 抢先把 children 填好;探测 resolve 后必须重判 `children !== undefined`,命中就放弃覆盖。失败(权限等)静默 —— 等用户真正点开时 `loadDirChildren` 会暴露真实错误。
     - dragstart 必须先 `closeContextMenu() + cancelInline()`:菜单 / 行内 input 在拖拽期间残留,drop 时全局 pointerdown 会把行内 input 误提交。
     - `effectAllowed` 必须是 `'all'` 而非 `'copyLink'`:dropEffect='move' 必须在 effectAllowed 子集内,否则浏览器视为非法 → 树内 drop 拒绝;编辑器侧自行计算 dropEffect 不受 source 宽放影响。
-    - **hover-expand**: 拖拽悬停折叠目录 500ms 自动展开(VSCode 行为),`armHoverExpand(dstDir)` 在 `onRowDragOver` 命中目录 row 时挂 timer;切到别的目录 / 文件 row / 容器空白 / dragend / drop 都必须 `clearHoverExpandTimer()`,否则 timer 跨拖拽残留,下次悬停同目录 500ms 内会触发"幽灵展开"。文件 row 解析到的父目录已展开(否则文件不可见),不挂 timer。
+    - **hover-expand**: 拖拽悬停折叠目录 500ms 自动展开(VSCode 行为),`armHoverExpand(dstDir)` 在 `onRowDragOver` 命中目录 row 时挂 timer;切到别的目录 / 文件 row / 容器空白 / dragend / drop 都必须 `clearHoverExpandTimer()`,否则 timer 跨拖拽残留,下次悬停同目录 500ms 内会触发"幽灵展开"。文件 row 解析到的父目录已展开(否则文件不可见),不挂 timer。根目录走 `rootCollapsed` 而非 `workspace.expandedDirs`,所以 `armHoverExpand` 对根 path 走独立分支。

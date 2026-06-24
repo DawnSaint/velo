@@ -26,7 +26,7 @@ import { confirm as nativeConfirm, message as nativeMessage } from '@/tauri/dial
 import { revealItemInDir } from '@/tauri/opener'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
-import { TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
+import { TREE_DIR_PATH_MIME, TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
 import { useTreeData, type TreeNode } from './useTreeData'
 import {
@@ -45,11 +45,26 @@ const documentStore = useDocumentStore()
 
 const { rootNode, dirIndex, rebuildFromRoot, loadDirChildren, refreshDir, pruneDirIndexPrefix } = useTreeData()
 
-watch(() => workspace.activeRoot, (r) => { void rebuildFromRoot(r) }, { immediate: true })
+/** 根节点折叠态(v0.5.1+,组件本地状态):
+ *  - 不持久化 —— 切工作区 / 重启都视觉默认展开,折叠是临时 UI 操作
+ *  - 切工作区时(activeRoot 变化)显式重置 false,因为 FileTree 不会被 unmount/remount,
+ *    rebuildFromRoot 之后用户期望看到新工作区展开状态,而不是从上一个工作区继承折叠
+ *  - 折叠后 flatItems 只渲染根 row 自身,子目录 / inline new / 空目录占位全跳过 */
+const rootCollapsed = ref(false)
 
-/** 用户点击展开 / 折叠目录:同步持久化 + 懒加载子。 */
+watch(() => workspace.activeRoot, (r) => {
+  rootCollapsed.value = false
+  void rebuildFromRoot(r)
+}, { immediate: true })
+
+/** 用户点击展开 / 折叠目录:同步持久化 + 懒加载子。
+ *  根节点走 rootCollapsed(组件本地态,不持久化),不走 workspace.expandedDirs。 */
 async function toggleDir(node: TreeNode) {
   if (!node.isDir) return
+  if (isRootNode(node)) {
+    rootCollapsed.value = !rootCollapsed.value
+    return
+  }
   const wasExpanded = workspace.isDirExpanded(node.fullPath)
   workspace.setDirExpanded(node.fullPath, !wasExpanded)
   if (!wasExpanded && node.children === undefined) {
@@ -85,6 +100,11 @@ const flatItems = computed<VisualItem[]>(() => {
   const out: VisualItem[] = []
   if (!rootNode.value) return out
   const inline = inlineNew.value
+  // 根节点作为 depth=0 第一行进入树本身(v0.5.1):允许右键 / 显示与子目录一致的图标。
+  // expanded = !rootCollapsed,折叠时下面的 children walk 跳过 → 只保留根 row 自身。
+  const rootExpanded = !rootCollapsed.value
+  out.push({ kind: 'node', node: rootNode.value, depth: 0, expanded: rootExpanded })
+  if (!rootExpanded) return out
   function walk(children: TreeNode[] | undefined, depth: number) {
     if (!children) return
     for (const c of children) {
@@ -96,9 +116,9 @@ const flatItems = computed<VisualItem[]>(() => {
       }
     }
   }
-  walk(rootNode.value.children, 0)
+  walk(rootNode.value.children, 1)
   if (inline && rootNode.value.fullPath === inline.parentDir) {
-    out.push({ kind: 'inlineNew', parentDir: rootNode.value.fullPath, depth: 0, subKind: inline.kind })
+    out.push({ kind: 'inlineNew', parentDir: rootNode.value.fullPath, depth: 1, subKind: inline.kind })
   }
   return out
 })
@@ -115,18 +135,33 @@ async function chooseWorkspace() {
 //
 // 自定义 MIME(而非纯 text/plain)承载 fullPath,让 drop 处理器(自家树 +
 // 编辑器)能区分"velo 内部拖拽"与"OS 拖文件进来"两种来源:
-//  - 树拖 .md:打开该文件 / 同盘 move
-//  - 树拖图片:落盘插图 / 同盘 move
+//  - 树拖**文件**(.md / 图片):写 TREE_PATH_MIME + text/plain
+//    - 编辑器(imageUploadPlugin / SourceModeEditor)按 TREE_PATH_MIME 识别 → 打开 / 落盘插图
+//    - 自家树同 MIME 接 drop → fs.rename 同盘 move
+//  - 树拖**目录**:写 TREE_DIR_PATH_MIME(不写 text/plain,不写 TREE_PATH_MIME)
+//    - 编辑器不识别此 MIME,目录拖入编辑器不触发任何动作(预期:目录无法拖编辑器)
+//    - 自家树同时接受两种 MIME → fs.rename 同盘 move
 //  - OS 拖:走原生 imageUploadPlugin(富文本)/ 文件型 drop 处理(源码模式)
 
 function onRowDragStart(event: DragEvent, node: TreeNode) {
   if (!event.dataTransfer) return
+  // 根节点不可拖(拖根 = 把工作区"移走",fs 层 ancestor 守卫会 reject,UI 上不应暴露)。
+  if (isRootNode(node)) {
+    event.preventDefault()
+    return
+  }
   // 互斥:dragstart 关掉可能挂着的菜单 / 行内 input —— 否则 drop 时全局 pointerdown
   // 可能把行内 input 误提交,菜单也会在拖拽中途残留。
   closeContextMenu()
   cancelInline()
-  event.dataTransfer.setData(TREE_PATH_MIME, node.fullPath)
-  event.dataTransfer.setData('text/plain', node.fullPath)
+  if (node.isDir) {
+    // 目录:独立 MIME,不写 text/plain —— 防止目录被拖到编辑器后 PM 当文本插入路径串。
+    event.dataTransfer.setData(TREE_DIR_PATH_MIME, node.fullPath)
+  }
+  else {
+    event.dataTransfer.setData(TREE_PATH_MIME, node.fullPath)
+    event.dataTransfer.setData('text/plain', node.fullPath)
+  }
   // 'all' 而非 'copyLink':v0.5.1 起内部拖拽 move 需要 dropEffect='move' 在
   // effectAllowed 子集内;'copyLink' 不含 'move',浏览器会把 move 视为非法。
   // 编辑器侧自行计算 dropEffect(.md=link 跳转/copy 引用),不受 source 宽放影响。
@@ -164,6 +199,17 @@ function clearHoverExpandTimer() {
 function armHoverExpand(dirPath: string) {
   if (hoverExpandPath === dirPath) return // 同一目标计时器已在跑,别重置
   clearHoverExpandTimer()
+  // 根折叠态独立处理:用 rootCollapsed,不查 workspace.expandedDirs
+  if (dirPath === workspace.activeRoot) {
+    if (!rootCollapsed.value) return // 已展开,不挂 timer
+    hoverExpandPath = dirPath
+    hoverExpandTimer = setTimeout(() => {
+      hoverExpandTimer = null
+      hoverExpandPath = null
+      rootCollapsed.value = false
+    }, HOVER_EXPAND_MS)
+    return
+  }
   const node = dirIndex.get(dirPath)
   if (!node || !node.isDir) return
   if (workspace.isDirExpanded(dirPath)) return
@@ -187,8 +233,10 @@ function resolveDropDir(node: TreeNode | null): string | null {
 
 function dragHasTreePath(event: DragEvent): boolean {
   // dragover/drop 期 dataTransfer.getData 受浏览器安全约束(只允许 drop 内拿),
-  // 但 types 集合一直可读 —— 用它判定"是自家树拖拽吗"。
-  return !!event.dataTransfer?.types?.includes(TREE_PATH_MIME)
+  // 但 types 集合一直可读 —— 用它判定"是自家树拖拽吗"。文件 / 目录两种 MIME 都接,
+  // 内部 move 对 file/dir 同走 fs.rename。
+  const types = event.dataTransfer?.types
+  return !!types && (types.includes(TREE_PATH_MIME) || types.includes(TREE_DIR_PATH_MIME))
 }
 
 function onRowDragOver(event: DragEvent, node: TreeNode) {
@@ -203,12 +251,19 @@ function onRowDragOver(event: DragEvent, node: TreeNode) {
   else clearHoverExpandTimer()
 }
 
+/** 从 dataTransfer 取自家拖拽源路径,文件 / 目录 MIME 都试一遍。 */
+function getTreeDragPath(event: DragEvent): string | null {
+  const dt = event.dataTransfer
+  if (!dt) return null
+  return dt.getData(TREE_PATH_MIME) || dt.getData(TREE_DIR_PATH_MIME) || null
+}
+
 async function onRowDrop(event: DragEvent, node: TreeNode) {
   if (!dragHasTreePath(event)) return
   event.preventDefault()
   event.stopPropagation()
   clearHoverExpandTimer()
-  const srcPath = event.dataTransfer?.getData(TREE_PATH_MIME)
+  const srcPath = getTreeDragPath(event)
   dragOverTarget.value = null
   if (!srcPath) return
   const dstDir = resolveDropDir(node)
@@ -221,18 +276,31 @@ function onContainerDragOver(event: DragEvent) {
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
   dragOverTarget.value = workspace.activeRoot
-  // 容器空白 = 根,根永远展开,不挂 timer
-  clearHoverExpandTimer()
+  // 容器空白 = 根目标;根可能被折叠,armHoverExpand 内部按 rootCollapsed 判要不要挂 timer
+  if (workspace.activeRoot) armHoverExpand(workspace.activeRoot)
+  else clearHoverExpandTimer()
 }
 
 async function onContainerDrop(event: DragEvent) {
   if (!dragHasTreePath(event)) return
   event.preventDefault()
   clearHoverExpandTimer()
-  const srcPath = event.dataTransfer?.getData(TREE_PATH_MIME)
+  const srcPath = getTreeDragPath(event)
   dragOverTarget.value = null
   if (!srcPath || !workspace.activeRoot) return
   await performMove(srcPath, workspace.activeRoot)
+}
+
+// ========== 容器空白双击 → 根目录新建 MD(v0.5.1)==========
+//
+// 对齐 VSCode "EXPLORER 面板空白处双击新建文件"。`@dblclick.self` 让
+// 事件只在容器自身命中(子行有自己的 click,不会冒泡触发);若有行内
+// input 或菜单激活则不打断(由 openInlineNew 内部 closeContextMenu /
+// inlineRename=null 兜底)。无活跃工作区时静默丢弃 —— UI 空态此时显示
+// "打开一个文件夹作为工作区"按钮,空白容器根本不渲染。
+function onContainerDblClick() {
+  if (!workspace.activeRoot) return
+  void openInlineNew(workspace.activeRoot, 'newFile')
 }
 
 /** 把 srcPath 移到 dstDir 下,沿用其 basename。校验失败弹原生 message,
@@ -303,6 +371,8 @@ interface ContextMenuState {
   /** 视口坐标,fixed 定位用 */
   x: number
   y: number
+  /** true = 容器空白处右键,语义"在根目录操作",菜单仅显示新建项(无重命名 / 删除 / reveal) */
+  rootContext?: boolean
 }
 const contextMenu = ref<ContextMenuState | null>(null)
 const contextMenuRef = ref<InstanceType<typeof FileTreeContextMenu> | null>(null)
@@ -318,12 +388,36 @@ function onRowContextMenu(event: MouseEvent, node: TreeNode) {
   const MENU_H = 220
   const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
   const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
-  contextMenu.value = { node, x, y }
+  // 根节点:走"根上下文"——只显示新建项,不暴露重命名 / 删除 / reveal / 作为工作区打开
+  // (与空白处右键统一)。重命名 / 删除根直接破坏工作区,reveal 根价值低于走系统标题栏。
+  if (isRootNode(node)) {
+    contextMenu.value = { node, x, y, rootContext: true }
+  }
+  else {
+    contextMenu.value = { node, x, y }
+  }
   cancelInline()
 }
 
 function closeContextMenu() {
   contextMenu.value = null
+}
+
+// ========== 容器空白处右键 → 根目录上下文菜单(v0.5.1)==========
+//
+// 语义:文件树空白处右键 = 在工作区根操作。只保留"新建文件 / 新建文件夹"——
+// 重命名 / 删除 / reveal / "作为工作区打开" / "在编辑器中打开" 对根都无意义
+// (根 row 本身不弹菜单,空白菜单与之对齐:工作区根上不暴露这些操作)。
+// `@contextmenu.self` 确保只在容器自身命中,子行的右键继续走 onRowContextMenu。
+function onContainerContextMenu(event: MouseEvent) {
+  if (!workspace.activeRoot || !rootNode.value) return
+  event.preventDefault()
+  const MENU_W = 160
+  const MENU_H = 220
+  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
+  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
+  contextMenu.value = { node: rootNode.value, x, y, rootContext: true }
+  cancelInline()
 }
 
 /** 「新建 X」的目标目录:目录节点 = 自身;文件节点 = 父目录(创建兄弟项)。 */
@@ -522,6 +616,26 @@ async function revealInExplorer(node: TreeNode) {
   finally { closeContextMenu() }
 }
 
+// ========== 右键菜单新增:在编辑器中打开 / 作为工作区打开(v0.5.1)==========
+
+/** .md 文件 → 在编辑器中打开。与 onFileClick 共用同一条路径(脏盘确认 + openPath + setLastFile)。 */
+async function openInEditor(node: TreeNode) {
+  closeContextMenu()
+  if (node.isDir || !MD_EXT_RE.test(node.name)) return
+  if (!(await documentStore.confirmDiscardIfDirty())) return
+  await documentStore.openPath(node.fullPath)
+  workspace.setLastFile(node.fullPath)
+}
+
+/** 子目录 → 作为工作区根打开。直接调 setActiveRoot,与顶栏"打开文件夹"按钮等价
+ *  (不弹目录选择对话框,目录已知就是 node.fullPath)。当前 sidebarTab 保留不动
+ *  —— setActiveRoot 已按问题 1 的修法不强切 tab。 */
+function openAsWorkspace(node: TreeNode) {
+  closeContextMenu()
+  if (!node.isDir) return
+  workspace.setActiveRoot(node.fullPath)
+}
+
 // ========== 全局点击 / 键盘 / dragend ==========
 
 function onGlobalPointerDown(event: PointerEvent) {
@@ -578,25 +692,18 @@ const rootDisplay = computed(() => {
   const trimmed = r.endsWith(s) ? r.slice(0, -s.length) : r
   return basename(trimmed) || trimmed
 })
+
+/** 行渲染的显示名:根 row 走 rootDisplay(去尾分隔符 + basename),其余 = node.name。
+ *  根的 node.name 在 useTreeData.rebuildFromRoot 里也按 basename(root) 设过,这里保留
+ *  独立逻辑只为兜底 root 路径形如 "/" / "C:\\" 等 edge case。 */
+function displayName(node: TreeNode): string {
+  return isRootNode(node) ? rootDisplay.value : node.name
+}
 </script>
 
 <template>
   <div class="velo-file-tree flex h-full min-w-64 flex-col">
-    <!-- 工作区头:当前工作区文件夹名 + 切换按钮 -->
-    <div v-if="workspace.activeRoot" class="flex items-center justify-between gap-1 px-4 pt-2 pb-1">
-      <span class="truncate text-xs font-semibold text-gray-500 dark:text-gray-400" :title="workspace.activeRoot ?? ''">
-        {{ rootDisplay }}
-      </span>
-      <button
-        class="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-        title="更换工作区"
-        @click="chooseWorkspace"
-      >
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1-2 2H4a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
-      </button>
-    </div>
-
-    <!-- 空态:没选工作区 -->
+    <!-- 空态:没选工作区(根名已下沉成 flatItems 第一行,v0.5.1) -->
     <div v-if="!workspace.activeRoot" class="flex flex-1 items-center justify-center px-4">
       <button
         class="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-200"
@@ -614,15 +721,14 @@ const rootDisplay = computed(() => {
       @dragover.self="onContainerDragOver"
       @drop.self="onContainerDrop"
       @dragleave.self="dragOverTarget = null"
+      @dblclick.self="onContainerDblClick"
+      @contextmenu.self="onContainerContextMenu"
     >
       <div v-if="rootNode?.loading" class="px-4 py-0.5 text-xs text-gray-400">
         加载中…
       </div>
       <div v-else-if="rootNode?.error" class="px-4 py-0.5 text-xs text-red-500" :title="rootNode.error">
         读取目录失败
-      </div>
-      <div v-else-if="flatItems.length === 0" class="px-4 py-0.5 text-xs text-gray-400">
-        空目录
       </div>
       <div v-else>
         <template v-for="item in flatItems" :key="item.kind === 'inlineNew' ? `inlineNew-${item.parentDir}` : item.node.fullPath">
@@ -646,7 +752,7 @@ const rootDisplay = computed(() => {
               v-model="inlineNew!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm bg-blue-50 px-1 py-0.5 text-gray-800 outline-none ring-1 ring-blue-300 focus:ring-blue-500 dark:bg-blue-950/40 dark:text-gray-100 dark:ring-blue-700"
+              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-0.5 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
               :title="inlineNew!.error ?? ''"
               @keydown.enter.prevent="submitInline"
               @keydown.esc.prevent="cancelInline"
@@ -679,7 +785,7 @@ const rootDisplay = computed(() => {
               v-model="inlineRename!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm bg-blue-50 px-1 py-0.5 text-gray-800 outline-none ring-1 ring-blue-300 focus:ring-blue-500 dark:bg-blue-950/40 dark:text-gray-100 dark:ring-blue-700"
+              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-0.5 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
               :title="inlineRename!.error ?? ''"
               @keydown.enter.prevent="submitInline"
               @keydown.esc.prevent="cancelInline"
@@ -705,10 +811,13 @@ const rootDisplay = computed(() => {
             @dragend="dragOverTarget = null"
             @contextmenu.prevent="onRowContextMenu($event, item.node)"
           >
-            <!-- 展开箭头 / 文件占位 -->
+            <!-- 展开箭头 / 文件占位
+                 - 根:始终显示(根永远是目录,即使为空也保留折叠/展开 affordance)
+                 - 子目录:已加载且为空 → 不显示箭头(避免误导用户可展开);其余照常
+                 旋转跟随 item.expanded:根折叠时 rotate=0,展开时 rotate-90 -->
             <span class="flex size-4 shrink-0 items-center justify-center">
               <svg
-                v-if="item.node.isDir"
+                v-if="item.node.isDir && (isRootNode(item.node) || !(item.node.children && item.node.children.length === 0))"
                 class="size-2.5 text-gray-400 transition-transform"
                 :class="{ 'rotate-90': item.expanded }"
                 viewBox="0 0 24 24"
@@ -735,22 +844,34 @@ const rootDisplay = computed(() => {
               <polyline points="14 2 14 8 20 8" />
             </svg>
             <span class="truncate text-gray-700 dark:text-gray-300">
-              {{ item.node.name }}
+              {{ displayName(item.node) }}
             </span>
           </div>
         </template>
+        <!-- 根子项为空时显示占位(根 row 已先行渲染,这里只补"空目录"提示)。
+             根折叠时不渲染(占位也跟着收起,保持折叠纯粹)。 -->
+        <div
+          v-if="!rootCollapsed && rootNode && rootNode.children && rootNode.children.length === 0"
+          class="py-0.5 pl-6 text-xs text-gray-400"
+        >
+          空目录
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 右键菜单(Teleport 在子组件内) -->
+  <!-- 右键菜单(Teleport 在子组件内)。
+       - 子节点(.md / 图片 / 子目录):弹完整菜单(在编辑器中打开 / 作为工作区打开 / 新建 / 重命名 / 删除 / reveal)
+       - 根节点 + 容器空白处:rootContext=true,只显示新建项(根不能重命名 / 删除 / reveal) -->
   <FileTreeContextMenu
     v-if="contextMenu"
     ref="contextMenuRef"
     :x="contextMenu.x"
     :y="contextMenu.y"
     :node="contextMenu.node"
-    :is-root="isRootNode(contextMenu.node)"
+    :root-context="contextMenu.rootContext"
+    @open-in-editor="openInEditor(contextMenu.node)"
+    @open-as-workspace="openAsWorkspace(contextMenu.node)"
     @new-file="openInlineNew(targetDirForNew(contextMenu.node), 'newFile')"
     @new-dir="openInlineNew(targetDirForNew(contextMenu.node), 'newDir')"
     @rename="openInlineRename(contextMenu.node)"

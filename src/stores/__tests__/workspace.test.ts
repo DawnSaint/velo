@@ -63,14 +63,29 @@ describe('workspace store', () => {
     expect(store.isDirExpanded('/b/sub')).toBe(false)
   })
 
-  it('setSidebarTab 切到 files 后,该工作区下次激活恢复 files', () => {
+  it('setActiveRoot 不强切 sidebarTab,用户主动切工作区时当前 tab 保留', () => {
+    // 设计取舍:用户在"文件" tab 时点"打开文件夹",不应被强制切回大纲。
+    // 持久化 tab 偏好只在启动恢复(loadFrom)路径应用,见下一条用例。
     const store = useWorkspaceStore()
     store.setActiveRoot('/root')
     store.setSidebarTab('files')
+    store.setActiveRoot('/other')
+    expect(store.sidebarTab).toBe('files') // 切根不动当前 tab
+    // 切到 null(关闭工作区)是派生约束:无工作区时 'files' tab 没意义
     store.setActiveRoot(null)
-    expect(store.sidebarTab).toBe('outline') // 无工作区强制大纲
+    expect(store.sidebarTab).toBe('outline')
+  })
+
+  it('setSidebarTab 把当前 tab 同步写进活跃工作区 → loadFrom 启动恢复时还原', () => {
+    const store = useWorkspaceStore()
     store.setActiveRoot('/root')
-    expect(store.sidebarTab).toBe('files')
+    store.setSidebarTab('files')
+    // 模拟下次启动:loadFrom 持久化数据
+    const snapshot = store.snapshot()
+    const fresh = useWorkspaceStore()
+    fresh.loadFrom(snapshot)
+    expect(fresh.activeRoot).toBe('/root')
+    expect(fresh.sidebarTab).toBe('files')
   })
 
   it('snapshot / loadFrom round-trip', () => {

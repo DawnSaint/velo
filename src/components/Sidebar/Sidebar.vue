@@ -71,7 +71,6 @@ defineExpose({
         v-else
         :model-value="modelValue"
         :file-path="filePath"
-        hide-header
       />
     </div>
 

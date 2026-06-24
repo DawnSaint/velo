@@ -4,31 +4,56 @@ use tauri::{Emitter, Manager, Theme};
 
 const MD_EXTS: &[&str] = &["md", "markdown", "mdown"];
 
-/// Cold-launch buffer for any markdown paths the OS handed us on argv.
-/// `setup()` runs BEFORE the webview has a chance to register
-/// `listen('cli-args', ...)`, so `app.emit("cli-args", ...)` at that point
-/// is fire-and-forget into the void. We stash them here instead and let
-/// the frontend drain via `get_cli_args` on mount.
-struct PendingCliArgs(Mutex<Vec<String>>);
+/// 冷启动 argv 解析后的待处理路径。`setup()` 期前端 `listen('cli-args')` 还
+/// 没挂上,这里暂存;前端 onMounted 主动 `get_cli_args` 拉取并清空。
+///
+/// v0.5.1 起 argv 同时支持文件(.md)和目录("在 Velo 中打开"右键菜单):
+///   - `files`: 路由到 `documentStore.openPath`(单文件编辑)
+///   - `dirs` : 路由到 `workspaceStore.setActiveRoot`(工作区)
+/// 二次启动(single-instance plugin)走同一 `parse_cli_args`,负载形态一致。
+#[derive(Default, Clone, serde::Serialize)]
+struct CliArgsPayload {
+    files: Vec<String>,
+    dirs: Vec<String>,
+}
 
-/// Pick out the markdown file paths the user actually asked us to open.
-fn filter_md_paths(args: &[String]) -> Vec<String> {
-    args.iter()
-        .filter(|a| {
-            PathBuf::from(a)
+impl CliArgsPayload {
+    fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.dirs.is_empty()
+    }
+}
+
+struct PendingCliArgs(Mutex<CliArgsPayload>);
+
+/// 解析 argv:.md 文件归 files,目录归 dirs,其它丢弃。
+///
+/// 文件 + 目录混杂时各归各路;前端拿到后会先 setActiveRoot(dirs[0])
+/// 再 openPath(files[0]),目录与文件互不冲突(目录决定工作区根、文件决定
+/// 当前文档)。
+fn parse_cli_args(args: &[String]) -> CliArgsPayload {
+    let mut out = CliArgsPayload::default();
+    for a in args {
+        let p = PathBuf::from(a);
+        if p.is_file() {
+            let is_md = p
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|e| MD_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false)
-        })
-        .filter(|a| PathBuf::from(a).is_file())
-        .cloned()
-        .collect()
+                .unwrap_or(false);
+            if is_md {
+                out.files.push(a.clone());
+            }
+        }
+        else if p.is_dir() {
+            out.dirs.push(a.clone());
+        }
+    }
+    out
 }
 
-/// 前端在 onMounted 拉一次：拿到冷启动 argv 里的文件路径并清空缓冲。
+/// 前端在 onMounted 拉一次:拿到冷启动 argv 解析结果并清空缓冲。
 #[tauri::command]
-fn get_cli_args(state: tauri::State<PendingCliArgs>) -> Vec<String> {
+fn get_cli_args(state: tauri::State<PendingCliArgs>) -> CliArgsPayload {
     state
         .0
         .lock()
@@ -71,16 +96,20 @@ async fn export_pdf(
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod pdf;
 
+/// Windows 文件夹右键菜单注册(v0.5.1)。
+#[cfg(target_os = "windows")]
+mod folder_menu;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(PendingCliArgs(Mutex::new(Vec::new())))
-        // single-instance 必须第一个注册：拦截后续启动并把 argv 转发给现有实例
+        .manage(PendingCliArgs(Mutex::new(CliArgsPayload::default())))
+        // single-instance 必须第一个注册:拦截后续启动并把 argv 转发给现有实例
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            let paths = filter_md_paths(&args);
-            if !paths.is_empty() {
-                // 二次启动 = 现有实例的前端早就挂载好了，直接 emit 即可
-                let _ = app.emit("cli-args", paths);
+            let payload = parse_cli_args(&args);
+            if !payload.is_empty() {
+                // 二次启动 = 现有实例的前端早就挂载好了,直接 emit 即可
+                let _ = app.emit("cli-args", payload);
             }
             // 拉回主窗口前台
             if let Some(win) = app.get_webview_window("main") {
@@ -100,16 +129,23 @@ pub fn run() {
             export_pdf,
         ])
         .setup(|app| {
-            // 首次启动：把 argv 里的文件路径暂存进 state，等前端 onMounted 主动来拉
+            // 首次启动:argv 解析后暂存到 state,等前端 onMounted 主动来拉
             let args: Vec<String> = std::env::args().skip(1).collect();
-            let paths = filter_md_paths(&args);
-            if !paths.is_empty() {
+            let payload = parse_cli_args(&args);
+            if !payload.is_empty() {
                 let state = app.state::<PendingCliArgs>();
                 let lock = state.0.lock();
                 if let Ok(mut guard) = lock {
-                    *guard = paths;
+                    *guard = payload;
                 }
             }
+
+            // 注册"在 Velo 中打开"文件夹右键菜单(v0.5.1)。
+            // best-effort:失败仅 warn,不阻塞应用启动。每次启动都重写,
+            // 自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景)。
+            #[cfg(target_os = "windows")]
+            folder_menu::ensure_registered();
+
             Ok(())
         })
         .run(tauri::generate_context!())

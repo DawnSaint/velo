@@ -32,7 +32,9 @@ tokio = { version = "1", features = ["sync", "time", "rt"] }
 base64 = "0.22"
 
 # Windows PDF 导出:WebView2 ICoreWebView2_7::PrintToPdf
+# Windows 注册表(v0.5.1 注册"在 Velo 中打开"文件夹右键菜单):winreg
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"
 windows-core = "0.61"
 windows = { version = "0.61", features = ["Win32_Foundation"] }
+winreg = "0.52"

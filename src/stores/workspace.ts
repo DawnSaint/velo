@@ -47,16 +47,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /**
    * 切换到指定工作区根。如果该 root 没记录过,初始化空状态。
-   * 切换后 sidebarTab 跟着该工作区的偏好走(默认 'outline')。
+   *
+   * **不动 sidebarTab**:用户主动切工作区时(顶栏"打开文件夹"按钮 / 二次启动
+   * dir argv / pickWorkspace),保留当前 UI tab 状态,让 tab 选择贯穿切换。
+   * 启动期恢复持久化 tab 走 `loadFrom`,自己读 ws.sidebarTab 应用。
+   * 把当前 tab 同步写回新 workspace 记忆,这样下次启动重开该工作区时
+   * 恢复到同一 tab(语义闭环:用户切到新工作区那一刻的 UI 状态被持久化)。
+   *
+   * root=null(关闭工作区)时强制 'outline':无工作区时 'files' tab 没意义
+   * (FileTree 渲染空态按钮),回到 outline 是派生约束。
    */
   function setActiveRoot(root: string | null) {
     activeRoot.value = root
     if (root) {
       const ws = ensureWorkspace(root)
-      if (ws.sidebarTab) sidebarTab.value = ws.sidebarTab
+      ws.sidebarTab = sidebarTab.value
     }
     else {
-      // 无工作区时,文件树 tab 没有意义,回到大纲
       sidebarTab.value = 'outline'
     }
   }
@@ -135,11 +142,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 启动时从磁盘灌入(覆盖现有) */
+  /** 启动时从磁盘灌入(覆盖现有)。**只有这条路径**会把持久化的 sidebarTab
+   *  应用到当前 UI —— 用户主动切工作区由 setActiveRoot 保留当前 tab。 */
   function loadFrom(data: PersistedWorkspaces) {
     workspaces.value = { ...data.workspaces }
     if (data.active && workspaces.value[data.active]) {
-      setActiveRoot(data.active)
+      activeRoot.value = data.active
+      const ws = workspaces.value[data.active]
+      if (ws.sidebarTab) sidebarTab.value = ws.sidebarTab
     }
     else {
       setActiveRoot(null)
