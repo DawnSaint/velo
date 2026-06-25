@@ -134,8 +134,8 @@
 
 - **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `build` / `ci` / `release`
 - **scope**（可选）：模块名，如 `editor` / `sidebar` / `tauri` / `markdownIO`；不写 version
-- **summary**：1 句小写英文祈使句，描述"这次 commit 干了什么"，不带句号
-- **body**（可选）：背景 / 取舍说明 / 非显然之处；段落式英文
+- **summary**：1 句小写英文祈使句，描述"这次 commit 干了什么"
+- **body**：背景 / 取舍说明 / 非显然之处；英文 + 中文
 - **footer**（可选）：
   - `BREAKING CHANGE: <说明>` — 触发 major
   - `Closes #x` / `Refs #x` — 关联 issue
@@ -147,7 +147,7 @@
 
 ### 前提
 
-- 所有 feat / fix / test / refactor 已按 Conventional Commits 单独提交（这些 commit 已 push 也行，未 push 也行；不强求 push）
+- 所有 feat / fix / test / refactor 已单独提交
 - `master` 上的 commit 已通过测试和类型检查
 - **发版收口的 docs 改动暂存即可、不 commit**：CHANGELOG 把 `[Unreleased]` 改成 `[<new-version>] — YYYY-MM-DD`、ROADMAP 删整章、DECISIONS 追加 ADR —— 这几处改完 `git add` 但**不要** `git commit`，让 `npm version` 把它们和 version bump、Tauri 版本同步一起合并到唯一的 `release(v%s):` commit 里
   - 不允许残留任何**非发版收口**的未提交改动；如果有，先按它本来该走的 Conventional Commits 类型单独提了再发版
@@ -170,19 +170,3 @@ npm version <level> -m "release(v%s): <summary>"
   4. `git commit`（捕获**当前整个暂存区**：version bump + 同步的 Tauri 文件 + 第 1 步预先暂存的 docs 收口改动）+ `git tag`
   5. **postversion**：`git push --follow-tags` 自动推 commit 和 tag
 - 单 commit 同时包含：版本号 bump（4 处：`package.json` / `package-lock.json` / `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`）+ docs 收口（CHANGELOG / ROADMAP / DECISIONS）
-- 发版 commit message 模板示例：
-
-```
-release(v0.5.2): search enhancements + tree DnD
-
-Highlights:
-- in-editor find/replace ranking by relevance
-- file tree drag-to-move with conflict prompt
-
-Deps: prosemirror-view@1.42.0
-```
-
-详细 user-facing 变更写进 `docs/CHANGELOG.md`，commit message 只放高亮。
-
-
-

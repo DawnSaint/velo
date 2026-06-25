@@ -16,7 +16,12 @@ import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
+import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
+import {
+  revealWorkspaceSearchMatch,
+  type WorkspaceSearchHit,
+} from '@/utils/workspaceSearch'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
@@ -341,6 +346,59 @@ function toggleFind() {
 // 工作区维度的快速打开面板,与 FindReplace 视觉档次对齐但独立浮层。
 // 无工作区时 onKeydown 直接 return(对齐 ROADMAP 问答约定的"静默无反应"语义)。
 const quickOpenOpen = ref(false)
+const workspaceSearchOpen = ref(false)
+const workspaceSearchInitialQuery = ref('')
+
+function openWorkspaceSearch() {
+  const sel = currentSelectionText()
+  workspaceSearchInitialQuery.value = sel
+  quickOpenOpen.value = false
+  findOpen.value = false
+  workspaceSearchOpen.value = true
+}
+
+function selectAndRevealWorkspaceSearchMatch(be: ReturnType<typeof activeBackend>, from: number, to: number) {
+  revealWorkspaceSearchMatch(be, from, to)
+}
+
+async function selectWorkspaceSearchHit(hit: WorkspaceSearchHit): Promise<boolean> {
+  let be = activeBackend()
+  if (!be) return false
+
+  if (documentStore.sourceMode) {
+    const matches = be.findMatches(hit.query, hit.options)
+    const match = matches[hit.matchOrdinal]
+    if (match) {
+      selectAndRevealWorkspaceSearchMatch(be, match.from, match.to)
+      return true
+    }
+    const rawText = be.getRangeText(hit.rawFrom, hit.rawTo)
+    if (rawText === hit.matchText) {
+      selectAndRevealWorkspaceSearchMatch(be, hit.rawFrom, hit.rawTo)
+      return true
+    }
+    return false
+  }
+
+  const pmMatches = be.findMatches(hit.query, hit.options)
+  const pmMatch = pmMatches[hit.matchOrdinal]
+  if (pmMatches.length === hit.fileMatchCount && pmMatch) {
+    selectAndRevealWorkspaceSearchMatch(be, pmMatch.from, pmMatch.to)
+    return true
+  }
+
+  return false
+}
+
+async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
+  if (!(await documentStore.confirmDiscardIfDirty())) return
+  await documentStore.openPath(hit.fullPath)
+  workspaceStore.setLastFile(hit.fullPath)
+  await nextTick()
+  const selected = await selectWorkspaceSearchHit(hit)
+  if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
+  workspaceSearchOpen.value = false
+}
 
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
  *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
@@ -358,13 +416,21 @@ function openFolderAsWorkspace() {
 function onKeydown(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey)) return
   const target = e.target as HTMLElement | null
-  // 焦点在 FindReplace 面板里 → 让面板自己处理(避免双触发)
-  if (target?.closest('[data-fr-panel]')) return
+  // 焦点在 FindReplace / 工作区搜索面板里 → 让面板自己处理(避免双触发)
+  if (target?.closest('[data-fr-panel], [data-workspace-search-panel]')) return
   const k = e.key.toLowerCase()
   if (k === 's') {
     e.preventDefault()
     e.stopPropagation()
     void documentStore.save()
+  }
+  else if (k === 'f' && e.shiftKey) {
+    // Ctrl+Shift+F 工作区全文搜索(v0.5.2):无工作区静默,对齐 Ctrl+P。
+    if (!workspaceStore.activeRoot) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (workspaceSearchOpen.value) workspaceSearchOpen.value = false
+    else openWorkspaceSearch()
   }
   else if (k === 'f') {
     e.preventDefault()
@@ -877,6 +943,16 @@ onBeforeUnmount(() => {
       v-if="quickOpenOpen"
       :open="quickOpenOpen"
       @update:open="(v) => quickOpenOpen = v"
+    />
+
+    <!-- Ctrl+Shift+F 全文搜索浮层(v0.5.2):实时 JS 扫描工作区 .md,点击结果由 App.vue 统一打开并选区。 -->
+    <WorkspaceSearchPanel
+      v-if="workspaceSearchOpen"
+      :open="workspaceSearchOpen"
+      :root="workspaceStore.activeRoot"
+      :initial-query="workspaceSearchInitialQuery"
+      @update:open="(v) => workspaceSearchOpen = v"
+      @open-result="openWorkspaceSearchResult"
     />
   </div>
 </template>
