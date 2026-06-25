@@ -17,6 +17,7 @@ import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
+import WindowControls from '@/components/WindowControls.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
 import {
   revealWorkspaceSearchMatch,
@@ -115,15 +116,11 @@ const showOutline = ref(false)
 const showSettings = ref(false)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
-// 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效；
-// 同时把暗色状态推到原生窗口，让 title bar 跟着变
+// 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效。
 watch(
   () => store.darkMode,
   (val) => {
     document.documentElement.classList.toggle('dark', val)
-    if (tauri) {
-      void invoke('set_window_theme', { theme: val ? 'dark' : 'light' }).catch(() => {})
-    }
     // 通知带自管渲染的 NodeView（mermaid）刷新主题 —— ProseMirror 不会因
     // 这次类名切换产生 transaction，nodeView.update() 不会触发，得我们主动喊
     window.dispatchEvent(new CustomEvent('velo:theme-change'))
@@ -766,7 +763,7 @@ onBeforeUnmount(() => {
   >
     <!-- 顶栏 -->
     <header class="flex items-center justify-between gap-3 px-6 py-3">
-      <div class="flex min-w-0 items-center gap-2">
+      <div class="flex min-w-0 flex-1 items-center gap-2">
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': showOutline }"
@@ -775,13 +772,14 @@ onBeforeUnmount(() => {
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
         </button>
-        <h1 class="flex shrink-0 items-center text-lg font-bold tracking-tight">
+        <h1 data-tauri-drag-region class="flex shrink-0 items-center text-lg font-bold tracking-tight">
           <img :src="veloLogo" alt="Velo" class="h-6 w-6">
           <span :style="{ color: store.primaryColor }">elo Editor</span>
         </h1>
-        <span class="ml-2 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
+        <span data-tauri-drag-region class="ml-2 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
           {{ documentStore.fileName }}{{ documentStore.dirty ? ' •' : '' }}
         </span>
+        <span data-tauri-drag-region class="ml-2 h-8 min-w-6 flex-1" />
       </div>
 
       <div class="flex shrink-0 items-center gap-1">
@@ -869,6 +867,8 @@ onBeforeUnmount(() => {
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
         </button>
+        <span class="mx-2 h-5 w-px bg-gray-200 dark:bg-gray-700" />
+        <WindowControls v-if="tauri" />
       </div>
     </header>
 

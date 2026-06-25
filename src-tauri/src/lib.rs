@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{Emitter, Manager, Theme};
+use tauri::{Emitter, Manager};
 
 const MD_EXTS: &[&str] = &["md", "markdown", "mdown"];
 
@@ -66,18 +66,6 @@ fn get_cli_args(state: tauri::State<PendingCliArgs>) -> CliArgsPayload {
         .unwrap_or_default()
 }
 
-/// 同步 webview 暗色模式到原生窗口的 title bar
-/// theme: "dark" | "light"（其他值表示跟随系统设置）
-#[tauri::command]
-fn set_window_theme(theme: String, window: tauri::WebviewWindow) {
-    let t = match theme.as_str() {
-        "dark" => Some(Theme::Dark),
-        "light" => Some(Theme::Light),
-        _ => None, // 跟随系统
-    };
-    let _ = window.set_theme(t);
-}
-
 /// 打开 WebView2 devtools。生产构建需要在 tauri 依赖开 `devtools` 才生效。
 #[tauri::command]
 fn open_devtools(window: tauri::WebviewWindow) {
@@ -128,7 +116,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            set_window_theme,
             get_cli_args,
             open_devtools,
             export_pdf,

@@ -61,8 +61,20 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 // 测试里如果每次调用都 new 一个 vi.fn(),跨次检查调用次数就废了(每次都是新 mock)。
 // 这里用 module-scope 持有唯一的 setTitle,beforeEach 用 vi.resetAllMocks() 清历史。
 const setTitleMock = vi.fn()
+const minimizeMock = vi.fn(async () => undefined)
+const toggleMaximizeMock = vi.fn(async () => undefined)
+const closeWindowMock = vi.fn(async () => undefined)
+const isMaximizedMock = vi.fn(async () => false)
+const onResizedMock = vi.fn(async () => vi.fn())
 vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: () => ({ setTitle: setTitleMock }),
+  getCurrentWindow: () => ({
+    setTitle: setTitleMock,
+    minimize: minimizeMock,
+    toggleMaximize: toggleMaximizeMock,
+    close: closeWindowMock,
+    isMaximized: isMaximizedMock,
+    onResized: onResizedMock,
+  }),
 }))
 
 vi.mock('@tauri-apps/api/path', () => ({

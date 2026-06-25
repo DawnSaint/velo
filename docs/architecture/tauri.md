@@ -21,6 +21,7 @@
 
 ## 设计要点
 
+- **主窗口使用前端自绘标题栏**: `tauri.conf.json` 关闭 `decorations`,可见窗口 chrome 由 App 顶栏 + `WindowControls` 承担。关闭按钮必须调用 Tauri `close()` 而非 `destroy()` —— 前者会触发既有 `onCloseRequested` 脏文档确认,后者只允许在用户确认保存 / 放弃后由关闭拦截内部使用。拖拽区域只标在 logo / 文件名 / 空白伸展区,不要覆盖打开、保存、搜索、设置等交互按钮,否则 Windows 上会出现点击被拖拽吞掉的假死感。暗色模式只走前端 CSS,不再额外同步到原生 title bar。
 - **"在 Velo 中打开"文件夹右键菜单走 HKCU 注册表 + 每启动 best-effort 重写**: `folder_menu::ensure_registered` 写在 HKCU\Software\Classes\Directory\shell\OpenInVelo(verb 子键 + command 子键),不写 HKLM —— HKCU 不需要 UAC 提升,普通用户启动即可注册;Windows shell 解析 Classes 时合并 HKCU+HKLM,效果等价。每次 `setup()` 重写而非"仅缺时写":自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景),HKCU 写盘是同步快速 op 无可感知开销。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell 空白右键,本菜单挂的是 Directory\shell 即"右键文件夹"),引号必加防止路径含空格被拆词。失败仅 log::warn 不抛 —— Velo 是本地编辑器,菜单是 nice-to-have,启动不该被注册表故障阻塞
 
 
