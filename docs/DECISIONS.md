@@ -289,3 +289,33 @@
   - 真实 CLI 行为不变 —— Velo 不接受 `--foo=bar` 命名参数,strip 后参数仍走 `is_file` / `is_dir` 路径分类
   - 未来若引入 `--flag` 形式的命名参数(如 `--readonly`),需在 strip 之前先匹配已知 flag 列表,普通 path 参数仍走 strip 兜底
   - 给 E2E / 任何走 WebDriver 的工具链留下统一入口,不再绕路
+
+
+## v0.5.2 — 搜索增强  (2026-06-25)
+
+### ADR-20260625-001: Ctrl+P 快速打开走 JS 端 per-root 临时索引,不复用文件树懒加载状态
+
+- **Context**: 快速打开需要覆盖工作区内所有 `.md` 文件,而文件树只懒加载用户展开过的子树,`dirIndex` 不是全量索引。候选方案:
+  - A) 复用文件树 `dirIndex`:无需额外扫描,但只能搜已展开目录,语义错误
+  - B) 建持久索引文件:启动快,但要处理工作区切换 / 外部变更 / 删除重命名 / 版本迁移,复杂度超过 v0.5.2 需求
+  - C) JS 端按工作区根递归扫描 `.md`,结果缓存在内存,工作区 fs.watch 只标记 stale,下次打开面板重扫
+- **Decision**: 选 C。`quickOpenIndex` 维护 per-root cache + pending promise,首次打开 Ctrl+P 时 BFS `readDir` 收集 `.md`;工作区根 watch 任意脏事件只 `invalidate(root)`,不做局部 patch;切工作区清缓存。结果按"最近打开"与"其他"双分区展示:最近段保留 recent 顺序,其他段按 query fuzzy score / 字母序排序
+- **Consequences**:
+  - Ctrl+P 覆盖完整工作区,不受文件树展开态影响
+  - 索引生命周期简单,不会出现局部 patch 漏删 / 漏改的死文件
+  - 大型工作区首次打开有扫描成本,但只发生在用户主动打开面板时;后续可把同一接口替换成 Rust / 持久索引而不改 UI 契约
+  - 最近文件是 per-workspace 粒度,与后续全局"打开最近文件"可并存
+
+### ADR-20260625-002: 全文搜索 MVP 走 JS 端实时遍历 raw markdown,不引入 Rust 搜索后端
+
+- **Context**: Ctrl+Shift+F 需要跨工作区搜索正文并点击跳转。候选方案:
+  - A) JS 端实时遍历 `.md` (`readDir` + `readTextFile` + RegExp):实现最小,与现有 Tauri fs 封装一致,但大型工作区性能有限
+  - B) Rust command 调 ripgrep:性能好,但要新增 native command / 二进制能力边界 / Windows 打包验证,并处理与 JS 查找选项一致性
+  - C) tantivy / 持久全文索引:增量搜索快,但索引构建、更新、损坏恢复、版本迁移都超出 v0.5.2 范围
+- **Decision**: 选 A。搜索面板每次 query debounce 后递归扫描当前工作区 `.md`,复用查找替换的匹配选项生成 RegExp,逐文件逐行产生命中并显示进度;取消通过 run token 丢弃旧结果。结果坐标保留 raw markdown offset:源码模式直接按 offset 选择;WYSIWYG 模式只有在可见文本命中序号与 raw 命中序号可对齐时才选择,否则只打开文件,不强制切源码模式
+- **Consequences**:
+  - 零新增 native 依赖,发布风险低,搜索语义与当前查找替换选项保持一致
+  - 不把用户从 WYSIWYG 强行切到源码模式,避免为了定位牺牲编辑上下文
+  - 取消只能在每次 Tauri fs await 之后生效,不是硬中断;大型工作区可见延迟用进度反馈兜底
+  - 后续若性能不足,可以在同一 UI / 结果模型后替换为 Rust ripgrep 或持久索引
+

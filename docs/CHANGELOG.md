@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 的"设计要点 / 维护者注意点"。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.2] — 2026-06-25
+
+### Added
+- **大纲搜索过滤**：大纲顶部新增搜索框，按标题文本模糊过滤；命中字符在标题内加亮，清空搜索后保留原折叠状态。
+- **工作区快速打开文件（Ctrl+P）**：在当前工作区内模糊搜索 `.md` 文件并快速打开，结果区分最近打开与其他文件。
+- **工作区全文搜索（Ctrl+Shift+F）**：跨当前工作区所有 `.md` 文件搜索正文，展示命中行与进度反馈，点击结果打开文件并定位到命中位置。
+
+### Fixed
+- 查找结果命中隐藏的 Mermaid 源码时，现在会自动展开源码再定位，避免搜索跳转落在不可见位置或滚动偏移。
+
+
 ## [0.5.1] — 2026-06-24
 
 ### Added
