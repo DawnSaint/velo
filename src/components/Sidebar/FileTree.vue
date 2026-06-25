@@ -179,7 +179,7 @@ function onRowDragStart(event: DragEvent, node: TreeNode) {
 // hover-expand:拖到折叠目录上 500ms 自动展开(VSCode 行为),让用户能拖到
 // 深层目录而无需先点开。展开后不再折叠(避免目标在拖动过程中消失)。
 //
-// 完成后的状态更新同 microtask 无 await 间隔(参考 ARCHITECTURE.md §28):
+// 完成后的状态更新同 microtask 无 await 间隔(见 docs/architecture/file-tree.md):
 // renamePathPrefix → loadContent(必要时)→ pruneDirIndexPrefix → 双侧 refresh。
 
 const dragOverTarget = ref<string | null>(null)
@@ -341,7 +341,7 @@ async function performMove(srcPath: string, dstDir: string) {
   // 1) 工作区状态前缀重写(expandedDirs / lastFile)
   workspace.renamePathPrefix(srcPath, newPath)
 
-  // 2) 当前打开文件联动:不重载内容,只换路径(见 §维护者注意点 #26 / #30)
+  // 2) 当前打开文件联动:不重载内容,只换路径(见 docs/architecture/file-tree.md)
   const cur = documentStore.currentFilePath
   if (cur === srcPath) {
     documentStore.loadContent(documentStore.content, newPath)
@@ -524,7 +524,7 @@ async function submitInline() {
     try {
       if (kind === 'newFile') await writeTextFile(targetPath, '')
       else await fsMkdir(targetPath)
-      // children 更新 + cancelInline 同 microtask,Vue 一次 flush(见 §28)
+      // children 更新 + cancelInline 同 microtask,Vue 一次 flush(见 docs/architecture/file-tree.md)
       const parent = dirIndex.get(parentDir)
       if (parent) await loadDirChildren(parent)
       cancelInline()

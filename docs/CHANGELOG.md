@@ -5,8 +5,8 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> 重大架构决策的取舍记录见 [`DECISIONS.md`](./DECISIONS.md)；当前设计状态与踩坑记录见
-> [`ARCHITECTURE.md`](./ARCHITECTURE.md) 的"设计要点 / 维护者注意点"。本文件只记
+> 重大架构决策的取舍记录见 [`DECISIONS.md`](./DECISIONS.md)；当前设计状态与踩坑记录从
+> [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
 ## [0.5.2] — 2026-06-25

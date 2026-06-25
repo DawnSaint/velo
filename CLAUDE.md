@@ -6,13 +6,13 @@
 
 1. **读文档**。文档分两档：
    - **必读**：用 Read 工具读取完整内容
-     - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — 技术栈、目录结构、ProseMirror 插件链、数据流与设计要点等
+     - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — 架构入口；读完后按改动范围继续读本文件或对应 `docs/architecture/*.md` 模块
    - **按需读取**
      - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本的迭代方向
      - [`docs/DECISIONS.md`](./docs/DECISIONS.md) — 重大架构决策与重大重构的 ADR
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 版本变更日志
-     - [`docs/TESTING.md`](./docs/TESTING.md) — 测试规约与维护约定；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
-2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration 取舍等时，先在 ARCHITECTURE.md 的"设计要点"和"维护者注意点"里查一遍，避免踩已经记录过的坑。如果 ARCHITECTURE 找不到时再选择查找 DECISIONS.md。
+     - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
+2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
 
 ## 仓库速览
 
@@ -25,18 +25,18 @@
 
 **任务完成后，必须同步以下文档，否则视为任务未完成：**
 
-### 1. ARCHITECTURE.md — 架构层变动必须同步
+### 1. 架构文档 — 架构层变动必须同步
 
-满足以下任一情况就要更新 `docs/ARCHITECTURE.md`：
+满足以下任一情况就要更新 `docs/ARCHITECTURE.md` 或对应 `docs/architecture/*.md` 模块；只有新增 / 删除 / 重命名模块或路由变化时才更新模块路由：
 
-- 新增 / 删除 / 重命名 ProseMirror 插件或 NodeView，调整 `allPlugins` 数组顺序
-- 修改 markdown 解析 / 序列化管线（`editor/markdownIO.ts`、unified pipeline、新增 remark 插件）
-- 改动 schema（新节点类型 / mark / attrs 语义）
-- 修改数据流（`documentStore`、`lastSavedContent` / `echosToAccept` / `lastSelfEmitted` 等同步语义）
-- 修改 Tauri 端能力（`capabilities/*.json`、新 command、`tauri.conf.json` 协议）
-- 修复一个"非显然"的 bug，并且对应解决方案值得作为踩坑记录沉淀（写进"设计要点"或"维护者注意点"）
+- 新增 / 删除 / 重命名 ProseMirror 插件或 NodeView，调整 `allPlugins` 数组顺序 → `docs/architecture/editor.md`
+- 修改 markdown 解析 / 序列化管线（`editor/markdownIO.ts`、unified pipeline、新增 remark 插件）→ `docs/architecture/editor.md`；影响导出时同步 `docs/architecture/export.md`
+- 改动 schema（新节点类型 / mark / attrs 语义）→ `docs/architecture/editor.md`
+- 修改数据流（`documentStore`、`lastSavedContent` / `echosToAccept` / `lastSelfEmitted` 等同步语义）→ `docs/ARCHITECTURE.md`
+- 修改 FileTree / workspace / 搜索 / 导出 / Tauri 端能力时，更新对应 `file-tree.md` / `workspace-search.md` / `export.md` / `tauri.md`
+- 修复一个"非显然"的 bug，并且对应解决方案值得作为踩坑记录沉淀 → 写进对应模块的"设计要点"或"维护者注意点"
 
-更新时对齐已有结构：技术栈表格、目录结构、ProseMirror 插件链表、数据流、设计要点、维护者注意点。不要新开顶级章节，能塞进现有段落就塞进去。
+更新时使用渐进式披露：文件顶部保留“本文件负责 / 何时阅读 / 先记住 / 相关文件”的概括；详细取舍放到下方对应小节。除全局概览 / 数据流基础外，不要把其他模块长篇细节塞回 `docs/ARCHITECTURE.md`。
 
 **写作要求（精炼，不是工作日志）**：
 
@@ -69,18 +69,18 @@
 - 写入时机：**版本发布时整批入**（与 ROADMAP 整章删除、CHANGELOG 同步），不要零散追加
 - 改 ADR（修正事实 / 补充后果）直接在原条目改，不要新开条目覆盖；如有"已被新决策取代"用 `Superseded by ADR-XXX` 在 Status 里标注
 
-### 5. TESTING.md — 测试规约与现状同步
+### 5. 测试文档 — 测试规约与现状同步
 
-- TESTING.md 记**稳定的测试规约**（选型、Tauri 隔离层、目录命名、维护约定、反过度测试原则）+ 一句话现状快照（文件数 / 用例数 / 耗时）；**不记阶段勾选式进度表**，向前的测试规划走 ROADMAP
-- 同步触发：新增 / 删除测试文件、动测试基建（`vitest.config.ts` / `src/test/setup.ts`）、测试规约本身变化时更新；纯加用例不触发同步，发版时更新现状快照数字
-- 反过度测试原则（测行为不测实现、最便宜层优先、不测薄封装、敢删死重用例）见 TESTING.md，新增测试前对照
+- `docs/architecture/testing.md` 是测试文档唯一 canonical source（测试目标 / 选型 / 现状快照 / Tauri 隔离层 / 目录命名 / 维护约定 / 反过度测试 / E2E）
+- 同步触发：新增 / 删除测试文件、动测试基建（`vitest.config.ts` / `src/test/setup.ts`）、测试规约本身变化时更新 `docs/architecture/testing.md`；纯加用例不触发同步，发版时更新该文件的现状快照数字
+- 反过度测试原则（测行为不测实现、最便宜层优先、不测薄封装、敢删死重用例）见 `docs/architecture/testing.md`，新增测试前对照
 
 
 
 ## 代码修改约定
 
 - **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先询问
-- **修 bug 先看 ARCHITECTURE 的"设计要点"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
+- **修 bug 先看对应架构模块的"先记住 / 禁令速查"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
 - **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全部通过
 - **类型严格**：TypeScript strict 模式，`vue-tsc --noEmit` 必须 0 错
@@ -102,14 +102,14 @@
 | 7 | **keymap** | `EditorInner.vue` | 新快捷键(如 `$$` + Enter) |
 | 8 | **测试** | `__tests__/*.ts` | 每条语法至少 1 happy + 1 反例；`markdownIO` 改动必加 round-trip |
 | 9 | **CHANGELOG** | `docs/CHANGELOG.md` 当前版本对应分组（发布后写） | 发版时该语法的 feat/fix 走 `git log` 即可；属用户可见变更按分组写入 CHANGELOG |
-| 10 | **ARCHITECTURE** | `docs/ARCHITECTURE.md` | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍；**纯模板化不需要改** |
+| 10 | **ARCHITECTURE** | `docs/architecture/editor.md`（必要时联动 `docs/ARCHITECTURE.md` 路由） | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍；**纯模板化不需要改** |
 | 11 | **DECISIONS** | `docs/DECISIONS.md` | 候选方案 ≥ 2 的"为什么走 X 不走 Y"取舍（非显然决策），走 ADR 格式；普通语法不进 |
 
 **容易遗漏的项**:
 - 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效，且无警告，纯静默
 - 第 4 列双向——`fromMarkdown` 加了，`toMarkdown` 忘了，文件保存再加载会丢数据
 - 第 9 列留痕——发版时该语法的 feat/fix 走 `git log` 即可；属用户可见变更按分组写入 CHANGELOG，属"重大决策"取舍另写入 DECISIONS ADR 块（"为什么走 X 不走 Y"不写在 commit message 里）
-- 第 10 列过度——简单语法也写一段"设计要点"反而稀释文档信号
+- 第 10 列过度——简单语法也写一段架构说明反而稀释文档信号
 
 **已落地的语法参照**:
 - `mermaid` 涉及 schema(`code_block { language: 'mermaid' }`，无独立节点) + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(扫 code_block 渲染 SVG widget，不走 syntax)。codeHighlight 工具条 + mermaid SVG widget 双 widget 共存(不同 side)

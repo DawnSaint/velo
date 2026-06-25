@@ -119,7 +119,7 @@ describe('codeHighlightPlugin', () => {
     // 没有 `color:` 前缀)。`color: var(--shiki-light)` 这条规则由 SCSS 那边
     // 对 `pre span` 写,不在 inline style 里 —— 走 defaultColor: false 模式
     // 让 inline style 只写变量、颜色走 CSS cascade,切 <html class="dark">
-    // 翻面时不会跟 inline `color:` 打架(ARCHITECTURE 维护者注意点 6)。
+    // 翻面时不会跟 inline `color:` 打架(见 docs/architecture/editor.md 的 shiki dual-theme 说明)。
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBeGreaterThan(0)
     // 至少一个 span 的 style 同时定义了 light / dark 两个变体

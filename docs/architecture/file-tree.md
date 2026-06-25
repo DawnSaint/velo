@@ -1,0 +1,67 @@
+# File Tree and Workspace
+
+> **本文件负责**: 工作区模型、文件树懒加载、CRUD、右键菜单、内部拖拽 move、树刷新与相关踩坑。
+>
+> **何时阅读**: 改 `Sidebar/FileTree.vue`、`useTreeData.ts`、`workspaceStore`、文件树 CRUD / drag/drop / fs.watch 刷新时。
+>
+> **先记住**:
+> - TreeNode 必须经 `reactive()` 包装，`dirIndex` 与 `rootNode` 必须持有同一份 proxy。
+> - `loadDirChildren` 按 name + isDir 复用旧 TreeNode，避免整树闪烁。
+> - 删除/重命名/移动当前打开文件必须走 `documentStore.loadContent` 既有契约，不要自起 watch。
+> - 跨目录 move 成功后顺序是 renamePathPrefix → loadContent(必要时) → pruneDirIndexPrefix → 双侧刷新。
+> - FileTreeContextMenu 只展示/emit，关闭与全局 pointerdown 由父级统一管理。
+>
+> **相关文件**: [架构入口](../ARCHITECTURE.md) / [Tauri](./tauri.md) / [工作区搜索](./workspace-search.md)
+
+
+## 禁令速查
+
+- FileTree 新增节点不要 raw 对象，必须 `reactive()` 包。
+- CRUD 后不要全量重建整树，要复用旧 TreeNode。
+- CRUD 后 children 更新与 inline 关闭不要跨 await。
+- 内部拖拽 move 不要两次 `loadContent`，不要保留旧路径 watch。
+- 跨目录 move 后不要漏 `pruneDirIndexPrefix`。
+
+## 数据流
+
+**文件树 CRUD**(v0.5.1): `FileTree.vue` 右键菜单(由 `FileTreeContextMenu.vue` 抽组件)直走 `src/tauri/fs` 的 `mkdir` / `remove` / `rename` / `writeTextFile` + `src/tauri/opener:revealItemInDir`(plugin-shell 的 `open(path)` 不能"高亮文件",plugin-opener 专门补这条);新建 / 重命名走行内 input,`.md` 后缀不可编辑自动拼接;mutation 后立刻 `loadDirChildren(parent)` 主动重拉,不等 fs:watch 的 120ms debounce;`loadDirChildren` **按 name + isDir 复用旧 TreeNode 引用**,未变化的子树 props 不变,Vue 跳过;children 更新与行内编辑 / 打开文件关闭合并在同一 microtask 同步排列,Vue 一次 flush,避免两帧闪烁。**联动 `documentStore`**:删除影响"当前打开文件"(含落在被删子树里的情况)→ `loadContent('', null)` 关闭文件,内容丢;重命名"当前打开文件"→ 走 ROADMAP line 19 同款"路径同步更新 currentFilePath 不重载内容"语义,通过 `documentStore.loadContent(content, newPath)` 复用 stopWatch + startWatchOf 路径,destructive op(destructive op 必 confirm,删除 dirty 文件文案加"未保存修改将丢失")在 FileTree 内弹原生 confirm。**内部拖拽 move**:文件走 TREE_PATH_MIME,**目录走 TREE_DIR_PATH_MIME**(独立 MIME 让目录无法被拖入编辑器,详见 imageUploadPlugin 行);FileTree 内部 drop 两种 MIME 都接受走 `fs.rename`(对 file/dir 同管线);校验链 src===dst / parent(src)===dst / 目录拖入自身后代;成功后 `fs.rename` → `workspace.renamePathPrefix(srcPath, newPath)` 把 expandedDirs / lastFile 前缀重写 → `loadContent(content, newPath)` 当前文件命中或落在被移目录子树时直接前缀拼新路径(单次调用避免双 watch swap) → `pruneDirIndexPrefix(srcPath)` 摘掉脱链子树 dirIndex 孤儿(否则 fs.watch 拿旧路径调 `refreshDir` 会在死节点上置 `node.error`) → 双侧 `loadDirChildren` 同 microtask flush。
+**工作区**: `workspaceStore` 持有 `activeRoot` / `workspaces[root].{expandedDirs,lastFile,sidebarTab}` / `sidebarTab`。`Sidebar.vue` 走 tab 互斥渲染(v-if 而非 v-show,免得 EditorOutline scroll-spy DOM 监听与 FileTree dirIndex 同时活着争 scroll container)。工作区根挂单 recursive `fs.watch`(delayMs:150 + 前端 120ms 二次防抖,脏目录集驱动 `FileTree.refreshDir` 子树重拉)。`documentStore.currentFilePath` 变化同步到 `workspaceStore.lastFile`,重开工作区时可恢复。**`setActiveRoot` 不强切 sidebarTab**:用户主动切工作区(顶栏"打开文件夹"按钮 / 二次启动 dir argv / 树右键"作为工作区打开")保留当前 tab,只把当前 tab 写回新 workspace 记忆;**唯一**应用持久化 tab 的路径是 `loadFrom`(启动恢复)。否则"用户在文件 tab 时切工作区被强制弹回大纲"反直觉。
+
+---
+
+---
+
+## 设计要点
+
+- **工作区根 fs.watch 走单 recursive 句柄 + 脏目录集 debounce**: `activeRoot` 变化时先 stop 后 start(沿用 documentStore 同款 race 容忍策略),回调把 `dirnameOf(event.paths)` 入 `dirtyDirs` Set,前端 120ms `setTimeout` 二次 debounce flush → 对每个脏目录调 `FileTree.refreshDir(dir)` 重拉那棵子树。`readDir` 一次 < 5ms,**不做 path diff**,简单可靠。当前文件 watch 与工作区根 watch 共存:当前文件也落在根树下会收到两份事件,documentStore 内 `disk === lastSavedContent` 短路 + `externalCheckInFlight` 重入保护已足够去重,不需要协调。**已知限制**:notify-rs 对网络盘 / OneDrive 漏报在目录级比文件级更严重,window-focus 兜底只覆盖当前文件,工作区根侧暂无等价兜底(代价高),见 DECISIONS ADR-20260623-001
+
+
+
+---
+
+## 维护者注意点
+
+- **FileTree 的 TreeNode 必须 `reactive()` 包装**: `dirIndex: Map<string, TreeNode>` 与 `rootNode = ref<TreeNode>` 持有同一份引用,如果用 raw 对象,`rootNode.value = node` 后 ref 里是 proxy,Map 里是 raw,异步 `loadDirChildren` 对 raw 改 `node.loading=false / node.children=[...]` 不触发模板重渲 → UI 永远卡在"加载中…"且**控制台无报错**。`makeNode` 统一返回 `reactive({...})`,保证 dirIndex 与 rootNode 内全是 proxy
+- **treeDrop / imageUploadPlugin 异步 drop 的 dropPos 越界 + race 守卫**:
+    - `dropPos` 在落盘(含 `saveImageAssetFromPath` 磁盘读 + SHA-256 + 写,可达数秒)之前就已捕获,用户在此期间继续编辑导致 doc 变长/变短 → 原先的 pos 可能越界。`insertImageNode` 里做了 `Math.min(Math.max(dropPos, 0), doc.content.size)` clamp,**不 clmap 会 silent swallow RangeError → 图丢了用户无反馈**。
+    - `.md drop → confirmDiscardIfDirty → openPath` 这条链如果等待对话框期间又来了一次图片 drop,那张图的 `dropPos` / `srcForMarkdown` 都是针对旧 doc 算的。`handleTreePathDrop` 产出的 `InsertImageFn` 签名带了 `capturedCurrentFilePath` 参数,`imageUploadPlugin` / `SourceModeEditor` 两侧在回调开头对比当前 `documentStore.currentFilePath` vs `captured`,不一致就跳过插入。**不跳则图插到新 doc 里 src 用了旧 assets/ 相对路径 → 图片裂开**。
+- **行内 input 校验失败不要自动关闭**: v0.5.1 起新建 / 重命名不再走 modal,改行内 input(对齐 VSCode / Finder 约定)。Enter 提交、Esc 取消、点外部提交。submit 时跑 validate(空名 / `.` `..` / 禁用字符 / 同名),失败把 `inlineNew.error` / `inlineRename.error` 写进 input 的 `title` 属性,row 仍存在,焦点回 input。**空名校验必须落在 input value 上,不能在 finalName(已拼 `.md`)上** —— 空 + ".md" = ".md" 仍非空,会漏过 trim 后的检查。同名冲突这种"前端 children 视图可能不完整"的情况也只放在 submit 时校验,不在 typing 阶段报红字打扰用户。父目录若未展开,`openInlineNew` 须先 `setDirExpanded(true) + loadDirChildren`,否则 inline row 落到不可见的折叠子树
+- **重命名 / 删除当前打开文件 → 走 `documentStore` 既有契约,不要在 FileTree 内自起 watch**:
+    - 删除:`deleteContainsOpenFile(pathToDelete)` 判 `currentFilePath === pathToDelete || currentFilePath.startsWith(pathToDelete + sep())`,命中就 `loadContent('', null)` 让 documentStore 走自己的 stopWatch + 清 currentFilePath 路径(等价"用户从 OS 删了再打开")
+    - 重命名:`currentFilePath === node.fullPath` 时调 `loadContent(documentStore.content, newPath)` —— 不动 content / lastSavedContent,只换 path + 内部 stopWatch + startWatchOf(newPath)(等价 `saveAs` 的 watch 切换路径)。**不要**自己 dispatch watch / 自己 mutate currentFilePath,store 内部 `loadContent` 才同步触发 stopWatch / startWatchOf + syncTitle,漏走一条 watch 路径都会让外部修改检测漂到旧路径上,文件重命名后再编辑 = checkExternalChange 拿旧路径读文件找不到
+- **Tauri 2 plugin-opener 只能 desktop**: `revealItemInDir` 移动端 unsupported,Velo 当前只打 desktop,future 加 mobile entry 时需自行在 capability / 调用点降级(消息弹"不支持")
+- **FileTree 节点复用 + mutation 后立即清 inline 状态,避免整树闪烁**: v0.5.1 起 CRUD 写盘后,`loadDirChildren` **必须**按 name + isDir 复用旧 `TreeNode` 引用,只对新增 / 删除的 entry 建新对象。否则父级 `flatItems` computed 看到新 proxy 引用就 reconcile 整树 → 整树重渲闪烁;复用后未变化的子树 props 不变,Vue 跳过。`submitInline` / `confirmAndDelete` 中 `loadDirChildren` 与 `cancelInline` / `loadContent('', null)` 之间**不能有 await**(会跨 microtask 边界,Vue 分两帧 flush),必须同一 microtask 同步排列,Vue 一次 flush 渲染。`loadDirChildren` 内部 `node.loading` 切换在子目录不可见(只有根 root 触发"加载中…"),所以根的 loading 由 `rebuildFromRoot` 单独 toggle,`loadDirChildren` 不再 toggle,免得在没必要的子树触发 2 次额外 reactive 通知
+- **FileTreeContextMenu 抽组件 + rootEl expose**: 右键菜单 5 项固定 UI + 5 个 emit,跟 FileTree 状态机耦合很浅,内联在 FileTree 会撑长模板。`FileTreeContextMenu.vue` 自管 `<Teleport to="body">` 并 `defineExpose({ rootEl })` 暴露 Teleport 后的 DOM 节点;FileTree 全局 `pointerdown` handler 拿 `contextMenuRef.value?.rootEl` 判定"点外部"关闭。**不**在组件内自己挂全局 listener(会和 FileTree 的 inline input close 逻辑竞争),也不在组件 emit close(让父级统一管理 `contextMenu.value` 状态)
+- **FileTree 内部拖拽 move:状态前缀重写 + dirIndex prune + 单次 loadContent**:
+    - 与重命名 / 删除一样走 `documentStore.loadContent(content, newPath)` 既有契约,**不**自起 watch / 手动 mutate currentFilePath。dir 移动并包含当前文件时,直接合成 `newCur = newPath + cur.slice(srcPath.length)` 一次性传入,**不要**先 loadContent(content, srcPath) 再切到 newCur —— 两次 startWatchOf 会留一个指向已不存在路径的 watch 窗口。
+    - `workspaceStore.renamePathPrefix(oldPath, newPath)` 必须早于 loadContent,把 `expandedDirs` / `lastFile` 中以 oldPath 为前缀的项整体重写;否则下次重开工作区 isDirExpanded 命中旧路径,readDir 抛错,整树降级到只展开根。
+    - `pruneDirIndexPrefix(srcPath)` 必须紧跟 rename 成功:被移走的目录子树在 dirIndex 里全是孤儿(rootNode 已找不到它们,但 dirIndex 持有 key),后续工作区 fs.watch 用旧路径 debounced 调 `refreshDir` 会撞到孤儿,`readDir(deadPath)` reject 写 `node.error` 污染脱链节点。
+    - 同 microtask 收尾(参考“FileTree 节点复用 + mutation 后立即清 inline 状态”):`fs.rename` resolve 之后 → renamePathPrefix → loadContent(必要时)→ pruneDirIndexPrefix → `Promise.all([loadDirChildren(srcParent), loadDirChildren(dstDir)])` 全程无 await 间隔,Vue 单帧 flush。
+- **根节点纳入 flatItems + 1 级"空目录"探测**: v0.5.1 起根节点作为 `flatItems` 第一行渲染(`depth=0`),不再用顶部独立 label 显示。右键根 row 走 rootContext 上下文菜单(同空白处右键),仅显示"新建文件 / 新建文件夹",其余项(重命名 / 删除 / reveal / 作为工作区打开)对根无意义。
+    - **根折叠态走组件本地 `rootCollapsed` ref,不持久化**:折叠是临时 UI 操作,切工作区 / 重启都视觉默认展开。切工作区的 watch 必须显式重置 `rootCollapsed.value = false` —— FileTree 组件不会 unmount/remount,不重置会从上个工作区继承折叠态。不走 `workspace.expandedDirs` 是为了避开两个问题:一是污染"per-path 展开集"语义,二是要为旧 v0.5.0 工作区记忆做兼容默认展开的反写,徒增 store 复杂度。
+    - "空目录隐藏箭头"逻辑:子目录 `children !== undefined && children.length === 0` 时不渲染展开箭头,但根 row 永远显示(根永远是目录,保留折叠 / 展开 affordance)。
+    - 让"空 / 非空"在父目录加载完后立即生效(而非用户点击展开后才知道),`loadDirChildren` 末尾 fire-and-forget 对每个新 child dir 跑 `probeDirEmptiness`:**只在结果为空时**把 child.children 置 [],非空保留 undefined(留给用户首次展开时 `loadDirChildren` 全量加载)——这样不破坏懒加载初衷,只多打一次"是否为空"的轻量 readDir。
+    - race 守卫:探测 await `readDir` 期间用户可能已点击展开 → `loadDirChildren` 抢先把 children 填好;探测 resolve 后必须重判 `children !== undefined`,命中就放弃覆盖。失败(权限等)静默 —— 等用户真正点开时 `loadDirChildren` 会暴露真实错误。
+    - dragstart 必须先 `closeContextMenu() + cancelInline()`:菜单 / 行内 input 在拖拽期间残留,drop 时全局 pointerdown 会把行内 input 误提交。
+    - `effectAllowed` 必须是 `'all'` 而非 `'copyLink'`:dropEffect='move' 必须在 effectAllowed 子集内,否则浏览器视为非法 → 树内 drop 拒绝;编辑器侧自行计算 dropEffect 不受 source 宽放影响。
+    - **hover-expand**: 拖拽悬停折叠目录 500ms 自动展开(VSCode 行为),`armHoverExpand(dstDir)` 在 `onRowDragOver` 命中目录 row 时挂 timer;切到别的目录 / 文件 row / 容器空白 / dragend / drop 都必须 `clearHoverExpandTimer()`,否则 timer 跨拖拽残留,下次悬停同目录 500ms 内会触发"幽灵展开"。文件 row 解析到的父目录已展开(否则文件不可见),不挂 timer。根目录走 `rootCollapsed` 而非 `workspace.expandedDirs`,所以 `armHoverExpand` 对根 path 走独立分支。

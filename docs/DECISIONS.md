@@ -4,7 +4,7 @@
 >
 > 本文件记录"为什么这样设计"的取舍（候选方案 ≥ 2、对未来有持续影响、踩坑点非显然）。
 > 用户可见的版本变更见 [`CHANGELOG.md`](./CHANGELOG.md)；
-> 当下的设计状态与踩坑记录见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 的"设计要点 / 维护者注意点"。
+> 当下的设计状态与踩坑记录从 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块。
 
 ---
 
@@ -151,7 +151,7 @@
   - **不再 atom**:选区/键盘 navigation 行为变(从"整块选中 + Backspace 删整块" → "逐字符编辑 + 空时 Backspace 转 paragraph");但更符合直觉
   - **SVG 浮在 pre 下方**:整块视觉布局变化,需要新 CSS 校准(`.mermaid-svg-area` 样式重置)
   - **测试一次性破坏 5-7 个**:`markdownIO.test.ts` mermaid round-trip / `markdownPaste.test.ts` "mermaid 节点"用例 / `codeHighlight.test.ts` 第 10 项("widget 不被 mermaid 节点触发"前提失效,换成"code_block lang=mermaid 既出 toolbar 又出 SVG 双 widget");careful 重写
-  - **实施踩坑**(沉淀到 ARCHITECTURE 设计要点):
+  - **实施踩坑**(沉淀到 [`architecture/editor.md`](./architecture/editor.md)):
     - widget promise resolve 后**不要** dispatch setMeta 触发 rebuild decorations(否则新 Decoration 实例 `WidgetType.eq` 比对失败 → widget 复用失效 → 死循环),直接在 widget dom 上写 svg
     - 主题切换走 widget 工厂里挂 `velo:theme-change` window listener 自己改 dom,不走 plugin setMeta(同上死循环);`spec.destroy` 钩子负责 `removeEventListener` 防泄漏
     - `tr.mapping.map(pos)` 默认 `assoc=+1`(关联"变更之后"),把"content 起点"映射到"插入文本末尾" → `editNodeSet` 里的 absolutePos 跑偏,buildDecorations 找不到匹配 → pre 被误判 hidden;apply 必须用 `mapping.map(pos, -1)` 保留"在变更之前"语义
@@ -201,7 +201,7 @@
   - D) **走 Tauri 2 `with_webview` 调平台原生 PrintToPDF API**(Windows `ICoreWebView2_7::PrintToPdf` / macOS `WKWebView::createPDFWithConfiguration:` / Linux `WebKitPrintOperation` + `output-uri`):复用应用自带的 webview 渲染引擎,**静默写盘无对话框**,与 Typora / Obsidian 一致;Typora(Obsidian 同款)用的就是 Electron 自带的 `webContents.printToPDF` —— 我们的等价物是 Tauri `with_webview` escape hatch。
   - 选 D。代价是 Rust 端引入 `webview2-com` 仅 Windows target(`tauri 2.11` 已经传递依赖,实际新增 Cargo.toml 行);macOS / Linux 需要后续补对应实现(暂返回 `PdfError::Unsupported`)
 - **Decision**:
-  1. **HTML 走 `buildExportHtml` + `writeTextFile`**:`lib/export/htmlRenderer.ts` 复用 `editor/markdownIO.ts` 的同一份 unified pipeline(7 个 remark 插件)parse 出 mdast,自写轻量 walker 转 HTML(不走 PM doc —— 省去 PM doc → mdast 二次桥接)。节点类型逐个 dispatch:`code lang='mermaid'` 走 `mermaidHtml`;其他 code 走 `shikiHtml`(复用 `CodeBlockLangs` 的 `getHighlighterSync` + `getTokensSync`,与编辑器内 `CodeHighlightWidget` token 渲染同套 API,保证配色一致);math 走 `katex.renderToString`;html 走 DOMPurify(`PURIFY_CONFIG` 与 `HtmlNodeView.ts:27-36` 同步,见维护者注意点 #13);image src 走 `convertFileSrc` 转 `asset://`。**降级策略**:任何渲染失败 → 走原文 `<pre>` 或 `<span class="math-error">` + 收进 `warnings` 数组,**不**抛错中断整次导出
+  1. **HTML 走 `buildExportHtml` + `writeTextFile`**:`lib/export/htmlRenderer.ts` 复用 `editor/markdownIO.ts` 的同一份 unified pipeline(7 个 remark 插件)parse 出 mdast,自写轻量 walker 转 HTML(不走 PM doc —— 省去 PM doc → mdast 二次桥接)。节点类型逐个 dispatch:`code lang='mermaid'` 走 `mermaidHtml`;其他 code 走 `shikiHtml`(复用 `CodeBlockLangs` 的 `getHighlighterSync` + `getTokensSync`,与编辑器内 `CodeHighlightWidget` token 渲染同套 API,保证配色一致);math 走 `katex.renderToString`;html 走 DOMPurify(`PURIFY_CONFIG` 与 `HtmlNodeView.ts:27-36` 同步,见 [`architecture/export.md`](./architecture/export.md));image src 走 `convertFileSrc` 转 `asset://`。**降级策略**:任何渲染失败 → 走原文 `<pre>` 或 `<span class="math-error">` + 收进 `warnings` 数组,**不**抛错中断整次导出
   2. **PDF 走 Tauri command `export_pdf` 调平台原生 PrintToPDF**(v0.4.7 后替换原 iframe+print 方案):
      - **链路**:前端 `invoke('export_pdf', { outputPath, html })` → Rust command `pdf::export_pdf`(`src-tauri/src/pdf.rs`)→ `window.with_webview(|webview| ...)` 拿平台 handle → 三平台分发
      - **Windows**(`src-tauri/src/pdf_windows.rs`,完整实现):`controller.CoreWebView2()` 拿 `ICoreWebView2`,`cast::<ICoreWebView2_7>()` 拿 `PrintToPdf`,`cast::<ICoreWebView2Environment6>()` 拿 `CreatePrintSettings`(注意 v1 环境上没这个方法,必须 cast 到 v6);encode HTML 成 base64,`Navigate("data:text/html;base64,...")` 触发 HTML 加载(需要 tauri `webview-data-url` feature);注册 `NavigationCompletedEventHandler`(HTML 加载完后发起 `PrintToPdf`),`PrintToPdfCompletedHandler` 把结果通过 `tokio::oneshot` 桥接到 async command;`Arc<Mutex<Option<oneshot::Sender>>>` 共享 sender 防双重发送;全局 `tokio::Mutex<()>` `PRINT_LOCK` 防 WebView2 同时跑两个 print 崩溃;30s `tokio::time::timeout` 兜底防回调不触发永久挂起
@@ -214,7 +214,7 @@
   - PDF 静默写到 `saveDialog` 拿到的目标路径,**不再**经系统打印对话框;UX 与 Typora / Obsidian 同款
   - Rust 端新增依赖(仅 Windows target):`webview2-com = "0.38"` + `windows = "0.61"`(`tauri 2.11` 已经传递依赖,实际增量编译代价小);通用:`thiserror` / `tokio` / `base64`(均已有版本可对齐 `Cargo.lock`)
   - **降级路径健壮**:jsdom 测试环境 mermaid 因缺 SVG BBox 失败 → 走 `<pre class="mermaid-error">` + warning 收进 `ExportResult.warnings`;KaTeX 语法错 → `<span class="math-error" title="errMsg">` 显示原文;shiki lang 未装 → 纯文本 `<pre><code>` 兜底
-  - 已知限制:导出 HTML 的 image 走 `asset://` 协议,在 Tauri webview 内能解析,拿到外部浏览器打开会破图(见维护者注意点 #14);后续要做"导出带图片"得改成 inline base64 或把图片复制到 HTML 同目录
+  - 已知限制:导出 HTML 的 image 走 `asset://` 协议,在 Tauri webview 内能解析,拿到外部浏览器打开会破图(见 [`architecture/export.md`](./architecture/export.md));后续要做"导出带图片"得改成 inline base64 或把图片复制到 HTML 同目录
   - PDF 走平台原生而非 Puppeteer headless:省几百 MB Chromium 二进制 + CJK 字体问题,跟应用自身 webview 复用,渲染一致性最高
   - **跨平台一致性**:Windows 已完整实现 + 编译通过;macOS / Linux 暂时返回 Unsupported,需 macOS / Linux 环境开发者补完(独立子任务,不会污染 Windows 实现)
   - 已知遗留:HTML 注入 navigate(data_url) 后**不**自动 restore 主 webview URL,用户导出期间短暂看到 PDF 内容;可接受,后续可优化(在 PrintToPdf 完成后 navigate 回原 URL)
@@ -248,7 +248,7 @@
   - 业务代码不再出现 `@tauri-apps/*` import;测试 mock 后续可逐步从 `@tauri-apps/*` 收敛到 `src/tauri/*`(本次保留旧 mock 形态,vi.mock 透传,避免大改测试)
   - tauri-driver E2E 接入时,fs 边界是单一入口,横切关心(如"E2E 期间打 fixture 桩")集中加在 `src/tauri/*` 即可
   - `tauriOnly()` 守门从 persistence 模块内部 helper 提升为 `src/tauri/fs.ts` 命名导出,业务代码统一通过它判断 web dev 端降级
-  - 封装层本身不写测试(测它等于测 mock,见 TESTING.md §8 反过度测试),保留薄度
+  - 封装层本身不写测试(测它等于测 mock,见 [`architecture/testing.md`](./architecture/testing.md)),保留薄度
 
 
 ### ADR-20260623-003: capability fs scope 保持 `**`,不收紧到工作区根内
@@ -274,7 +274,7 @@
   - C) **跳过 E2E,只补组件层 mount 测试** — `FileTree.vue` 等已用 vue-test-utils 覆盖右键 / 拖拽 / 行内 input;但"启动期 CLI argv → 工作区根 → 写盘"这条跨进程链路只能 E2E
 - **Decision**: 选 A。Tauri 官方支持 + 协议正确 + 一次性投入(配置 ~150 行 helper),后续 spec 只需写 it 块。Windows-only 跟项目当前只发 Windows 一致,跨平台延后(macOS 走 `tauri-driver` macOS / Linux 分支即可,spec 复用)
 - **Consequences**:
-  - WebView2 + msedgedriver 工具链有三条已知坑,spec 层兜底(见 [`TESTING.md` §10.3-10.5](./TESTING.md)):右键 Actions 不触发 `contextmenu` / `.click()` 偶发 not interactable / msedgedriver 强加 `--` 前缀污染 CLI argv
+  - WebView2 + msedgedriver 工具链有三条已知坑,spec 层兜底(见 [`architecture/testing.md`](./architecture/testing.md)):右键 Actions 不触发 `contextmenu` / `.click()` 偶发 not interactable / msedgedriver 强加 `--` 前缀污染 CLI argv
   - debug binary 跟 dev / release 共用 `appDataDir`,spec 跑 `setActiveRoot(tempWs)` 会污染用户 `velo-workspaces.json` → `e2e/helpers/appdata.ts` snapshot/restore 三份 JSON
   - 系统 confirm 对话框 WebDriver 抓不到 → `src/tauri/dialog.ts` 加 `import.meta.env.DEV` + `__VELO_E2E_AUTO_CONFIRM__` window flag,release 经 esbuild dead-code-eliminate
   - 后续语法 / 工作区相关功能落地时,新增 spec 复用现有 `rightClick` / `jsClick` / `setInlineValue` / `snapshotAppData` helper,**不再**对 WebView2 工具链坑做二次研究

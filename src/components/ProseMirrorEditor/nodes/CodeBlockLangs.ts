@@ -304,8 +304,8 @@ export function getTokensSync(
 // `props.decorations(state)` 契约无脏区间钩子,每次 transaction 全量重跑;
 // 1000 行文档对所有 code_block 同步跑 `codeToTokensWithThemes` 累计 100ms+
 // 卡顿。按 `(lang + 两套主题 + content-hash)` LRU 缓存 token 数组,普通段落
-// 键入 ~99% 命中,单键 decoration build 从 ~100ms 降到 ~5ms。详见 ARCHITECTURE
-// 维护者注意点 #32。
+// 键入 ~99% 命中,单键 decoration build 从 ~100ms 降到 ~5ms。详见
+// docs/architecture/editor.md 的 shiki token cache 说明。
 //
 // 缓存值是 token 而非 Decoration —— token.offset 是块首相对偏移,与 doc 位置
 // 无关;`buildDecorations` 仍走 `blockStart + offset` 重算绝对 pos。直接缓存

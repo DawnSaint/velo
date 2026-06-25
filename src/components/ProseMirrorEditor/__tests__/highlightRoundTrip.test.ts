@@ -9,7 +9,7 @@
 //
 // 不覆盖:跨 atom 节点(image / math_inline / footnote_ref / hardbreak)的
 // highlight —— schema 不允许 atom 带 mark,实际不会触发;round-trip 这类
-// 复杂结构 markdownIO 会退化为丢 highlight(已记录在 ARCHITECTURE 设计要点)。
+// 复杂结构 markdownIO 会退化为丢 highlight(见 docs/architecture/editor.md)。
 
 import { describe, expect, it } from 'vitest'
 import { schema } from '../editor/schema'

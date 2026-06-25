@@ -275,7 +275,7 @@ describe('htmlRenderer', () => {
     it('TOC link href uses the same slugify as heading id (so clicks jump correctly)', async () => {
       // heading id 走 slugify(toLowerCase + space→dash);
       // TOC 链接 href 必须用同款 slug 才能命中浏览器锚点跳转。
-      // 复刻维护者注意点 #21:不能保留字面空格 / 大写。
+      // 复刻 docs/architecture/export.md 的内部锚点规则:不能保留字面空格 / 大写。
       const md = '## Hello World\n\n[TOC]'
       const { html } = await buildExportHtml(baseOpts(md))
       expect(html).toMatch(/<h2[^>]*id="hello-world"/)

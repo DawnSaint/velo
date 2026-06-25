@@ -5,7 +5,7 @@
 //   现去掉 `$`、加 `g` flag,框架对整段 matchAll
 //
 // `*` 包裹的 italic / `**` 包裹的 bold 当前 schema 下不通过 input 触发
-// (历史遗留,见 ARCHITECTURE.md "v0.4.0 重构记录"),这里也不补 —— 后续单独
+// (历史遗留,见 docs/architecture/editor.md 的 syntax auto-format 说明),这里也不补 —— 后续单独
 // 加 `syntax/inline/strong.ts` / 修订 emphasisStar 时再加,本次维持现状。
 
 import type { InlineSyntax } from '../../editor/syntaxRegistry'

@@ -3,7 +3,7 @@
 // 设计原则:
 // - **自定义节点(math_inline / math_block / mermaid)只占 schema 槽位**,
 //   parseDOM/toDOM 是占位,真正的渲染走 NodeView / Decoration.widget。
-//   见 ARCHITECTURE.md 的"mermaid 走 widget 不走 NodeView"段。
+//   见 docs/architecture/editor.md 的 mermaid Decoration/widget 说明。
 // - **list_item 一并合并 task list checked attr**。NodeView 在
 //   TaskListNodeView.ts 里按 checked != null 分支渲染 checkbox。
 //

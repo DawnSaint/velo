@@ -7,10 +7,10 @@
 // / 模板 / 数据,文件长度 > 700 行,数据 / IO 部分与 UI 状态机几乎正交,先抽这层。
 //
 // 设计要点:
-//  - 所有 TreeNode 必须经 reactive() 包(见 ARCHITECTURE.md §维护者注意点 #23):
+//  - 所有 TreeNode 必须经 reactive() 包(见 docs/architecture/file-tree.md 的 TreeNode reactivity contract):
 //    dirIndex(Map)与 rootNode(ref)持有同一份引用,raw 对象会让 ref 拿 proxy /
 //    Map 拿 raw 两份不同步,异步 readDir 完成后模板永远卡"加载中…"。
-//  - loadDirChildren **按 name + isDir 复用旧 TreeNode 引用**(见 §28),避免父级
+//  - loadDirChildren **按 name + isDir 复用旧 TreeNode 引用**(见 docs/architecture/file-tree.md),避免父级
 //    computed 重新 reconcile 整树 → 闪烁。
 //  - 根的 "加载中…" UI 由 rebuildFromRoot 单独 toggle,loadDirChildren 不再
 //    toggle node.loading —— 子目录的 loading 不可见,提早 reactive 通知反而浪费。
@@ -41,7 +41,7 @@ export interface UseTreeData {
   loadDirChildren: (node: TreeNode) => Promise<void>
   restoreExpanded: (node: TreeNode) => Promise<void>
   refreshDir: (dirPath: string) => Promise<void>
-  /** 把以 srcPath 为前缀的 dirIndex 项全部摘掉(跨目录 move 后清孤儿,见 §30). */
+  /** 把以 srcPath 为前缀的 dirIndex 项全部摘掉(跨目录 move 后清孤儿,见 docs/architecture/file-tree.md). */
   pruneDirIndexPrefix: (srcPath: string) => void
 }
 
