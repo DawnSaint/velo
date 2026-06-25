@@ -5,16 +5,17 @@
 // replaceAll / getSelectionText 都按各自编辑器坐标正确工作。CM6 高亮 StateField
 // 装进 state 才能收 effect,故 makeCmView 带 cmFindHighlightField。
 
-import { describe, expect, it, beforeAll } from 'vitest'
+import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { EditorView as CmView } from '@codemirror/view'
 import { EditorState as CmState, EditorSelection as CmSel } from '@codemirror/state'
 import { EditorView as PmView } from 'prosemirror-view'
-import { EditorState as PmState, TextSelection } from 'prosemirror-state'
+import { EditorState as PmState, TextSelection, type Plugin } from 'prosemirror-state'
 import { schema } from '../../editor/schema'
 import { fromMarkdown } from '../../editor/markdownIO'
 import { createPmBackend, createCmBackend } from '../backend'
 import { cmFindHighlightField } from '../cmFindHighlight'
 import { findHighlight, findHighlightKey } from '../findHighlight'
+import { mermaidDecoration, mermaidDecoKey } from '../../nodes/MermaidDecoration'
 
 const opt = (overrides: Partial<{ caseSensitive: boolean, wholeWord: boolean, regex: boolean }> = {}) => ({
   caseSensitive: false,
@@ -23,11 +24,11 @@ const opt = (overrides: Partial<{ caseSensitive: boolean, wholeWord: boolean, re
   ...overrides,
 })
 
-function makePmView(md: string): PmView {
+function makePmView(md: string, plugins: Plugin[] = [findHighlight]): PmView {
   const container = document.createElement('div')
   document.body.appendChild(container)
   // 装上 findHighlight 插件,否则 findHighlightKey.getState 拿不到、setHighlight 无接收方
-  const state = PmState.create({ schema, doc: fromMarkdown(md, schema), plugins: [findHighlight] })
+  const state = PmState.create({ schema, doc: fromMarkdown(md, schema), plugins })
   return new PmView(container, { state })
 }
 
@@ -51,8 +52,9 @@ function pmPosOf(doc: PmView['state']['doc'], needle: string): number {
   return found
 }
 
-function setPmCursor(view: PmView, pos: number): void {
-  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
+function mermaidSourceState(view: PmView): string | undefined {
+  const pre = view.dom.querySelector('pre[data-mermaid-source]') as HTMLElement | null
+  return pre?.dataset.mermaidSource
 }
 
 // jsdom 不实现 getClientRects / getBoundingClientRect,PM scrollMatchIntoView 的
@@ -67,6 +69,14 @@ beforeAll(() => {
     if (!proto.getClientRects) proto.getClientRects = zeroRects
     if (!proto.getBoundingClientRect) proto.getBoundingClientRect = zeroRect
   }
+})
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // ============================================================
@@ -101,7 +111,7 @@ describe('PM 后端', () => {
   it('空选区 → getSelectionText 返回空串', () => {
     const view = makePmView(PM_MD)
     const be = createPmBackend(view)
-    setPmCursor(view, pmPosOf(view.state.doc, 'world'))
+    view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pmPosOf(view.state.doc, 'world')))))
     expect(be.getSelectionText()).toBe('')
     view.destroy()
   })
@@ -114,6 +124,102 @@ describe('PM 后端', () => {
     expect(cursor).toBe(wStart + 'earth'.length)
     expect(pmPosOf(view.state.doc, 'earth')).toBeGreaterThanOrEqual(0)
     expect(pmPosOf(view.state.doc, 'world')).toBe(-1)
+    view.destroy()
+  })
+
+  it('setSelection:命中隐藏 mermaid 源码时先展开且不抢查找框焦点', async () => {
+    const view = makePmView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```', [mermaidDecoration, findHighlight])
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    const be = createPmBackend(view)
+    const [match] = be.findMatches('A-->B', opt())
+
+    expect(mermaidSourceState(view)).toBe('hidden')
+    be.setSelection(match.from, match.to)
+    await Promise.resolve()
+
+    expect(mermaidSourceState(view)).toBe('visible')
+    expect(be.getSelectionText()).toBe('A-->B')
+    expect(mermaidDecoKey.getState(view.state)?.pendingFocusSet.size).toBe(0)
+    expect(document.activeElement).toBe(input)
+
+    input.remove()
+    view.destroy()
+  })
+
+  it('scrollMatchIntoView:刚展开 mermaid 时延后一帧再取坐标', () => {
+    const view = makePmView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```', [mermaidDecoration, findHighlight])
+    const be = createPmBackend(view)
+    const [match] = be.findMatches('A-->B', opt())
+    const calls: string[] = []
+    const originalCoordsAtPos = view.coordsAtPos.bind(view)
+    view.coordsAtPos = ((pos: number) => {
+      calls.push(mermaidSourceState(view) ?? 'missing')
+      return originalCoordsAtPos(pos)
+    }) as typeof view.coordsAtPos
+
+    expect(mermaidSourceState(view)).toBe('hidden')
+    be.scrollMatchIntoView(match.from)
+
+    expect(calls).toEqual([])
+    vi.advanceTimersByTime(16)
+
+    expect(calls).toEqual(['visible'])
+    expect(mermaidSourceState(view)).toBe('visible')
+
+    view.destroy()
+  })
+
+  // 覆盖 revealWorkspaceSearchMatch / FindReplace.selectMatch 的真实调用顺序:
+  // setSelection 先展开 mermaid(helper 是幂等的,第二次调必返 false),
+  // 所以 scrollMatchIntoView 不能靠"再调一次 helper 当信号" ——
+  // 必须读 setSelection 留下的标记才能 rAF,否则跨文件搜索冷启动会 scroll 偏。
+  it('scrollMatchIntoView:setSelection 刚展开 mermaid 后也要 rAF(helper 幂等,标记走 WeakMap)', () => {
+    const view = makePmView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```', [mermaidDecoration, findHighlight])
+    const be = createPmBackend(view)
+    const [match] = be.findMatches('A-->B', opt())
+    const calls: string[] = []
+    const originalCoordsAtPos = view.coordsAtPos.bind(view)
+    view.coordsAtPos = ((pos: number) => {
+      calls.push(mermaidSourceState(view) ?? 'missing')
+      return originalCoordsAtPos(pos)
+    }) as typeof view.coordsAtPos
+
+    expect(mermaidSourceState(view)).toBe('hidden')
+
+    // 真实流程:setSelection 先展开(此处已变成 visible),再 scrollMatchIntoView
+    be.setSelection(match.from, match.to)
+    expect(mermaidSourceState(view)).toBe('visible')
+
+    be.scrollMatchIntoView(match.from)
+
+    // 关键断言:即便 mermaid 已被 setSelection 展开(再调 helper 也是 false),
+    // 也要走 rAF,不能立刻 coordsAtPos
+    expect(calls).toEqual([])
+    vi.advanceTimersByTime(16)
+
+    expect(calls).toEqual(['visible'])
+
+    view.destroy()
+  })
+
+  it('scrollMatchIntoView:setSelection 没动 mermaid 时立即滚(不走 rAF)', () => {
+    const view = makePmView('# Title\n\nHello world.\n', [mermaidDecoration, findHighlight])
+    const be = createPmBackend(view)
+    const wStart = pmPosOf(view.state.doc, 'world')
+    const calls: string[] = []
+    const originalCoordsAtPos = view.coordsAtPos.bind(view)
+    view.coordsAtPos = ((pos: number) => {
+      calls.push(String(pos))
+      return originalCoordsAtPos(pos)
+    }) as typeof view.coordsAtPos
+
+    be.setSelection(wStart, wStart + 'world'.length)
+    // 非 mermaid:scrollMatchIntoView 不该 rAF,本帧就 coordsAtPos
+    be.scrollMatchIntoView(wStart)
+    expect(calls.length).toBe(1)
+
     view.destroy()
   })
 
@@ -130,6 +236,7 @@ describe('PM 后端', () => {
     expect(hl2?.matches.length).toBe(0)
     view.destroy()
   })
+
 })
 
 // ============================================================

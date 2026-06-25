@@ -127,6 +127,26 @@ function initialState(): MermaidDecoState {
 
 export const mermaidDecoKey = new PluginKey<MermaidDecoState>('mermaidDecoration')
 
+export function ensureMermaidSourceVisibleAt(view: EditorView, pos: number): boolean {
+  const $pos = view.state.doc.resolve(pos)
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const node = $pos.node(depth)
+    if (node.type.name !== 'code_block') continue
+    if ((node.attrs.language as string) !== 'mermaid') continue
+
+    const sourcePos = $pos.start(depth)
+    const deco = mermaidDecoKey.getState(view.state)
+    if (!deco || deco.editNodeSet.has(sourcePos)) return false
+
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, {
+      toggleEditAt: sourcePos,
+      consumeFocus: sourcePos,
+    }))
+    return true
+  }
+  return false
+}
+
 let currentView: EditorView | null = null
 
 // ========== buildDecorations ==========

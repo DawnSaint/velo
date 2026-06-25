@@ -20,6 +20,7 @@ import { fromMarkdown } from '../editor/markdownIO'
 import {
   mermaidDecoration,
   mermaidDecoKey,
+  ensureMermaidSourceVisibleAt,
 } from '../nodes/MermaidDecoration'
 
 function makeView(initialMd: string): EditorView {
@@ -48,6 +49,18 @@ function findMermaidCodeBlockPos(view: EditorView): number {
     return true
   })
   return pos
+}
+
+function pmPosOf(view: EditorView, needle: string): number {
+  let found = -1
+  view.state.doc.descendants((node, pos) => {
+    if (found < 0 && node.isText && node.text && node.text.includes(needle)) {
+      found = pos + node.text.indexOf(needle)
+      return false
+    }
+    return true
+  })
+  return found
 }
 
 beforeEach(() => {
@@ -324,6 +337,53 @@ describe('mermaidDecoration placeholder 文案', () => {
     const placeholder = view.dom.querySelector('.mermaid-placeholder')
     expect(placeholder).not.toBeNull()
     expect(placeholder!.textContent).toBe('暂无内容')
+
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  搜索命中 Mermaid 源码自动展开
+// ============================================================
+
+describe('ensureMermaidSourceVisibleAt', () => {
+  it('命中隐藏 mermaid 源码时幂等展开,且不留下 pending focus', () => {
+    const view = makeView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```')
+    const codeBlockPos = findMermaidCodeBlockPos(view)
+    const absolutePos = codeBlockPos + 1
+    const targetPos = pmPosOf(view, 'A-->B')
+
+    let pre = view.dom.querySelector('pre[data-mermaid-source]') as HTMLElement | null
+    expect(pre).not.toBeNull()
+    expect(pre!.dataset.mermaidSource).toBe('hidden')
+
+    expect(ensureMermaidSourceVisibleAt(view, targetPos)).toBe(true)
+
+    let deco = mermaidDecoKey.getState(view.state)!
+    expect(deco.editNodeSet.has(absolutePos)).toBe(true)
+    expect(deco.pendingFocusSet.size).toBe(0)
+    pre = view.dom.querySelector('pre[data-mermaid-source]') as HTMLElement | null
+    expect(pre).not.toBeNull()
+    expect(pre!.dataset.mermaidSource).toBe('visible')
+
+    expect(ensureMermaidSourceVisibleAt(view, targetPos)).toBe(false)
+    deco = mermaidDecoKey.getState(view.state)!
+    expect(deco.editNodeSet.has(absolutePos)).toBe(true)
+    pre = view.dom.querySelector('pre[data-mermaid-source]') as HTMLElement | null
+    expect(pre!.dataset.mermaidSource).toBe('visible')
+
+    view.destroy()
+  })
+
+  it('非 mermaid 位置 no-op', () => {
+    const view = makeView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```')
+    const introPos = pmPosOf(view, 'intro')
+
+    expect(ensureMermaidSourceVisibleAt(view, introPos)).toBe(false)
+
+    const deco = mermaidDecoKey.getState(view.state)!
+    expect(deco.editNodeSet.size).toBe(0)
+    expect(deco.pendingFocusSet.size).toBe(0)
 
     view.destroy()
   })

@@ -19,6 +19,7 @@ import { EditorSelection as CmEditorSelection } from '@codemirror/state'
 import { findMatchesInDoc, buildPattern, replaceInText, type FindOptions, type Match } from './findMatches'
 import { findHighlightKey } from './findHighlight'
 import { cmFindHighlightEffect } from './cmFindHighlight'
+import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
 
 export type { Match, FindOptions } from './findMatches'
 
@@ -47,6 +48,33 @@ export interface FindReplaceBackend {
 //  ProseMirror 后端
 // ============================================================
 
+function centerPmPos(view: PmEditorView, from: number, behavior: ScrollBehavior = 'smooth'): void {
+  if (view.isDestroyed) return
+  const coords = view.coordsAtPos(from)
+  if (!coords) return
+  let el: HTMLElement | null = view.dom as HTMLElement
+  while (el && el !== document.body) {
+    const style = getComputedStyle(el)
+    if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+      const containerRect = el.getBoundingClientRect()
+      const matchCenter = (coords.top + coords.bottom) / 2
+      const containerCenter = containerRect.top + el.clientHeight / 2
+      const delta = matchCenter - containerCenter
+      if (Math.abs(delta) > 4) el.scrollBy({ top: delta, behavior })
+      return
+    }
+    el = el.parentElement
+  }
+}
+
+// setSelection 留下的"刚展开过 mermaid"标记:scrollMatchIntoView 读到了就知道
+// 这次布局抖过(pre display:none → block、widget 重建),要 rAF 等一帧再 coordsAtPos。
+// 跨文件搜索 + Ctrl+F 都走 setSelection → scrollMatchIntoView 串联,
+// 不能在 scrollMatchIntoView 里再调一次 ensureMermaidSourceVisibleAt 当信号用 ——
+// helper 是幂等的,第二次必然 false,等于把"刚展开"这个事实丢了,scroll 立刻发生
+// 在还没稳定的 layout 上,跨文件冷启动时尤其明显。
+const scrollNeedsFrame = new WeakMap<PmEditorView, boolean>()
+
 export function createPmBackend(view: PmEditorView): FindReplaceBackend {
   return {
     getSelectionText() {
@@ -61,28 +89,30 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       return findMatchesInDoc(view.state.doc, query, options)
     },
     setSelection(from, to) {
+      const expandedMermaid = ensureMermaidSourceVisibleAt(view, from)
+      // 仅在这次真把 mermaid 展开时才标记;幂等展开(已展开 / 非 mermaid)不污染
+      scrollNeedsFrame.set(view, expandedMermaid)
       const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, from, to))
       view.dispatch(tr)
     },
     // 焦点在 find 输入里时 tr.scrollIntoView() 走 view.scrollIntoView() 会早退
     // (只滚当前 selection,我们要滚指定位置)→ 手动 coordsAtPos + 祖先 scrollBy 居中。
+    // Mermaid 源码默认 display:none,pre display:block 切换会让 pre 与 widget 重建,
+    // 必须等下一帧让浏览器把 layout 算稳再 coordsAtPos,否则 scroll 偏(跨文件冷启动
+    // 最明显)。读 setSelection 留下的标记:helper 幂等,第二次不会返 true,所以不能
+    // 在这里直接调 ensureMermaidSourceVisibleAt 当信号;只有没标记时才再调一次兜底
+    // (调用方直接调 scrollMatchIntoView 而没先 setSelection 的场景)。
     scrollMatchIntoView(from) {
-      const coords = view.coordsAtPos(from)
-      if (!coords) return
-      let el: HTMLElement | null = view.dom as HTMLElement
-      while (el && el !== document.body) {
-        const style = getComputedStyle(el)
-        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-          const containerRect = el.getBoundingClientRect()
-          const matchCenter = (coords.top + coords.bottom) / 2
-          const containerCenter = containerRect.top + el.clientHeight / 2
-          const delta = matchCenter - containerCenter
-          // 差 < 4px 不滚,避免连续 Enter 时每下微小 smooth 抖动
-          if (Math.abs(delta) > 4) el.scrollBy({ top: delta, behavior: 'smooth' })
-          return
-        }
-        el = el.parentElement
+      let needsFrame = scrollNeedsFrame.get(view) === true
+      scrollNeedsFrame.delete(view)
+      if (!needsFrame && ensureMermaidSourceVisibleAt(view, from)) {
+        needsFrame = true
       }
+      if (needsFrame) {
+        requestAnimationFrame(() => centerPmPos(view, from, 'auto'))
+        return
+      }
+      centerPmPos(view, from)
     },
     setHighlight(matches, currentIndex) {
       view.dispatch(view.state.tr.setMeta(findHighlightKey, { matches, currentIndex }))
