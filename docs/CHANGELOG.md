@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.3] — 2026-06-25
+
+### Added
+- **自绘窗口标题栏**：应用窗口改为前端自绘标题栏，右上角提供最小化、最大化/还原与关闭按钮；关闭仍保留未保存修改确认。
+- **左侧功能栏**：新增贴边功能栏，集中入口包含文件、大纲、全局搜索与设置。
+
+### Changed
+- **设置入口迁移到左侧功能区**：设置不再占用右侧栏，与文件 / 大纲共用左侧功能区。
+- **文件 / 大纲切换入口调整**：文件与大纲由左侧功能栏切换，侧边栏内部不再显示 tab 切换条。
+
+
 ## [0.5.2] — 2026-06-25
 
 ### Added
