@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(Sidebar tab 切换 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，1 条主链路 spec(`e2e/specs/workspace-crud.spec.ts`)，覆盖 CLI 启动 / 新建 / 编辑保存 / 重命名 / 删除。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；不接 CI。
 
@@ -72,6 +72,7 @@ src/
 │       └── htmlRenderer.test.ts
 └── components/
     ├── __tests__/
+    │   ├── ActivityBar.test.ts
     │   ├── WorkspaceSearchPanel.test.ts
     │   ├── crossModeSync.test.ts
     │   ├── SourceModeEditor.test.ts

@@ -39,7 +39,7 @@ void win.onResized(() => { void refreshMaximized() })
 </script>
 
 <template>
-  <div class="window-controls flex h-10 shrink-0 items-center overflow-hidden rounded-xl border border-gray-200/70 bg-white/55 text-gray-500 shadow-sm shadow-gray-900/5 backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:shadow-black/20">
+  <div class="window-controls flex h-10 shrink-0 items-center overflow-hidden text-gray-500 dark:text-gray-300">
     <button
       class="window-control window-control--minimize"
       title="最小化"
@@ -80,8 +80,8 @@ void win.onResized(() => { void refreshMaximized() })
 <style scoped>
 .window-control {
   display: inline-flex;
-  width: 46px;
-  height: 40px;
+  width: 2.5em;
+  height: 2.5em;
   align-items: center;
   justify-content: center;
   color: inherit;
@@ -91,13 +91,12 @@ void win.onResized(() => { void refreshMaximized() })
 }
 
 .window-control svg {
-  width: 17px;
-  height: 17px;
+  width: 1.25em;
+  height: 1.25em;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.7;
 }
 
 .window-control:hover {
@@ -105,7 +104,7 @@ void win.onResized(() => { void refreshMaximized() })
   color: #334155;
 }
 
-:global(.dark) .window-control:hover {
+:global(.dark .window-control:hover) {
   background: rgba(255, 255, 255, 0.10);
   color: #f8fafc;
 }
@@ -120,7 +119,7 @@ void win.onResized(() => { void refreshMaximized() })
   color: white;
 }
 
-:global(.dark) .window-control--close:hover {
+:global(.dark.window-control--close:hover) {
   background: #ff5c63;
   color: #140406;
 }

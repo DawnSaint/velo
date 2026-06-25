@@ -42,7 +42,7 @@ function themeLabel(t: { displayName: string, id: string }): string {
 </script>
 
 <template>
-  <div class="flex h-full min-w-64 flex-col p-4 pl-0">
+  <div class="flex h-full min-w-0 flex-col p-4">
     <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">设置</h2>
 
     <div class="flex-1 space-y-4">

@@ -386,7 +386,7 @@ onUnmounted(() => {
              currentKey 样式(粗体 + 12% primary 背景)与高亮叠加,两者不互斥。 -->
         <button
           :class="[
-            'truncate text-left text-xs transition-colors rounded px-1 py-1',
+            'truncate text-left text-sm transition-colors rounded px-1 py-1',
             'hover:bg-gray-200 dark:hover:bg-gray-800',
             item.key === currentKey
               ? 'font-bold'

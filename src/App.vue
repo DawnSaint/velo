@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide, computed } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
@@ -17,6 +17,7 @@ import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
+import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
 import {
@@ -112,8 +113,8 @@ void initSettings()
     codeBlockReady.value = true
   })
 
-const showOutline = ref(false)
-const showSettings = ref(false)
+type LeftPanelView = 'sidebar' | 'settings' | null
+const leftPanelView = ref<LeftPanelView>(null)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效。
@@ -395,6 +396,33 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   const selected = await selectWorkspaceSearchHit(hit)
   if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
   workspaceSearchOpen.value = false
+}
+
+const activeActivity = computed<ActivityBarItem | null>(() => {
+  if (workspaceSearchOpen.value) return 'search'
+  if (leftPanelView.value === 'settings') return 'settings'
+  if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
+  return null
+})
+
+function toggleSidebarTab(tab: 'files' | 'outline') {
+  workspaceSearchOpen.value = false
+  if (leftPanelView.value === 'sidebar' && workspaceStore.sidebarTab === tab) {
+    leftPanelView.value = null
+    return
+  }
+  workspaceStore.setSidebarTab(tab)
+  leftPanelView.value = 'sidebar'
+}
+
+function toggleSettingsPanel() {
+  workspaceSearchOpen.value = false
+  leftPanelView.value = leftPanelView.value === 'settings' ? null : 'settings'
+}
+
+function toggleWorkspaceSearchFromActivity() {
+  if (workspaceSearchOpen.value) workspaceSearchOpen.value = false
+  else openWorkspaceSearch()
 }
 
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
@@ -759,23 +787,12 @@ onBeforeUnmount(() => {
   <div
     :class="{ 'dark': store.darkMode }"
     :style="{ '--md-primary-color': store.primaryColor }"
-    class="flex h-screen flex-col bg-[#f5f5f5] text-gray-900 transition-colors dark:bg-[#1a1a1a] dark:text-gray-100"
+    class="flex h-screen flex-col text-gray-900 transition-colors dark:text-gray-100"
   >
     <!-- 顶栏 -->
-    <header class="flex items-center justify-between gap-3 px-6 py-3">
+    <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white pl-3 text-gray-700 transition-colors dark:border-gray-800 dark:bg-[#111] dark:text-gray-300">
       <div class="flex min-w-0 flex-1 items-center gap-2">
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': showOutline }"
-          title="侧边栏(大纲 / 文件)"
-          @click="showOutline = !showOutline"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
-        </button>
-        <h1 data-tauri-drag-region class="flex shrink-0 items-center text-lg font-bold tracking-tight">
-          <img :src="veloLogo" alt="Velo" class="h-6 w-6">
-          <span :style="{ color: store.primaryColor }">elo Editor</span>
-        </h1>
+        <img :src="veloLogo" alt="Velo" class="h-6 w-6">
         <span data-tauri-drag-region class="ml-2 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
           {{ documentStore.fileName }}{{ documentStore.dirty ? ' •' : '' }}
         </span>
@@ -842,7 +859,7 @@ onBeforeUnmount(() => {
           :class="{
             'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen,
           }"
-          title="搜索 (Ctrl+F)"
+          title="文内搜索 (Ctrl+F)"
           @click="toggleFind"
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -859,14 +876,6 @@ onBeforeUnmount(() => {
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
         </button>
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': showSettings }"
-          title="设置"
-          @click="showSettings = !showSettings"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
-        </button>
         <span class="mx-2 h-5 w-px bg-gray-200 dark:bg-gray-700" />
         <WindowControls v-if="tauri" />
       </div>
@@ -874,16 +883,28 @@ onBeforeUnmount(() => {
 
     <!-- 主体 -->
     <div class="flex flex-1 overflow-hidden">
-      <!-- 侧边栏(大纲 / 文件 tab 切换) -->
+      <ActivityBar
+        :active="activeActivity"
+        @select-files="toggleSidebarTab('files')"
+        @select-outline="toggleSidebarTab('outline')"
+        @select-search="toggleWorkspaceSearchFromActivity"
+        @select-settings="toggleSettingsPanel"
+      />
+
+      <!-- 左侧功能区:当前先承载既有 Sidebar / 设置,后续再做可调宽与多标签编辑器。 -->
       <aside
-        class="outline-panel shrink-0 overflow-hidden border-gray-200 bg-[#f5f5f5] dark:border-gray-800 dark:bg-[#1a1a1a]"
-        :class="showOutline ? 'w-64' : 'w-0'"
+        class="shrink-0 overflow-hidden "
+        :class="leftPanelView ? 'w-64' : 'w-0'"
       >
-        <Sidebar
-          ref="sidebarRef"
-          :model-value="documentStore.content"
-          :file-path="documentStore.currentFilePath"
-        />
+        <div class="h-full overflow-hidden border-r border-gray-200 dark:border-gray-800">
+          <Sidebar
+            v-if="leftPanelView === 'sidebar'"
+            ref="sidebarRef"
+            :model-value="documentStore.content"
+            :file-path="documentStore.currentFilePath"
+          />
+          <EditorSettings v-else-if="leftPanelView === 'settings'" />
+        </div>
       </aside>
 
       <!-- 编辑器区域 -->
@@ -918,14 +939,6 @@ onBeforeUnmount(() => {
           @update:model-value="documentStore.setContent"
         />
       </template>
-
-      <!-- 设置面板 -->
-      <aside
-        class="settings-panel shrink-0 overflow-hidden border-gray-200 bg-[#f5f5f5] dark:border-gray-800 dark:bg-[#1a1a1a]"
-        :class="showSettings ? 'w-64' : 'w-0'"
-      >
-        <EditorSettings />
-      </aside>
     </div>
 
     <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->

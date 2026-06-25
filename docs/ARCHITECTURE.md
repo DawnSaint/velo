@@ -57,7 +57,7 @@ velo/
 │   ├── ARCHITECTURE.md          架构入口、技术栈、目录结构与数据流基础
 │   └── architecture/            架构模块文档（含 testing.md 测试规约）
 ├── src/
-│   ├── App.vue                    顶栏 + 侧边栏(大纲 / 文件) + 编辑器 + 设置
+│   ├── App.vue                    顶栏 + 左侧 ActivityBar + 左侧功能区(大纲 / 文件 / 设置) + 编辑器
 │   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
@@ -70,7 +70,8 @@ velo/
 │       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定“点外部”)
 │       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
 │       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
-│       ├── EditorSettings.vue
+│       ├── ActivityBar.vue          左贴边功能栏:文件 / 大纲 / 全局搜索 / 设置(只发事件,App.vue 持有 shell 状态)
+│       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
 │       └── ProseMirrorEditor/

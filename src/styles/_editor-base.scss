@@ -1,11 +1,5 @@
 // 编辑器基础:ProseMirror 壳 + 占位 + 选区 + find 高亮 + drop-cursor
 
-.velo-editor-card {
-  ::-webkit-scrollbar-track {
-    margin: 12px 0;
-  }
-}
-
 .velo-editor {
   // ProseMirror 编辑区根
   .ProseMirror {
