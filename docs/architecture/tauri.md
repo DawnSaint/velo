@@ -15,13 +15,14 @@
 
 ## 数据流
 
-**单实例 + 文件关联**: 冷启动走 `PendingCliArgs` + `get_cli_args`;二次启动走 `tauri-plugin-single-instance` → `cli-args` 事件。argv 解析(`parse_cli_args`)同时返回 `{files: .md 路径, dirs: 目录路径}`:files 路由 `documentStore.openPath`,dirs 路由 `workspaceStore.setActiveRoot`(目录与文件互不冲突,工作区根 + 当前文档各管各的);二次启动走目录分支**不**弹 dirty 确认——切工作区不动当前编辑文档。Windows "在 Velo 中打开"右键菜单(v0.5.1)由 `folder_menu::ensure_registered` 在 `setup()` 写 HKCU\Software\Classes\Directory\shell\OpenInVelo,启动期 best-effort 每次重写(见设计要点)。
+**单实例 + 文件关联 + 多窗口(v0.5.6)**: 冷启动走 per-window pending payload:`setup()` 将 argv 解析结果挂到 `main` label,前端按 `getCurrentWindow().label` 调 `take_window_cli_args` 领取;二次启动仍由 `tauri-plugin-single-instance` 拦截,但不再 `app.emit("cli-args")` 广播给所有窗口,而是 async spawn 创建新的 Velo app window,并把 `{files, dirs}` 绑定到该新 window label。argv 解析(`parse_cli_args`)同时返回 `{files: .md 路径, dirs: 目录路径}`:files 路由 `documentStore.openPath`,dirs 路由 `workspaceStore.setActiveRoot`(目录与文件互不冲突,工作区根 + 当前文档各管各的)。Windows "在 Velo 中打开"右键菜单(v0.5.1)由 `folder_menu::ensure_registered` 在 `setup()` 写 HKCU\Software\Classes\Directory\shell\OpenInVelo,启动期 best-effort 每次重写(见设计要点)。
 
 ---
 
 ## 设计要点
 
-- **主窗口使用前端自绘标题栏**: `tauri.conf.json` 关闭 `decorations`,可见窗口 chrome 由 App 顶栏 + `WindowControls` 承担。关闭按钮必须调用 Tauri `close()` 而非 `destroy()` —— 前者会触发既有 `onCloseRequested` 脏文档确认,后者只允许在用户确认保存 / 放弃后由关闭拦截内部使用。拖拽区域只标在 logo / 文件名 / 空白伸展区,不要覆盖打开、保存、搜索、设置等交互按钮,否则 Windows 上会出现点击被拖拽吞掉的假死感。暗色模式只走前端 CSS,不再额外同步到原生 title bar。
+- **可见 app window label 与权限**:主窗口显式 label 为 `main`,动态 app window 使用 `velo-window-{n}`;`capabilities/default.json` 只授权 `main` + `velo-window-*`,不要用 `*`,避免隐藏 PDF printer window 拿到完整编辑器权限。多窗口不是多标签:每个 WebView 拥有自己的 Pinia runtime,当前工作区 / 当前文档 / dirty prompt 都按窗口隔离。
+- **动态 app window 走 async 创建 + per-window bootstrap**:二次启动 / 顶栏新窗口入口都创建新 WebView window,启动参数先按 label 写入 pending map,前端挂载后领取。不要恢复全局 `cli-args` 广播;多窗口下广播会让所有窗口同时切工作区 / 打开文件。`WebviewWindowBuilder::build` 不要在 single-instance 同步回调里直接调用,必须 `tauri::async_runtime::spawn` 后再建,延续 PDF 窗口踩坑。
 - **"在 Velo 中打开"文件夹右键菜单走 HKCU 注册表 + 每启动 best-effort 重写**: `folder_menu::ensure_registered` 写在 HKCU\Software\Classes\Directory\shell\OpenInVelo(verb 子键 + command 子键),不写 HKLM —— HKCU 不需要 UAC 提升,普通用户启动即可注册;Windows shell 解析 Classes 时合并 HKCU+HKLM,效果等价。每次 `setup()` 重写而非"仅缺时写":自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景),HKCU 写盘是同步快速 op 无可感知开销。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell 空白右键,本菜单挂的是 Directory\shell 即"右键文件夹"),引号必加防止路径含空格被拆词。失败仅 log::warn 不抛 —— Velo 是本地编辑器,菜单是 nice-to-have,启动不该被注册表故障阻塞
 
 

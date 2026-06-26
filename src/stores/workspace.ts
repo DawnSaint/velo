@@ -14,7 +14,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { open as openDialog } from '@/tauri/dialog'
-import type { PersistedWorkspaces, SidebarTab, WorkspaceState } from './persistence'
+import type { PersistedWorkspaces, SidebarTab, WorkspaceState, WorkspacePatch } from './persistence'
 
 /** 侧栏宽度常量(v0.5.5)。在 store clamp 与 composable clamp 双处用到,
  *  与 plan「关键复用」一节对应;暴露为 named export 供 App.vue 直接 import,
@@ -215,27 +215,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 启动时从磁盘灌入(覆盖现有)。**只有这条路径**会把持久化的 sidebarTab / sidebarWidth
-   *  应用到当前 UI —— 用户主动切工作区由 setActiveRoot 保留当前 tab / 宽度。 */
-  function loadFrom(data: PersistedWorkspaces) {
+  function normalizeWorkspaceState(v: WorkspaceState): WorkspaceState {
+    return {
+      expandedDirs: [...(v.expandedDirs ?? [])],
+      lastFile: v.lastFile ?? null,
+      sidebarTab: v.sidebarTab ?? 'outline',
+      recentFiles: [...(v.recentFiles ?? [])],
+      sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
+    }
+  }
+
+  /** 启动时从磁盘灌入(覆盖现有)。**只有 restoreActive=true 的路径**会把持久化的
+   *  sidebarTab / sidebarWidth 应用到当前 UI;动态窗口只加载 known roots 和 per-root state。 */
+  function loadFrom(data: PersistedWorkspaces, options: { restoreActive?: boolean } = {}) {
+    const restoreActive = options.restoreActive ?? true
     // 旧 JSON 可能没有 recentFiles / sidebarWidth 字段,统一兜底,免得调用方需要判 undefined
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(data.workspaces)) {
-      ws[k] = {
-        ...v,
-        recentFiles: v.recentFiles ?? [],
-        sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
-      }
+      ws[k] = normalizeWorkspaceState(v)
     }
     workspaces.value = ws
-    if (data.active && workspaces.value[data.active]) {
+    if (restoreActive && data.active && workspaces.value[data.active]) {
       activeRoot.value = data.active
       const w = workspaces.value[data.active]
       if (w.sidebarTab) sidebarTab.value = w.sidebarTab
       if (typeof w.sidebarWidth === 'number') sidebarWidth.value = w.sidebarWidth
     }
-    else {
+    else if (restoreActive) {
       setActiveRoot(null)
+    }
+    else {
+      activeRoot.value = null
+      sidebarTab.value = 'outline'
+      sidebarWidth.value = SIDEBAR_WIDTH_DEFAULT
+    }
+  }
+
+  function snapshotWorkspaceState(v: WorkspaceState): WorkspaceState {
+    return normalizeWorkspaceState(v)
+  }
+
+  function snapshotActiveForPersistence(): WorkspacePatch {
+    const active = activeRoot.value
+    return {
+      active,
+      workspaces: active && workspaces.value[active]
+        ? { [active]: snapshotWorkspaceState(workspaces.value[active]) }
+        : {},
     }
   }
 
@@ -243,16 +269,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function snapshot(): PersistedWorkspaces {
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(workspaces.value)) {
-      ws[k] = {
-        expandedDirs: [...v.expandedDirs],
-        lastFile: v.lastFile ?? null,
-        sidebarTab: v.sidebarTab,
-        recentFiles: [...(v.recentFiles ?? [])],
-        sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
-      }
+      ws[k] = snapshotWorkspaceState(v)
     }
     return {
-      version: 2,
+      version: 3,
       active: activeRoot.value,
       workspaces: ws,
     }
@@ -277,5 +297,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setSidebarWidth,
     loadFrom,
     snapshot,
+    snapshotActiveForPersistence,
   }
 })

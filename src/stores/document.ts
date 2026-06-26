@@ -36,6 +36,7 @@ export const useDocumentStore = defineStore('document', () => {
   const autoSaveEnabled = ref(false)
   const autoSaveOnBlur = ref(false)
   const sourceMode = ref(false)
+  const draftScope = ref<string | null>(null)
 
   let echosToAccept = 0
 
@@ -43,6 +44,10 @@ export const useDocumentStore = defineStore('document', () => {
 
   function toggleSourceMode() {
     sourceMode.value = !sourceMode.value
+  }
+
+  function setDraftScope(scope: string | null) {
+    draftScope.value = scope
   }
 
   const fileName = computed(() =>
@@ -287,7 +292,7 @@ export const useDocumentStore = defineStore('document', () => {
   // ID 策略:
   //   - 文件: path 的 UTF-8 字节做 base64,把 + / = 替成 _ 变成合法文件名;
   //          确定性 → 同一文件反复 dirty 时原地覆盖
-  //   - 未命名: 固定字符串 'untitled',单 slot,新 doc 会覆盖旧 untitled 草稿
+  //   - 未命名:无窗口 scope 时保留旧 fixed slot;有 scope 时每个窗口一个 slot
   const UNTITLED_DRAFT_ID = 'untitled'
 
   function encodePathAsId(path: string): string {
@@ -297,10 +302,17 @@ export const useDocumentStore = defineStore('document', () => {
     return btoa(binary).replace(/[/+=]/g, '_')
   }
 
+  function safeDraftScope(): string | null {
+    if (!draftScope.value) return null
+    return draftScope.value.replace(/[^a-zA-Z0-9_-]/g, '_')
+  }
+
   function currentDraftId(): string | null {
-    if (!currentFilePath.value) return UNTITLED_DRAFT_ID
+    const scope = safeDraftScope()
+    if (!currentFilePath.value) return scope ? `win-${scope}-untitled` : UNTITLED_DRAFT_ID
     try {
-      return `file-${encodePathAsId(currentFilePath.value)}`
+      const fileId = `file-${encodePathAsId(currentFilePath.value)}`
+      return scope ? `win-${scope}-${fileId}` : fileId
     }
     catch {
       return null
@@ -401,6 +413,7 @@ export const useDocumentStore = defineStore('document', () => {
     autoSaveOnBlur,
     sourceMode,
     toggleSourceMode,
+    setDraftScope,
     fileName,
     pendingRecoveryDrafts,
     init,

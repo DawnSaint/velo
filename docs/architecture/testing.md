@@ -44,7 +44,7 @@
 
 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+F 全文搜索)。
 
-**E2E**: WebdriverIO 9 + tauri-driver，1 条主链路 spec(`e2e/specs/workspace-crud.spec.ts`)，覆盖 CLI 启动 / 新建 / 编辑保存 / 重命名 / 删除。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；不接 CI。
+**E2E**: WebdriverIO 9 + tauri-driver，2 条主链路 spec(`e2e/specs/workspace-crud.spec.ts` / `e2e/specs/multi-window.spec.ts`)，覆盖 CLI 启动 / 新建 / 编辑保存 / 重命名 / 删除,以及二次启动创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；不接 CI。
 
 向前规划(组件层按需补、E2E 何时启动)见 ROADMAP,不在此维护阶段表。
 
@@ -94,7 +94,8 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 ├── helpers/                              # workspace tmp / killStaleVelo / selectors / platform 守门
 ├── fixtures/
 └── specs/
-    └── workspace-crud.spec.ts            # 唯一主链路:启动 / 新建 / 编辑保存 / 重命名 / 删除
+    ├── workspace-crud.spec.ts            # 主链路:启动 / 新建 / 编辑保存 / 重命名 / 删除
+    └── multi-window.spec.ts              # 多窗口:二次启动创建独立工作区窗口
 ```
 
 约定:
@@ -122,7 +123,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 - `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `watch`
 - `@tauri-apps/plugin-dialog` → `open` / `save` / `confirm`
 - `@tauri-apps/plugin-clipboard-manager` → `writeText`
-- `@tauri-apps/api/window` → `getCurrentWindow().setTitle`
+- `@tauri-apps/api/window` → `getCurrentWindow().{label,setTitle,onCloseRequested,minimize,toggleMaximize,close,destroy,isMaximized,onResized}`
 
 **新增 Tauri 调用的规约**:
 - 在 `src/tauri/` 下建薄封装(如 `src/tauri/fs.ts`、`src/tauri/dialog.ts`),业务侧 import 封装
@@ -185,7 +186,7 @@ npm run test:e2e              # onPrepare 自动 tauri:build:debug + killStaleVe
 
 ### `data-testid` 钩子
 
-E2E spec 不依赖 class 名(Tailwind utility,改起来频)。**所有 E2E 选择器走 `data-testid`**,常量集中在 `e2e/helpers/selectors.ts`。当前钩子三处:
+E2E spec 不依赖 class 名(Tailwind utility,改起来频)。**所有 E2E 选择器走 `data-testid`**,常量集中在 `e2e/helpers/selectors.ts`。当前钩子:
 
 - `src/components/Sidebar/FileTree.vue`:
   - 工作区根 row:`data-testid="workspace-root"`
@@ -193,6 +194,7 @@ E2E spec 不依赖 class 名(Tailwind utility,改起来频)。**所有 E2E 选�
   - 行内 input(新建 / 重命名共用):`data-testid="inline-input"`
 - `src/components/Sidebar/FileTreeContextMenu.vue`:每个菜单项 `data-testid="ctx-{action}"`(`ctx-new-file` / `ctx-new-dir` / `ctx-rename` / `ctx-delete` / `ctx-reveal` / `ctx-open-in-editor` / `ctx-open-as-workspace`)
 - `src/components/ProseMirrorEditor/EditorInner.vue`:PM 挂载容器 `data-testid="pm-editor"`
+- `src/components/StatusBar.vue`:工作区 label:`data-testid="status-workspace-label"`
 
 新增 E2E 触达元素时同步加 `data-testid` + 更新 `e2e/helpers/selectors.ts` 常量。**不写 testid 钩子 + 不更新常量 = 后续 spec 写不下去**。
 

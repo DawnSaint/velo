@@ -5,6 +5,7 @@
 //     文件行(file-row-${name})、行内 input(inline-input)
 //   - src/components/Sidebar/FileTreeContextMenu.vue:菜单项 ctx-{action}
 //   - src/components/ProseMirrorEditor/EditorInner.vue:PM 挂载容器(pm-editor)
+//   - src/components/StatusBar.vue:工作区 label(status-workspace-label)
 //   - src/App.vue:侧栏分隔条(sidebar-splitter)(v0.5.5)—— E2E 暂未使用,
 //     登记为后续 drag/resize 场景的钩子(WebView2 拖拽易碎,优先级低)。
 
@@ -12,7 +13,7 @@ export const sel = {
   workspaceRoot: '[data-testid="workspace-root"]',
   fileRow: (name: string) => `[data-testid="file-row-${name}"]`,
   inlineInput: '[data-testid="inline-input"]',
-  pmEditor: '[data-testid="pm-editor"]',
+  workspaceLabel: '[data-testid="status-workspace-label"]',
   sidebarSplitter: '[data-testid="sidebar-splitter"]',
   ctx: {
     newFile: '[data-testid="ctx-new-file"]',

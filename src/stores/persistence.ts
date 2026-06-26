@@ -277,9 +277,9 @@ export async function deleteAllDrafts(): Promise<void> {
 // 设计选择见 docs/DECISIONS.md ADR-20260623-001(持久化拆分粒度)。
 
 const WORKSPACES_FILE = 'velo-workspaces.json'
-// v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600),
-// 可选字段缺失时回退默认 256。loadWorkspaces 同时接受 v1 / v2。
-const WORKSPACES_VERSION = 2
+// v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600)。
+// v3(v0.5.6):active 降级为 main 冷启动 hint;多窗口保存走 patch merge。
+const WORKSPACES_VERSION = 3
 
 export type SidebarTab = 'outline' | 'files'
 
@@ -298,9 +298,16 @@ export interface WorkspaceState {
 
 export interface PersistedWorkspaces {
   version: number
-  /** 当前活跃的工作区根路径(null = 没有任何工作区,走"无工作区"模式) */
+  /** main 窗口冷启动恢复用的最近工作区 hint;动态窗口不把它当作全局 active。 */
   active: string | null
   /** rootPath → 该工作区的局部状态 */
+  workspaces: Record<string, WorkspaceState>
+}
+
+export interface WorkspacePatch {
+  /** 当前窗口的 active root;只作为下一次 main 冷启动 hint 写回。 */
+  active: string | null
+  /** 当前窗口改动到的 workspace roots;保存时 merge 到磁盘现有 map。 */
   workspaces: Record<string, WorkspaceState>
 }
 
@@ -313,8 +320,8 @@ export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
     const json = await readTextFile(path)
     const parsed = JSON.parse(json)
     if (typeof parsed !== 'object' || parsed === null) return null
-    // v1 和 v2 都接受:v2 只是给 WorkspaceState 多加了可选字段,旧 JSON 兜底
-    if (parsed.version !== 1 && parsed.version !== WORKSPACES_VERSION) return null
+    // v1/v2/v3 都接受:v3 只是把 active 语义降级为 main 冷启动 hint。
+    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== WORKSPACES_VERSION) return null
     if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return null
     return parsed as PersistedWorkspaces
   }
@@ -332,7 +339,26 @@ export async function saveWorkspaces(s: PersistedWorkspaces): Promise<void> {
       await mkdir(dir, { recursive: true })
     }
     const path = await join(dir, WORKSPACES_FILE)
-    await writeTextFile(path, JSON.stringify(s, null, 2))
+    await writeTextFile(path, JSON.stringify({ ...s, version: WORKSPACES_VERSION }, null, 2))
+  }
+  catch (e) {
+    console.error('保存工作区状态失败', e)
+  }
+}
+
+export async function saveWorkspacePatch(patch: WorkspacePatch): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const current = await loadWorkspaces()
+    const merged: PersistedWorkspaces = {
+      version: WORKSPACES_VERSION,
+      active: patch.active,
+      workspaces: {
+        ...(current?.workspaces ?? {}),
+        ...patch.workspaces,
+      },
+    }
+    await saveWorkspaces(merged)
   }
   catch (e) {
     console.error('保存工作区状态失败', e)

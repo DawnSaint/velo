@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useWorkspaceStore } from '../workspace'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { exists, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import { saveWorkspacePatch } from '../persistence'
 
 describe('workspace store', () => {
   beforeEach(() => {
@@ -116,16 +118,82 @@ describe('workspace store', () => {
     expect(store.activeRoot).toBeNull()
   })
 
-  it('closeWorkspace 回到无工作区,但工作区记录仍保留', () => {
+  it('loadFrom restoreActive=false 只加载 known roots,不恢复 activeRoot', () => {
     const store = useWorkspaceStore()
-    store.setActiveRoot('/root')
-    store.setDirExpanded('/root/sub', true)
-    store.closeWorkspace()
+    store.loadFrom({
+      version: 3,
+      active: '/saved',
+      workspaces: {
+        '/saved': { expandedDirs: ['/saved/sub'], lastFile: '/saved/a.md', sidebarTab: 'files', recentFiles: ['/saved/a.md'], sidebarWidth: 360 },
+      },
+    }, { restoreActive: false })
     expect(store.activeRoot).toBeNull()
-    // 工作区元数据保留,后续切回去 expandedDirs 不丢
-    expect(store.knownRoots).toContain('/root')
+    expect(store.knownRoots).toContain('/saved')
+    expect(store.sidebarTab).toBe('outline')
+    store.setActiveRoot('/saved')
+    expect(store.activeWorkspace.lastFile).toBe('/saved/a.md')
+    expect(store.sidebarWidth).toBe(360)
   })
 
+  it('snapshotActiveForPersistence 只包含当前窗口 active workspace', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/a')
+    store.setLastFile('/a/a.md')
+    store.setActiveRoot('/b')
+    store.setLastFile('/b/b.md')
+    const patch = store.snapshotActiveForPersistence()
+    expect(patch.active).toBe('/b')
+    expect(Object.keys(patch.workspaces)).toEqual(['/b'])
+    expect(patch.workspaces['/b'].lastFile).toBe('/b/b.md')
+  })
+
+
+  it('saveWorkspacePatch merge 保存时保留磁盘上的其它 workspace roots', async () => {
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({
+      version: 3,
+      active: '/old',
+      workspaces: {
+        '/old': { expandedDirs: ['/old/sub'], lastFile: '/old/a.md', sidebarTab: 'files', recentFiles: ['/old/a.md'], sidebarWidth: 300 },
+      },
+    }))
+    vi.mocked(writeTextFile).mockResolvedValue()
+
+    await saveWorkspacePatch({
+      active: '/new',
+      workspaces: {
+        '/new': { expandedDirs: [], lastFile: '/new/b.md', sidebarTab: 'outline', recentFiles: ['/new/b.md'], sidebarWidth: 256 },
+      },
+    })
+
+    const [, body] = vi.mocked(writeTextFile).mock.calls.at(-1)!
+    const saved = JSON.parse(String(body))
+    expect(Object.keys(saved.workspaces).sort()).toEqual(['/new', '/old'])
+    expect(saved.active).toBe('/new')
+    expect(saved.version).toBe(3)
+  })
+
+  it('saveWorkspacePatch 连续保存不同 root 不互删', async () => {
+    let disk = JSON.stringify({ version: 3, active: null, workspaces: {} })
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readTextFile).mockImplementation(async () => disk)
+    vi.mocked(writeTextFile).mockImplementation(async (_path: any, body: any) => {
+      disk = String(body)
+    })
+
+    await saveWorkspacePatch({
+      active: '/a',
+      workspaces: { '/a': { expandedDirs: [], lastFile: '/a/a.md', sidebarTab: 'outline', recentFiles: [], sidebarWidth: 256 } },
+    })
+    await saveWorkspacePatch({
+      active: '/b',
+      workspaces: { '/b': { expandedDirs: [], lastFile: '/b/b.md', sidebarTab: 'files', recentFiles: [], sidebarWidth: 320 } },
+    })
+
+    const saved = JSON.parse(disk)
+    expect(Object.keys(saved.workspaces).sort()).toEqual(['/a', '/b'])
+    expect(saved.active).toBe('/b')
+  })
   // ========== recentFiles(v0.5.2,Ctrl+P 双分区"最近打开"段) ==========
 
   it('setLastFile 自动把路径推入 recentFiles 头部', () => {

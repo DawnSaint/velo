@@ -5,7 +5,7 @@ import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspaces, type PersistedSettings } from '@/stores/persistence'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
@@ -30,19 +30,18 @@ import { useResizeSplitter } from '@/composables/useResizeSplitter'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
-import { invoke, isTauri } from '@tauri-apps/api/core'
+import { isTauri } from '@tauri-apps/api/core'
+import {
+  getCurrentWindowLabel,
+  newAppWindow,
+  takeWindowCliArgs,
+  type CliArgsPayload,
+} from '@/tauri/window'
 
 const tauri = isTauri()
-
-/** 与 Rust 端 `CliArgsPayload` 对齐(v0.5.1):files = .md 文件,dirs = 文件夹。
- *  目录路径来自 Windows "在 Velo 中打开"右键菜单,文件路径来自文件关联打开。 */
-interface CliArgsPayload {
-  files: string[]
-  dirs: string[]
-}
+const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
@@ -331,7 +330,7 @@ const debouncedOutlineSave = debounce(() => {
 // 启动时把磁盘上 active root + per-workspace 状态灌进 workspaceStore。
 // 后续任意状态变化 → 500ms debounce 落盘。
 const debouncedWorkspaceSave = debounce(() => {
-  void saveWorkspaces(workspaceStore.snapshot())
+  void saveWorkspacePatch(workspaceStore.snapshotActiveForPersistence())
 }, 500)
 
 // 失焦保存：window blur 时静默写盘
@@ -551,6 +550,16 @@ function toggleWorkspaceSearchFromActivity() {
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
  *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
  *  上提到顶栏后,FileTree 顶部"更换工作区"按钮移除(v0.5.1,避免与本按钮重复)。 */
+async function createNewAppWindow(payload?: Partial<CliArgsPayload>) {
+  if (!tauri) return
+  try {
+    await newAppWindow(payload)
+  }
+  catch (e) {
+    console.error('创建新窗口失败', e)
+  }
+}
+
 function openFolderAsWorkspace() {
   void workspaceStore.pickWorkspace()
 }
@@ -590,6 +599,11 @@ function onKeydown(e: KeyboardEvent) {
     e.stopPropagation()
     openReplace()
   }
+  else if (k === 'n' && e.shiftKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    void createNewAppWindow()
+  }
   else if (k === '`') {
     e.preventDefault()
     e.stopPropagation()
@@ -610,8 +624,6 @@ function onKeydown(e: KeyboardEvent) {
     quickOpenOpen.value = !quickOpenOpen.value
   }
 }
-
-let unlistenCli: UnlistenFn | null = null
 
 // ========== 工作区根目录 fs.watch(v0.5.0)==========
 //
@@ -725,12 +737,30 @@ onMounted(async () => {
   const outlineLoaded = await loadOutlineState()
   if (outlineLoaded?.files) outlineStore.loadFrom(outlineLoaded.files)
 
-  // 0.1) 工作区状态(v0.5.0)。在 CLI 打开文件之前 load —— 若上次激活的
-  //      工作区里有 lastFile,等于把"当前文档"的初始路径准备好;后续 CLI
-  //      参数若指定了文件,会覆盖这个 lastFile。失败一律不抛,沿用 settings
-  //      / outline 同款降级:store 走默认值(无工作区),不阻塞 UI。
+  let windowLabel: string | null = null
+  let initialPayload: CliArgsPayload = { files: [], dirs: [] }
+  if (tauri) {
+    try {
+      windowLabel = getCurrentWindowLabel()
+      documentStore.setDraftScope(windowLabel)
+      initialPayload = await takeWindowCliArgs(windowLabel)
+    }
+    catch (e) {
+      console.error('读取窗口启动参数失败', e)
+    }
+  }
+
+  // 0.1) 工作区状态(v0.5.6):activeRoot 是当前窗口 runtime 状态。
+  // main 冷启动且没有 CLI dir 时,才把 persisted active 当作恢复 hint;
+  // 动态窗口默认不继承其它窗口的 active,避免新空窗口自动打开别的工作区。
   const workspacesLoaded = await loadWorkspaces()
-  if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded)
+  const shouldRestoreActive = !tauri || (windowLabel === MAIN_WINDOW_LABEL && !initialPayload.dirs?.[0])
+  if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded, { restoreActive: shouldRestoreActive })
+
+  const initialDir = initialPayload.dirs?.[0]
+  if (initialDir) workspaceStore.setActiveRoot(initialDir)
+  const initialFile = initialPayload.files?.[0]
+  if (initialFile) await documentStore.openPath(initialFile)
 
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
@@ -760,66 +790,16 @@ onMounted(async () => {
     { deep: true },
   )
 
-  // 工作区任意状态变化 → debounce 落盘。
-  // deep:true 必加 —— per-workspace state(expandedDirs / lastFile / sidebarTab)
-  // 是嵌套对象,无 deep 改子字段不会触发。
+  // 工作区状态变化 → debounce 落当前窗口 active workspace 的 patch,不全量覆盖其它窗口的 roots。
   watch(
     () => [workspaceStore.activeRoot, workspaceStore.workspaces, workspaceStore.sidebarTab] as const,
     () => { debouncedWorkspaceSave() },
     { deep: true },
   )
 
-  // 1) 冷启动:Rust setup() 阶段把 argv 中的文件路径暂存了下来(没法直接 emit
-  //    因为彼时前端的 listen() 还没挂上)。前端挂载完成后主动来拉一次。
-  //    dev web 端(无 Tauri runtime)→ tauri=false,直接跳过整段,跟 persistence
-  //    load/save 的 isTauri 守门一致。`invoke` 在 web 端调会 throw
-  //    `Cannot read properties of undefined (reading 'invoke')` 因为
-  //    window.__TAURI_INTERNALS__ 没注入。
-  //
-  // v0.5.1: payload 形态从 `string[]`(只有 .md 文件)升级到 `{files, dirs}`
-  // 双数组,新增"目录走 workspace"分支用于"在 Velo 中打开"右键菜单。
-  // dirs 与 files 互不冲突:dirs[0] 决定工作区根,files[0] 决定当前文档。
-  if (tauri) {
-    let cliFirst: string | undefined
-    try {
-      const initial = await invoke<CliArgsPayload>('get_cli_args')
-      if (initial?.dirs?.[0]) workspaceStore.setActiveRoot(initial.dirs[0])
-      cliFirst = initial?.files?.[0]
-      if (cliFirst) await documentStore.openPath(cliFirst)
-    }
-    catch (e) {
-      console.error('读取启动 CLI 参数失败', e)
-    }
-  }
-
   // 1.5) 扫一遍 appDataDir/drafts/,把"上一会话留下的"草稿装进 store。
-  //
-  //      必须在 CLI 打开文件 *之后*:loadRecoverableDrafts 用 currentDraftId()
-  //      派生 id 排除"当前文档的草稿",而 currentDraftId 又以 currentFilePath
-  //      为输入。如果在 openPath 之前调,currentFilePath 还是 null,filter
-  //      只能排除 'untitled',CLI 即将打开的那个文件的草稿就会留在列表里,
-  //      用户点"恢复"会把刚 load 进来的磁盘内容直接覆盖回那份草稿。
-  //      现在 currentFilePath 要么是 null(无 CLI)要么是 cliFirst(有 CLI),
-  //      filter 都能正确排除当前文档。
+  //      必须在启动 payload 打开文件之后,让 currentDraftId 能排除当前文档草稿。
   await documentStore.loadRecoverableDrafts()
-
-  // 2) 二次启动:现有实例已就绪,Rust 直接 emit,这里 listen 接住。
-  //    dev web 端 listen 也会 throw(__TAURI_INTERNALS__ undefined),加 tauri
-  //    守门。这行如果 throw 会让 onMounted async 函数 reject,后续 4.5 段
-  //    "切代码主题" watch 就挂不上 —— dev web 端切主题失败的根因。
-  //
-  //    v0.5.1: payload 同 1) 升级为 {files, dirs}。目录优先 setActiveRoot
-  //    (不弹 dirty 确认,工作区切换不动当前文档);文件再走 dirty 确认 + openPath。
-  if (tauri) {
-    unlistenCli = await listen<CliArgsPayload>('cli-args', async (e) => {
-      const dir = e.payload?.dirs?.[0]
-      if (dir) workspaceStore.setActiveRoot(dir)
-      const file = e.payload?.files?.[0]
-      if (!file) return
-      if (!(await documentStore.confirmDiscardIfDirty())) return
-      void documentStore.openPath(file)
-    })
-  }
 
   // 3) keydown 监听已在最前面(0-pre)挂上 —— 启动期 await 期间也要能拦 Ctrl+F
 
@@ -890,7 +870,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  unlistenCli?.()
   if (draftTimer) {
     clearInterval(draftTimer)
     draftTimer = null
@@ -930,6 +909,18 @@ onBeforeUnmount(() => {
           @click="documentStore.newDoc()"
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="12" y1="10" x2="12" y2="16" /></svg>
+        </button>
+        <!-- 新窗口 -->
+        <button
+          v-if="tauri"
+          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          title="新窗口 (Ctrl+Shift+N)"
+          @click="createNewAppWindow()"
+        >
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="14" height="14" rx="2" />
+            <path d="M7 21h12a2 2 0 0 0 2-2V7" />
+          </svg>
         </button>
         <!-- 打开文件 -->
         <button

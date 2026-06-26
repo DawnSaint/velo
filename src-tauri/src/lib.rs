@@ -1,17 +1,21 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const MD_EXTS: &[&str] = &["md", "markdown", "mdown"];
+const MAIN_WINDOW_LABEL: &str = "main";
+const APP_WINDOW_LABEL_PREFIX: &str = "velo-window-";
+static APP_WINDOW_ID: AtomicU64 = AtomicU64::new(0);
 
-/// 冷启动 argv 解析后的待处理路径。`setup()` 期前端 `listen('cli-args')` 还
-/// 没挂上,这里暂存;前端 onMounted 主动 `get_cli_args` 拉取并清空。
+/// 启动 argv 解析后的待处理路径。多窗口后按 window label 暂存;前端 onMounted
+/// 用当前 label 主动领取并清空,避免 app-wide event 被所有窗口同时消费。
 ///
 /// v0.5.1 起 argv 同时支持文件(.md)和目录("在 Velo 中打开"右键菜单):
 ///   - `files`: 路由到 `documentStore.openPath`(单文件编辑)
 ///   - `dirs` : 路由到 `workspaceStore.setActiveRoot`(工作区)
-/// 二次启动(single-instance plugin)走同一 `parse_cli_args`,负载形态一致。
-#[derive(Default, Clone, serde::Serialize)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 struct CliArgsPayload {
     files: Vec<String>,
     dirs: Vec<String>,
@@ -23,7 +27,61 @@ impl CliArgsPayload {
     }
 }
 
-struct PendingCliArgs(Mutex<CliArgsPayload>);
+struct PendingWindowCliArgs(Mutex<HashMap<String, CliArgsPayload>>);
+
+fn next_app_window_label() -> String {
+    format!(
+        "{}{}",
+        APP_WINDOW_LABEL_PREFIX,
+        APP_WINDOW_ID.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn store_window_payload(app: &AppHandle, label: &str, payload: CliArgsPayload) {
+    if payload.is_empty() {
+        return;
+    }
+    let state = app.state::<PendingWindowCliArgs>();
+    {
+        if let Ok(mut guard) = state.0.lock() {
+            guard.insert(label.to_string(), payload);
+        };
+    }
+}
+
+fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String, String> {
+    let label = next_app_window_label();
+    store_window_payload(app, &label, payload);
+
+    let build_result = WebviewWindowBuilder::new(
+        app,
+        label.clone(),
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Velo")
+    .inner_size(1200.0, 800.0)
+    .min_inner_size(800.0, 600.0)
+    .center()
+    .resizable(true)
+    .fullscreen(false)
+    .decorations(false)
+    .disable_drag_drop_handler()
+    .build();
+
+    match build_result {
+        Ok(win) => {
+            let _ = win.set_focus();
+            Ok(label)
+        }
+        Err(e) => {
+            let state = app.state::<PendingWindowCliArgs>();
+            if let Ok(mut guard) = state.0.lock() {
+                guard.remove(&label);
+            }
+            Err(format!("create app window: {e}"))
+        }
+    }
+}
 
 /// 解析 argv:.md 文件归 files,目录归 dirs,其它丢弃。
 ///
@@ -56,14 +114,22 @@ fn parse_cli_args(args: &[String]) -> CliArgsPayload {
     out
 }
 
-/// 前端在 onMounted 拉一次:拿到冷启动 argv 解析结果并清空缓冲。
+/// 前端在 onMounted 按当前窗口 label 拉一次:拿到该窗口启动 payload 并清空缓冲。
 #[tauri::command]
-fn get_cli_args(state: tauri::State<PendingCliArgs>) -> CliArgsPayload {
+fn take_window_cli_args(label: String, state: tauri::State<PendingWindowCliArgs>) -> CliArgsPayload {
     state
         .0
         .lock()
-        .map(|mut g| std::mem::take(&mut *g))
+        .map(|mut g| g.remove(&label).unwrap_or_default())
         .unwrap_or_default()
+}
+
+#[tauri::command]
+async fn new_app_window(
+    app: AppHandle,
+    payload: Option<CliArgsPayload>,
+) -> Result<String, String> {
+    create_app_window(&app, payload.unwrap_or_default())
 }
 
 /// 打开 WebView2 devtools。生产构建需要在 tauri 依赖开 `devtools` 才生效。
@@ -96,19 +162,20 @@ mod folder_menu;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(PendingCliArgs(Mutex::new(CliArgsPayload::default())))
-        // single-instance 必须第一个注册:拦截后续启动并把 argv 转发给现有实例
+        .manage(PendingWindowCliArgs(Mutex::new(HashMap::new())))
+        // single-instance 必须第一个注册:拦截后续启动并在现有进程中创建新窗口
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let payload = parse_cli_args(&args);
-            if !payload.is_empty() {
-                // 二次启动 = 现有实例的前端早就挂载好了,直接 emit 即可
-                let _ = app.emit("cli-args", payload);
-            }
-            // 拉回主窗口前台
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.unminimize();
-                let _ = win.set_focus();
-            }
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = create_app_window(&app, payload) {
+                    log::error!("二次启动创建新窗口失败: {e}");
+                    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                        let _ = win.unminimize();
+                        let _ = win.set_focus();
+                    }
+                }
+            });
         }))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -116,21 +183,16 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            get_cli_args,
+            take_window_cli_args,
+            new_app_window,
             open_devtools,
             export_pdf,
         ])
         .setup(|app| {
-            // 首次启动:argv 解析后暂存到 state,等前端 onMounted 主动来拉
+            // 首次启动:argv 解析后按 main label 暂存,等前端 onMounted 主动来拉
             let args: Vec<String> = std::env::args().skip(1).collect();
             let payload = parse_cli_args(&args);
-            if !payload.is_empty() {
-                let state = app.state::<PendingCliArgs>();
-                let lock = state.0.lock();
-                if let Ok(mut guard) = lock {
-                    *guard = payload;
-                }
-            }
+            store_window_payload(app.handle(), MAIN_WINDOW_LABEL, payload);
 
             // 注册"在 Velo 中打开"文件夹右键菜单(v0.5.1)。
             // best-effort:失败仅 warn,不阻塞应用启动。每次启动都重写,

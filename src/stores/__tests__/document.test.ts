@@ -464,6 +464,64 @@ describe('document store', () => {
       expect(finalOf(firstPaths)).toBe(finalOf(secondPaths))
     })
 
+    it('saveCurrentDraft:不同 draftScope 下同一文件草稿 id 不冲突', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.setContent('')
+      store.loadContent('base', '/same.md')
+      store.setContent('base')
+      store.setContent('window one')
+      store.setDraftScope('main')
+      const writes = vi.mocked(writeTextFile)
+      writes.mockClear()
+      await store.saveCurrentDraft()
+      const firstPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
+
+      store.setDraftScope('velo-window-1')
+      writes.mockClear()
+      await store.saveCurrentDraft()
+      const secondPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
+
+      expect(firstPath).toContain('win-main-file-')
+      expect(secondPath).toContain('win-velo-window-1-file-')
+      expect(firstPath).not.toBe(secondPath)
+    })
+
+    it('saveCurrentDraft:多个 untitled window 使用各自 scoped slot', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.setContent('')
+      store.setContent('dirty')
+      const writes = vi.mocked(writeTextFile)
+
+      store.setDraftScope('main')
+      writes.mockClear()
+      await store.saveCurrentDraft()
+      const firstPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
+
+      store.setDraftScope('velo-window-1')
+      writes.mockClear()
+      await store.saveCurrentDraft()
+      const secondPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
+
+      expect(firstPath).toContain('win-main-untitled')
+      expect(secondPath).toContain('win-velo-window-1-untitled')
+      expect(firstPath).not.toBe(secondPath)
+    })
+
+    it('saveCurrentDraft:无 draftScope 时保留旧 untitled id', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.setContent('')
+      store.setContent('dirty')
+      const writes = vi.mocked(writeTextFile)
+      writes.mockClear()
+
+      await store.saveCurrentDraft()
+
+      const calledPaths = writes.mock.calls.map(c => String(c[0]))
+      expect(calledPaths.some(p => p.includes('/untitled.json.tmp'))).toBe(true)
+    })
     it('loadRecoverableDrafts:排除当前文档的草稿,按时间倒序', async () => {
       // 准备两份磁盘上的草稿:一份对应当前文件,一份对应另一个文件
       // setup.ts 里 readTextFile 是 mock,我们要劫持它返回草稿 JSON

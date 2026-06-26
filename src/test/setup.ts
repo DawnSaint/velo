@@ -68,16 +68,21 @@ const setTitleMock = vi.fn()
 const minimizeMock = vi.fn(async () => undefined)
 const toggleMaximizeMock = vi.fn(async () => undefined)
 const closeWindowMock = vi.fn(async () => undefined)
+const destroyWindowMock = vi.fn(async () => undefined)
 const isMaximizedMock = vi.fn(async () => false)
 const onResizedMock = vi.fn(async () => vi.fn())
+const onCloseRequestedMock = vi.fn(async () => vi.fn())
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
+    label: 'main',
     setTitle: setTitleMock,
     minimize: minimizeMock,
     toggleMaximize: toggleMaximizeMock,
     close: closeWindowMock,
+    destroy: destroyWindowMock,
     isMaximized: isMaximizedMock,
     onResized: onResizedMock,
+    onCloseRequested: onCloseRequestedMock,
   }),
 }))
 
@@ -102,6 +107,10 @@ vi.mock('@tauri-apps/api/path', () => ({
 // / invoke 等)给个 stub,免得业务代码意外走到真实实现抛 "no IPC"。
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: vi.fn(() => true),
-  invoke: vi.fn(async () => undefined),
+  invoke: vi.fn(async (command: string) => {
+    if (command === 'take_window_cli_args') return { files: [], dirs: [] }
+    if (command === 'new_app_window') return 'velo-window-test'
+    return undefined
+  }),
   convertFileSrc: vi.fn((p: string) => p),
 }))
