@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.6] — 2026-06-26
+
+### Added
+- **多窗口**：支持创建多个独立 Velo 窗口，每个窗口可以打开自己的工作区。
+- **新窗口入口**：顶栏新增“新窗口”按钮，并支持 `Ctrl+Shift+N` 快捷键。
+- **二次启动打开新窗口**：Velo 已运行时，再次从文件关联或文件夹右键菜单打开文件 / 文件夹，会创建独立窗口而不是覆盖当前窗口。
+
+
 ## [0.5.5] — 2026-06-26
 
 ### Added

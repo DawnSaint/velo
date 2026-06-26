@@ -360,3 +360,20 @@
   - 不被 Tauri 干扰,ImageUploadPlugin / FileTree drop handler 与 splitter drag 完全正交
   - 跨平台一致(macOS / Windows / Linux webview 都走同一套 DOM 事件)
   - 后续若要加触屏支持,迁移到 Pointer Events 是单文件改动(`mousedown` → `pointerdown`,加 `setPointerCapture` 取代 window listener 模式)
+
+
+## v0.5.6 — 多窗口  (2026-06-26)
+
+### ADR-20260626-004: 多窗口采用同进程多 WebView window,不做单窗口多标签
+
+- **Context**: 0.5.6 目标是多个独立 Velo 窗口,每个窗口可打开自己的工作区。候选:
+  - A) 同一 Tauri 进程内创建多个 WebView window:每个 WebView 拥有独立 JS runtime 和 Pinia store,可复用当前单文档 / 单工作区 store 模型
+  - B) 单窗口多标签:需要把 `documentStore` 拆成多文档集合、重做 dirty close / 文件树联动 / 标签持久化,范围远超“多窗口”
+  - C) 多进程实例:绕开 single-instance,但文件关联 / 文件夹右键菜单 / appData 写入与系统资源占用都更难控
+- **Decision**: 选 A。保留 single-instance 插件,但二次启动不再广播 `cli-args` 给已有窗口,而是在现有进程里创建新的 `velo-window-{n}` app window;启动 payload 按 window label 暂存,前端挂载后由该窗口领取。主窗口 label 显式为 `main`,capability 只授权 `main` + `velo-window-*`。
+- **Consequences**:
+  - 当前 `documentStore` / `workspaceStore.activeRoot` 自然成为 per-window runtime 状态,不用为 v0.5.6 引入标签级文档集合
+  - `velo-workspaces.json.active` 降级为 main 窗口冷启动 hint;动态窗口只加载 known roots 和 per-root 状态,不继承其它窗口的 active
+  - workspace 保存必须从全量 snapshot 改成 active root patch merge,避免窗口 A 的旧 map 覆盖窗口 B 新写入的 workspace
+  - 草稿 ID 必须带 window label scope,否则两个未命名窗口或同文件多窗口会互相覆盖草稿
+  - `WebviewWindowBuilder::build` 仍不能在 single-instance 同步回调内直接调用,必须 async spawn 后创建,延续 PDF 隐藏窗口踩坑
