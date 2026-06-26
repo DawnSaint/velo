@@ -18,7 +18,8 @@
 
 | 改动范围 | 读 / 更新 |
 |---|---|
-| 技术栈、目录结构、全局约定、`documentStore`、打开/保存、外部变更、echo 哨兵、草稿、持久化 | 本文件 |
+| 技术栈、目录结构、全局约定、`documentStore` 唯一数据源、生命周期、状态栏数据流 | 本文件 |
+| 打开/保存、外部变更同步、echo 哨兵、草稿、持久化 | [`architecture/document-io.md`](./architecture/document-io.md) |
 | ProseMirror 插件链、schema、markdownIO、syntax、NodeView/Decoration、mermaid、shiki、源码模式、跨模式同步 | [`architecture/editor.md`](./architecture/editor.md) |
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
 | Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch | [`architecture/file-tree.md`](./architecture/file-tree.md) |
@@ -128,35 +129,7 @@ velo/
 
 **状态栏**: `App.vue` 汇总 `documentStore` 的内容 / 文件 / dirty / sourceMode、`workspaceStore` 的 active root / known roots，以及当前挂载编辑器上报的光标行列，传给 `StatusBar.vue` 展示。光标行列是 UI-only 状态，不进入 `documentStore`、不持久化；文档统计直接从 `documentStore.content` 计算。源码模式切换入口放在状态栏,仍只翻转 `documentStore.sourceMode`。
 
-**文件操作**:
-
-- 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`)
-- 保存: `writeTextFile`,**写盘前乐观推进** `lastSavedContent` 过滤自己的 fs:watch 事件;失败回滚
-- Ctrl+S / 失焦 / 关闭拦截走同一 `save()`
-
-**外部改动同步** (`checkExternalChange`, fs:watch + window focus 兜底):
-
-1. `disk === lastSavedContent` → 自己的写,忽略
-2. `disk === content` → 别人重写为同样内容,刷新基线
-3. `!dirty` → 静默 reload
-4. `dirty` → 弹确认
-
-**崩溃恢复**: 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
-**持久化**: `appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走“active root + 每个根的 expandedDirs / lastFile / sidebarTab”格式,跨工作区切换记忆各自展开状态与 sidebar tab。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
-
----
-
-## 设计要点
-
-- **自家写盘不打扰**: `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 被 `disk === lastSavedContent` 短路。
-- **echo 哨兵** (`lastSelfEmitted`): EditorInner / SourceModeEditor dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch 看到匹配则跳过 echo,避免编辑时光标被重置。
-
----
-
-## 维护者注意点
-
-- **fs.watch 生命周期 race**: `startWatchOf` / `stopWatch` fire-and-forget 理论可泄漏；`checkExternalChange` 早退故无实际影响。
-
+**文件 IO / 同步 / 持久化**: 打开 / 保存、外部改动同步、崩溃恢复草稿、持久化文件,以及写盘 / echo / fs:watch 的设计取舍与维护者注意点,见 [`architecture/document-io.md`](./architecture/document-io.md)。
 
 ---
 

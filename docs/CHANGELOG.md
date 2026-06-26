@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.4] — 2026-06-26
+
+### Added
+- **底部状态栏**：常驻底部状态栏，显示当前工作区、字数、光标行列与未保存指示。
+  - 点击工作区可展开工作区切换菜单（切换历史工作区 / 打开文件夹 / 关闭工作区）。
+  - 点击字数弹出详细统计（字数 / 字符数 / 段落数 / 预计阅读时长）。
+- **源码 / 所见即所得模式切换移到状态栏**：模式切换按钮从顶部工具栏移到底部状态栏，图标即点即切。
+
+### Changed
+- **设置面板移除文档统计**：字数 / 词数 / 行数不再显示在设置面板，统一由底部状态栏呈现。
+
+
 ## [0.5.3] — 2026-06-25
 
 ### Added
