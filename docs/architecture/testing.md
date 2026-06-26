@@ -61,6 +61,8 @@ src/
 │       ├── outline.test.ts
 │       ├── fuzzy.test.ts
 │       ├── workspaceSearch.test.ts
+│       ├── documentStats.test.ts
+│       ├── statusPath.test.ts
 │       └── imagePath.test.ts
 ├── stores/
 │   └── __tests__/
@@ -74,6 +76,7 @@ src/
     ├── __tests__/
     │   ├── ActivityBar.test.ts
     │   ├── WorkspaceSearchPanel.test.ts
+    │   ├── StatusBar.test.ts
     │   ├── crossModeSync.test.ts
     │   ├── SourceModeEditor.test.ts
     │   ├── FileTree.test.ts
@@ -118,6 +121,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 **已 mock 的清单**(见 `src/test/setup.ts`):
 - `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `watch`
 - `@tauri-apps/plugin-dialog` → `open` / `save` / `confirm`
+- `@tauri-apps/plugin-clipboard-manager` → `writeText`
 - `@tauri-apps/api/window` → `getCurrentWindow().setTitle`
 
 **新增 Tauri 调用的规约**:

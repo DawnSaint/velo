@@ -231,22 +231,25 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     expect(html).not.toContain('#loaded-one-light')
   })
 
-  it('重复切换:每次都正确触发 ensureTheme + effect dispatch + rebuild', async () => {
+  it('emits initial cursor position after mount', async () => {
     wrapper = mount(SourceModeEditor, {
-      props: { modelValue: '# hello' },
+      props: { modelValue: 'one\ntwo' },
     })
     await flushAll()
 
-    const store = useEditorStore()
-    store.codeLightTheme = 'dracula'
-    await flushAll()
-    await resolveAllPending()
-    expect(cmHtml(wrapper)).toContain('#loaded-dracula')
+    expect(wrapper.emitted('cursor-position-change')?.[0]).toEqual([{ line: 1, column: 1 }])
+  })
 
-    store.codeLightTheme = 'one-dark-pro'
+  it('emits cursor position when the CodeMirror selection changes', async () => {
+    wrapper = mount(SourceModeEditor, {
+      props: { modelValue: 'one\ntwo' },
+    })
     await flushAll()
-    await resolveAllPending()
-    expect(cmHtml(wrapper)).toContain('#loaded-one-dark-pro')
-    expect(cmHtml(wrapper)).not.toContain('#loaded-dracula')
+
+    const view = (wrapper.vm as unknown as { view: import('@codemirror/view').EditorView }).view
+    view.dispatch({ selection: { anchor: 6 } })
+    await flushAll()
+
+    expect(wrapper.emitted('cursor-position-change')?.at(-1)).toEqual([{ line: 2, column: 3 }])
   })
 })

@@ -358,7 +358,7 @@ onUnmounted(() => {
         v-for="item in flatList"
         :key="item.key"
         :class="indentClass(item.indent)"
-        class="group flex items-center gap-1 py-0.5"
+        class="group flex items-center gap-1"
       >
         <!-- 展开/折叠箭头 -->
         <button

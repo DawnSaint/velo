@@ -46,6 +46,7 @@ import {
   DEFAULT_DARK_THEME,
 } from './CodeBlockLangs'
 import { tokenizeMermaid } from './mermaidTokenizer'
+import { writeClipboardText } from '@/utils/clipboard'
 
 // ============================================================
 //  Plugin state
@@ -274,23 +275,7 @@ function escapeHtml(s: string): string {
  * 不发任何外抛,UI 闪一下即可。
  */
 async function writeToClipboard(text: string, btn: HTMLElement): Promise<void> {
-  let ok = false
-  try {
-    const { writeText } = await import('@tauri-apps/plugin-clipboard-manager')
-    await writeText(text)
-    ok = true
-  }
-  catch {
-    // 走 navigator 回退
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
-        ok = true
-      }
-    }
-    catch { /* swallow */ }
-  }
-  // 闪一下
+  const ok = await writeClipboardText(text)
   const wasHtml = btn.innerHTML
   if (ok) {
     btn.innerHTML = CHECK_SVG

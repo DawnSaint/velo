@@ -5,6 +5,7 @@ import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
 import CodeBlockLanguagePicker from './CodeBlockLanguagePicker.vue'
 import { createPmBackend } from './findreplace/backend'
+import type { CursorPosition } from '@/utils/editorCursor'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   /** v-model:find-open 的 update 端。FindReplace 关闭(X / Esc)时触发,
    *  把父级的 findOpen 翻成 false —— 唯一的回流路径。 */
   'update:findOpen': [open: boolean]
+  'cursor-position-change': [position: CursorPosition]
 }>()
 
 // CSS 自定义属性,响应式注入到容器上
@@ -112,6 +114,7 @@ defineExpose({ getEditorView })
           ref="innerRef"
           :model-value="modelValue"
           @update:model-value="emit('update:modelValue', $event)"
+          @cursor-position-change="emit('cursor-position-change', $event)"
         />
       </div>
     </div>

@@ -7,27 +7,6 @@ import { BUNDLED_THEMES } from './ProseMirrorEditor/nodes/CodeBlockLangs'
 const store = useEditorStore()
 const documentStore = useDocumentStore()
 
-/**
- * 文档统计:字数(非空白字符)、词数(英文 token)、行数
- * 纯中文文本下 words=0,因为中文无空格分词 —— 这是预期行为,不是 bug。
- * 行数按源 markdown 的换行符数计,空文档 0 行。
- */
-const stats = computed(() => {
-  const text = documentStore.content
-  const chars = text.replace(/\s/g, '').length
-  const words = text.split(/\s+/).filter(t => /[A-Za-z0-9]/.test(t)).length
-  const lines = text === '' ? 0 : text.split('\n').length
-  return { chars, words, lines }
-})
-
-const fmt = new Intl.NumberFormat('zh-CN')
-
-// ============================================================
-//  代码块主题下拉(带过滤)
-// ============================================================
-
-/** 浅色 / 深色主题清单(按 displayName 字母序,shiki bundled 出来就是这样)。
- *  用户输入过滤词 → 缩小列表;空 → 全 66 项。 */
 const lightThemes = computed(() =>
   BUNDLED_THEMES.filter(t => t.type === 'light'),
 )
@@ -35,7 +14,6 @@ const darkThemes = computed(() =>
   BUNDLED_THEMES.filter(t => t.type === 'dark'),
 )
 
-/** 主题显示标签:displayName 为主,缺失时回退 id。 */
 function themeLabel(t: { displayName: string, id: string }): string {
   return t.displayName || t.id
 }
@@ -115,15 +93,6 @@ function themeLabel(t: { displayName: string, id: string }): string {
           <span>失焦保存</span>
         </label>
       </div>
-    </div>
-
-    <!-- 文档统计:固定在面板底部,一行、无边框、低对比度 -->
-    <div class="flex shrink-0 items-center gap-2 pt-4 text-xs text-gray-400 dark:text-gray-500">
-      <span>字数 <span class="tabular-nums">{{ fmt.format(stats.chars) }}</span></span>
-      <span class="text-gray-300 dark:text-gray-600">·</span>
-      <span>词数 <span class="tabular-nums">{{ fmt.format(stats.words) }}</span></span>
-      <span class="text-gray-300 dark:text-gray-600">·</span>
-      <span>行数 <span class="tabular-nums">{{ fmt.format(stats.lines) }}</span></span>
     </div>
   </div>
 </template>

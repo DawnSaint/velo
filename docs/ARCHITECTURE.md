@@ -43,7 +43,6 @@
 | 数学公式 | KaTeX |
 | 图表 | Mermaid |
 | CSS | Tailwind 3 + Sass |
-| 导出 | HTML 自包含 + PDF (Tauri command 调平台原生 PrintToPDF via `with_webview`) |
 
 具体版本见 `package.json` / `src-tauri/Cargo.toml`。
 
@@ -57,7 +56,7 @@ velo/
 │   ├── ARCHITECTURE.md          架构入口、技术栈、目录结构与数据流基础
 │   └── architecture/            架构模块文档（含 testing.md 测试规约）
 ├── src/
-│   ├── App.vue                    顶栏 + 左侧 ActivityBar + 左侧功能区(大纲 / 文件 / 设置) + 编辑器
+│   ├── App.vue                    顶栏 + 左侧 ActivityBar + 左侧功能区(大纲 / 文件 / 设置) + 编辑器 + 底部状态栏
 │   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
@@ -71,6 +70,7 @@ velo/
 │       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
 │       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
 │       ├── ActivityBar.vue          左贴边功能栏:文件 / 大纲 / 全局搜索 / 设置(只发事件,App.vue 持有 shell 状态)
+│       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue
@@ -126,6 +126,8 @@ velo/
 **生命周期**: `EditorInner.vue` onMounted 起裸 `EditorView`,onBeforeUnmount destroy。外部 modelValue 变化时用 `lastSelfEmitted` 值对比探测自 emit 的 echo,非 echo 则 `view.updateState(EditorState.create(...))` 替换内部 state。
 **源代码模式**: `documentStore.sourceMode` 控制渲染哪个编辑器实例。`true` = `SourceModeEditor.vue`(CodeMirror 6,软换行 + 持久行号 + shiki 高亮,无 schema / 无 PM plugin,用户输入经 `updateListener` → `emit('update:modelValue')` 回写 `documentStore.content`);`false` = `ProseMirrorEditor`。两者 `v-if` 互斥挂载,`documentStore.content` 始终唯一数据源,自动保存 / 失焦保存 / 草稿 / fs:watch 透明穿透。echo 哨兵 `lastSelfEmitted` 同 PM 路径。主题切换走 ensureTheme → dispatch CM6 StateEffect → ViewPlugin rebuild(主题名镜像在 StateField,防 ensureTheme 未 resolve 期间全黑,见 [`architecture/editor.md`](./architecture/editor.md) 的 shiki 两条正交路径说明)。
 
+**状态栏**: `App.vue` 汇总 `documentStore` 的内容 / 文件 / dirty / sourceMode、`workspaceStore` 的 active root / known roots，以及当前挂载编辑器上报的光标行列，传给 `StatusBar.vue` 展示。光标行列是 UI-only 状态，不进入 `documentStore`、不持久化；文档统计直接从 `documentStore.content` 计算。源码模式切换入口放在状态栏,仍只翻转 `documentStore.sourceMode`。
+
 **文件操作**:
 
 - 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`)
@@ -155,23 +157,6 @@ velo/
 
 - **fs.watch 生命周期 race**: `startWatchOf` / `stopWatch` fire-and-forget 理论可泄漏；`checkExternalChange` 早退故无实际影响。
 
----
-
-## 旧位置迁移速查
-
-| 旧 `ARCHITECTURE.md` 内容 | 新位置 |
-|---|---|
-| 技术栈 / 目录结构 / 全局约定 | 本文件 |
-| 数据流: document lifecycle / save / external sync / drafts | 本文件 |
-| 数据流: 文件树 CRUD / workspace | [`architecture/file-tree.md`](./architecture/file-tree.md) |
-| 设计要点: mermaid / shiki / syntax / source mode / cross-mode | [`architecture/editor.md`](./architecture/editor.md) |
-| 设计要点: 查找替换双后端 / mermaid 搜索定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
-| 设计要点: Ctrl+P / Ctrl+Shift+F | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
-| 设计要点: 导出 / PDF | [`architecture/export.md`](./architecture/export.md) |
-| 维护者注意点: FileTree 相关 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
-| 维护者注意点: 导出相关 | [`architecture/export.md`](./architecture/export.md) |
-| 维护者注意点: 编辑器相关 | [`architecture/editor.md`](./architecture/editor.md) |
-| Tauri wrapper / capability / CLI / context menu | [`architecture/tauri.md`](./architecture/tauri.md) |
 
 ---
 

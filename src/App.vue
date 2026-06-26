@@ -19,11 +19,13 @@ import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
+import StatusBar from '@/components/StatusBar.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
 import {
   revealWorkspaceSearchMatch,
   type WorkspaceSearchHit,
 } from '@/utils/workspaceSearch'
+import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
@@ -250,6 +252,10 @@ const findCaseSensitive = ref(false)
 const findWholeWord = ref(false)
 const findRegex = ref(false)
 const findShowReplace = ref(false)
+const cursorPosition = ref<CursorPosition>(DEFAULT_CURSOR_POSITION)
+function updateCursorPosition(position: CursorPosition) {
+  cursorPosition.value = position
+}
 provide(findIntentKey, {
   query: findQuery,
   replacement: findReplacement,
@@ -867,15 +873,6 @@ onBeforeUnmount(() => {
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
         </button>
-        <!-- 源代码模式 (Ctrl+\`) -->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :class="{ 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': documentStore.sourceMode }"
-          title="源代码模式 (Ctrl+\`)"
-          @click="documentStore.toggleSourceMode()"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
-        </button>
         <span class="mx-2 h-5 w-px bg-gray-200 dark:bg-gray-700" />
         <WindowControls v-if="tauri" />
       </div>
@@ -929,6 +926,7 @@ onBeforeUnmount(() => {
           :is-mac-code-block="store.isMacCodeBlock"
           :dark-mode="store.darkMode"
           @update:model-value="documentStore.setContent"
+          @cursor-position-change="updateCursorPosition"
         />
         <SourceModeEditor
           v-else
@@ -937,9 +935,23 @@ onBeforeUnmount(() => {
           :model-value="documentStore.content"
           :dark-mode="store.darkMode"
           @update:model-value="documentStore.setContent"
+          @cursor-position-change="updateCursorPosition"
         />
       </template>
     </div>
+
+    <StatusBar
+      :active-root="workspaceStore.activeRoot"
+      :known-roots="workspaceStore.knownRoots"
+      :current-file-path="documentStore.currentFilePath"
+      :content="documentStore.content"
+      :dirty="documentStore.dirty"
+      :source-mode="documentStore.sourceMode"
+      :cursor="cursorPosition"
+      @pick-workspace="() => void workspaceStore.pickWorkspace()"
+      @set-active-root="workspaceStore.setActiveRoot"
+      @toggle-source-mode="documentStore.toggleSourceMode()"
+    />
 
     <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->
     <DraftRecoveryDialog

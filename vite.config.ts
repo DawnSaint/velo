@@ -16,14 +16,10 @@ export default defineConfig({
   },
   css: {
     devSourcemap: true,
-    preprocessorOptions: {
-      scss: {
-        api: 'modern-compiler',
-      },
-    },
   },
   build: {
     cssCodeSplit: false,
+    chunkSizeWarningLimit: 20000,
     rolldownOptions: {
       output: {
         codeSplitting: false,

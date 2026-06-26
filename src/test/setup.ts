@@ -45,6 +45,10 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   message: vi.fn(),
 }))
 
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+  writeText: vi.fn(async () => undefined),
+}))
+
 // linkClick 插件用 open() 调系统浏览器打开外部 URL。
 // 同 plugin-dialog 的 open 不同名模块,保持各自 stub 独立。
 vi.mock('@tauri-apps/plugin-shell', () => ({

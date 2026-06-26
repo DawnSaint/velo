@@ -42,6 +42,7 @@ import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/
 import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
 import 'katex/dist/katex.min.css'
 
 // ============================================================
@@ -312,6 +313,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'cursor-position-change': [position: CursorPosition]
 }>()
 
 // 区分 self-emit echo vs 外部 modelValue 变化。值匹配 → echo,跳过;
@@ -323,6 +325,14 @@ let lastSelfEmitted: string | null = null
 // 启动期(mounted=false)不抢焦点,避免把 DraftRecoveryDialog 等启动期弹窗的
 // 焦点踢走。
 let mounted = false
+
+function emitCursorPosition() {
+  const view = getView()
+  if (!view) return
+  const pos = view.state.selection.head
+  const textBefore = view.state.doc.textBetween(0, pos, '\n', '\n')
+  emit('cursor-position-change', cursorFromTextBefore(textBefore))
+}
 
 watch(() => props.modelValue, (newVal) => {
   if (newVal === lastSelfEmitted) return
@@ -338,6 +348,7 @@ watch(() => props.modelValue, (newVal) => {
   if (mounted) {
     try { view.focus() } catch { /* 销毁期忽略 */ }
   }
+  emitCursorPosition()
 })
 
 // useProseMirror 返回的 containerRef 直接绑到 template ref。TS 看不到
@@ -353,8 +364,12 @@ const { containerRef, getView } = useProseMirror({
     lastSelfEmitted = md
     emit('update:modelValue', md)
   },
+  onSelectionChange: () => {
+    emitCursorPosition()
+  },
   onReady: () => {
     mounted = true
+    emitCursorPosition()
   },
 })
 

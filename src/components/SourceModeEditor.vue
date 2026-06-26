@@ -33,6 +33,7 @@ import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/back
 import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
 import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { saveImageAsset } from '@/services/imageStorage'
+import type { CursorPosition } from '@/utils/editorCursor'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -49,6 +50,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   /** v-model:find-open 的 update 端。FindReplace 关闭时触发,父级翻成 false。 */
   'update:findOpen': [open: boolean]
+  'cursor-position-change': [position: CursorPosition]
 }>()
 
 const documentStore = useDocumentStore()
@@ -74,6 +76,15 @@ const shikiExts = shikiExtensions({
 // 的 lastSelfEmitted 语义)。CM6 docChanged 时记下本次发出去的串,外部 watch
 // 拿到 modelValue 若等于它,跳过同步。
 let lastSelfEmitted = ''
+
+function emitCursorPosition(view: EditorView) {
+  const head = view.state.selection.main.head
+  const line = view.state.doc.lineAt(head)
+  emit('cursor-position-change', {
+    line: line.number,
+    column: head - line.from + 1,
+  })
+}
 
 // ============================================================
 //  Tab → 插 2 空格(保留旧 textarea 行为),覆盖 indentWithTab
@@ -215,12 +226,14 @@ function createView(): EditorView {
       // CM6 后端 dispatch cmFindHighlightEffect 驱动)。必须装在 state 里,
       // 后端 setHighlight 才有 effect 接收方。
       cmFindHighlightField,
-      // docChanged → 回写 documentStore.content
+      // docChanged → 回写 documentStore.content;doc/selection 变化 → 上报光标位置
       EditorView.updateListener.of((u) => {
-        if (!u.docChanged) return
-        const next = u.state.doc.toString()
-        lastSelfEmitted = next
-        emit('update:modelValue', next)
+        if (u.docChanged) {
+          const next = u.state.doc.toString()
+          lastSelfEmitted = next
+          emit('update:modelValue', next)
+        }
+        if (u.docChanged || u.selectionSet) emitCursorPosition(u.view)
       }),
     ],
   })
@@ -248,6 +261,7 @@ watch(
       changes: { from: 0, to: view.state.doc.length, insert: next },
       selection: EditorSelection.range(anchor, head),
     })
+    emitCursorPosition(view)
   },
 )
 
@@ -283,6 +297,7 @@ onMounted(async () => {
   const view = createView()
   viewRef.value = view
   view.focus()
+  emitCursorPosition(view)
   void ensureMarkdownGrammar()
 })
 

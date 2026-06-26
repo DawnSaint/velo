@@ -122,20 +122,23 @@
 
 ## Commit Message 格式规约
 
-遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
-
 ```
 <type>(<scope>): <summary>
 
-<body>
+- English bullet 1
+- English bullet 2
+...
+
+- 中文 bullet 1
+- 中文 bullet 2
+...
 
 <footer>
 ```
 
-- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `build` / `ci` / `release`
-- **scope**（可选）：模块名，如 `editor` / `sidebar` / `tauri` / `markdownIO`；不写 version
+- **type**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `build` / `ci` / `release` 等
+- **scope**：模块名，如 `editor` / `sidebar` / `tauri` / `markdownIO` / `testing` 等
 - **summary**：1 句小写英文祈使句，描述"这次 commit 干了什么"
-- **body**：背景 / 取舍说明 / 非显然之处；英文 + 中文
 - **footer**（可选）：
   - `BREAKING CHANGE: <说明>` — 触发 major
   - `Closes #x` / `Refs #x` — 关联 issue
@@ -150,7 +153,7 @@
 - 所有 feat / fix / test / refactor 已单独提交
 - `master` 上的 commit 已通过测试和类型检查
 - **发版收口的 docs 改动暂存即可、不 commit**：CHANGELOG 把 `[Unreleased]` 改成 `[<new-version>] — YYYY-MM-DD`、ROADMAP 删整章、DECISIONS 追加 ADR —— 这几处改完 `git add` 但**不要** `git commit`，让 `npm version` 把它们和 version bump、Tauri 版本同步一起合并到唯一的 `release(v%s):` commit 里
-  - 不允许残留任何**非发版收口**的未提交改动；如果有，先按它本来该走的 Conventional Commits 类型单独提了再发版
+- 不允许残留任何**非发版收口**的未提交改动；如果有，先按它本来该走的 Conventional Commits 类型单独提了再发版
 
 ### 流程
 

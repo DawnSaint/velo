@@ -1,0 +1,88 @@
+import { mount } from '@vue/test-utils'
+import { describe, expect, it } from 'vitest'
+import StatusBar from '../StatusBar.vue'
+
+function mountStatusBar(overrides: Record<string, unknown> = {}) {
+  return mount(StatusBar, {
+    props: {
+      activeRoot: 'C:\\notes',
+      knownRoots: ['C:\\notes', 'D:\\archive'],
+      currentFilePath: 'C:\\notes\\drafts\\a.md',
+      content: '你好 Velo\n\nsecond paragraph',
+      dirty: false,
+      sourceMode: false,
+      cursor: { line: 2, column: 3 },
+      ...overrides,
+    },
+  })
+}
+
+describe('StatusBar', () => {
+  it('renders workspace, word count and cursor position', () => {
+    const wrapper = mountStatusBar()
+
+    expect(wrapper.text()).toContain('工作区C:/notes')
+    expect(wrapper.text()).toContain('字数 5')
+    expect(wrapper.text()).toContain('行 2, 列 3')
+  })
+
+  it('shows dirty indicator only when dirty', () => {
+    expect(mountStatusBar({ dirty: false }).text()).not.toContain('未保存')
+    expect(mountStatusBar({ dirty: true }).text()).toContain('未保存')
+  })
+
+  it('opens workspace menu and emits workspace actions', async () => {
+    const wrapper = mountStatusBar()
+
+    await wrapper.get('[aria-haspopup="menu"]').trigger('click')
+    expect(wrapper.text()).toContain('D:/archive')
+
+    await wrapper.findAll('[role="menuitem"]')[1].trigger('click')
+    expect(wrapper.emitted('set-active-root')?.[0]).toEqual(['D:\\archive'])
+
+    await wrapper.get('[aria-haspopup="menu"]').trigger('click')
+    await wrapper.findAll('[role="menuitem"]').at(-2)!.trigger('click')
+    expect(wrapper.emitted('pick-workspace')).toHaveLength(1)
+
+    await wrapper.get('[aria-haspopup="menu"]').trigger('click')
+    await wrapper.findAll('[role="menuitem"]').at(-1)!.trigger('click')
+    expect(wrapper.emitted('set-active-root')?.at(-1)).toEqual([null])
+  })
+
+  it('emits toggle-source-mode from the bottom bar icon segment', async () => {
+    const wrapper = mountStatusBar({ sourceMode: true })
+
+    const button = wrapper.get('[aria-label="切换到所见即所得"]')
+    expect(button.text()).toBe('')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('toggle-source-mode')).toHaveLength(1)
+  })
+
+  it('does not expose a file path copy button', () => {
+    const wrapper = mountStatusBar()
+
+    expect(wrapper.find('button[title="C:/notes/drafts/a.md"]').exists()).toBe(false)
+  })
+
+  it('opens detailed stats popover from the word count', async () => {
+    const wrapper = mountStatusBar()
+
+    await wrapper.get('[aria-haspopup="dialog"]').trigger('click')
+
+    expect(wrapper.text()).toContain('文档统计')
+    expect(wrapper.text()).toContain('字符数')
+    expect(wrapper.text()).toContain('段落数')
+    expect(wrapper.text()).toContain('预计阅读')
+  })
+
+  it('falls back gracefully without workspace', () => {
+    const wrapper = mountStatusBar({
+      activeRoot: null,
+      knownRoots: [],
+      currentFilePath: null,
+    })
+
+    expect(wrapper.text()).toContain('无工作区')
+  })
+})

@@ -37,6 +37,10 @@ export interface UseProseMirrorOptions {
    */
   onChange?: (doc: PMNode, tr: Transaction) => void
   /**
+   * 选区或文档变化回调。用于光标状态这类 UI-only 信息,不参与 markdown 回写。
+   */
+  onSelectionChange?: (view: EditorView, tr: Transaction) => void
+  /**
    * EditorView 创建完成后的钩子。caller 用来做"挂上 view 后立刻 focus"或者
    * "挂上 view 后重打 hljs class"这种一次性副作用。
    * 此时 viewRef.value 已写入,DOM 已挂载。
@@ -85,6 +89,9 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
         view.updateState(next)
         if (tr.docChanged && opts.onChange) {
           opts.onChange(next.doc, tr)
+        }
+        if ((tr.docChanged || tr.selectionSet) && opts.onSelectionChange) {
+          opts.onSelectionChange(view, tr)
         }
       },
     })
