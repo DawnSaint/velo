@@ -162,10 +162,9 @@
 git add docs/
 
 # 2. 发版（preversion 跑测试 / 类型检查 / 构建；通过后 bump + commit + tag + push）
-npm version <level> -m "release(v%s): <summary>"
+npm version <level> -f -m "release(v%s): <summary>"
 ```
 
-- `<level>` 为 `patch` / `minor` / `major`，按 SemVer 判断（feat → minor / fix → patch / BREAKING CHANGE → major）
 - `npm version` 串行触发：
   1. **preversion**：`type-check` + `test` + `build`，任一失败中止，不会改任何文件
   2. bumped `package.json` version

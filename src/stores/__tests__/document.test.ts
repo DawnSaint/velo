@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useDocumentStore } from '../document'
+import { useRecentFilesStore } from '../recentFiles'
 import { readTextFile, writeTextFile, watch } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
@@ -645,7 +646,7 @@ describe('document store', () => {
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('No such file'))
 
       // 不应抛
-      await expect(store.openPath('/missing.md')).resolves.toBeUndefined()
+      await expect(store.openPath('/missing.md')).resolves.toBe(false)
 
       expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
       const [body, options] = vi.mocked(message).mock.calls[0]
@@ -667,11 +668,13 @@ describe('document store', () => {
       vi.mocked(message).mockClear()
       vi.mocked(readTextFile).mockResolvedValueOnce('new content')
 
-      await store.openPath('/new.md')
+      const ok = await store.openPath('/new.md')
 
+      expect(ok).toBe(true)
       expect(vi.mocked(message)).not.toHaveBeenCalled()
       expect(store.content).toBe('new content')
       expect(store.currentFilePath).toBe('/new.md')
+      expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/new.md'])
     })
 
     it('recoverDraft:把内容装进当前编辑器并从列表移除', async () => {

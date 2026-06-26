@@ -16,7 +16,7 @@
 
 ## 文件操作
 
-- 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`)
+- 打开: `confirmDiscardIfDirty` → `openDialog` → `readTextFile` → `loadContent` (设 `echosToAccept=1`);`openPath` 成功返回 `true` 并推进全局最近文件,失败弹 message 后返回 `false`,不污染当前文档
 - 保存: `writeTextFile`,**写盘前乐观推进** `lastSavedContent` 过滤自己的 fs:watch 事件;失败回滚
 - Ctrl+S / 失焦 / 关闭拦截走同一 `save()`
 
@@ -35,7 +35,7 @@
 
 ## 持久化
 
-`appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走“main 冷启动 active hint + 每个根的 expandedDirs / lastFile / sidebarTab / sidebarWidth / recentFiles”格式;多窗口下 `active` 不代表全局唯一当前工作区,动态窗口只加载 known roots 与 per-root 状态,保存时按当前窗口 active workspace 做 patch merge,不全量覆盖其它窗口新写入的 roots。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
+`appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, velo-recent-files.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走“main 冷启动 active hint + 每个根的 expandedDirs / lastFile / sidebarTab / sidebarWidth / recentFiles”格式;多窗口下 `active` 不代表全局唯一当前工作区,动态窗口只加载 known roots 与 per-root 状态,保存时按当前窗口 active workspace 做 patch merge,不全量覆盖其它窗口新写入的 roots。`velo-recent-files.json` 是跨工作区的全局最近打开文件,与 workspace 内 `recentFiles` 分离;只由显式 `openPath` 成功推进,不监听 `currentFilePath` 变化,避免重命名 / 草稿恢复 / 外部重载误刷新最近时间。全局最近文件用 `{ path, openedAt }` 条目做读盘 merge + 去重排序,降低多窗口错峰写入覆盖。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
 
 ---
 

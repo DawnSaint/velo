@@ -268,6 +268,28 @@ describe('workspace store', () => {
     expect(store.activeWorkspace.recentFiles).toEqual([])
   })
 
+  it('setLastFile 忽略 activeRoot 外路径,避免全局最近文件污染工作区 recent', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setLastFile('/outside/a.md')
+    expect(store.activeWorkspace.lastFile).toBeNull()
+    expect(store.activeWorkspace.recentFiles).toEqual([])
+  })
+
+  it('removePathPrefix 清理 lastFile / recentFiles / expandedDirs', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setDirExpanded('/r/old', true)
+    store.setDirExpanded('/r/old/sub', true)
+    store.setLastFile('/r/old/a.md')
+    store.setLastFile('/r/keep.md')
+    store.setLastFile('/r/old/sub/b.md')
+    store.removePathPrefix('/r/old')
+    expect(store.activeWorkspace.lastFile).toBeNull()
+    expect(store.activeWorkspace.recentFiles).toEqual(['/r/keep.md'])
+    expect(store.activeWorkspace.expandedDirs).toEqual([])
+  })
+
   // ========== sidebarWidth(v0.5.5,可拖拽宽度) ==========
 
   it('setSidebarWidth clamp 到 [200, 600],并写入当前 workspace', () => {

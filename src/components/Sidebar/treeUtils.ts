@@ -5,9 +5,10 @@
 
 import type { DirEntry } from '@/tauri/fs'
 import { isImageExt } from '@/utils/imagePath'
+import { MARKDOWN_EXT_RE } from '@/utils/markdownPath'
 
 /** Markdown 文件扩展名:树展示 + 点击打开 + 重命名 .md 静态后缀检测共用。 */
-export const MD_EXT_RE = /\.(md|markdown|mdown)$/i
+export const MD_EXT_RE = MARKDOWN_EXT_RE
 
 /** 文件名禁用字符(Windows + POSIX 取并集,跨平台一份). */
 export const FORBIDDEN_NAME_CHARS = /[\\/:*\?"<>|\0]/

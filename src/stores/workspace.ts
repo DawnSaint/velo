@@ -34,6 +34,10 @@ function clampSidebarWidth(n: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
 }
 
+function isPathInRoot(path: string, root: string): boolean {
+  return path === root || path.startsWith(root + '/') || path.startsWith(root + '\\')
+}
+
 function emptyWorkspaceState(): WorkspaceState {
   return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [], sidebarWidth: SIDEBAR_WIDTH_DEFAULT }
 }
@@ -140,6 +144,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setLastFile(filePath: string | null) {
     if (!activeRoot.value) return
     const ws = ensureWorkspace(activeRoot.value)
+    if (filePath && !isPathInRoot(filePath, activeRoot.value)) return
     ws.lastFile = filePath
     if (filePath) pushRecentFile(filePath)
   }
@@ -188,6 +193,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         if (p.startsWith(oldSep1) || p.startsWith(oldSep2)) return newPath + p.slice(oldPath.length)
         return p
       })
+    }
+  }
+
+  function removePathPrefix(pathPrefix: string) {
+    if (!activeRoot.value) return
+    const ws = ensureWorkspace(activeRoot.value)
+    ws.expandedDirs = ws.expandedDirs.filter(d => !isPathInRoot(d, pathPrefix))
+    if (ws.lastFile && isPathInRoot(ws.lastFile, pathPrefix)) ws.lastFile = null
+    if (ws.recentFiles?.length) {
+      ws.recentFiles = ws.recentFiles.filter(p => !isPathInRoot(p, pathPrefix))
     }
   }
 
@@ -291,8 +306,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setDirExpanded,
     isDirExpanded,
     setLastFile,
-    pushRecentFile,
     renamePathPrefix,
+    removePathPrefix,
     setSidebarTab,
     setSidebarWidth,
     loadFrom,

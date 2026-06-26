@@ -5,6 +5,7 @@ import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
+import { useRecentFilesStore } from '@/stores/recentFiles'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
@@ -17,6 +18,7 @@ import ExportButton from '@/components/ExportButton.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
+import RecentFilesButton from '@/components/RecentFilesButton.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
@@ -48,6 +50,7 @@ const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
 const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
+const recentFilesStore = useRecentFilesStore()
 
 const sampleMd = sampleMdRaw.replace(
   '/src/assets/Velo.png',
@@ -512,7 +515,8 @@ async function selectWorkspaceSearchHit(hit: WorkspaceSearchHit): Promise<boolea
 
 async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   if (!(await documentStore.confirmDiscardIfDirty())) return
-  await documentStore.openPath(hit.fullPath)
+  const ok = await documentStore.openPath(hit.fullPath)
+  if (!ok) return
   workspaceStore.setLastFile(hit.fullPath)
   await nextTick()
   const selected = await selectWorkspaceSearchHit(hit)
@@ -562,6 +566,13 @@ async function createNewAppWindow(payload?: Partial<CliArgsPayload>) {
 
 function openFolderAsWorkspace() {
   void workspaceStore.pickWorkspace()
+}
+
+async function openRecentFile(path: string) {
+  if (!(await documentStore.confirmDiscardIfDirty())) return
+  const ok = await documentStore.openPath(path)
+  if (!ok) return
+  workspaceStore.setLastFile(path)
 }
 
 // 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
@@ -757,6 +768,8 @@ onMounted(async () => {
   const shouldRestoreActive = !tauri || (windowLabel === MAIN_WINDOW_LABEL && !initialPayload.dirs?.[0])
   if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded, { restoreActive: shouldRestoreActive })
 
+  await recentFilesStore.hydrate()
+
   const initialDir = initialPayload.dirs?.[0]
   if (initialDir) workspaceStore.setActiveRoot(initialDir)
   const initialFile = initialPayload.files?.[0]
@@ -936,6 +949,11 @@ onBeforeUnmount(() => {
             <path d="m9 15 3-3 3 3" />
           </svg>
         </button>
+        <!-- 最近文件 -->
+        <RecentFilesButton
+          :entries="recentFilesStore.entries"
+          @open-recent="openRecentFile"
+        />
         <!-- 打开文件夹(作为工作区)-->
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"

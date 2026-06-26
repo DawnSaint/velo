@@ -19,6 +19,7 @@ import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { saveImageAssetFromPath, type SaveImageAssetResult } from '@/services/imageStorage'
 import { isImageExt } from '@/utils/imagePath'
+import { isMarkdownPath } from '@/utils/markdownPath'
 
 /** 文件树行 → 编辑器的拖拽信号 MIME(与 FileTree.vue 的 TREE_PATH_MIME 保持一致)。
  *  只在拖**文件**(.md / 图片 / 其它)时写;拖目录走 TREE_DIR_PATH_MIME,编辑器
@@ -29,8 +30,6 @@ export const TREE_PATH_MIME = 'application/x-velo-tree-path'
 /** 文件树 → 文件树内部:目录拖拽的独立 MIME。编辑器侧不识别此 MIME,故目录
  *  无法拖入编辑器(预期行为);FileTree 内部 drop 同时接受两种 MIME 走 rename。 */
 export const TREE_DIR_PATH_MIME = 'application/x-velo-tree-dir-path'
-
-const MD_EXT_RE = /\.(md|markdown|mdown)$/i
 
 /**
  * 从 FileList 里挑第一个 image/* 文件;没有返回 null。
@@ -110,11 +109,11 @@ export async function handleTreePathDrop(
   const name = basename(path)
 
   // .md → 打开(与 FileTree.onFileClick 同路径:脏盘确认 + openPath + setLastFile)
-  if (MD_EXT_RE.test(name)) {
+  if (isMarkdownPath(name)) {
     const documentStore = useDocumentStore()
     if (!(await documentStore.confirmDiscardIfDirty())) return { handled: true }
-    await documentStore.openPath(path)
-    useWorkspaceStore().setLastFile(path)
+    const ok = await documentStore.openPath(path)
+    if (ok) useWorkspaceStore().setLastFile(path)
     return { handled: true }
   }
 

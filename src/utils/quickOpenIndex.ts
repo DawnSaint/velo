@@ -15,7 +15,7 @@
 
 import { readDir } from '@/tauri/fs'
 import { join } from '@/tauri/path'
-import { MD_EXT_RE } from '@/components/Sidebar/treeUtils'
+import { isMarkdownPath } from '@/utils/markdownPath'
 
 export interface QuickOpenEntry {
   fullPath: string
@@ -61,7 +61,7 @@ async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
         }
         catch { /* join 极少失败,静默 */ }
       }
-      else if (MD_EXT_RE.test(e.name)) {
+      else if (isMarkdownPath(e.name)) {
         try {
           const fullPath = await join(dir, e.name)
           // relPath:去掉 root 前缀 + 起始分隔符,再归一斜杠

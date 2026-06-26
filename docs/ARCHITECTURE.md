@@ -58,7 +58,7 @@ velo/
 │   └── architecture/            架构模块文档（含 testing.md 测试规约）
 ├── src/
 │   ├── App.vue                    顶栏 + 左侧 ActivityBar + 左侧功能区(大纲 / 文件 / 设置) + 编辑器 + 底部状态栏
-│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / export / persistence IO
+│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
 │   ├── styles/                    Tailwind + Sass partial
@@ -74,6 +74,7 @@ velo/
 │       │   └── useResizeSplitter.ts  侧栏分隔条:拖拽 / 双击收起 / 窗口过窄自动收起,跑 mousedown + window listener 不走 HTML5 draggable
 │       ├── ActivityBar.vue          左贴边功能栏:文件 / 大纲 / 全局搜索 / 设置(只发事件,App.vue 持有 shell 状态)
 │       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
+│       ├── RecentFilesButton.vue   顶栏最近文件菜单:读取全局 recentFiles,点击后由 App.vue 统一打开
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── ExportButton.vue        顶栏导出按钮(Ctrl+Shift+E)
 │       ├── DraftRecoveryDialog.vue

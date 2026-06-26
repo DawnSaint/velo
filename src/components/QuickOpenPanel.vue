@@ -225,7 +225,8 @@ function close() {
 
 async function openRow(row: VisualRow) {
   if (!(await documentStore.confirmDiscardIfDirty())) return
-  await documentStore.openPath(row.entry.fullPath)
+  const ok = await documentStore.openPath(row.entry.fullPath)
+  if (!ok) return
   workspace.setLastFile(row.entry.fullPath)
   close()
 }

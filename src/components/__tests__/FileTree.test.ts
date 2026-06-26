@@ -14,6 +14,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
+import { useRecentFilesStore } from '@/stores/recentFiles'
 import FileTree from '../Sidebar/FileTree.vue'
 import { readDir, rename as fsRename, remove as fsRemove, writeTextFile, mkdir as fsMkdir } from '@tauri-apps/plugin-fs'
 import { confirm } from '@tauri-apps/plugin-dialog'
@@ -381,6 +382,28 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
+  it('删除文件后同步清理全局最近文件', async () => {
+    const recent = useRecentFilesStore()
+    recent.loadFrom({
+      version: 1,
+      entries: [
+        { path: '/test/root/note.md', openedAt: 2 },
+        { path: '/test/root/keep.md', openedAt: 1 },
+      ],
+    })
+    const wrapper = await mountWithEntries([entry('note.md', false), entry('keep.md', false)])
+    await openContextMenuOnRow(wrapper, 'note.md')
+
+    vi.mocked(confirm).mockResolvedValue(true)
+    const deleteBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+      .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
+    await deleteBtn.click()
+    await flushPromises()
+
+    expect(recent.entries.map(e => e.path)).toEqual(['/test/root/keep.md'])
+    wrapper.unmount()
+  })
+
   // ── 「新建文件」行内 input ──
 
   it('点击「新建文件」→ 行内 input 出现 + 默认 "未命名文档" + 静态 ".md" 后缀', async () => {
@@ -622,9 +645,11 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  it('重命名:改名 + Enter → fsRename 调用 + 联动当前打开文件的 currentFilePath', async () => {
+  it('重命名:改名 + Enter → fsRename 调用 + 联动当前打开文件和全局最近文件路径', async () => {
     const docStore = useDocumentStore()
+    const recent = useRecentFilesStore()
     docStore.loadContent('# old', '/test/root/note.md')
+    recent.loadFrom({ version: 1, entries: [{ path: '/test/root/note.md', openedAt: 1 }] })
 
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
@@ -644,6 +669,7 @@ describe('FileTree', () => {
     // 当前打开文件被重命名 → currentFilePath 更新,content 保留
     expect(docStore.currentFilePath).toBe('/test/root/note2.md')
     expect(docStore.content).toBe('# old')
+    expect(recent.entries.map(e => e.path)).toEqual(['/test/root/note2.md'])
     wrapper.unmount()
   })
 

@@ -7,7 +7,7 @@
 > **先记住**:
 > - 大纲搜索是视图层过滤，不污染 tree / 折叠态 / store。
 > - Ctrl+P 索引是 per-root 内存缓存，fs.watch 只标记 stale，不做局部 patch。
-> - 最近文件按 per-workspace 保存，最近段过滤但不按 fuzzy score 重排。
+> - 最近文件分两层:Ctrl+P 用 per-workspace recent;顶栏用全局 recent。
 > - Ctrl+Shift+F MVP 实时遍历 raw markdown，不建持久索引。
 > - WYSIWYG raw offset 只能在 ordinal 可对齐时定位，否则只打开文件。
 >
@@ -22,4 +22,5 @@
 
 - **Ctrl+Shift+F 全文搜索:JS 端实时扫 .md + raw 命中定位**(v0.5.2): 全局快捷键同样挂 `App.vue:onKeydown`,无工作区静默 return;左贴边 ActivityBar 的“全局搜索”入口复用同一条 `openWorkspaceSearch()` 路径,不另起侧栏搜索状态。面板是独立 `Teleport` 浮层,关闭即取消当前 run。MVP 不建持久索引:每次 query debounce 后走 `src/utils/workspaceSearch.ts` 递归 `readDir` BFS(隐藏目录整段跳过)→ `readTextFile` → 复用查找替换的 `buildPattern` 跑 RegExp,按行匹配,结果只展示命中行(不渲染上下文行),同一行多命中拆多条 row;目录 / 文件读取失败按 quickOpen 同款静默跳过。进度按 scanning/searching/canceled/done 汇报,取消只能在每次 Tauri fs await 之后生效(不能中断已发出的 plugin-fs 调用),旧 run 结果用 token 丢弃。结果坐标是 raw markdown offset,点击打开仍走 `confirmDiscardIfDirty()` → `openPath()` → `workspaceStore.setLastFile()`;源码模式下 raw offset 与 CM6 坐标一致,优先重算 ordinal 命中后 select;WYSIWYG 下 raw offset 不能可靠映射 PM doc pos,只在 PM 可见文本命中数量与 raw 文件命中数量一致时按 ordinal select,否则仅打开文件、不自动切到源码模式,避免模式意外跳转。
 
+- **顶栏最近文件:全局 recent 与 Ctrl+P recent 分层**(v0.5.7): 顶栏“最近文件”读 `recentFilesStore.entries`,落盘到 `velo-recent-files.json`,跨工作区 / 单文件模式可用;Ctrl+P 的“最近打开”仍读 `workspaceStore.activeWorkspace.recentFiles`,只在当前工作区索引内展示。两者都由成功打开 Markdown 文件推进,但持久化粒度不同:全局 recent 是 `{ path, openedAt }[]` 并在保存时读盘 merge,降低多窗口覆盖;per-workspace recent 是路径数组,服务当前 root 的最近优先双分区。顶栏打开全局 recent 后只在路径落入 `activeRoot` 时写 workspace recent,避免当前工作区的 Ctrl+P 最近段混入外部文件。
 

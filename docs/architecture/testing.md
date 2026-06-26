@@ -60,6 +60,7 @@ src/
 │   └── __tests__/
 │       ├── outline.test.ts
 │       ├── fuzzy.test.ts
+│       ├── markdownPath.test.ts
 │       ├── workspaceSearch.test.ts
 │       ├── documentStats.test.ts
 │       ├── statusPath.test.ts
@@ -68,13 +69,16 @@ src/
 │   └── __tests__/
 │       ├── document.test.ts
 │       ├── editor.test.ts
-│       └── export.test.ts
+│       ├── export.test.ts
+│       ├── recentFiles.test.ts
+│       └── workspace.test.ts
 ├── lib/export/
 │   └── __tests__/
 │       └── htmlRenderer.test.ts
 └── components/
     ├── __tests__/
     │   ├── ActivityBar.test.ts
+    │   ├── RecentFilesButton.test.ts
     │   ├── WorkspaceSearchPanel.test.ts
     │   ├── StatusBar.test.ts
     │   ├── crossModeSync.test.ts

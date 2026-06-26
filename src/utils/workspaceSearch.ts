@@ -1,6 +1,6 @@
 import { buildPattern, type FindOptions } from '@/components/ProseMirrorEditor/findreplace/findMatches'
 import type { FindReplaceBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
-import { MD_EXT_RE } from '@/components/Sidebar/treeUtils'
+import { isMarkdownPath } from '@/utils/markdownPath'
 import { readDir, readTextFile, tauriOnly } from '@/tauri/fs'
 import { join } from '@/tauri/path'
 
@@ -141,7 +141,7 @@ async function scanMarkdownFiles(
         try { queue.push(await join(dir, e.name)) }
         catch { /* join 极少失败,静默 */ }
       }
-      else if (MD_EXT_RE.test(e.name)) {
+      else if (isMarkdownPath(e.name)) {
         const entry = await makeEntry(root, dir, e.name)
         if (!entry) continue
         files.push(entry)

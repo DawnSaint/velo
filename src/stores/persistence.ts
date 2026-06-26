@@ -364,3 +364,131 @@ export async function saveWorkspacePatch(patch: WorkspacePatch): Promise<void> {
     console.error('保存工作区状态失败', e)
   }
 }
+
+// ========== 全局最近文件(v0.5.7) ==========
+//
+// `velo-recent-files.json` 记录跨工作区 / 单文件模式都可用的最近打开 Markdown 文件。
+// 它与 `WorkspaceState.recentFiles` 粒度不同:后者只服务当前工作区的 Ctrl+P 最近段。
+// openedAt 用于多窗口 patch merge 时做确定性去重排序。
+
+const RECENT_FILES_FILE = 'velo-recent-files.json'
+const RECENT_FILES_VERSION = 1
+export const RECENT_FILES_CAP = 50
+
+export interface RecentFileEntry {
+  path: string
+  openedAt: number
+}
+
+export interface PersistedRecentFiles {
+  version: number
+  entries: RecentFileEntry[]
+}
+
+export interface RecentFilesPatch {
+  upserts?: RecentFileEntry[]
+  renames?: Array<{ oldPath: string, newPath: string }>
+  deletePrefixes?: string[]
+}
+
+function normalizeRecentEntries(entries: unknown): RecentFileEntry[] {
+  if (!Array.isArray(entries)) return []
+  const byPath = new Map<string, RecentFileEntry>()
+  for (const item of entries) {
+    if (typeof item !== 'object' || item === null) continue
+    const path = (item as { path?: unknown }).path
+    const openedAt = (item as { openedAt?: unknown }).openedAt
+    if (typeof path !== 'string' || !path) continue
+    if (typeof openedAt !== 'number' || !Number.isFinite(openedAt)) continue
+    const prev = byPath.get(path)
+    if (!prev || openedAt > prev.openedAt) byPath.set(path, { path, openedAt })
+  }
+  return Array.from(byPath.values())
+    .sort((a, b) => b.openedAt - a.openedAt)
+    .slice(0, RECENT_FILES_CAP)
+}
+
+function applyPathPrefix(path: string, oldPath: string, newPath: string): string {
+  if (path === oldPath) return newPath
+  if (path.startsWith(oldPath + '/') || path.startsWith(oldPath + '\\')) {
+    return newPath + path.slice(oldPath.length)
+  }
+  return path
+}
+
+function hasPathPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(prefix + '/') || path.startsWith(prefix + '\\')
+}
+
+function applyRecentPatch(entries: RecentFileEntry[], patch: RecentFilesPatch): RecentFileEntry[] {
+  let next = normalizeRecentEntries(entries)
+  for (const rename of patch.renames ?? []) {
+    next = next.map(entry => ({
+      ...entry,
+      path: applyPathPrefix(entry.path, rename.oldPath, rename.newPath),
+    }))
+  }
+  for (const prefix of patch.deletePrefixes ?? []) {
+    next = next.filter(entry => !hasPathPrefix(entry.path, prefix))
+  }
+  next.push(...(patch.upserts ?? []))
+  return normalizeRecentEntries(next)
+}
+
+export async function loadRecentFiles(): Promise<PersistedRecentFiles | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    const path = await join(dir, RECENT_FILES_FILE)
+    if (!(await exists(path))) return null
+    const json = await readTextFile(path)
+    const parsed = JSON.parse(json)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    if ((parsed as PersistedRecentFiles).version !== RECENT_FILES_VERSION) return null
+    return {
+      version: RECENT_FILES_VERSION,
+      entries: normalizeRecentEntries((parsed as PersistedRecentFiles).entries),
+    }
+  }
+  catch (e) {
+    console.warn('加载最近文件失败', e)
+    return null
+  }
+}
+
+export async function saveRecentFiles(s: PersistedRecentFiles): Promise<PersistedRecentFiles | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    if (!(await exists(dir))) {
+      await mkdir(dir, { recursive: true })
+    }
+    const path = await join(dir, RECENT_FILES_FILE)
+    const normalized: PersistedRecentFiles = {
+      version: RECENT_FILES_VERSION,
+      entries: normalizeRecentEntries(s.entries),
+    }
+    await writeTextFile(path, JSON.stringify(normalized, null, 2))
+    return normalized
+  }
+  catch (e) {
+    console.error('保存最近文件失败', e)
+    return null
+  }
+}
+
+export async function saveRecentFilesPatch(patch: RecentFilesPatch): Promise<PersistedRecentFiles | null> {
+  if (!tauriOnly()) return null
+  try {
+    const current = await loadRecentFiles()
+    const merged: PersistedRecentFiles = {
+      version: RECENT_FILES_VERSION,
+      entries: applyRecentPatch(current?.entries ?? [], patch),
+    }
+    return await saveRecentFiles(merged)
+  }
+  catch (e) {
+    console.error('保存最近文件失败', e)
+    return null
+  }
+}

@@ -25,6 +25,7 @@ import { join, sep } from '@/tauri/path'
 import { confirm as nativeConfirm, message as nativeMessage } from '@/tauri/dialog'
 import { revealItemInDir } from '@/tauri/opener'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
 import { TREE_DIR_PATH_MIME, TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
@@ -41,6 +42,7 @@ import {
 } from './treeUtils'
 
 const workspace = useWorkspaceStore()
+const recentFiles = useRecentFilesStore()
 const documentStore = useDocumentStore()
 
 const { rootNode, dirIndex, rebuildFromRoot, loadDirChildren, refreshDir, pruneDirIndexPrefix } = useTreeData()
@@ -79,7 +81,8 @@ async function onFileClick(node: TreeNode) {
   }
   if (!MD_EXT_RE.test(node.name)) return
   if (!(await documentStore.confirmDiscardIfDirty())) return
-  await documentStore.openPath(node.fullPath)
+  const ok = await documentStore.openPath(node.fullPath)
+  if (!ok) return
   workspace.setLastFile(node.fullPath)
 }
 
@@ -340,6 +343,7 @@ async function performMove(srcPath: string, dstDir: string) {
 
   // 1) 工作区状态前缀重写(expandedDirs / lastFile)
   workspace.renamePathPrefix(srcPath, newPath)
+  recentFiles.renamePathPrefix(srcPath, newPath)
 
   // 2) 当前打开文件联动:不重载内容,只换路径(见 docs/architecture/file-tree.md)
   const cur = documentStore.currentFilePath
@@ -547,6 +551,9 @@ async function submitInline() {
     if (newPath === node.fullPath) { cancelInline(); return }
     try {
       await fsRename(node.fullPath, newPath)
+      // 联动工作区 / 全局最近文件里的旧路径,否则移动或重命名后菜单会指向死路径
+      workspace.renamePathPrefix(node.fullPath, newPath)
+      recentFiles.renamePathPrefix(node.fullPath, newPath)
       // 联动当前打开文件:只更新 currentFilePath,不动 content
       if (documentStore.currentFilePath === node.fullPath) {
         documentStore.loadContent(documentStore.content, newPath)
@@ -593,6 +600,9 @@ async function confirmAndDelete(node: TreeNode) {
   const parentDir = parentDirOfPath(node.fullPath)
   try {
     await fsRemove(node.fullPath, { recursive: isDir })
+    // 内部删除是强失效信号:清理工作区与全局最近文件里的死路径
+    workspace.removePathPrefix(node.fullPath)
+    recentFiles.removePathPrefix(node.fullPath)
     // children 更新 + 联动关闭文件同 microtask
     const parent = dirIndex.get(parentDir)
     if (parent) await loadDirChildren(parent)
@@ -623,7 +633,8 @@ async function openInEditor(node: TreeNode) {
   closeContextMenu()
   if (node.isDir || !MD_EXT_RE.test(node.name)) return
   if (!(await documentStore.confirmDiscardIfDirty())) return
-  await documentStore.openPath(node.fullPath)
+  const ok = await documentStore.openPath(node.fullPath)
+  if (!ok) return
   workspace.setLastFile(node.fullPath)
 }
 

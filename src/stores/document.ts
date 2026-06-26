@@ -3,16 +3,14 @@ import { defineStore } from 'pinia'
 import { open as openDialog, save as saveDialog, confirm, message } from '@/tauri/dialog'
 import { readTextFile, writeTextFile, watch, type UnwatchFn } from '@/tauri/fs'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { MARKDOWN_DIALOG_FILTERS } from '@/utils/markdownPath'
+import { useRecentFilesStore } from './recentFiles'
 import {
   saveDraft as saveDraftToFs,
   loadDrafts as loadDraftsFromFs,
   deleteDraft as deleteDraftFromFs,
   type Draft,
 } from './persistence'
-
-const MD_FILTERS = [
-  { name: 'Markdown', extensions: ['md', 'markdown', 'mdown'] },
-]
 
 // Tauri 的错误形态不一致:writeTextFile 拒绝时是 Error,readTextFile 拒绝时
 // 可能是 string。统一抽成字符串塞进 message 弹窗。
@@ -202,14 +200,17 @@ export const useDocumentStore = defineStore('document', () => {
    * 不在 store 内 catch 就会变成 unhandled rejection,用户看不到任何提示,
    * 会以为启动正常只是文件不存在。
    */
-  async function openPath(path: string) {
+  async function openPath(path: string): Promise<boolean> {
     try {
       const c = await readTextFile(path)
       loadContent(c, path)
+      useRecentFilesStore().push(path)
+      return true
     }
     catch (e) {
       console.error('打开文件失败', path, e)
       await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      return false
     }
   }
 
@@ -218,7 +219,7 @@ export const useDocumentStore = defineStore('document', () => {
     const selected = await openDialog({
       multiple: false,
       directory: false,
-      filters: MD_FILTERS,
+      filters: MARKDOWN_DIALOG_FILTERS,
     })
     if (typeof selected === 'string') {
       await openPath(selected)
@@ -254,7 +255,7 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   async function saveAs(): Promise<boolean> {
-    const target = await saveDialog({ filters: MD_FILTERS })
+    const target = await saveDialog({ filters: MARKDOWN_DIALOG_FILTERS })
     if (!target) return false
     const snapshot = content.value
     try {
