@@ -197,19 +197,31 @@ watch(() => workspaceStore.sidebarWidth, (n) => {
 // 不放在 isDragging 的普通 watch 里是因为 store 值可能在拖拽间变化(虽然不常见),
 // 每次拖拽开始时强制同步一次最安全。
 //
-// 拖拽开始 → 同步 sidebarWidthRef 为 store 当前值(composable 用此值做 dragStartWidth)。
-// 拖拽结束 → 清空 dragCollapseRestoreView。关键:即便 onDragCollapse 触发后用户
-// 没把鼠标拖回阈值之上就 release,这个值也会被清掉,避免下次手动点 ActivityBar
+// 拖拽开始 / 结束 → 清空 dragCollapseRestoreView。关键:即便 onDragCollapse 触发后
+// 用户没把鼠标拖回阈值之上就 release,这个值也会被清掉,避免下次手动点 ActivityBar
 // 切到新视图时,被一个陈旧的 snapshot 误导触发 onDragReopen 把不该开的东西开回来。
+//
+// **注意**:这一处不再做 sidebarWidthRef = store 的同步 —— 那个同步必须在
+// startDrag 之前**同步**完成,但 watcher 是 async(flush: 'pre'),startDrag 读
+// opts.width.value 在 watcher 跑之前。所以同步挪到 onSplitterMouseDown 包装层
+// (见下方),在 startDrag 调用前同步完成。
 watch(() => sidebarSplitter.isDragging.value, (dragging, was) => {
-  if (dragging && !was) {
-    sidebarWidthRef.value = workspaceStore.sidebarWidth
-    dragCollapseRestoreView.value = null
-  }
-  else if (!dragging && was) {
-    dragCollapseRestoreView.value = null
-  }
+  if (dragging !== was) dragCollapseRestoreView.value = null
 })
+
+// mousedown 包装:在调 composable.startDrag 之前先把 sidebarWidthRef 同步到
+// store 的稳定值(snapped,死区已 snap 到 B)。否则 startDrag 读 opts.width.value
+// 拿到的是上一轮 drag 留下的 raw 值(可能落在死区 [A, B] 内),dragStartWidth 偏小,
+// 用户必须额外移动 (B - lastRaw) 像素才能让 pendingNext 跨过 B —— 表现为"线不跟手,
+// 鼠标和线有 ~80px 距离"。
+//
+// 同步写在包装层而不是 startDrag 内,是因为 composable 是通用的,不该耦合 App.vue
+// 的 snap 语义;sync 放调用方最干净。store 自身已 clamp 到 [B, MAX],workspace 切换
+// / 程序 setSidebarWidth 的更新由上面的 workspaceStore.sidebarWidth watcher 处理。
+function onSplitterMouseDown(e: MouseEvent) {
+  sidebarWidthRef.value = workspaceStore.sidebarWidth
+  sidebarSplitter.startDrag(e)
+}
 // 真正给模板用的显示宽度:见顶部注释
 //
 // 死区 snap 是关键:在拖拽中或 reopen 后,siderbarWidthRef 可能落在 [A, B] 死区
@@ -1024,7 +1036,7 @@ onBeforeUnmount(() => {
         class="velo-splitter w-1 shrink-0 cursor-col-resize bg-transparent"
         :class="{ 'velo-splitter-dragging': sidebarSplitter.isDragging.value }"
         data-testid="sidebar-splitter"
-        @mousedown="sidebarSplitter.startDrag"
+        @mousedown="onSplitterMouseDown"
         @dblclick="sidebarSplitter.onSplitterDoubleClick"
       />
 
