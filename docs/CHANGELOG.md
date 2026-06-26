@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.5] — 2026-06-26
+
+### Added
+- **侧栏宽度可拖拽**：拖动侧栏与编辑器之间的分隔条调整宽度，200-600px 范围，默认 256px。宽度按工作区记忆（每个工作区独立）。
+- **拖到很窄自动收起**：拖动宽度低于阈值时侧栏自动收起；不松手拖回阈值之上又会自动出现（VSCode / Obsidian 风格）。
+- **窗口过窄自动收起**：窗口宽度不足 608px 时侧栏自动收起，避免挤压编辑器。
+- **双击分隔条收起**：双击分隔条可收起侧栏，与拖到很窄的收起语义对齐。
+- **分隔条 hover 高亮**：鼠标悬停或拖拽时，分隔条中线变粗并高亮为当前主题色（VSCode / Obsidian 风格）。
+
+
 ## [0.5.4] — 2026-06-26
 
 ### Added

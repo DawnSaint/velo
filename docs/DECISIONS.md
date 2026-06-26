@@ -319,3 +319,44 @@
   - 取消只能在每次 Tauri fs await 之后生效,不是硬中断;大型工作区可见延迟用进度反馈兜底
   - 后续若性能不足,可以在同一 UI / 结果模型后替换为 Rust ripgrep 或持久索引
 
+
+
+## v0.5.5 — 侧栏可拖拽 + 自动收起  (2026-06-26)
+
+### ADR-20260626-001: 侧栏宽度按 workspace 持久化(与 `sidebarTab` 同 schema,READ 语义)
+
+- **Context**: 侧栏宽度新增为"用户偏好",候选:
+  - A) 全局(单一宽度,所有工作区共享):实现最简,但 /a 调成 240,切到 /b 仍是 240,多工作区体感差
+  - B) per-workspace(与 `sidebarTab` 同 schema 形态,字段挂在 `WorkspaceState`):用户在不同工作区拖到不同宽度,切回能恢复
+  - C) per-document:粒度过细,用户不会因"打开了不同文件"就期望侧栏宽度变化
+- **Decision**: 选 B。`WorkspaceState` 加 `sidebarWidth?: number`(可选,旧 JSON 缺字段回退 256),`WORKSPACES_VERSION` bump 到 2,`loadWorkspaces` 同时接受 v1 / v2。**`setActiveRoot` 走 READ 语义**:切到新工作区时**读**它的 `sidebarWidth` 到 top-level ref,而不是把当前 top-level 值写过去。这与 `sidebarTab` 的 WRITE 语义(切工作区保留当前 tab)相反 —— 因为 per-workspace 持久化要求"切回 /a 后宽度还是 /a 的,不是 /b 的",WRITE 语义会让 round-trip 测试"切 A → B → 切回 A 仍是 A"挂掉
+- **Consequences**:
+  - 字段加在 `WorkspaceState`,落盘时跟 `expandedDirs` / `lastFile` 同 `snapshot` 路径
+  - 旧 v1 JSON 无需手动迁移,load 时 `sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT` 兜底
+  - 后续若想让"新工作区继承当前 UI 宽度",改 `setActiveRoot` 的 READ→WRITE 即可,文档同步在 `docs/architecture/file-tree.md` 「侧栏宽度」段已经标注这条 contract
+
+### ADR-20260626-002: 侧栏双阈值 + 死区 snap(A=80 collapse,B=200 视觉下限)
+
+- **Context**: 拖拽侧栏需要兼顾"用户能拖到很窄表示收起意图"和"用户能拖到一个合理的最小可见宽度"。三个候选:
+  - A) 单一阈值(只一个 collapse 点,例如 100px):拖到这个点以下收起,以上任意值合法
+  - B) 双阈值 + 死区 snap:A = 80(左阈值,低于收起),B = 200(右阈值,视觉下限);[A, B] 拖到的任何值在视觉上强制 = B
+  - C) 双阈值 + 无 snap:[A, B] 范围内的值原样显示
+  - 关键观察:C 的"原样显示 [80, 200]"会让用户感受到两个阈值(collapse 边界 80 + 视觉下限 200)中间夹一段[80, 200]的瞬时值,release 后鼠标可能停在 150 而侧栏宽度是 150(若 store 兜底 200 则瞬时跳变)。再加上 release 后再次拖拽时 `composable.startDrag` 读 `opts.width.value` 的 raw 值(可能落在死区)而 watcher 是 async(flush: 'pre'),导致 `dragStartWidth` 偏小,用户必须额外移动 (B - lastRaw) 像素才能让线跟手 —— 用户报告的"线不跟手 80px"
+- **Decision**: 选 B。`displaySidebarWidth = Math.max(sidebarWidthRef, SIDEBAR_WIDTH_MIN)` 把任何 < B 的 raw 值 snap 到 B;`onCommit` 写 `Math.max(raw, SIDEBAR_WIDTH_MIN)`,store 永远 >= B;`composable` 的 `dragCollapseBelow: 80` 触发 `onDragCollapse` 收起。三件事协同让屏幕上看不到 [A, B] 之间的瞬时值,鼠标与 splitter 始终对齐在 >= B 的位置
+- **Consequences**:
+  - 用户实际能看到的最小侧栏宽度 = B(200),与 ROADMAP 「大纲/文件侧边栏可拉伸」一致
+  - 死区 [A, B] 是不可见的"屏障",用户感受不到这个区间的存在
+  - **mousedown 包装层修复 dragStartWidth 漂移**:`onSplitterMouseDown(e)` 在调 `composable.startDrag` 之前先 `sidebarWidthRef.value = workspaceStore.sidebarWidth` 同步,避免 watcher 的 async flush 让 `startDrag` 读到 stale raw(0 步到达 snapped 值);sync 放调用方包装层而非 composable 内部,因为 composable 是通用的,不该耦合 App.vue 的 snap 语义
+  - 后续若要把可见最小改到 256(原 ROADMAP 默认值),只改 `SIDEBAR_WIDTH_MIN` 一个常量,三处协同(onCommit / displaySidebarWidth / store clamp)同步生效
+
+### ADR-20260626-003: splitter 拖拽走 `mousedown` + window listener,不用 HTML5 `draggable`
+
+- **Context**: 侧栏分隔条需要"按住拖动"交互。候选:
+  - A) HTML5 `draggable=true` + `dragstart` / `drag` / `dragend`:标准 API,但 Tauri 即便 `dragDropEnabled: false` 仍会在 webview 层监听 `dragenter` / `dragover` 用作 OS 文件 drop 探测,启用 `draggable` 后 splitter 的 drag 事件会被低层截获或冲突,可能误触 `ImageUploadPlugin` 的 drop handler
+  - B) 原生 `mousedown` + window-level `mousemove` / `mouseup`:不被 Tauri 截获,纯 DOM 事件,语义清晰
+  - C) Pointer Events 统一封装鼠标 + 触屏:但本项目当前没有触屏场景,引入抽象无收益
+- **Decision**: 选 B。`useResizeSplitter.startDrag` 在 splitter 元素上挂 `mousedown`(用 `setPointerCapture` 也可,但 `mousedown` + window listener 在 jsdom 测起来更轻),触发后挂 window 的 `mousemove` / `mouseup`,rAF 节流 ref 写入。`body` 上加 `cursor: col-resize` + `user-select: none`,drag 结束恢复
+- **Consequences**:
+  - 不被 Tauri 干扰,ImageUploadPlugin / FileTree drop handler 与 splitter drag 完全正交
+  - 跨平台一致(macOS / Windows / Linux webview 都走同一套 DOM 事件)
+  - 后续若要加触屏支持,迁移到 Pointer Events 是单文件改动(`mousedown` → `pointerdown`,加 `setPointerCapture` 取代 window listener 模式)
