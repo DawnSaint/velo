@@ -4,7 +4,7 @@ import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspaces, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
@@ -26,6 +26,7 @@ import {
   type WorkspaceSearchHit,
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
+import { useResizeSplitter } from '@/composables/useResizeSplitter'
 // import sampleMdRaw from '@/assets/sample-code.md?raw'
 import sampleMdRaw from '@/assets/sample.md?raw'
 import veloLogo from '@/assets/Velo.png'
@@ -118,6 +119,110 @@ void initSettings()
 type LeftPanelView = 'sidebar' | 'settings' | null
 const leftPanelView = ref<LeftPanelView>(null)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
+
+// ========== 侧栏可拖拽 + 自动收起(v0.5.5)==========
+// sidebarWidthRef 是 UI 层镜像,composable 在拖拽中写入此 ref(rAF 节流);
+// commit 时再调 workspaceStore.setSidebarWidth 写回 store(per-workspace 持久化)。
+//
+// **双阈值 + 死区 snap(v0.5.5 后期调整)**:A = DRAG_COLLAPSE_BELOW(80),B = SIDEBAR_WIDTH_MIN(200)。
+//   - [0, A)        : drag-collapse 区,侧栏隐藏;onCommit 不写 store(瞬时值)。
+//   - [A, B] 死区   : 视觉宽度强制 = B(80-200 之间的瞬时值不在屏幕上出现,避免
+//                     "线从中间位置开始动"的视觉错位 —— 用户报告的根因);
+//                     onCommit 写 B 到 store。
+//   - (B, MAX]      : 正常稳定区,视觉宽度 = raw,onCommit 写 raw。
+// 用户拖回 [A, MAX] 时 onDragReopen 让侧栏按 snapshot 视图重新出现,继续拖拽。
+//
+// 两种自动收起:
+//   - 拖拽宽度 < 80 → onDragCollapse 收起;拖回 >= 80 → onDragReopen 重开
+//   - 窗口宽度 < AUTO_COLLAPSE_BELOW(608 = 48 + 200 + 360)→ onCollapse 收起
+//   - 双击 splitter → onCollapse 收起
+//
+// 拖拽下界 min:0,composable 不耦合阈值;App.vue 的 onCommit 决定 raw 落不落盘。
+// store + composable 双层防御保证合法稳定值在 [B, MAX] 内。
+//
+// displaySidebarWidth 拿的是"用户看到的宽度":
+//   - 侧栏收起:0
+//   - 侧栏可见:Math.max(sidebarWidthRef.value, SIDEBAR_WIDTH_MIN) —— 死区 snap 到 B,
+//     解决"线从中间位置开始动"。
+//
+// drag-reopen snapshot(v0.5.5):onDragCollapse 触发时把"收起前用户正在看的视图"
+// (sidebar / settings)记到 dragCollapseRestoreView,onDragReopen 时还原。
+// 关键:只在拖拽过程中还原 —— 拖拽结束后清空,避免下次普通点击 ActivityBar 误把
+// 侧栏强行重开(参见 isDragging watcher 末尾的复位)。
+// 双阈值:A = DRAG_COLLAPSE_BELOW(80,左),B = SIDEBAR_WIDTH_MIN(200,右)。
+// 窗口 resize 兜底阈值:ActivityBar 48 + 侧栏最小 200 + 编辑器最小 360 = 608。
+const AUTO_COLLAPSE_BELOW = SIDEBAR_WIDTH_MIN + 48 + 360
+const DRAG_COLLAPSE_BELOW = 80
+// drag-reopen snapshot:onDragCollapse 触发时把"当前 view"存到这里,
+// onDragReopen 时还原。null 表示"本次拖拽还没收过侧栏"。isDragging watcher
+// 在拖拽开始/结束时清空,保证非拖拽场景下该变量无副作用。
+const dragCollapseRestoreView = ref<LeftPanelView | null>(null)
+const sidebarWidthRef = ref<number>(workspaceStore.sidebarWidth)
+const sidebarSplitter = useResizeSplitter({
+  width: sidebarWidthRef,
+  min: 0,
+  max: SIDEBAR_WIDTH_MAX,
+  onCommit: (n) => {
+    // 双阈值 + 死区 snap:
+    //   n < A(80)         : collapse 区,onCommit 不写(store 保留上次稳定值)
+    //   n in [A, B]       : 死区,写 B(200)到 store —— release 时停在 B
+    //   n > B             : 稳定区,写 n 到 store
+    // 这样 deadzone [80, 200) 在屏幕上根本看不见(侧栏宽度在视觉上
+    // 死区 snap 到 B),也避开了用户报告的"线从中间位置开始动"问题。
+    if (n < DRAG_COLLAPSE_BELOW) return
+    workspaceStore.setSidebarWidth(Math.max(n, SIDEBAR_WIDTH_MIN))
+  },
+  collapseBelow: AUTO_COLLAPSE_BELOW,
+  onCollapse: () => { leftPanelView.value = null },
+  dragCollapseBelow: DRAG_COLLAPSE_BELOW,
+  onDragCollapse: () => {
+    // 收起前先 snapshot 当前 view(sidebar / settings),出区时用 onDragReopen 还原。
+    // 这里在 leftPanelView 已经非空时 snapshot,因为 startDrag 的前提就是侧栏可见
+    // (splitter 本身 v-if="leftPanelView" 才渲染),所以此处拿到的值一定是有效视图。
+    dragCollapseRestoreView.value = leftPanelView.value
+    leftPanelView.value = null
+  },
+  onDragReopen: () => {
+    // 拖回阈值之上,恢复 drag-collapse 之前用户正在看的视图。
+    // restore view 是 null 的话什么都不做(理论上 startDrag 已保证非 null,
+    // 但加一层防御:用户可能已经手动用 ActivityBar 切了别的)。
+    if (dragCollapseRestoreView.value) leftPanelView.value = dragCollapseRestoreView.value
+  },
+})
+// 切换 workspace 时,store 的 sidebarWidth 变了 → 同步到 UI ref
+watch(() => workspaceStore.sidebarWidth, (n) => {
+  sidebarWidthRef.value = n
+})
+// 拖拽开始 → 同步 sidebarWidthRef 为 store 当前值(composable 用此值做 dragStartWidth)。
+// 不放在 isDragging 的普通 watch 里是因为 store 值可能在拖拽间变化(虽然不常见),
+// 每次拖拽开始时强制同步一次最安全。
+//
+// 拖拽开始 → 同步 sidebarWidthRef 为 store 当前值(composable 用此值做 dragStartWidth)。
+// 拖拽结束 → 清空 dragCollapseRestoreView。关键:即便 onDragCollapse 触发后用户
+// 没把鼠标拖回阈值之上就 release,这个值也会被清掉,避免下次手动点 ActivityBar
+// 切到新视图时,被一个陈旧的 snapshot 误导触发 onDragReopen 把不该开的东西开回来。
+watch(() => sidebarSplitter.isDragging.value, (dragging, was) => {
+  if (dragging && !was) {
+    sidebarWidthRef.value = workspaceStore.sidebarWidth
+    dragCollapseRestoreView.value = null
+  }
+  else if (!dragging && was) {
+    dragCollapseRestoreView.value = null
+  }
+})
+// 真正给模板用的显示宽度:见顶部注释
+//
+// 死区 snap 是关键:在拖拽中或 reopen 后,siderbarWidthRef 可能落在 [A, B] 死区
+// (例如用户拖到 150 但视觉应该停在 B=200)。displaySidebarWidth 把任何 < B 的值
+// snap 到 B,这样视觉宽度与 splitter 位置始终 >= B,鼠标与线对齐。
+//
+// 注意:不用"是否拖拽中"分支(siderbarWidthRef vs store)——onCommit 已经把死区
+// 内的 raw 写成了 B,store 总是 >= B;sidebarWidthRef 在死区内也只是临时值,
+// display snap 一下就行,不需要切源。简化后只有一个表达式。
+const displaySidebarWidth = computed(() => {
+  if (!leftPanelView.value) return 0
+  return Math.max(sidebarWidthRef.value, SIDEBAR_WIDTH_MIN)
+})
 
 // 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效。
 watch(
@@ -888,12 +993,17 @@ onBeforeUnmount(() => {
         @select-settings="toggleSettingsPanel"
       />
 
-      <!-- 左侧功能区:当前先承载既有 Sidebar / 设置,后续再做可调宽与多标签编辑器。 -->
+      <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
+           收起(leftPanelView=null)时宽度 0,splitter 跟着隐藏 →
+           通过 v-if 避免残留一个 1px 不可点但占位的元素。
+           模板绑定 displaySidebarWidth(拖拽中用 local ref 实时跟随,
+           其他情况用 store 稳定值 —— 详见上方注释)。 -->
       <aside
-        class="shrink-0 overflow-hidden "
-        :class="leftPanelView ? 'w-64' : 'w-0'"
+        v-if="leftPanelView"
+        class="shrink-0 overflow-hidden"
+        :style="{ width: `${displaySidebarWidth}px` }"
       >
-        <div class="h-full overflow-hidden border-r border-gray-200 dark:border-gray-800">
+        <div class="h-full overflow-hidden">
           <Sidebar
             v-if="leftPanelView === 'sidebar'"
             ref="sidebarRef"
@@ -903,6 +1013,20 @@ onBeforeUnmount(() => {
           <EditorSettings v-else-if="leftPanelView === 'settings'" />
         </div>
       </aside>
+
+      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1) + ::before 1px 中线;
+           hover/drag 时中线扩到 2px 并上主题色(--md-primary-color)。
+           CSS 规则见下方 <style> 块,因为 Tailwind 不便表达 "1px → 2px 中心对齐 + 主题色"
+           的组合(::before + transition + 任意色),直接写 CSS 更清晰。
+           收起时不渲染(已由上面 v-if 整体隐藏),避免 0 宽侧栏旁出现孤立 1px 条。 -->
+      <div
+        v-if="leftPanelView"
+        class="velo-splitter w-1 shrink-0 cursor-col-resize bg-transparent"
+        :class="{ 'velo-splitter-dragging': sidebarSplitter.isDragging.value }"
+        data-testid="sidebar-splitter"
+        @mousedown="sidebarSplitter.startDrag"
+        @dblclick="sidebarSplitter.onSplitterDoubleClick"
+      />
 
       <!-- 编辑器区域 -->
       <!--
@@ -981,3 +1105,33 @@ onBeforeUnmount(() => {
     />
   </div>
 </template>
+
+<style>
+/* 侧栏分隔条视觉(v0.5.5)。
+ * 4px 透明点击热区 + ::before 1px 中线(gray-200 light / gray-800 dark);
+ * hover 或 .velo-splitter-dragging 时中线扩到 2px + 主题色(--md-primary-color)。
+ * 不用 Tailwind arbitrary 值表达这套 ::before + transition + 主题色的组合,
+ * 直接 CSS 更清晰,且样式只在 App.vue 一处用到,无需抽组件。
+ */
+.velo-splitter {
+  position: relative;
+}
+.velo-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background-color: #e5e7eb; /* gray-200 */
+  transition: width 120ms ease, background-color 120ms ease;
+}
+.dark .velo-splitter::before {
+  background-color: #1f2937; /* gray-800 */
+}
+.velo-splitter:hover::before,
+.velo-splitter.velo-splitter-dragging::before {
+  width: 2px;
+  background-color: var(--md-primary-color, #1F71D9);
+}
+</style>

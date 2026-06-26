@@ -277,7 +277,9 @@ export async function deleteAllDrafts(): Promise<void> {
 // 设计选择见 docs/DECISIONS.md ADR-20260623-001(持久化拆分粒度)。
 
 const WORKSPACES_FILE = 'velo-workspaces.json'
-const WORKSPACES_VERSION = 1
+// v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600),
+// 可选字段缺失时回退默认 256。loadWorkspaces 同时接受 v1 / v2。
+const WORKSPACES_VERSION = 2
 
 export type SidebarTab = 'outline' | 'files'
 
@@ -290,6 +292,8 @@ export interface WorkspaceState {
   sidebarTab?: SidebarTab
   /** 该工作区下最近打开的文件路径,头部 = 最新;cap 10。Ctrl+P 双分区用(v0.5.2). */
   recentFiles?: string[]
+  /** 该工作区下用户拖拽过的侧栏宽度(px,200-600);缺失回退默认 256(v0.5.5). */
+  sidebarWidth?: number
 }
 
 export interface PersistedWorkspaces {
@@ -309,7 +313,8 @@ export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
     const json = await readTextFile(path)
     const parsed = JSON.parse(json)
     if (typeof parsed !== 'object' || parsed === null) return null
-    if (parsed.version !== WORKSPACES_VERSION) return null
+    // v1 和 v2 都接受:v2 只是给 WorkspaceState 多加了可选字段,旧 JSON 兜底
+    if (parsed.version !== 1 && parsed.version !== WORKSPACES_VERSION) return null
     if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return null
     return parsed as PersistedWorkspaces
   }

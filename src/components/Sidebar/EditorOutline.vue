@@ -314,8 +314,10 @@ onUnmounted(() => {
     列表 min-h-0 flex-1 overflow-y-auto:拿走剩余空间,内容超出时出滚动条
       (min-h-0 关键 —— flex 子项默认 min-height: auto,会撑到内容高度,
        不加 min-h-0 的话 overflow-y-auto 永远没机会触发,这是经典 flex 坑)
+    min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px;overflow-hidden
+       防止窄态时子元素溢出。p-2 pt-2 pr-0 保留 —— pr-2 由内层 pr-2 补回。
   -->
-  <div class="velo-outline flex h-full min-w-64 flex-col p-2 pt-2 pr-0">
+  <div class="velo-outline flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
     <!-- 搜索框(v0.5.2):仅在文档有标题时显示;空文档没东西可搜。
          焦点边色走主题色 --md-primary-color(在 scoped style 内定义),与大纲
          高亮色统一。 -->

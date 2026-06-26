@@ -10,7 +10,7 @@
 
 **feat**
 
-- [ ] 工作区可拖拽，低于宽度阈值自动收起，大纲/文件侧边栏可拉伸
+- [x] 工作区可拖拽，低于宽度阈值自动收起，大纲/文件侧边栏可拉伸
 
 
 ### 0.5.6 
@@ -56,9 +56,9 @@
 - [ ] 功能更新弹窗（版本升级后首启展示 CHANGELOG 摘要）
 - [ ] Git 集成（侧栏显示 git status / commit / diff）
 - [ ] 导出更多格式（DOCX / EPUB）
-- [ ] 反向链接：当前文档被工作区内哪些 .md 引用，分组展示 + 上下文片段
 - [ ] 资产面板（侧边栏第 3 个 tab）：扫描当前文档所有 `image` / `link` 节点，列出本地路径 + 外链分组；点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）；引用计数为 0 的本地资产标灰（孤儿候选）
 - [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
+- [ ] 书签
 
 
 ### 便捷操作
@@ -77,7 +77,7 @@
 - [ ] `[[wikilink]]` 语法：schema + remark 插件 + syntax/inline 注册 + NodeView（hover 显示目标文件预览，点击跳转）
 - [ ] 工作区索引：`workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新（依赖 v0.5.0 的工作区根 watch）
 - [ ] 损坏链接检测：索引时标记指向不存在文件的 `[[link]]`，编辑器内 decoration 标红 + 提示
-
+- [ ] 反向链接：当前文档被工作区内哪些 .md 引用，分组展示 + 上下文片段
 
 **test**
 

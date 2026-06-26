@@ -702,7 +702,9 @@ function displayName(node: TreeNode): string {
 </script>
 
 <template>
-  <div class="velo-file-tree flex h-full min-w-64 flex-col">
+  <!-- min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px。行内 truncate 由
+       各 row 自己处理。overflow-hidden 防窄态溢出。 -->
+  <div class="velo-file-tree flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 空态:没选工作区(根名已下沉成 flatItems 第一行,v0.5.1) -->
     <div v-if="!workspace.activeRoot" class="flex flex-1 items-center justify-center px-4">
       <button

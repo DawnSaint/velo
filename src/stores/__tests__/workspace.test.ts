@@ -199,4 +199,69 @@ describe('workspace store', () => {
     })
     expect(store.activeWorkspace.recentFiles).toEqual([])
   })
+
+  // ========== sidebarWidth(v0.5.5,可拖拽宽度) ==========
+
+  it('setSidebarWidth clamp 到 [200, 600],并写入当前 workspace', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/r')
+    store.setSidebarWidth(800) // 超出 max
+    expect(store.sidebarWidth).toBe(600)
+    store.setSidebarWidth(100) // 低于 min(SIDEBAR_WIDTH_MIN = 200)
+    expect(store.sidebarWidth).toBe(200)
+    store.setSidebarWidth(150) // 死区内的值,store 层只 clamp 不 snap
+    expect(store.sidebarWidth).toBe(200) // 死区 snap 由 App.vue onCommit 负责
+    store.setSidebarWidth(350)
+    expect(store.sidebarWidth).toBe(350)
+    expect(store.activeWorkspace.sidebarWidth).toBe(350)
+  })
+
+  it('setSidebarWidth 在无工作区时只更新 top-level ref,不写持久化', () => {
+    const store = useWorkspaceStore()
+    store.setSidebarWidth(400)
+    expect(store.sidebarWidth).toBe(400)
+    // activeWorkspace 在无 activeRoot 时是 fresh empty state,不挂持久化路径
+    expect(store.activeWorkspace.sidebarWidth).toBe(256) // 默认
+  })
+
+  it('sidebarWidth 走 snapshot/loadFrom round-trip,跨 workspace 各自保留', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/a')
+    store.setSidebarWidth(320)
+    store.setActiveRoot('/b')
+    store.setSidebarWidth(480)
+    const snap = store.snapshot()
+    setActivePinia(createPinia())
+    const next = useWorkspaceStore()
+    next.loadFrom(snap)
+    expect(next.activeRoot).toBe('/b')
+    expect(next.sidebarWidth).toBe(480)
+    next.setActiveRoot('/a')
+    expect(next.sidebarWidth).toBe(320)
+    expect(next.activeWorkspace.sidebarWidth).toBe(320)
+  })
+
+  it('loadFrom 兼容旧 v1 JSON(无 sidebarWidth)→ 兜底 256', () => {
+    const store = useWorkspaceStore()
+    store.loadFrom({
+      version: 1,
+      active: '/old',
+      workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
+    })
+    expect(store.activeWorkspace.sidebarWidth).toBe(256)
+    expect(store.sidebarWidth).toBe(256)
+  })
+
+  it('切换 workspace 时 sidebarWidth 同步到 top-level ref', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/a')
+    store.setSidebarWidth(300)
+    store.setActiveRoot('/b')
+    // b 还没设过 → 走 setActiveRoot 的 ensureWorkspace → 取 ws.sidebarWidth ?? 256
+    expect(store.sidebarWidth).toBe(256)
+    store.setSidebarWidth(420)
+    // 切回 a 应恢复 300
+    store.setActiveRoot('/a')
+    expect(store.sidebarWidth).toBe(300)
+  })
 })

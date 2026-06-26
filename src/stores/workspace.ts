@@ -6,6 +6,7 @@
 //   - 历史工作区列表(用于"切换工作区"下拉)
 //   - 每个工作区的局部状态(展开的目录、上次打开的文件、上次的 sidebar tab)
 //   - 当前侧边栏 tab('outline' | 'files')
+//   - 当前侧栏宽度(v0.5.5;按 workspace 持久化,跟 sidebarTab 同语义)
 //
 // 持久化走 `persistence.ts:loadWorkspaces/saveWorkspaces`,本 store 内
 // 落盘交给 App.vue 的 debounce watch(与 settings / outline 同款)。
@@ -15,8 +16,26 @@ import { computed, ref } from 'vue'
 import { open as openDialog } from '@/tauri/dialog'
 import type { PersistedWorkspaces, SidebarTab, WorkspaceState } from './persistence'
 
+/** 侧栏宽度常量(v0.5.5)。在 store clamp 与 composable clamp 双处用到,
+ *  与 plan「关键复用」一节对应;暴露为 named export 供 App.vue 直接 import,
+ *  不在 UI 层重写一遍数字。
+ *
+ *  **双阈值(v0.5.5 后期调整)**:A = DRAG_COLLAPSE_BELOW(80,左阈值,拖到此处及以下收起),
+ *  B = SIDEBAR_WIDTH_MIN(200,右阈值,稳定下限)。[A, B] 是死区 —— 拖到这个范围时
+ *  视觉宽度 snap 到 B,不会显示 80-200 之间的瞬时值(避免用户报告的"线从中间位置
+ *  开始动"的视觉错位)。这两个数字由 App.vue 通过 DRAG_COLLAPSE_BELOW / SIDEBAR_WIDTH_MIN
+ *  各自引用。 */
+export const SIDEBAR_WIDTH_MIN = 200
+export const SIDEBAR_WIDTH_MAX = 600
+export const SIDEBAR_WIDTH_DEFAULT = 256
+
+function clampSidebarWidth(n: number): number {
+  if (Number.isNaN(n)) return SIDEBAR_WIDTH_DEFAULT
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
+}
+
 function emptyWorkspaceState(): WorkspaceState {
-  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [] }
+  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [], sidebarWidth: SIDEBAR_WIDTH_DEFAULT }
 }
 
 /** 最近打开文件列表上限。VSCode 同款体量,够 Ctrl+P 面板用又不至于把"其他"区挤掉。 */
@@ -31,6 +50,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /** 当前侧边栏看的 tab。无工作区时强制 'outline'。 */
   const sidebarTab = ref<SidebarTab>('outline')
+
+  /** 当前激活 workspace 的侧栏宽度(px,v0.5.5)。切换 workspace 时由 setActiveRoot 同步。
+   *  暴露给 UI/App.vue 直接渲染 aside 宽度;持久化由 activeWorkspace.sidebarWidth 承担。 */
+  const sidebarWidth = ref<number>(SIDEBAR_WIDTH_DEFAULT)
 
   /** 历史工作区根路径列表(派生自 workspaces 的 keys),用于切换下拉。 */
   const knownRoots = computed<string[]>(() => Object.keys(workspaces.value))
@@ -51,20 +74,29 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /**
    * 切换到指定工作区根。如果该 root 没记录过,初始化空状态。
    *
-   * **不动 sidebarTab**:用户主动切工作区时(顶栏"打开文件夹"按钮 / 二次启动
-   * dir argv / pickWorkspace),保留当前 UI tab 状态,让 tab 选择贯穿切换。
-   * 启动期恢复持久化 tab 走 `loadFrom`,自己读 ws.sidebarTab 应用。
-   * 把当前 tab 同步写回新 workspace 记忆,这样下次启动重开该工作区时
-   * 恢复到同一 tab(语义闭环:用户切到新工作区那一刻的 UI 状态被持久化)。
+   * **sidebarTab 行为(沿用旧语义)**:用户主动切工作区时,保留当前 UI tab,
+   * 同步写到新 workspace —— 用户在哪个 tab 是他当下的偏好,新工作区继承。
+   * 启动期持久化 tab 由 `loadFrom` 应用,见下方。
+   *
+   * **sidebarWidth 行为(v0.5.5,READ 语义)**:从新 workspace 读它的 width
+   * 到 top-level,而不是把当前 top-level 写过去。两点取舍:
+   *   - per-workspace 持久化要求每个工作区保留自己的宽度;
+   *     切到新 workspace 不应被其他 workspace 的 UI 状态覆盖
+   *     (round-trip 测试明确依赖此行为)。
+   *   - 新 workspace 走 default 256,符合"无偏好就用默认"。
+   * 如果未来要让新 workspace 继承当前 UI 宽度,改此处即可,但要和
+   * 文档「文档同步」一节同步说明。
    *
    * root=null(关闭工作区)时强制 'outline':无工作区时 'files' tab 没意义
-   * (FileTree 渲染空态按钮),回到 outline 是派生约束。
+   * (FileTree 渲染空态按钮),回到 outline 是派生约束。sidebarWidth 保留
+   * (下次切回任何 workspace 时不会闪)。
    */
   function setActiveRoot(root: string | null) {
     activeRoot.value = root
     if (root) {
       const ws = ensureWorkspace(root)
       ws.sidebarTab = sidebarTab.value
+      sidebarWidth.value = ws.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT
     }
     else {
       sidebarTab.value = 'outline'
@@ -167,19 +199,40 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 启动时从磁盘灌入(覆盖现有)。**只有这条路径**会把持久化的 sidebarTab
-   *  应用到当前 UI —— 用户主动切工作区由 setActiveRoot 保留当前 tab。 */
+  /** 侧栏宽度变更(v0.5.5):clamp 到 [SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX],
+   *  写 top-level ref 驱动 UI,同时持久化到当前 workspace。无活跃工作区时
+   *  top-level ref 仍更新(下次切回该 workspace 时 hydrate),但不写持久化
+   *  —— 与 setDirExpanded 同款"无工作区 no-op"语义。 */
+  function setSidebarWidth(width: number) {
+    // 单一阈值语义:[SIDEBAR_WIDTH_MIN, MAX] 都是合法稳定值;
+    // App.vue 的 onCommit 已经先判了 `n >= SIDEBAR_WIDTH_MIN` 才调本函数,
+    // 这里 clamp 是双层防御(防止其它调用点 / 旧 JSON 直接传 < MIN 的值)。
+    const clamped = clampSidebarWidth(width)
+    sidebarWidth.value = clamped
+    if (activeRoot.value) {
+      const ws = ensureWorkspace(activeRoot.value)
+      ws.sidebarWidth = clamped
+    }
+  }
+
+  /** 启动时从磁盘灌入(覆盖现有)。**只有这条路径**会把持久化的 sidebarTab / sidebarWidth
+   *  应用到当前 UI —— 用户主动切工作区由 setActiveRoot 保留当前 tab / 宽度。 */
   function loadFrom(data: PersistedWorkspaces) {
-    // 旧 JSON 可能没有 recentFiles 字段,统一兜底为空数组,免得调用方需要判 undefined
+    // 旧 JSON 可能没有 recentFiles / sidebarWidth 字段,统一兜底,免得调用方需要判 undefined
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(data.workspaces)) {
-      ws[k] = { ...v, recentFiles: v.recentFiles ?? [] }
+      ws[k] = {
+        ...v,
+        recentFiles: v.recentFiles ?? [],
+        sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
+      }
     }
     workspaces.value = ws
     if (data.active && workspaces.value[data.active]) {
       activeRoot.value = data.active
       const w = workspaces.value[data.active]
       if (w.sidebarTab) sidebarTab.value = w.sidebarTab
+      if (typeof w.sidebarWidth === 'number') sidebarWidth.value = w.sidebarWidth
     }
     else {
       setActiveRoot(null)
@@ -195,10 +248,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         lastFile: v.lastFile ?? null,
         sidebarTab: v.sidebarTab,
         recentFiles: [...(v.recentFiles ?? [])],
+        sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
       }
     }
     return {
-      version: 1,
+      version: 2,
       active: activeRoot.value,
       workspaces: ws,
     }
@@ -208,6 +262,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeRoot,
     workspaces,
     sidebarTab,
+    sidebarWidth,
     knownRoots,
     activeWorkspace,
     setActiveRoot,
@@ -219,6 +274,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pushRecentFile,
     renamePathPrefix,
     setSidebarTab,
+    setSidebarWidth,
     loadFrom,
     snapshot,
   }
