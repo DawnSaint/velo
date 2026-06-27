@@ -14,7 +14,7 @@
 // 行内 input(新建 / 重命名)走「行内编辑」(对齐 VSCode / Finder),不再用 modal。
 // 数据 / IO 抽到 `useTreeData` composable,纯函数抽到 `treeUtils`,本文件只剩 UI 状态机。
 
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import {
   mkdir as fsMkdir,
   remove as fsRemove,
@@ -683,17 +683,41 @@ function onGlobalDragEnd() {
   clearHoverExpandTimer()
 }
 
-onMounted(() => {
+let globalListenersAttached = false
+
+function attachGlobalListeners() {
+  if (globalListenersAttached) return
   document.addEventListener('pointerdown', onGlobalPointerDown, true)
   document.addEventListener('keydown', onGlobalKeydown)
   // dragend 兜底:行级 @dragend 在拖拽源被脱开 DOM 时可能丢,文档级保险一份
   document.addEventListener('dragend', onGlobalDragEnd)
-})
-onBeforeUnmount(() => {
+  globalListenersAttached = true
+}
+
+function detachGlobalListeners() {
+  if (!globalListenersAttached) return
   document.removeEventListener('pointerdown', onGlobalPointerDown, true)
   document.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('dragend', onGlobalDragEnd)
+  globalListenersAttached = false
+}
+
+function resetTransientUi() {
+  dragOverTarget.value = null
+  closeContextMenu()
+  cancelInline()
   clearHoverExpandTimer()
+}
+
+onMounted(attachGlobalListeners)
+onActivated(attachGlobalListeners)
+onDeactivated(() => {
+  detachGlobalListeners()
+  resetTransientUi()
+})
+onBeforeUnmount(() => {
+  detachGlobalListeners()
+  resetTransientUi()
 })
 
 const rootDisplay = computed(() => {

@@ -653,7 +653,21 @@ import { watch as watchFs, type UnwatchFn as FsUnwatchFn } from '@/tauri/fs'
 
 let workspaceUnwatch: FsUnwatchFn | null = null
 const dirtyDirs = new Set<string>()
+const pendingSidebarDirtyDirs = new Set<string>()
 let dirtyFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function flushPendingSidebarDirtyDirs() {
+  if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'files') return
+  if (pendingSidebarDirtyDirs.size === 0) return
+  await nextTick()
+  const sidebar = sidebarRef.value
+  if (!sidebar) return
+  const dirs = Array.from(pendingSidebarDirtyDirs)
+  pendingSidebarDirtyDirs.clear()
+  for (const d of dirs) {
+    sidebar.refreshDir(d)
+  }
+}
 
 function scheduleDirtyFlush() {
   if (dirtyFlushTimer) return
@@ -661,9 +675,12 @@ function scheduleDirtyFlush() {
     dirtyFlushTimer = null
     const dirs = Array.from(dirtyDirs)
     dirtyDirs.clear()
+    const sidebar = sidebarRef.value
     for (const d of dirs) {
-      sidebarRef.value?.refreshDir(d)
+      if (sidebar) sidebar.refreshDir(d)
+      else pendingSidebarDirtyDirs.add(d)
     }
+    void flushPendingSidebarDirtyDirs()
     // Ctrl+P 索引也作废 —— 任何脏目录事件视为索引失效,下次面板打开重扫(v0.5.2)
     invalidateQuickOpenIndex(workspaceStore.activeRoot)
   }, 120)
@@ -709,11 +726,18 @@ async function stopWorkspaceWatch() {
 // 的 race 容忍策略 —— 用户快速切换工作区时,新 watch 句柄会赢,旧的就算回调
 // 漏过来也只是多刷一次树,无副作用。
 watch(() => workspaceStore.activeRoot, async (r) => {
-  // 切工作区 → Ctrl+P 缓存整张表清掉(新工作区不复用旧索引,且旧路径上的 watch 已停)
+  // 切工作区 → 清掉旧 root 的延迟目录刷新,Ctrl+P 缓存整张表清掉
+  // (新工作区不复用旧索引,且旧路径上的 watch 已停)。
+  pendingSidebarDirtyDirs.clear()
   clearQuickOpenIndex()
   if (r) await startWorkspaceWatch(r)
   else await stopWorkspaceWatch()
 })
+
+watch(
+  [() => leftPanelView.value, () => workspaceStore.sidebarTab],
+  () => { void flushPendingSidebarDirtyDirs() },
+)
 
 // 当前打开文件变化 → 同步到 workspaceStore.lastFile,用户切回工作区时能恢复。
 // 无活跃工作区时 setLastFile 内部直接 return,不污染状态。
@@ -1015,31 +1039,32 @@ onBeforeUnmount(() => {
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
-           收起(leftPanelView=null)时宽度 0,splitter 跟着隐藏 →
-           通过 v-if 避免残留一个 1px 不可点但占位的元素。
-           模板绑定 displaySidebarWidth(拖拽中用 local ref 实时跟随,
-           其他情况用 store 稳定值 —— 详见上方注释)。 -->
+           外层 aside 保持挂载,只在收起时宽度归 0;Sidebar 走 KeepAlive,
+           避免 ActivityBar 收起 / settings 切换 / auto-collapse 后重新展开 files
+           时销毁 FileTree 并触发根目录 loading。splitter 仍随 leftPanelView 隐藏,
+           避免 0 宽侧栏旁出现孤立分隔线。 -->
       <aside
-        v-if="leftPanelView"
         class="shrink-0 overflow-hidden"
         :style="{ width: `${displaySidebarWidth}px` }"
       >
         <div class="h-full overflow-hidden">
-          <Sidebar
-            v-if="leftPanelView === 'sidebar'"
-            ref="sidebarRef"
-            :model-value="documentStore.content"
-            :file-path="documentStore.currentFilePath"
-          />
-          <EditorSettings v-else-if="leftPanelView === 'settings'" />
+          <KeepAlive>
+            <Sidebar
+              v-if="leftPanelView === 'sidebar'"
+              ref="sidebarRef"
+              :model-value="documentStore.content"
+              :file-path="documentStore.currentFilePath"
+            />
+          </KeepAlive>
+          <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>
       </aside>
 
-      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1) + ::before 1px 中线;
-           hover/drag 时中线扩到 2px 并上主题色(--md-primary-color)。
-           CSS 规则见下方 <style> 块,因为 Tailwind 不便表达 "1px → 2px 中心对齐 + 主题色"
-           的组合(::before + transition + 任意色),直接写 CSS 更清晰。
-           收起时不渲染(已由上面 v-if 整体隐藏),避免 0 宽侧栏旁出现孤立 1px 条。 -->
+      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1) + 左贴边 1px 线;
+           hover/drag 时向左右各扩 1px(3px)并上主题色(--md-primary-color)。
+           CSS 规则见下方 <style> 块,因为 Tailwind 不便表达 ::before 视觉层
+           与透明命中区分离的组合,直接写 CSS 更清晰。
+           收起时不渲染,避免 0 宽侧栏旁出现孤立 1px 条。 -->
       <div
         v-if="leftPanelView"
         class="velo-splitter w-1 shrink-0 cursor-col-resize bg-transparent"
@@ -1129,30 +1154,33 @@ onBeforeUnmount(() => {
 
 <style>
 /* 侧栏分隔条视觉(v0.5.5)。
- * 4px 透明点击热区 + ::before 1px 中线(gray-200 light / gray-800 dark);
- * hover 或 .velo-splitter-dragging 时中线扩到 2px + 主题色(--md-primary-color)。
+ * 4px 透明点击热区 + 左贴边 ::before 1px 线(gray-200 light / gray-800 dark);
+ * hover 或 .velo-splitter-dragging 时视觉线向左右各扩 1px(3px) + 主题色(--md-primary-color)。
  * 不用 Tailwind arbitrary 值表达这套 ::before + transition + 主题色的组合,
  * 直接 CSS 更清晰,且样式只在 App.vue 一处用到,无需抽组件。
  */
 .velo-splitter {
   position: relative;
+  z-index: 1;
 }
 .velo-splitter::before {
   content: '';
   position: absolute;
-  inset: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: 1px;
+  pointer-events: none;
   background-color: #e5e7eb; /* gray-200 */
-  transition: width 120ms ease, background-color 120ms ease;
+  transition: left 120ms ease, width 120ms ease, background-color 120ms ease;
 }
 .dark .velo-splitter::before {
   background-color: #1f2937; /* gray-800 */
 }
 .velo-splitter:hover::before,
 .velo-splitter.velo-splitter-dragging::before {
-  width: 2px;
+  left: -1px;
+  width: 3px;
   background-color: var(--md-primary-color, #1F71D9);
 }
 </style>

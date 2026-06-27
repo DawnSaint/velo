@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { filterHeadings } from '@/utils/outlineFilter'
@@ -209,6 +209,8 @@ function indentClass(depth: number): string {
 const currentKey = ref<string | null>(null)
 let scrollContainer: HTMLElement | null = null
 let rafId: number | null = null
+let attachTimer: ReturnType<typeof setTimeout> | null = null
+let scrollSpyActive = false
 
 function getScrollContainer(): HTMLElement | null {
   // 编辑器的可滚动容器是 .velo-editor 的父元素（带 overflow-auto 的那层）
@@ -289,23 +291,41 @@ function attachScrollListener() {
   }
 }
 
-onMounted(() => {
-  // ProseMirrorEditor 异步挂载,先尝试一次,找不到就等下一帧
-  attachScrollListener()
-  if (!scrollContainer) {
-    nextTick(attachScrollListener)
-  }
-  // 编辑器可能在内容变化时重渲染 DOM，再兜底一次
-  setTimeout(attachScrollListener, 200)
-})
+function scheduleAttachScrollListener() {
+  if (attachTimer) clearTimeout(attachTimer)
+  attachTimer = setTimeout(() => {
+    attachTimer = null
+    if (scrollSpyActive) attachScrollListener()
+  }, 200)
+}
 
-onUnmounted(() => {
+function detachScrollListener() {
+  scrollSpyActive = false
+  if (attachTimer) {
+    clearTimeout(attachTimer)
+    attachTimer = null
+  }
   scrollContainer?.removeEventListener('scroll', onScroll)
+  scrollContainer = null
   if (rafId !== null) {
     cancelAnimationFrame(rafId)
     rafId = null
   }
-})
+}
+
+function activateScrollSpy() {
+  scrollSpyActive = true
+  attachScrollListener()
+  if (!scrollContainer) nextTick(() => {
+    if (scrollSpyActive) attachScrollListener()
+  })
+  scheduleAttachScrollListener()
+}
+
+onMounted(activateScrollSpy)
+onActivated(activateScrollSpy)
+onDeactivated(detachScrollListener)
+onUnmounted(detachScrollListener)
 </script>
 
 <template>
