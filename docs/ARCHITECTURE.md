@@ -23,7 +23,7 @@
 | ProseMirror 插件链、schema、markdownIO、syntax、NodeView/Decoration、mermaid、shiki、源码模式、跨模式同步 | [`architecture/editor.md`](./architecture/editor.md) |
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
 | Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse | [`architecture/file-tree.md`](./architecture/file-tree.md) |
-| Ctrl+P 快速打开、Ctrl+Shift+F 全文搜索、fuzzy、最近文件 | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
+| Ctrl+P 快速打开、Ctrl+Shift+P 命令面板、Ctrl+Shift+F 全文搜索、fuzzy、最近文件 | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
 | HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
 | 测试目标、选型、目录规范、Tauri mock 边界、反过度测试、E2E | [`architecture/testing.md`](./architecture/testing.md) |
@@ -61,6 +61,7 @@ velo/
 │   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
+│   ├── utils/                     fuzzy / commandPalette / quickOpenIndex / workspaceSearch 等跨组件纯工具
 │   ├── styles/                    Tailwind + Sass partial
 │   └── components/
 │       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树
@@ -75,6 +76,7 @@ velo/
 │       ├── ActivityBar.vue          左贴边功能栏:文件操作 / 工作区 / 大纲 / 全局搜索 / 设置(只发事件,App.vue 持有 shell 状态)
 │       ├── FileActionsPanel.vue     左侧文件操作面板:新建 / 打开 / 保存 / 导出命令列表(纯展示 + 事件转发)
 │       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
+│       ├── CommandPalettePanel.vue 全局命令面板:Ctrl+Shift+P,聚合 App shell 命令 / 工作区动作 / 全局最近文件,复用 fuzzy 评分
 │       ├── RecentFilesButton.vue   顶栏最近文件菜单:读取全局 recentFiles,点击后由 App.vue 统一打开
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── DraftRecoveryDialog.vue

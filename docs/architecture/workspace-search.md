@@ -1,13 +1,14 @@
 # Workspace Search
 
-> **本文件负责**: 大纲搜索、Ctrl+P 快速打开与 Ctrl+Shift+F 工作区全文搜索。
+> **本文件负责**: 大纲搜索、Ctrl+P 快速打开、Ctrl+Shift+P 命令面板与 Ctrl+Shift+F 工作区全文搜索。
 >
-> **何时阅读**: 改 `EditorOutline.vue`、`QuickOpenPanel.vue`、`WorkspaceSearchPanel.vue`、`quickOpenIndex.ts`、`workspaceSearch.ts`、fuzzy scoring 或最近文件语义时。
+> **何时阅读**: 改 `EditorOutline.vue`、`QuickOpenPanel.vue`、`CommandPalettePanel.vue`、`WorkspaceSearchPanel.vue`、`quickOpenIndex.ts`、`commandPalette.ts`、`workspaceSearch.ts`、fuzzy scoring 或最近文件语义时。
 >
 > **先记住**:
 > - 大纲搜索是视图层过滤，不污染 tree / 折叠态 / store。
 > - Ctrl+P 索引是 per-root 内存缓存，fs.watch 只标记 stale，不做局部 patch。
 > - 最近文件分两层:Ctrl+P 用 per-workspace recent;顶栏用全局 recent。
+> - Ctrl+Shift+P 命令面板是 App shell 的轻量聚合入口,不是 VSCode 式全局命令系统。
 > - Ctrl+Shift+F MVP 实时遍历 raw markdown，不建持久索引。
 > - WYSIWYG raw offset 只能在 ordinal 可对齐时定位，否则只打开文件。
 >
@@ -22,5 +23,5 @@
 
 - **Ctrl+Shift+F 全文搜索:JS 端实时扫 .md + raw 命中定位**(v0.5.2): 全局快捷键同样挂 `App.vue:onKeydown`,无工作区静默 return;左贴边 ActivityBar 的“全局搜索”入口复用同一条 `openWorkspaceSearch()` 路径,不另起侧栏搜索状态。面板是独立 `Teleport` 浮层,关闭即取消当前 run。MVP 不建持久索引:每次 query debounce 后走 `src/utils/workspaceSearch.ts` 递归 `readDir` BFS(隐藏目录整段跳过)→ `readTextFile` → 复用查找替换的 `buildPattern` 跑 RegExp,按行匹配,结果只展示命中行(不渲染上下文行),同一行多命中拆多条 row;目录 / 文件读取失败按 quickOpen 同款静默跳过。进度按 scanning/searching/canceled/done 汇报,取消只能在每次 Tauri fs await 之后生效(不能中断已发出的 plugin-fs 调用),旧 run 结果用 token 丢弃。结果坐标是 raw markdown offset,点击打开仍走 `confirmDiscardIfDirty()` → `openPath()` → `workspaceStore.setLastFile()`;源码模式下 raw offset 与 CM6 坐标一致,优先重算 ordinal 命中后 select;WYSIWYG 下 raw offset 不能可靠映射 PM doc pos,只在 PM 可见文本命中数量与 raw 文件命中数量一致时按 ordinal select,否则仅打开文件、不自动切到源码模式,避免模式意外跳转。
 
-- **顶栏最近文件:全局 recent 与 Ctrl+P recent 分层**(v0.5.7): 顶栏“最近文件”读 `recentFilesStore.entries`,落盘到 `velo-recent-files.json`,跨工作区 / 单文件模式可用;Ctrl+P 的“最近打开”仍读 `workspaceStore.activeWorkspace.recentFiles`,只在当前工作区索引内展示。两者都由成功打开 Markdown 文件推进,但持久化粒度不同:全局 recent 是 `{ path, openedAt }[]` 并在保存时读盘 merge,降低多窗口覆盖;per-workspace recent 是路径数组,服务当前 root 的最近优先双分区。顶栏打开全局 recent 后只在路径落入 `activeRoot` 时写 workspace recent,避免当前工作区的 Ctrl+P 最近段混入外部文件。
+- **Ctrl+Shift+P 命令面板:App shell 命令聚合,不引入完整命令系统**(v0.5.7): 命令面板沿用 QuickOpen 的顶部浮层、键盘导航与 `fuzzyScore` 评分,但搜索对象是 App shell 的可执行操作而不是文件索引。命令列表在 `App.vue` 组装,因为打开 / 保存 / 导出 / 查找替换 / 源码模式 / 左侧面板这些动作的状态与副作用都由 App shell 持有;`CommandPalettePanel.vue` 只负责输入、分组展示、disabled 呈现和执行选中项,`src/utils/commandPalette.ts` 只做 query 归一化、跨字段 fuzzy 匹配与 title 高亮切段。这里**故意不做 VSCode 式 command registry / context key / 参数化命令系统**,避免把轻量入口变成第二套 shell 状态机。最近文件条目读取全局 `recentFilesStore.entries`,执行仍复用 App 的 `openRecentFile(path)` 路径;Ctrl+P 的 per-workspace recent 继续只服务当前工作区快速打开。工作区相关命令无 active root 时保留可见但 disabled,用于告诉用户“功能存在,需要先打开工作区”,而 Ctrl+P 原快捷键仍保持无工作区静默。
 

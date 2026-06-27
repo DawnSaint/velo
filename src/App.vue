@@ -17,12 +17,15 @@ import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import FileActionsPanel from '@/components/FileActionsPanel.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
+import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import RecentFilesButton from '@/components/RecentFilesButton.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
+import type { CommandPaletteItem } from '@/utils/commandPalette'
+import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import {
   revealWorkspaceSearchMatch,
   type WorkspaceSearchHit,
@@ -469,6 +472,7 @@ function toggleFind() {
 // 工作区维度的快速打开面板,与 FindReplace 视觉档次对齐但独立浮层。
 // 无工作区时 onKeydown 直接 return(对齐 ROADMAP 问答约定的"静默无反应"语义)。
 const quickOpenOpen = ref(false)
+const commandPaletteOpen = ref(false)
 const workspaceSearchOpen = ref(false)
 const workspaceSearchInitialQuery = ref('')
 
@@ -476,8 +480,24 @@ function openWorkspaceSearch() {
   const sel = currentSelectionText()
   workspaceSearchInitialQuery.value = sel
   quickOpenOpen.value = false
+  commandPaletteOpen.value = false
   findOpen.value = false
   workspaceSearchOpen.value = true
+}
+
+function openQuickOpen() {
+  if (!workspaceStore.activeRoot) return
+  commandPaletteOpen.value = false
+  workspaceSearchOpen.value = false
+  findOpen.value = false
+  quickOpenOpen.value = true
+}
+
+function openCommandPalette() {
+  quickOpenOpen.value = false
+  workspaceSearchOpen.value = false
+  findOpen.value = false
+  commandPaletteOpen.value = true
 }
 
 function selectAndRevealWorkspaceSearchMatch(be: ReturnType<typeof activeBackend>, from: number, to: number) {
@@ -532,9 +552,20 @@ const activeActivity = computed<ActivityBarItem | null>(() => {
   return null
 })
 
+function showFileActionsPanel() {
+  workspaceSearchOpen.value = false
+  leftPanelView.value = 'fileActions'
+}
+
 function toggleFileActionsPanel() {
   workspaceSearchOpen.value = false
   leftPanelView.value = leftPanelView.value === 'fileActions' ? null : 'fileActions'
+}
+
+function showSidebarTab(tab: 'files' | 'outline') {
+  workspaceSearchOpen.value = false
+  workspaceStore.setSidebarTab(tab)
+  leftPanelView.value = 'sidebar'
 }
 
 function toggleSidebarTab(tab: 'files' | 'outline') {
@@ -545,6 +576,11 @@ function toggleSidebarTab(tab: 'files' | 'outline') {
   }
   workspaceStore.setSidebarTab(tab)
   leftPanelView.value = 'sidebar'
+}
+
+function showSettingsPanel() {
+  workspaceSearchOpen.value = false
+  leftPanelView.value = 'settings'
 }
 
 function toggleSettingsPanel() {
@@ -581,6 +617,183 @@ async function openRecentFile(path: string) {
   workspaceStore.setLastFile(path)
 }
 
+const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
+  const needWorkspace = !workspaceStore.activeRoot
+  const items: CommandPaletteItem[] = [
+    {
+      id: 'file.new',
+      title: '新建文件',
+      subtitle: '创建一份未保存的新 Markdown 文档',
+      shortcut: 'Ctrl+N',
+      group: 'app',
+      keywords: ['new file', 'new document', 'markdown'],
+      run: () => documentStore.newDoc(),
+    },
+    ...(tauri ? [{
+      id: 'window.new',
+      title: '新窗口',
+      subtitle: '打开一个独立的 Velo 窗口',
+      shortcut: 'Ctrl+Shift+N',
+      group: 'app' as const,
+      keywords: ['new window'],
+      run: () => createNewAppWindow(),
+    }] : []),
+    {
+      id: 'file.open',
+      title: '打开文件',
+      subtitle: '从磁盘选择一个 Markdown 文件',
+      shortcut: 'Ctrl+O',
+      group: 'app',
+      keywords: ['open file'],
+      run: () => documentStore.open(),
+    },
+    {
+      id: 'file.save',
+      title: '保存',
+      subtitle: documentStore.currentFilePath ? normalizeDisplayPath(documentStore.currentFilePath) : '未命名文件会进入另存为',
+      shortcut: 'Ctrl+S',
+      group: 'app',
+      keywords: ['save file'],
+      run: () => documentStore.save(),
+    },
+    {
+      id: 'file.saveAs',
+      title: '另存为',
+      subtitle: '选择新位置保存当前文档',
+      shortcut: 'Ctrl+Shift+S',
+      group: 'app',
+      keywords: ['save as'],
+      run: () => documentStore.saveAs(),
+    },
+    {
+      id: 'file.export',
+      title: exportStore.exporting ? '导出中…' : '导出',
+      subtitle: '导出为 HTML 或 PDF',
+      shortcut: 'Ctrl+Shift+E',
+      group: 'app',
+      keywords: ['export', 'html', 'pdf'],
+      disabled: exportStore.exporting,
+      disabledReason: '导出中…',
+      run: () => exportStore.exportDocument(),
+    },
+    {
+      id: 'edit.find',
+      title: '查找',
+      subtitle: '在当前文档中查找',
+      shortcut: 'Ctrl+F',
+      group: 'app',
+      keywords: ['find', 'search current file'],
+      run: () => openFind(),
+    },
+    {
+      id: 'edit.replace',
+      title: '替换',
+      subtitle: '在当前文档中查找并替换',
+      shortcut: 'Ctrl+H',
+      group: 'app',
+      keywords: ['replace'],
+      run: () => openReplace(),
+    },
+    {
+      id: 'editor.toggleSource',
+      title: documentStore.sourceMode ? '切换到所见即所得' : '切换源码模式',
+      subtitle: documentStore.sourceMode ? '返回 ProseMirror 所见即所得编辑器' : '使用源码模式编辑 Markdown',
+      shortcut: 'Ctrl+`',
+      group: 'app',
+      keywords: ['source mode', 'wysiwyg', 'markdown source'],
+      run: () => documentStore.toggleSourceMode(),
+    },
+    {
+      id: 'view.fileActions',
+      title: '显示文件操作',
+      subtitle: '打开左侧的新建、打开、保存、导出入口',
+      group: 'app',
+      keywords: ['file actions', 'sidebar'],
+      run: () => showFileActionsPanel(),
+    },
+    {
+      id: 'settings.open',
+      title: '打开设置',
+      subtitle: '调整编辑器外观和行为',
+      group: 'app',
+      keywords: ['settings', 'preferences'],
+      run: () => showSettingsPanel(),
+    },
+    {
+      id: 'workspace.openFolder',
+      title: '打开文件夹作为工作区',
+      subtitle: '选择一个目录作为当前工作区',
+      group: 'workspace',
+      keywords: ['open folder', 'workspace'],
+      run: () => openFolderAsWorkspace(),
+    },
+    {
+      id: 'workspace.quickOpen',
+      title: '快速打开文件',
+      subtitle: '在当前工作区中按文件名查找 Markdown',
+      shortcut: 'Ctrl+P',
+      group: 'workspace',
+      keywords: ['quick open', 'file search'],
+      disabled: needWorkspace,
+      disabledReason: '需要先打开工作区',
+      run: () => openQuickOpen(),
+    },
+    {
+      id: 'workspace.search',
+      title: '搜索工作区',
+      subtitle: '全文搜索当前工作区中的 Markdown',
+      shortcut: 'Ctrl+Shift+F',
+      group: 'workspace',
+      keywords: ['workspace search', 'search all files'],
+      disabled: needWorkspace,
+      disabledReason: '需要先打开工作区',
+      run: () => openWorkspaceSearch(),
+    },
+    {
+      id: 'workspace.files',
+      title: '显示工作区文件',
+      subtitle: '打开左侧文件树',
+      group: 'workspace',
+      keywords: ['file tree', 'explorer', 'workspace files'],
+      disabled: needWorkspace,
+      disabledReason: '需要先打开工作区',
+      run: () => showSidebarTab('files'),
+    },
+    {
+      id: 'workspace.outline',
+      title: '显示大纲',
+      subtitle: '打开当前文档的大纲视图',
+      group: 'workspace',
+      keywords: ['outline', 'headings'],
+      run: () => showSidebarTab('outline'),
+    },
+    {
+      id: 'workspace.close',
+      title: '关闭工作区',
+      subtitle: workspaceStore.activeRoot ? normalizeDisplayPath(workspaceStore.activeRoot) : '当前没有打开的工作区',
+      group: 'workspace',
+      keywords: ['close workspace'],
+      disabled: needWorkspace,
+      disabledReason: '当前没有打开的工作区',
+      run: () => workspaceStore.closeWorkspace(),
+    },
+  ]
+
+  for (const entry of recentFilesStore.entries.slice(0, 12)) {
+    const displayPath = normalizeDisplayPath(entry.path)
+    items.push({
+      id: `recent:${entry.path}`,
+      title: `打开最近文件: ${basenameOfPath(entry.path)}`,
+      subtitle: displayPath,
+      group: 'recent',
+      keywords: ['recent file', entry.path, displayPath],
+      run: () => openRecentFile(entry.path),
+    })
+  }
+
+  return items
+})
+
 // 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
 //
 // 必须 capture 阶段 + preventDefault 才能压过浏览器自己的 Ctrl+F (find in page)。
@@ -590,8 +803,8 @@ async function openRecentFile(path: string) {
 function onKeydown(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey)) return
   const target = e.target as HTMLElement | null
-  // 焦点在 FindReplace / 工作区搜索面板里 → 让面板自己处理(避免双触发)
-  if (target?.closest('[data-fr-panel], [data-workspace-search-panel]')) return
+  // 焦点在 FindReplace / 工作区搜索 / 命令面板里 → 让面板自己处理(避免双触发)
+  if (target?.closest('[data-fr-panel], [data-workspace-search-panel], [data-command-palette-panel]')) return
   const k = e.key.toLowerCase()
   if (k === 's' && e.shiftKey) {
     e.preventDefault()
@@ -647,6 +860,12 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     e.stopPropagation()
     void exportStore.exportDocument()
+  }
+  else if (k === 'p' && e.shiftKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (commandPaletteOpen.value) commandPaletteOpen.value = false
+    else openCommandPalette()
   }
   else if (k === 'p' && !e.shiftKey) {
     // Ctrl+P 查找文件(v0.5.2):无工作区静默 —— 用户从顶栏 / 文件树空态自行进入。
@@ -1108,6 +1327,14 @@ onBeforeUnmount(() => {
       v-if="quickOpenOpen"
       :open="quickOpenOpen"
       @update:open="(v) => quickOpenOpen = v"
+    />
+
+    <!-- Ctrl+Shift+P 命令面板(v0.5.7):全局操作入口,复用 QuickOpen 的顶部浮层体验。 -->
+    <CommandPalettePanel
+      v-if="commandPaletteOpen"
+      :open="commandPaletteOpen"
+      :items="commandPaletteItems"
+      @update:open="(v) => commandPaletteOpen = v"
     />
 
     <!-- Ctrl+Shift+F 全文搜索浮层(v0.5.2):实时 JS 扫描工作区 .md,点击结果由 App.vue 统一打开并选区。 -->
