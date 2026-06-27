@@ -14,7 +14,7 @@ import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import EditorSettings from '@/components/EditorSettings.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
-import ExportButton from '@/components/ExportButton.vue'
+import FileActionsPanel from '@/components/FileActionsPanel.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
@@ -118,7 +118,7 @@ void initSettings()
     codeBlockReady.value = true
   })
 
-type LeftPanelView = 'sidebar' | 'settings' | null
+type LeftPanelView = 'fileActions' | 'sidebar' | 'settings' | null
 const leftPanelView = ref<LeftPanelView>(null)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
@@ -526,10 +526,16 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
 
 const activeActivity = computed<ActivityBarItem | null>(() => {
   if (workspaceSearchOpen.value) return 'search'
+  if (leftPanelView.value === 'fileActions') return 'fileActions'
   if (leftPanelView.value === 'settings') return 'settings'
   if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
   return null
 })
+
+function toggleFileActionsPanel() {
+  workspaceSearchOpen.value = false
+  leftPanelView.value = leftPanelView.value === 'fileActions' ? null : 'fileActions'
+}
 
 function toggleSidebarTab(tab: 'files' | 'outline') {
   workspaceSearchOpen.value = false
@@ -587,10 +593,31 @@ function onKeydown(e: KeyboardEvent) {
   // 焦点在 FindReplace / 工作区搜索面板里 → 让面板自己处理(避免双触发)
   if (target?.closest('[data-fr-panel], [data-workspace-search-panel]')) return
   const k = e.key.toLowerCase()
-  if (k === 's') {
+  if (k === 's' && e.shiftKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    void documentStore.saveAs()
+  }
+  else if (k === 's') {
     e.preventDefault()
     e.stopPropagation()
     void documentStore.save()
+  }
+  else if (k === 'n' && e.shiftKey) {
+    if (!tauri) return
+    e.preventDefault()
+    e.stopPropagation()
+    void createNewAppWindow()
+  }
+  else if (k === 'n') {
+    e.preventDefault()
+    e.stopPropagation()
+    documentStore.newDoc()
+  }
+  else if (k === 'o') {
+    e.preventDefault()
+    e.stopPropagation()
+    void documentStore.open()
   }
   else if (k === 'f' && e.shiftKey) {
     // Ctrl+Shift+F 工作区全文搜索(v0.5.2):无工作区静默,对齐 Ctrl+P。
@@ -609,11 +636,6 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     e.stopPropagation()
     openReplace()
-  }
-  else if (k === 'n' && e.shiftKey) {
-    e.preventDefault()
-    e.stopPropagation()
-    void createNewAppWindow()
   }
   else if (k === '`') {
     e.preventDefault()
@@ -939,76 +961,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="flex shrink-0 items-center gap-1">
-        <!-- 新建 -->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="新建 (Ctrl+N)"
-          @click="documentStore.newDoc()"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="12" y1="10" x2="12" y2="16" /></svg>
-        </button>
-        <!-- 新窗口 -->
-        <button
-          v-if="tauri"
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="新窗口 (Ctrl+Shift+N)"
-          @click="createNewAppWindow()"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="14" height="14" rx="2" />
-            <path d="M7 21h12a2 2 0 0 0 2-2V7" />
-          </svg>
-        </button>
-        <!-- 打开文件 -->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="打开文件 (Ctrl+O)"
-          @click="documentStore.open()"
-        >
-          <!-- file-up:文档 + 向上箭头,跟"打开文件夹"的纯 folder 形成视觉区分 -->
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <path d="M12 18v-6" />
-            <path d="m9 15 3-3 3 3" />
-          </svg>
-        </button>
         <!-- 最近文件 -->
         <RecentFilesButton
           :entries="recentFilesStore.entries"
           @open-recent="openRecentFile"
         />
-        <!-- 打开文件夹(作为工作区)-->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="打开文件夹"
-          @click="openFolderAsWorkspace()"
-        >
-          <!-- folder-open (Lucide):敞开的文件夹,与"打开文件"file-up 区分;
-               跟旧 FileTree 顶部 folder 图标不同形(那个是合上的),避免被误读为同一动作 -->
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-          </svg>
-        </button>
-        <!-- 保存 -->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="保存 (Ctrl+S)"
-          @click="documentStore.save()"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
-        </button>
-        <!-- 另存为 -->
-        <button
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="另存为 (Ctrl+Shift+S)"
-          @click="documentStore.saveAs()"
-        >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-        </button>
-        <!-- 导出 (Ctrl+Shift+E) -->
-        <ExportButton />
-        <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
         <!-- 搜索(Ctrl+F) — toggle:点一次开,再点一次关。active 样式跟设置按钮一样 -->
         <button
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
@@ -1032,6 +989,7 @@ onBeforeUnmount(() => {
     <div class="flex flex-1 overflow-hidden">
       <ActivityBar
         :active="activeActivity"
+        @select-file-actions="toggleFileActionsPanel"
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
@@ -1056,6 +1014,18 @@ onBeforeUnmount(() => {
               :file-path="documentStore.currentFilePath"
             />
           </KeepAlive>
+          <FileActionsPanel
+            v-if="leftPanelView === 'fileActions'"
+            :is-tauri="tauri"
+            :exporting="exportStore.exporting"
+            @new-doc="documentStore.newDoc()"
+            @new-window="createNewAppWindow()"
+            @open-file="documentStore.open()"
+            @open-folder="openFolderAsWorkspace()"
+            @save="documentStore.save()"
+            @save-as="documentStore.saveAs()"
+            @export="exportStore.exportDocument()"
+          />
           <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>
       </aside>

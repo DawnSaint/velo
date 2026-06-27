@@ -1,11 +1,12 @@
 <script setup lang="ts">
-export type ActivityBarItem = 'files' | 'outline' | 'search' | 'settings'
+export type ActivityBarItem = 'fileActions' | 'files' | 'outline' | 'search' | 'settings'
 
 defineProps<{
   active: ActivityBarItem | null
 }>()
 
 const emit = defineEmits<{
+  'select-file-actions': []
   'select-files': []
   'select-outline': []
   'select-search': []
@@ -13,15 +14,19 @@ const emit = defineEmits<{
 }>()
 
 const primaryItems = [
-  { key: 'files', label: '文件', event: 'select-files' },
+  { key: 'fileActions', label: '文件', event: 'select-file-actions' },
+  { key: 'files', label: '工作区', event: 'select-files' },
   { key: 'outline', label: '大纲', event: 'select-outline' },
   { key: 'search', label: '全局搜索', event: 'select-search' },
 ] as const
 
 const settingsItem = { key: 'settings', label: '设置', event: 'select-settings' } as const
 
-function select(event: 'select-files' | 'select-outline' | 'select-search' | 'select-settings') {
-  if (event === 'select-files') emit('select-files')
+type ActivityBarEvent = typeof primaryItems[number]['event'] | typeof settingsItem['event']
+
+function select(event: ActivityBarEvent) {
+  if (event === 'select-file-actions') emit('select-file-actions')
+  else if (event === 'select-files') emit('select-files')
   else if (event === 'select-outline') emit('select-outline')
   else if (event === 'select-search') emit('select-search')
   else emit('select-settings')
@@ -44,7 +49,11 @@ function select(event: 'select-files' | 'select-outline' | 'select-search' | 'se
         :aria-pressed="active === item.key"
         @click="select(item.event)"
       >
-        <svg v-if="item.key === 'files'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg v-if="item.key === 'fileActions'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+        <svg v-else-if="item.key === 'files'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 7.5V6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.6.8L12 6.5H19a2 2 0 0 1 2 2v1" />
           <path d="M3 9.5h18l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 9.5z" />
         </svg>

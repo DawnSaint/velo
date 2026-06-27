@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileActionsPanel 文件命令入口 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，2 条主链路 spec(`e2e/specs/workspace-crud.spec.ts` / `e2e/specs/multi-window.spec.ts`)，覆盖 CLI 启动 / 新建 / 编辑保存 / 重命名 / 删除,以及二次启动创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；不接 CI。
 
@@ -78,6 +78,7 @@ src/
 └── components/
     ├── __tests__/
     │   ├── ActivityBar.test.ts
+    │   ├── FileActionsPanel.test.ts
     │   ├── RecentFilesButton.test.ts
     │   ├── WorkspaceSearchPanel.test.ts
     │   ├── StatusBar.test.ts
@@ -142,7 +143,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 
 测试不是越多越好。下列**不写**测试:
 
-- **纯展示 / 低交互组件** —— `ExportButton.vue` / `DraftRecoveryDialog.vue` / `CodeBlockLanguagePicker.vue` 这类,没有用户可见的失败模式。
+- **纯展示 / 低交互组件** —— `DraftRecoveryDialog.vue` / `CodeBlockLanguagePicker.vue` 这类,没有用户可见的失败模式。
 - **薄封装 / 转发层** —— `src/tauri/*.ts` 只是转发 Tauri API,测它等于测 mock。
 - **稳定的样板代码** —— boilerplate 配置、纯 CSS 调整、props 透传。
 - **只断言“代码跑过了”的用例** —— 半年没抓到回归、又无行为断言,是死重,敢删。阶段性审计一次。
