@@ -108,6 +108,33 @@ describe('markdownIO round-trip', () => {
   }
 })
 
+describe('markdownIO - math fence guard', () => {
+  it('行首 $$ 后有正文但没有闭合 $$ 时按普通段落解析', () => {
+    const md = '$$L_{rank = \\sum_{r_i\n\np为要学习模型的输出\n\n$$p_i = \\frac{\\sum_t log P_\\pi(y_{i,t}|x,y_{i,'
+    const doc = fromMarkdown(md, schema)
+
+    let mathCount = 0
+    doc.descendants(node => {
+      if (node.type.name === 'math_block' || node.type.name === 'math_inline') mathCount++
+    })
+
+    expect(mathCount).toBe(0)
+    expect(doc.child(0).type.name).toBe('paragraph')
+    expect(doc.child(0).textContent).toBe('$$L_{rank = \\sum_{r_i')
+    expect(doc.textContent).toContain('$$p_i = \\frac{\\sum_t log P_\\pi')
+  })
+
+  it('同一行闭合的 $$...$$ 仍解析为行内公式', () => {
+    const doc = fromMarkdown('$$p_i$$', schema)
+    const para = doc.firstChild
+    let foundInlineMath = false
+    para?.forEach(child => {
+      if (child.type.name === 'math_inline' && child.textContent === 'p_i') foundInlineMath = true
+    })
+    expect(foundInlineMath).toBe(true)
+  })
+})
+
 describe('markdownIO - HTML 节点直接行为', () => {
   it('块级 html 解析为 html_block 节点,attrs.value 是整段原文', () => {
     const md = '<details><summary>x</summary>y</details>'

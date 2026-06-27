@@ -390,6 +390,14 @@ describe('htmlRenderer', () => {
       expect(warnings.some(w => w.includes('公式'))).toBe(true)
     })
 
+    it('treats unclosed $$ opener with trailing text as plain text', async () => {
+      const md = '$$L_{rank = \\sum_{r_i\n\np为要学习模型的输出\n\n$$p_i = \\frac{\\sum_t log P_\\pi(y_{i,t}|x,y_{i,'
+      const { html } = await buildExportHtml(baseOpts(md))
+      expect(html).not.toContain('katex')
+      expect(html).toContain('$$L_{rank = \\sum_{r_i')
+      expect(html).toContain('$$p_i = \\frac{\\sum_t log P_\\pi')
+    })
+
     it('inlines KaTeX woff2 fonts as base64 data URIs (no relative url(fonts/...) left)', async () => {
       // 测纯函数 inlineKatexWoff2Fonts —— vitest 跑 ?inline 对 .css / binary
       // 的处理跟 prod build 不同(返回空),经 buildExportHtml 拿到的 css 串

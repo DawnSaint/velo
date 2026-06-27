@@ -46,6 +46,7 @@ import { remarkPreserveEmptyLine } from '@/components/ProseMirrorEditor/plugins/
 import { remarkAlert } from '@/components/ProseMirrorEditor/plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '@/components/ProseMirrorEditor/plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '@/components/ProseMirrorEditor/plugins/remarkHighlight'
+import { remarkMathFenceGuard } from '@/components/ProseMirrorEditor/plugins/remarkMathFenceGuard'
 import {
   ensureLanguage,
   DEFAULT_LIGHT_THEME,
@@ -113,6 +114,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     .use(remarkPreserveEmptyLine)
     .use(remarkEncodeLinkUrls)
     .use(remarkGfm)
+    .use(remarkMathFenceGuard)
     .use(remarkMath)
     .use(remarkAlert)
     .use(remarkHighlight)

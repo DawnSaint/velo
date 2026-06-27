@@ -52,7 +52,7 @@
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册 |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
-**markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + remark-math + preserveEmptyLine)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
+**markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + 公式围栏守卫 + remark-math + preserveEmptyLine)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
 
 ---
 
@@ -66,6 +66,7 @@
 - **shiki dual-theme 代码高亮**: `codeToTokensWithThemes` 返回 token 级双色,每 token inline `--shiki-light/dark` 变量,SCSS 按 `html.dark` 选。**darkMode toggle 纯 CSS 切色(零重渲);换主题(换 hex)才 rebuild**,由 App.vue watch 触发。首屏零闪烁:App.vue `codeBlockReady` 守门 PM mount;`state.init` 同步拿 cached highlighter
 - **shiki 预扫 + 懒加载 lang**: 启动只装 doc 实际 lang ∪ 5 项 BASELINE(js/ts/py/bash/json);运行时 miss 用 `hl.getLoadedLanguages()` 探活(不能用 `getLanguage()`,miss 时 throw),异步追加 grammar 后**不直接 rebuild highlighter**,经 plugin 端 `setDecorationRebuildCallback` 钩子让 plugin 自己 rAF 节流 rebuild decorations(见下方“shiki 两条正交路径”)。**首次 miss 那帧无 token 是有意为之的"先骨架后着色"**
 - **语法实时转换走 appendTransaction + dirty-range**(不走 InputRule 末尾匹配): `syntaxAutoFormat.ts` 从 `tr.mapping.maps` 提 dirty range → textblock 段首检测 + inline 正则扫描,黑名单(code_block/html_block/math_block)、code mark、link session 框架统一过滤。新增语法 = 写一个文件 + `syntax/index.ts` 注册一行。**坑**: block detector pattern 带 `^` 不带 `g`;inline 带带 `g` 不带 `^/$`;inline 扫描前 atom 用 NBSP 占位防穿透;语法 apply 直接改框架传入的 `tr`,不要自己 dispatch
+- **公式围栏守卫在 remark-math 前做文本预处理**: Velo 约定块级公式开头行必须只有 `$$`,同一行 `$$...$$` 继续按行内公式解析。`remark-math` 默认接受 `$$meta` 作为 flow math 开头,且 EOF 也能闭合,用户少写行尾 `$$` 时会把后续段落吞成一个 `math_block`;因此 pipeline 在 `remark-math` 前把“行首 `$$` 后有正文但本行没有闭合 `$$`”转义成普通文本。导出 HTML 复用同一守卫,避免编辑器与导出语义分叉
 - **NodeView 隔离**: `ignoreMutation()` + `stopPropagation` 隔离 ProseMirror
 - **粘贴 text/plain 必须注册 `clipboardTextParser`**: ProseMirror 默认 plain-text fallback 把整段按 `\n+` 拆 `<p>` 再 `normalizeSiblings` 自动包 blockquote,产出错位 doc。`markdownPastePlugin` 走 fromMarkdown 输出**封闭 slice `(0,0)`**(非 `maxOpen`)走标准 "join 前后 paragraph" 路径把 blocks merge 进 doc 顶层
 - **样式分层**: ProseMirror 基础排版内联 `<style>`,公式/Mermaid/脚注/TOC 走 SCSS partial

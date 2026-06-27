@@ -22,6 +22,7 @@ import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
+import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 
 // ============================================================
 //  unified processor
@@ -32,6 +33,7 @@ const processor = unified()
   .use(remarkPreserveEmptyLine)
   .use(remarkEncodeLinkUrls)
   .use(remarkGfm)
+  .use(remarkMathFenceGuard)
   .use(remarkMath)
   .use(remarkAlert)
   .use(remarkHighlight)
