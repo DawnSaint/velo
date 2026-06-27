@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.7] — 2026-06-27
+
+### Added
+- **全局最近文件**：顶栏新增“最近文件”菜单，可以跨工作区快速重新打开近期编辑过的 Markdown 文件。
+- **左侧文件操作面板**：文件相关入口移入左侧功能区，集中提供新建、打开、保存、另存为和导出。
+- **命令面板**：新增 `Ctrl+Shift+P` 全局命令面板，可搜索并执行常用应用命令、工作区操作和最近文件。
+
+### Fixed
+- 切换左侧面板时不再意外清空文件树状态。
+
+
 ## [0.5.6] — 2026-06-26
 
 ### Added
