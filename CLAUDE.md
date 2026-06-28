@@ -63,11 +63,34 @@
 
 ### 4. DECISIONS.md — 重大决策的 ADR 留痕
 
-- 只记"重大架构决策 + 重大重构"，走 MADR 格式（Status / Context / Decision / Consequences 四段）
-- 判定标准：候选方案 ≥ 2 个、选择对未来 1+ 个版本有持续影响、踩坑点非显然（普通 bug fix 不进）
-- 编号 `ADR-YYYYMMDD-NNN`，按写入顺序递增
-- 写入时机：**版本发布时整批入**（与 ROADMAP 整章删除、CHANGELOG 同步），不要零散追加
-- 改 ADR（修正事实 / 补充后果）直接在原条目改，不要新开条目覆盖；如有"已被新决策取代"用 `Superseded by ADR-XXX` 在 Status 里标注
+#### 写入标准（四项缺一不可）
+
+只记"重大架构决策 + 重大重构"，走 Context / Decision / Consequences 三段（精简版 MADR）：
+
+- 候选方案 ≥ 2 个
+- 选择对未来 1+ 个版本有持续影响
+- 踩坑点非显然（普通 bug fix 不进）
+- 实现细节已在 `docs/architecture/*.md` 中，ADR 只保留**为什么选这条路**
+
+编号 `ADR-YYYYMMDD-NNN`，按写入顺序递增。写入时机：**版本发布时整批入**（与 ROADMAP 整章删除、CHANGELOG 同步），不要零散追加。改 ADR（修正事实 / 补充后果）直接在原条目改，不要新开条目覆盖。
+
+#### 不应写入 DECISIONS.md 的清单
+
+满足以下任一条就**不进** DECISIONS：
+
+- **纯配置变更**：Cargo.toml 一行 feature flag、package.json 版本号等
+- **纯 bug fix**：虽然修复过程可能有一番推理，但最终是"改一行/加一个判断"的级别
+- **实现细节**：RO 监听器用什么 event、toolbar 挂哪个 side、RAF 节流几毫秒——这些进 `docs/architecture/*.md` 的"设计要点/维护者注意点"
+- **已被后续 ADR 覆盖的旧方案**：如 mermaid 节点→widget 被 mermaid→code_block 覆盖，旧 ADR 直接删
+- **单方案决策**：没有候选方案对比的决定（例如"我们决定加一个 X 功能"）——这是 ROADMAP/CHANGELOG 的事
+- **已稳定功能的首版实现描述**：如 shiki 预扫+懒加载、代码块工具条几何同步——这些的"当前实现"在 architecture docs 里，"为什么选这条路"如无候选方案对比也不需要 ADR
+
+#### 防臃肿规则
+
+- **每个 ADR 控制在 5-12 行**。如果 Consequences 里写了超过 3 条实现细节，就把它们移到对应 `architecture/*.md`，只保留架构级后果（如"跨平台一致性受影响""后续可替换为 X 不改变 UI 契约"）
+- **发版时做一次回顾审计**：逐个检查已有 ADR，是否有"已被后续推翻的"→ 直接删；是否有"Consequences 里全是实现细节的"→ 裁到决策理由
+- **如果 ADR 里出现函数名、DOM 事件名、CSS class 名、配置字段名**，几乎一定写得太细了——这些归 architecture docs
+- **如果一条 ADR 的 Context + Decision 加起来不超过两句话就能说清**，说明它不需要 ADR——可能是 CHANGELOG 条目或 architecture doc 的一句注意事项
 
 ### 5. 测试文档 — 测试规约与现状同步
 

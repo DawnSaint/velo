@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.8] — 2026-06-28
+
+### Changed
+- 统一了全部图标来源为 `@lucide/vue` 图标库，视觉风格更一致。
+- 移除了编辑器外层卡片的多余视觉样式（圆角、阴影、外边距），编辑器区域更简洁。
+
+### Fixed
+- 键入 `<kbd>Mod</kbd>` 等行内 HTML 标签现在正确渲染为对应视觉样式。
+- 脚注引用（`[^label]`）现在支持自然光标编辑，Backspace 不再误删相邻文本。
+- 脚注定义的 label 支持点击进入编辑。
+- 未闭合的数学公式块不再导致解析错误。
+
 ## [0.5.7] — 2026-06-27
 
 ### Added

@@ -315,19 +315,11 @@ defineExpose({
 </script>
 
 <template>
-  <div class="velo-editor-card relative flex-1 rounded-2xl mx-6 mb-6 shadow-xl bg-white dark:bg-[#1e1e1e]">
-    <!-- CM6 自身 .cm-scroller 负责滚动(保证光标 auto-scroll 跟随),故外层不
-         再 overflow-auto,避免双层滚动条。**不加 px**:px 会把 scroller 从卡片
-         右边缘往里推 → 垂直滚动条不靠边。左右透气由 .cm-content 的 64vw 居中
-         列 auto margin 提供,垂直透气保留 py-6。 -->
-    <div class="flex h-full w-full">
-      <div
-        class="velo-cm-source w-full h-full"
-        :class="{ 'dark': props.darkMode }"
-      >
-        <div ref="hostRef" class="velo-cm-host" />
-      </div>
-    </div>
+  <div
+    class="velo-cm-source relative flex-1 bg-white dark:bg-[#1e1e1e]"
+    :class="{ 'dark': props.darkMode }">
+
+    <div ref="hostRef" class="velo-cm-host" />
     <!-- 查找替换面板:与 ProseMirrorEditor 共用同一份 FindReplace.vue,
          仅后端不同(CM6)。findOpen 由 App.vue 透传;用户意图(query / 选项)经
          App.vue provide → FindReplace inject 共享,切模式时面板保持打开、query 保留。 -->

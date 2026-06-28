@@ -94,7 +94,7 @@ defineExpose({ getEditorView })
 <template>
   <div
     :style="editorStyle"
-    class="velo-editor-card relative flex-1 bg-white dark:bg-[#1e1e1e]"
+    class="relative flex-1 bg-white dark:bg-[#1e1e1e]"
     @click="onCardClick"
   >
     <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">

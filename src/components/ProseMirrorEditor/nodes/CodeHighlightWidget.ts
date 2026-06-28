@@ -151,8 +151,7 @@ function makeToolbarDom(
   //
   // **必须在 RAF 之后再拿 offsetParent**:makeToolbarDom 同步执行时 wrap
   // 还没挂到 DOM,offsetParent 是 null;RAF 后 PM 把 widget 挂好,offsetParent
-  // 才是真实定位祖先(可能是 .velo-editor / .velo-editor-card / 最近的
-  // transformed 容器,看 flex 链)。
+  // 才是真实定位祖先(可能是 .velo-editor / 最近的transformed 容器,看 flex 链)。
   //
   // **scroll listener 同样挂到 offsetParent 上**:index.vue 里编辑器外层
   // 有 `overflow-auto` 滚动容器,容器滚动事件不会冒泡到 window —— 挂在
