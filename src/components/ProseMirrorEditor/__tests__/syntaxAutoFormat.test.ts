@@ -33,6 +33,7 @@ import { emphasisStarSyntax } from '../syntax/inline/emphasisStar'
 import { strongSyntax } from '../syntax/inline/strong'
 import { strikeSyntax } from '../syntax/inline/strike'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
+import { htmlTagSyntax } from '../syntax/inline/htmlTag'
 
 beforeAll(() => {
   _resetSyntaxRegistry()
@@ -51,6 +52,7 @@ beforeAll(() => {
   registerInlineSyntax(strongSyntax)
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
+  registerInlineSyntax(htmlTagSyntax)
 })
 
 function mountView(blocks: ReturnType<typeof schema.node>[] = [schema.node('paragraph')]): {
@@ -489,6 +491,63 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const struck = Array.from({ length: para.childCount }, (_, i) => para.child(i))
       .find(c => c.text === 'bad')
     expect(struck?.marks.find(m => m.type.name === 'strike_through')).toBeDefined()
+    cleanup()
+  })
+
+  it('"<kbd>Mod</kbd>" 段中键入 → 转 html_inline', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('Press ')]),
+    ])
+    typeAt(view, 7, '<kbd>Mod</kbd>')
+    const para = view.state.doc.firstChild!
+    let found = false
+    para.forEach((child) => {
+      if (child.type.name === 'html_inline' && child.attrs.value === '<kbd>Mod</kbd>') found = true
+    })
+    expect(found).toBe(true)
+    cleanup()
+  })
+
+  it('"<br/>" 自闭合标签 → 转 html_inline', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('Line 1')]),
+    ])
+    typeAt(view, 7, '<br/>')
+    const para = view.state.doc.firstChild!
+    let found = false
+    para.forEach((child) => {
+      if (child.type.name === 'html_inline' && child.attrs.value === '<br/>') found = true
+    })
+    expect(found).toBe(true)
+    cleanup()
+  })
+
+  it('"<kbd class="key">Mod</kbd>" 带属性 → 转 html_inline', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('Press ')]),
+    ])
+    typeAt(view, 7, '<kbd class="key">Mod</kbd>')
+    const para = view.state.doc.firstChild!
+    let found = false
+    para.forEach((child) => {
+      if (child.type.name === 'html_inline' && child.attrs.value === '<kbd class="key">Mod</kbd>') found = true
+    })
+    expect(found).toBe(true)
+    cleanup()
+  })
+
+  it('开/闭标签名不一致("<div>a</span>")→ 不触发', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, []),
+    ])
+    typeAt(view, 1, '<div>a</span>')
+    const para = view.state.doc.firstChild!
+    // 应该仍是 text,不是 html_inline
+    let hasHtmlInline = false
+    para.forEach((child) => {
+      if (child.type.name === 'html_inline') hasHtmlInline = true
+    })
+    expect(hasHtmlInline).toBe(false)
     cleanup()
   })
 })

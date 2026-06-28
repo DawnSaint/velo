@@ -28,6 +28,7 @@ import { inlineMathSyntax } from './inline/inlineMath'
 import { footnoteRefSyntax } from './inline/footnoteRef'
 import { linkSyntax } from './inline/link'
 import { highlightSyntax } from './inline/highlight'
+import { htmlTagSyntax } from './inline/htmlTag'
 
 registerBlockSyntax(headingSyntax)
 registerBlockSyntax(codeBlockSyntax)
@@ -52,3 +53,9 @@ registerInlineSyntax(strongSyntax)
 registerInlineSyntax(strikeSyntax)
 registerInlineSyntax(emphasisUnderscoreSyntax)
 registerInlineSyntax(highlightSyntax)
+// htmlTag 必须注册(否则整条语法静默失效) + 放最后 —— PAIRED / SELF_CLOSE
+// 模式只匹配完整闭合的 `<tag>content</tag>` 或 `<tag/>`,不抢 mark 语法的
+// 匹配。敲到一半的 `<kbd>` 保留 plain text,源码模式看到的 `\<kbd>` 是
+// mdast-util-to-markdown safe() 的合法转义(CommonMark 规范要求),不在
+// 编辑器层去对抗 round-trip 完整性
+registerInlineSyntax(htmlTagSyntax)
