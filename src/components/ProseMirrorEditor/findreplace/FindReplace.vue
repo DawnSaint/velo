@@ -13,6 +13,7 @@
 //   - 关闭时把焦点还给编辑器,回到编辑态。
 
 import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import { ChevronDown, ChevronRight, ChevronUp, X } from '@lucide/vue'
 import { replaceInText, type FindOptions, type Match } from './findMatches'
 import type { FindReplaceBackend } from './backend'
 import { findIntentKey } from './findIntent'
@@ -307,10 +308,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
           title="清空"
           @click="clearQuery"
         >
-          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <X class="size-3" :stroke-width="2.5" />
         </button>
       </div>
       <span
@@ -326,9 +324,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         title="上一个 (Shift+Enter)"
         @click="findPrev"
       >
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="18 15 12 9 6 15" />
-        </svg>
+        <ChevronUp :size="14" />
       </button>
       <button
         type="button"
@@ -337,9 +333,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         title="下一个 (Enter)"
         @click="findNext"
       >
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown :size="14" />
       </button>
       <button
         type="button"
@@ -374,9 +368,8 @@ function onReplaceKeydown(e: KeyboardEvent) {
         :title="showReplace ? '隐藏替换' : '显示替换'"
         @click="toggleReplace"
       >
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path :d="showReplace ? 'M6 9l6 6 6-6' : 'M9 18l6-6-6-6'" />
-        </svg>
+        <ChevronDown v-if="showReplace" :size="14" />
+        <ChevronRight v-else :size="14" />
       </button>
       <button
         type="button"
@@ -384,10 +377,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         title="关闭 (Esc)"
         @click="close"
       >
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <X :size="14" />
       </button>
     </div>
     <!-- Replace row -->

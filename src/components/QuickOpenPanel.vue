@@ -18,6 +18,7 @@
 //   - 截断:每区各自 MAX_PER_SECTION 50(recent 上限本就是 10,实际不会撞).
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { File } from '@lucide/vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
 import { fuzzyScore } from '@/utils/fuzzy'
@@ -336,14 +337,7 @@ onBeforeUnmount(() => {
                 @click="openRow(row)"
                 @mousemove="selectRow('recent', idx)"
               >
-                <svg
-                  class="size-3.5 shrink-0 text-gray-400"
-                  viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
+                <File class="size-3.5 shrink-0 text-gray-400" />
                 <span class="truncate text-gray-800 dark:text-gray-200">
                   <template v-for="(seg, i) in row.nameSegments" :key="i">
                     <span v-if="seg.match" class="font-bold">{{ seg.text }}</span>
@@ -376,14 +370,7 @@ onBeforeUnmount(() => {
                 @click="openRow(row)"
                 @mousemove="selectRow('other', idx)"
               >
-                <svg
-                  class="size-3.5 shrink-0 text-gray-400"
-                  viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
+                <File class="size-3.5 shrink-0 text-gray-400" />
                 <span class="truncate text-gray-800 dark:text-gray-200">
                   <template v-for="(seg, i) in row.nameSegments" :key="i">
                     <span v-if="seg.match" class="font-bold">{{ seg.text }}</span>

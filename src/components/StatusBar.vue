@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { Code2, Eye } from '@lucide/vue'
 import { computeDocumentStats } from '@/utils/documentStats'
 import { normalizeDisplayPath } from '@/utils/statusPath'
 import type { CursorPosition } from '@/utils/editorCursor'
@@ -147,36 +148,8 @@ onBeforeUnmount(() => {
       :aria-pressed="sourceMode"
       @click="emit('toggle-source-mode')"
     >
-      <svg
-        v-if="sourceMode"
-        class="size-3.5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M4 5h16" />
-        <path d="M4 12h10" />
-        <path d="M4 19h16" />
-        <path d="M18 9l3 3-3 3" />
-      </svg>
-      <svg
-        v-else
-        class="size-3.5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <polyline points="16 18 22 12 16 6" />
-        <polyline points="8 6 2 12 8 18" />
-      </svg>
+      <Eye v-if="sourceMode" :size="14" aria-hidden="true" />
+      <Code2 v-else :size="14" aria-hidden="true" />
     </button>
     <button
       type="button"

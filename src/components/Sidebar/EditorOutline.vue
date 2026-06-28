@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue'
+import { ChevronRight, X } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { filterHeadings } from '@/utils/outlineFilter'
@@ -359,9 +360,7 @@ onUnmounted(detachScrollListener)
         title="清除"
         @click="query = ''"
       >
-        <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
+        <X class="size-3" :stroke-width="2.5" />
       </button>
     </div>
 
@@ -390,18 +389,11 @@ onUnmounted(detachScrollListener)
             : 'cursor-default invisible'"
           @click="item.hasChildren && toggleExpand(item.key)"
         >
-          <svg
+          <ChevronRight
             class="size-2.5 transition-transform"
             :class="{ 'rotate-90': item.expanded && item.hasChildren }"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
+            :stroke-width="2.5"
+          />
         </button>
 
         <!-- 标题文本;matched 字符段渲染为 primary 色 span(无背景,避免抖动)。

@@ -13,17 +13,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-
-// ============================================================
-//  SVG 图标(lucide 风格,跟 CodeHighlightWidget 对齐)
-// ============================================================
-
-const TRASH_SVG
-  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-  + 'stroke-linecap="round" stroke-linejoin="round" width="16" height="16">'
-  + '<polyline points="3 6 5 6 21 6" />'
-  + '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />'
-  + '<line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>'
+import { trashSvg } from '@/components/icons/widgetIcons'
 
 // ============================================================
 //  Plugin state
@@ -112,7 +102,7 @@ function makeTocWidget(
     deleteBtn.className = 'velo-toc-delete-btn'
     deleteBtn.title = '删除目录'
     deleteBtn.contentEditable = 'false'
-    deleteBtn.innerHTML = TRASH_SVG
+    deleteBtn.innerHTML = trashSvg(16)
     deleteBtn.addEventListener('mousedown', (e) => {
       e.preventDefault()
       e.stopPropagation()

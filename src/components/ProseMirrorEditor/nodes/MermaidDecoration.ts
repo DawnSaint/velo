@@ -27,6 +27,7 @@ import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import mermaid from 'mermaid'
+import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
 
 // ========== ID 生成 ==========
 
@@ -280,8 +281,8 @@ function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
   btn.title = title
   btn.setAttribute('aria-label', title)
   btn.innerHTML = isEditing
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="18 15 12 9 6 15"/></svg>`
+    ? chevronDownSvg(14)
+    : chevronUpSvg(14)
   btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation() })
   btn.addEventListener('click', (e) => {
     e.preventDefault()
@@ -299,7 +300,7 @@ function makeDeleteBtn(pos: number, node: PMNode): HTMLElement {
   btn.className = 'mermaid-btn mermaid-btn-delete'
   btn.title = '删除 mermaid 块'
   btn.setAttribute('aria-label', '删除 mermaid 块')
-  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`
+  btn.innerHTML = trashSvg(14)
   btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation() })
   btn.addEventListener('click', (e) => {
     e.preventDefault()

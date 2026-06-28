@@ -15,6 +15,7 @@
 // 数据 / IO 抽到 `useTreeData` composable,纯函数抽到 `treeUtils`,本文件只剩 UI 状态机。
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { ChevronRight, File, Folder, Image } from '@lucide/vue'
 import {
   mkdir as fsMkdir,
   remove as fsRemove,
@@ -777,13 +778,8 @@ function displayName(node: TreeNode): string {
             class="flex items-center gap-1 py-1 pr-2 text-xs"
           >
             <span class="flex size-4 shrink-0" />
-            <svg v-if="item.subKind === 'newDir'" class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            <svg v-else class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
+            <Folder v-if="item.subKind === 'newDir'" class="size-3.5 shrink-0 text-gray-400" />
+            <File v-else class="size-3.5 shrink-0 text-gray-400" />
             <input
               :ref="bindInlineInputEl"
               v-model="inlineNew!.value"
@@ -806,18 +802,9 @@ function displayName(node: TreeNode): string {
             class="flex items-center gap-1 py-1 pr-2 text-xs"
           >
             <span class="flex size-4 shrink-0" />
-            <svg v-if="item.node.isDir" class="size-4 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            <svg v-else-if="isImageName(item.node.name)" class="size-4 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-            <svg v-else class="size-4 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
+            <Folder v-if="item.node.isDir" class="size-4 shrink-0 text-gray-400" />
+            <Image v-else-if="isImageName(item.node.name)" class="size-4 shrink-0 text-gray-400" />
+            <File v-else class="size-4 shrink-0 text-gray-400" />
             <input
               :ref="bindInlineInputEl"
               v-model="inlineRename!.value"
@@ -856,33 +843,17 @@ function displayName(node: TreeNode): string {
                  - 子目录:已加载且为空 → 不显示箭头(避免误导用户可展开);其余照常
                  旋转跟随 item.expanded:根折叠时 rotate=0,展开时 rotate-90 -->
             <span class="flex size-4 shrink-0 items-center justify-center">
-              <svg
+              <ChevronRight
                 v-if="item.node.isDir && (isRootNode(item.node) || !(item.node.children && item.node.children.length === 0))"
                 class="size-2.5 text-gray-400 transition-transform"
                 :class="{ 'rotate-90': item.expanded }"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M9 18l6-6-6-6" />
-              </svg>
+                :stroke-width="2.5"
+              />
             </span>
             <!-- 图标(目录 / 图片 / .md 文件) -->
-            <svg v-if="item.node.isDir" class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            <svg v-else-if="isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-            <svg v-else class="size-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
+            <Folder v-if="item.node.isDir" class="size-3.5 shrink-0 text-gray-400" />
+            <Image v-else-if="isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" />
+            <File v-else class="size-3.5 shrink-0 text-gray-400" />
             <span class="truncate text-gray-700 dark:text-gray-300">
               {{ displayName(item.node) }}
             </span>

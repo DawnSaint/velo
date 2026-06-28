@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { FilePlusCorner, AppWindowMac, FileUp, FolderOpen, Save, Upload, Download } from '@lucide/vue'
 
 type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export'
 type FileActionKey = FileActionEvent
@@ -80,40 +81,13 @@ function emitAction(event: FileActionEvent) {
           @click="emitAction(row.event)"
         >
           <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300" aria-hidden="true">
-            <svg v-if="row.key === 'new-doc'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <path d="M12 10v6" />
-              <path d="M9 13h6" />
-            </svg>
-            <svg v-else-if="row.key === 'new-window'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="14" height="14" rx="2" />
-              <path d="M7 21h12a2 2 0 0 0 2-2V7" />
-            </svg>
-            <svg v-else-if="row.key === 'open-file'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <path d="M12 18v-6" />
-              <path d="m9 15 3-3 3 3" />
-            </svg>
-            <svg v-else-if="row.key === 'open-folder'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-            </svg>
-            <svg v-else-if="row.key === 'save'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-              <polyline points="17 21 17 13 7 13 7 21" />
-              <polyline points="7 3 7 8 15 8" />
-            </svg>
-            <svg v-else-if="row.key === 'save-as'" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            <FilePlusCorner v-if="row.key === 'new-doc'" :size="16" />
+            <AppWindowMac v-else-if="row.key === 'new-window'" :size="16" />
+            <FileUp v-else-if="row.key === 'open-file'" :size="16" />
+            <FolderOpen v-else-if="row.key === 'open-folder'" :size="16" />
+            <Save v-else-if="row.key === 'save'" :size="16" />
+            <Upload v-else-if="row.key === 'save-as'" :size="16" />
+            <Download v-else :size="16" />
           </span>
           <span class="min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-100">{{ row.label }}</span>
           <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-400 dark:bg-gray-800 dark:text-gray-500">{{ row.shortcut }}</span>

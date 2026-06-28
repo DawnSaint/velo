@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { File, Folders, List, Search, Settings } from '@lucide/vue'
+
 export type ActivityBarItem = 'fileActions' | 'files' | 'outline' | 'search' | 'settings'
 
 defineProps<{
@@ -49,24 +51,10 @@ function select(event: ActivityBarEvent) {
         :aria-pressed="active === item.key"
         @click="select(item.event)"
       >
-        <svg v-if="item.key === 'fileActions'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-        <svg v-else-if="item.key === 'files'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 7.5V6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.6.8L12 6.5H19a2 2 0 0 1 2 2v1" />
-          <path d="M3 9.5h18l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 9.5z" />
-        </svg>
-        <svg v-else-if="item.key === 'outline'" class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 6h16" />
-          <path d="M4 12h10" />
-          <path d="M4 18h7" />
-          <path d="M17 12l3 3-3 3" />
-        </svg>
-        <svg v-else class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" />
-          <path d="M20 20l-4-4" />
-        </svg>
+        <File v-if="item.key === 'fileActions'" :size="20" aria-hidden="true" />
+        <Folders v-else-if="item.key === 'files'" :size="20" aria-hidden="true" />
+        <List v-else-if="item.key === 'outline'" :size="20" aria-hidden="true" />
+        <Search v-else :size="20" aria-hidden="true" />
       </button>
     </div>
 
@@ -79,10 +67,7 @@ function select(event: ActivityBarEvent) {
       @click="select(settingsItem.event)"
     >
       <span class="activity-bar__accent" aria-hidden="true" />
-      <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
+      <Settings :size="20" aria-hidden="true" />
     </button>
   </nav>
 </template>

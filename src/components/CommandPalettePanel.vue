@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
+import {
+  AppWindowMac, History, Code2, Download, File, FilePlusCorner, FileSearch, FileUp,
+  FolderOpen, Folders, FolderX, List, Replace, Save, Search, Settings, Upload,
+} from '@lucide/vue'
 import {
   buildCommandPaletteSections,
   type CommandPaletteIcon,
@@ -25,117 +29,26 @@ interface SelectionCursor {
 }
 const selection = ref<SelectionCursor>({ section: 0, index: 0 })
 
-interface SvgNode {
-  kind: 'path' | 'polyline' | 'line' | 'rect' | 'circle'
-  d?: string
-  points?: string
-  x1?: number
-  y1?: number
-  x2?: number
-  y2?: number
-  x?: number
-  y?: number
-  width?: number
-  height?: number
-  rx?: number
-  cx?: number
-  cy?: number
-  r?: number
-}
-
-const iconNodes: Record<CommandPaletteIcon, SvgNode[]> = {
-  'new-doc': [
-    { kind: 'path', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
-    { kind: 'polyline', points: '14 2 14 8 20 8' },
-    { kind: 'path', d: 'M12 10v6' },
-    { kind: 'path', d: 'M9 13h6' },
-  ],
-  'new-window': [
-    { kind: 'rect', x: 3, y: 3, width: 14, height: 14, rx: 2 },
-    { kind: 'path', d: 'M7 21h12a2 2 0 0 0 2-2V7' },
-  ],
-  'open-file': [
-    { kind: 'path', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
-    { kind: 'polyline', points: '14 2 14 8 20 8' },
-    { kind: 'path', d: 'M12 18v-6' },
-    { kind: 'path', d: 'm9 15 3-3 3 3' },
-  ],
-  'open-folder': [
-    { kind: 'path', d: 'm6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2' },
-  ],
-  save: [
-    { kind: 'path', d: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z' },
-    { kind: 'polyline', points: '17 21 17 13 7 13 7 21' },
-    { kind: 'polyline', points: '7 3 7 8 15 8' },
-  ],
-  'save-as': [
-    { kind: 'path', d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' },
-    { kind: 'polyline', points: '17 8 12 3 7 8' },
-    { kind: 'line', x1: 12, y1: 3, x2: 12, y2: 15 },
-  ],
-  export: [
-    { kind: 'path', d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' },
-    { kind: 'polyline', points: '7 10 12 15 17 10' },
-    { kind: 'line', x1: 12, y1: 15, x2: 12, y2: 3 },
-  ],
-  find: [
-    { kind: 'circle', cx: 11, cy: 11, r: 7 },
-    { kind: 'path', d: 'M20 20l-4-4' },
-  ],
-  replace: [
-    { kind: 'path', d: 'M7 7h10' },
-    { kind: 'path', d: 'm14 4 3 3-3 3' },
-    { kind: 'path', d: 'M17 17H7' },
-    { kind: 'path', d: 'm10 14-3 3 3 3' },
-  ],
-  source: [
-    { kind: 'path', d: 'm8 9-4 3 4 3' },
-    { kind: 'path', d: 'm16 9 4 3-4 3' },
-    { kind: 'path', d: 'm14 4-4 16' },
-  ],
-  'file-actions': [
-    { kind: 'path', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
-    { kind: 'polyline', points: '14 2 14 8 20 8' },
-  ],
-  settings: [
-    { kind: 'path', d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z' },
-    { kind: 'circle', cx: 12, cy: 12, r: 3 },
-  ],
-  'quick-open': [
-    { kind: 'path', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
-    { kind: 'polyline', points: '14 2 14 8 20 8' },
-    { kind: 'circle', cx: 11, cy: 14, r: 3 },
-    { kind: 'path', d: 'M14 17l2 2' },
-  ],
-  'workspace-search': [
-    { kind: 'circle', cx: 11, cy: 11, r: 7 },
-    { kind: 'path', d: 'M20 20l-4-4' },
-  ],
-  'workspace-files': [
-    { kind: 'path', d: 'M3 7.5V6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.6.8L12 6.5H19a2 2 0 0 1 2 2v1' },
-    { kind: 'path', d: 'M3 9.5h18l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 9.5z' },
-  ],
-  outline: [
-    { kind: 'path', d: 'M4 6h16' },
-    { kind: 'path', d: 'M4 12h10' },
-    { kind: 'path', d: 'M4 18h7' },
-    { kind: 'path', d: 'M17 12l3 3-3 3' },
-  ],
-  'workspace-close': [
-    { kind: 'path', d: 'M3 7.5V6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.6.8L12 6.5H19a2 2 0 0 1 2 2v1' },
-    { kind: 'path', d: 'M3 9.5h18l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 9.5z' },
-    { kind: 'path', d: 'M9 14h6' },
-  ],
-  'workspace-switch': [
-    { kind: 'path', d: 'M3 7.5V6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.6.8L12 6.5H19a2 2 0 0 1 2 2v1' },
-    { kind: 'path', d: 'M3 9.5h18l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 9.5z' },
-    { kind: 'path', d: 'M8 14h7' },
-    { kind: 'path', d: 'm12 11 3 3-3 3' },
-  ],
-  'recent-file': [
-    { kind: 'circle', cx: 12, cy: 12, r: 9 },
-    { kind: 'path', d: 'M12 7v5l3 2' },
-  ],
+const iconComponents: Record<CommandPaletteIcon, Component> = {
+  'new-doc': FilePlusCorner,
+  'new-window': AppWindowMac,
+  'open-file': FileUp,
+  'open-folder': FolderOpen,
+  save: Save,
+  'save-as': Upload,
+  export: Download,
+  find: Search,
+  replace: Replace,
+  source: Code2,
+  'file-actions': File,
+  settings: Settings,
+  'quick-open': FileSearch,
+  'workspace-search': Search,
+  'workspace-files': Folders,
+  outline: List,
+  'workspace-close': FolderX,
+  'workspace-switch': FolderOpen,
+  'recent-file': History,
 }
 
 function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): CommandPaletteIcon {
@@ -346,19 +259,10 @@ onBeforeUnmount(() => {
                 @mousemove="selectRow(sectionIdx, rowIdx)"
               >
                 <span class="flex size-5 shrink-0 items-center justify-center rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300" aria-hidden="true">
-                  <svg
-                    class="size-3.5"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                  >
-                    <template v-for="(node, nodeIdx) in iconNodes[iconFor(row, section)]" :key="nodeIdx">
-                      <path v-if="node.kind === 'path'" :d="node.d" />
-                      <polyline v-else-if="node.kind === 'polyline'" :points="node.points" />
-                      <line v-else-if="node.kind === 'line'" :x1="node.x1" :y1="node.y1" :x2="node.x2" :y2="node.y2" />
-                      <rect v-else-if="node.kind === 'rect'" :x="node.x" :y="node.y" :width="node.width" :height="node.height" :rx="node.rx" />
-                      <circle v-else-if="node.kind === 'circle'" :cx="node.cx" :cy="node.cy" :r="node.r" />
-                    </template>
-                  </svg>
+                  <component
+                    :is="iconComponents[iconFor(row, section)]"
+                    :size="14"
+                  />
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-gray-800 dark:text-gray-200">

@@ -47,6 +47,7 @@ import {
 } from './CodeBlockLangs'
 import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
+import { checkSvg, chevronDownSvg, copySvg } from '@/components/icons/widgetIcons'
 
 // ============================================================
 //  Plugin state
@@ -81,27 +82,6 @@ function makeInitialState(): CodeHighlightState {
 }
 
 export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight')
-
-// ============================================================
-//  SVG 图标(lucide 风格,跟 App.vue / FindReplace 对齐)
-// ============================================================
-
-const CHEVRON_DOWN_SVG
-  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-  + 'stroke-linecap="round" stroke-linejoin="round" width="10" height="10">'
-  + '<polyline points="6 9 12 15 18 9" /></svg>'
-
-const COPY_SVG
-  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-  + 'stroke-linecap="round" stroke-linejoin="round" width="12" height="12">'
-  + '<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />'
-  + '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />'
-  + '</svg>'
-
-const CHECK_SVG
-  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" '
-  + 'stroke-linecap="round" stroke-linejoin="round" width="12" height="12">'
-  + '<polyline points="20 6 9 17 4 12" /></svg>'
 
 // ============================================================
 //  Toolbar widget factory —— prosemirror-view 接受 (view, getPos) => DOMNode
@@ -222,7 +202,7 @@ function makeToolbarDom(
   langBtn.title = '选择语言'
   langBtn.contentEditable = 'false'
   // 按钮内容:lang 名 + chevron 图标
-  langBtn.innerHTML = `${escapeHtml(lang || 'plain text')}${CHEVRON_DOWN_SVG}`
+  langBtn.innerHTML = `${escapeHtml(lang || 'plain text')}${chevronDownSvg(10)}`
   langBtn.addEventListener('mousedown', (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -244,7 +224,7 @@ function makeToolbarDom(
   copyBtn.className = 'velo-code-copy-btn'
   copyBtn.title = '复制代码'
   copyBtn.contentEditable = 'false'
-  copyBtn.innerHTML = COPY_SVG
+  copyBtn.innerHTML = copySvg(12)
   copyBtn.addEventListener('mousedown', (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -278,7 +258,7 @@ async function writeToClipboard(text: string, btn: HTMLElement): Promise<void> {
   const ok = await writeClipboardText(text)
   const wasHtml = btn.innerHTML
   if (ok) {
-    btn.innerHTML = CHECK_SVG
+    btn.innerHTML = checkSvg(12)
     btn.classList.add('velo-copy-flash-ok')
   }
   setTimeout(() => {

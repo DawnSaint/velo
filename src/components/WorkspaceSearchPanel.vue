@@ -5,6 +5,7 @@
 // utils/workspaceSearch.ts,组件只负责输入 / 进度 / 结果分组 / 键盘导航。
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { X } from '@lucide/vue'
 import { buildPattern, type FindOptions } from '@/components/ProseMirrorEditor/findreplace/findMatches'
 import {
   createWorkspaceSearchController,
@@ -302,7 +303,7 @@ onBeforeUnmount(() => {
               data-testid="workspace-search-close"
               @click="close"
             >
-              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              <X :size="16" />
             </button>
           </div>
           <div
