@@ -9,6 +9,13 @@ if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function () {}
 }
 
+// jsdom 不实现 document.elementFromPoint(需要真实布局)。
+// ProseMirror 的 posAtCoords → handlers.mousedown 调用它;jsdom 里会抛 TypeError。
+// mock 成返回 null(posAtCoords 会返回 null,PM 按选不中处理)—— 真实浏览器走原生。
+if (typeof document !== 'undefined' && !document.elementFromPoint) {
+  document.elementFromPoint = () => null
+}
+
 // jsdom 不实现 CSS.escape(W3C CSSOM spec 的一部分)。linkClickPlugin 用它
 // 做 querySelector `[id="..."]` 时转义 heading id 里的特殊字符。
 // 这里补一个 spec 的 ASCII 子集实现,够我们用(production 用浏览器原生)。

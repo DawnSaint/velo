@@ -176,6 +176,46 @@ function tryBlockSyntaxes(
 // ============================================================
 
 /**
+ * 构建 textblock 的纯文本视图,保证字符位置与 doc 位置 1:1 对应。
+ *
+ * 不能用 `doc.textBetween`:它对"有 content 的非 text inline 节点"
+ * (footnote_reference content:'text*' / math_inline content:'text*')
+ * 会递进取 text content,输出的字符数 < 节点占的 doc 位置数(差节点开销
+ * open+close tag),inline 正则的 match.index 映射回 doc 位置时偏前 →
+ * replaceRangeWith 删错位置 / 删进节点边界。
+ *
+ * 这里手动遍历:text 节点追加 text content;非 text 节点用 '\u0000'(NULL)
+ * 占位,长度 = 实际落在 [from, to) 内的 nodeSize 片段。NULL 不被任何
+ * inline 正则匹配(它们都匹配可见字符),黑名单检查 includes('\u0000')
+ * 跳过含非 text 节点的 match。不递进 content —— 节点内部的 text 不应被
+ * inline 正则扫描(footnote label / LaTeX 源码不是用户在段落里键入的语法)。
+ */
+function buildBlockText(doc: PMNode, from: number, to: number): string {
+  let text = ''
+  doc.nodesBetween(from, to, (node, pos) => {
+    const nodeEnd = pos + node.nodeSize
+    if (pos >= to || nodeEnd <= from) return true
+    if (node.isText) {
+      const sliceStart = Math.max(0, from - pos)
+      const sliceEnd = Math.min(node.nodeSize, to - pos)
+      text += (node.text || '').slice(sliceStart, sliceEnd)
+      return false
+    }
+    if (node.isInline) {
+      // inline 非 text 节点(footnote_reference / math_inline / image / hardbreak):
+      // 用 NULL 占位,长度 = 落在 [from, to) 内的部分,不下钻 content
+      const overlapStart = Math.max(pos, from)
+      const overlapEnd = Math.min(nodeEnd, to)
+      text += '\u0000'.repeat(overlapEnd - overlapStart)
+      return false
+    }
+    // block 容器(doc / paragraph / blockquote / ...):下钻到 inline 子节点
+    return true
+  })
+  return text
+}
+
+/**
  * 对 textblock 内的连续 text 段(忽略 atom)分别跑所有 inline syntaxes 的 g 正则。
  *
  * 实现注意:
@@ -201,9 +241,9 @@ function tryInlineSyntaxes(
     const mappedStart = tr.mapping.map(block.start)
     const mappedEnd = tr.mapping.map(block.end)
     if (mappedStart >= mappedEnd) continue
-    const blockText = tr.doc.textBetween(mappedStart, mappedEnd, ' ', ' ')
-    // ↑ 用   占位 atom / hard break,保证 textContent 与字符位置 1:1 对应
-    //   这样 match.index + mappedStart 就是 doc 上的 from 位置
+    const blockText = buildBlockText(tr.doc, mappedStart, mappedEnd)
+    // ↑ 非 text 节点用 \u0000 占位(长度 = nodeSize),保证字符位置与 doc 位置
+    //   1:1 对应 —— match.index + mappedStart 就是 doc 上的 from 位置
 
     syntax.pattern.lastIndex = 0
     let match: RegExpExecArray | null
@@ -216,9 +256,9 @@ function tryInlineSyntaxes(
         continue
       }
 
-      // 黑名单字符过滤:范围内含 atom( )或 code mark 文本 → 跳过
+      // 黑名单字符过滤:范围内含非 text 节点(\u0000 占位)或 code mark 文本 → 跳过
       let skip = false
-      if (blockText.slice(match.index, match.index + match[0].length).includes(' ')) {
+      if (blockText.slice(match.index, match.index + match[0].length).includes('\u0000')) {
         skip = true
       }
       if (!skip && codeMarkType) {

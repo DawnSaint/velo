@@ -16,11 +16,11 @@ const schema = new Schema({
     text: { group: 'inline' },
     footnote_reference: {
       inline: true,
-      atom: true,
       group: 'inline',
-      attrs: { label: { default: '' } },
-      parseDOM: [{ tag: 'sup[data-type="footnote_reference"]', getAttrs: dom => ({ label: (dom as HTMLElement).dataset.label ?? '' }) }],
-      toDOM: node => ['sup', { 'data-type': 'footnote_reference', 'data-label': node.attrs.label }, node.attrs.label],
+      content: 'text*',
+      marks: '',
+      parseDOM: [{ tag: 'sup[data-type="footnote_reference"]' }],
+      toDOM: () => ['sup', { 'data-type': 'footnote_reference' }, 0],
     },
     footnote_definition: {
       group: 'block',
@@ -33,7 +33,7 @@ const schema = new Schema({
 })
 
 function mkRef(label: string) {
-  return schema.nodes.footnote_reference.create({ label })
+  return schema.nodes.footnote_reference.create(null, schema.text(label))
 }
 
 function mkDef(label: string, content = 'content') {

@@ -393,7 +393,7 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const para = view.state.doc.firstChild!
     let foundRef = false
     para.forEach((child) => {
-      if (child.type.name === 'footnote_reference' && child.attrs.label === 'a') foundRef = true
+      if (child.type.name === 'footnote_reference' && child.textContent === 'a') foundRef = true
     })
     expect(foundRef).toBe(true)
     cleanup()
@@ -412,7 +412,7 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const para = view.state.doc.firstChild!
     let foundRef = false
     para.forEach((child) => {
-      if (child.type.name === 'footnote_reference' && child.attrs.label === 'a') foundRef = true
+      if (child.type.name === 'footnote_reference' && child.textContent === 'a') foundRef = true
     })
     expect(foundRef).toBe(true)
     cleanup()
@@ -425,6 +425,32 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const link = Array.from({ length: para.childCount }, (_, i) => para.child(i))
       .find(c => c.text === 'Velo')
     expect(link?.marks.find(m => m.type.name === 'link')?.attrs.href).toBe('https://github.com/velo')
+    cleanup()
+  })
+
+  it('已有 footnote_reference 的段落里再输入 [^c] → 位置不偏(回归 textBetween 位置错位)', () => {
+    // footnote_reference 是 content:'text*' 的非 atom 节点,textBetween 会递进
+    // 取 text content('xy',2 字符),但节点占 nodeSize=4(open+content+close)。
+    // blockText 字符数 < doc 位置数,match.index 映射回 doc 偏前 2 → 删错位置。
+    const fnRef = schema.nodes.footnote_reference.create(null, schema.text('xy'))
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [
+        schema.text('ab'),
+        fnRef,
+        schema.text(' '),
+      ]),
+    ])
+    // 光标放到空格后(pos = 1 + 2 + 4 + 1 = 8),输入 [^c]
+    typeAt(view, 8, '[^c]')
+    const para = view.state.doc.firstChild!
+    // 期望:ab + footnote_reference('xy') + ' ' + footnote_reference('c')
+    const children = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+    const refs = children.filter(c => c.type.name === 'footnote_reference')
+    expect(refs.length).toBe(2)
+    expect(refs[0].textContent).toBe('xy')
+    expect(refs[1].textContent).toBe('c')
+    // 'ab' 和 ' ' 不能被删
+    expect(para.textContent).toBe('abxy c')
     cleanup()
   })
 

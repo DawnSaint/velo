@@ -22,7 +22,11 @@ export function computeNumbering(doc: PMNode): {
   doc.descendants((n, pos) => {
     const name = n.type.name
     if (name !== 'footnote_reference' && name !== 'footnote_definition') return
-    const label = (n.attrs.label as string) || ''
+    // footnote_reference 的 label 是 text content(schema 里 content:'text*'),
+    // footnote_definition 的 label 是 attrs.label(labelSpan 编辑写回 attrs)
+    const label = name === 'footnote_reference'
+      ? (n.textContent || '')
+      : ((n.attrs.label as string) || '')
     if (name === 'footnote_reference') {
       if (!refs.has(label)) {
         refs.set(label, [])
@@ -68,14 +72,13 @@ function slug(label: string): string {
   return label.replace(/[^a-zA-Z0-9_-]/g, '_') || 'fn'
 }
 
-function createFootnoteReferenceView(node: PMNode, view: EditorView, getPos: () => number) {
+function createFootnoteReferenceView(node: PMNode, view: EditorView, _getPos: () => number) {
   const sup = document.createElement('sup')
   sup.className = 'footnote-ref-node'
-  sup.contentEditable = 'true'
-  sup.spellcheck = false
 
   function currentLabel(): string {
-    return (node.attrs.label as string) || ''
+    // label 是 text content(schema 里 content:'text*'),不是 attrs
+    return node.textContent || ''
   }
 
   function isOrphan(): boolean {
@@ -83,34 +86,23 @@ function createFootnoteReferenceView(node: PMNode, view: EditorView, getPos: () 
     return !defs?.has(currentLabel())
   }
 
-  function showDisplay() {
-    // 编辑中(光标在 sup 里)不同步文本,避免打断用户键入
-    if (sup === document.activeElement) return
-    sup.textContent = currentLabel() || '?'
+  function updateStyle() {
     sup.classList.toggle('footnote-orphan', isOrphan())
   }
 
-  // mousedown:capture 阶段(与 mermaid/math 一致)
-  // 理由:ProseMirror 的 mousedown 是 bubble 阶段挂 view.dom 上,如果只用 bubble
-  // 阶段 stopPropagation,某些浏览器对 contentEditable 元素的默认行为(contentEditable
-  // focus、IME、辅助技术)会先于 ProseMirror 触发,让 ProseMirror 后续在 mouseup
-  // 调 selectClickedNode(event.ctrlKey=true) 抢走 selection。
-  // capture 阶段跑在所有 bubble 之前,先把事件路锁死。
-  //
-  // - 带修饰键(Cmd/Ctrl):preventDefault 阻止 focus/contentEditable 默认行为 +
-  //   stopPropagation 拦截
-  // - 无修饰键:只 stopPropagation,保留默认 focus,让用户能点击 sup 进入编辑态改 label
+  // Cmd/Ctrl + mousedown:capture 阶段拦,防 PM selectClickedNode 抢成 NodeSelection。
+  // 普通点击不拦 —— reference 不是 atom(content:'text*'),PM 把 TextSelection
+  // 放进 sup 内的 text,用户逐字符编辑 label(Typora 式,无 input / 无 contentEditable
+  // 嵌套)。之前的 atom + contentEditable sup 方案在 PM 的 contentEditable(view.dom)
+  // 内拿不到独立 focus,selection 实际停在 sup 外,Backspace 删的是 sup 前的内容。
   sup.addEventListener('mousedown', (e: MouseEvent) => {
     if (IS_MAC ? e.metaKey : e.ctrlKey) {
       e.preventDefault()
+      e.stopPropagation()
     }
-    e.stopPropagation()
   }, true)
 
-  // click:Cmd/Ctrl + 单击 → 跳转到 definition
-  // 注:这里无条件 preventDefault 是兜底 —— 万一 capture 阶段 mousedown 的
-  // preventDefault 因浏览器怪异行为没生效(比如某些扩展吞了事件、IME 介入),
-  // click 这里再挡一次,避免 ProseMirror 在 mouseup 链上抢 selection。
+  // Cmd/Ctrl + click → 跳转到 definition
   sup.addEventListener('click', (e: MouseEvent) => {
     if (!(IS_MAC ? e.metaKey : e.ctrlKey)) return
     e.preventDefault()
@@ -129,38 +121,21 @@ function createFootnoteReferenceView(node: PMNode, view: EditorView, getPos: () 
     )
   })
 
-  // input:每个键击同步到 node.label
-  sup.addEventListener('input', () => {
-    const newLabel = (sup.textContent || '').trim()
-    const pos = getPos()
-    if (pos == null || pos < 0) return
-    if (newLabel !== currentLabel()) {
-      view.dispatch(view.state.tr.setNodeAttribute(pos, 'label', newLabel))
-    }
-  })
-
-  // Enter / Esc 退出编辑(回到段落正文里)
-  sup.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === 'Escape') {
-      e.preventDefault()
-      sup.blur()
-    }
-  })
-
-  showDisplay()
+  updateStyle()
 
   return {
     dom: sup,
+    // contentDOM = sup:PM 接管 sup 内的 text 编辑。selection 自然进入 sup,
+    // Backspace/Delete 由 PM 按 sup 内的 selection 处理(不再"删错位置")。
+    // 不需要 contentEditable / input 事件 / keydown 隔离 —— PM 全部接管。
+    contentDOM: sup,
     update(newNode: PMNode) {
       if (newNode.type !== node.type) return false
-      const oldLabel = node.attrs.label as string
-      const newLabel = newNode.attrs.label as string
       node = newNode
-      if (oldLabel !== newLabel) showDisplay()
+      updateStyle()
       return true
     },
     destroy() { /* nothing */ },
-    ignoreMutation() { return true },
   }
 }
 

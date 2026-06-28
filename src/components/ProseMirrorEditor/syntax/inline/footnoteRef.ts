@@ -26,7 +26,8 @@ export const footnoteRefSyntax: InlineSyntax = {
     // 来识别(原 InputRule 也有同样的 parentOffset === 0 防御)
     const $from = tr.doc.resolve(from)
     if ($from.parentOffset === 0) return false
-    tr.replaceRangeWith(from, to, type.create({ label }))
+    // label 作为 footnote_reference 的 text content(非 attrs.label)
+    tr.replaceRangeWith(from, to, type.create(null, [schema.text(label)]))
     return true
   },
 }

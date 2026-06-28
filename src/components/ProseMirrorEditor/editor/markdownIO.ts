@@ -396,7 +396,11 @@ function inlineNodeToPM(
         n.value ? [schema.text(n.value)] : [])]
 
     case 'footnoteReference':
-      return [schema.node('footnote_reference', { label: n.identifier })]
+      // label 作为 footnote_reference 的 text content(非 attrs.label)。
+      // schema 里 footnote_reference 是 content:'text*' 的非 atom inline 节点,
+      // PM selection 能进入 sup 逐字符编辑 label。
+      return [schema.node('footnote_reference', null,
+        n.identifier ? [schema.text(n.identifier)] : [])]
 
     case 'html':
       // 行内 HTML:atom 节点,不带外层 marks(对照 image 行为)
@@ -611,7 +615,9 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       spans.push({ kind: 'inlineMath', marks: [], value: child.textContent })
     }
     else if (name === 'footnote_reference') {
-      spans.push({ kind: 'footnoteRef', marks: [], label: child.attrs.label as string })
+      // label 从 text content 读(非 attrs.label)—— schema 里 footnote_reference
+      // 是 content:'text*' 的非 atom inline 节点
+      spans.push({ kind: 'footnoteRef', marks: [], label: child.textContent || '' })
     }
     else if (name === 'html_inline') {
       // atom 节点:marks 字段在 dispatch 时也硬编码为 []，与 image 一致

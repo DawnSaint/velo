@@ -287,18 +287,23 @@ const nodes: Record<string, NodeSpec> = {
   footnote_reference: {
     group: 'inline',
     inline: true,
-    atom: true,
-    attrs: {
-      label: { default: '' },
-    },
+    // 不设 atom —— PM selection 能进入 sup 内的 text,逐字符编辑 label。
+    // 之前用 atom + contentEditable sup 的方案在 ProseMirror 的 contentEditable
+    // (view.dom) 内拿不到独立 focus(contentEditable 嵌套 selection 统一由外层
+    // 管理),导致 sup 上的 keydown/beforeinput listener 全部不触发,Backspace
+    // 被 PM 按 selection(sup 外)处理 → "删错位置"。去 atom 后 label 作为 text
+    // content 由 PM 接管,光标自然进入,不需要 contentEditable / 事件隔离补丁。
+    // label 合法性(不能含空白/])靠 toMarkdown 自然惩罚(含非法字符时 remark
+    // 解析不回 footnote,round-trip 后变普通文本)。
+    content: 'text*',
+    marks: '',
     parseDOM: [{
       tag: 'sup[data-type="footnote_reference"]',
-      getAttrs: (dom: HTMLElement) => ({ label: dom.dataset.label ?? '' }),
     }],
-    toDOM: (node) => [
+    toDOM: () => [
       'sup',
-      { 'data-label': node.attrs.label as string, 'data-type': 'footnote_reference' },
-      node.attrs.label as string,
+      { 'data-type': 'footnote_reference', class: 'footnote-ref-node' },
+      0,
     ],
   },
 
