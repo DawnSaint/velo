@@ -22,11 +22,12 @@ export function computeNumbering(doc: PMNode): {
   doc.descendants((n, pos) => {
     const name = n.type.name
     if (name !== 'footnote_reference' && name !== 'footnote_definition') return
-    // footnote_reference 的 label 是 text content(schema 里 content:'text*'),
-    // footnote_definition 的 label 是 attrs.label(labelSpan 编辑写回 attrs)
+    // footnote_reference 的 label 是 text content(schema 里 content:'text*');
+    // footnote_definition 的 label 是 firstChild(footnote_label 节点)的 text content
+    // —— schema 不再用 attrs.label(label 是 PM 节点 text content,与 reference 同范式)。
     const label = name === 'footnote_reference'
       ? (n.textContent || '')
-      : ((n.attrs.label as string) || '')
+      : ((n.firstChild?.textContent ?? '') || '')
     if (name === 'footnote_reference') {
       if (!refs.has(label)) {
         refs.set(label, [])
@@ -114,9 +115,12 @@ function createFootnoteReferenceView(node: PMNode, view: EditorView, _getPos: ()
       setTimeout(() => sup.classList.remove('footnote-flash'), 400)
       return
     }
+    // 跳到 def 内 footnote_label 文本起始位置:defPos(def open) + 1(footnote_label open)
+    // + 1(text node open) = defPos+2 落在 inline text content 起点,
+    // TextSelection 要求 endpoint 在 inline content 节点内。
     view.dispatch(
       view.state.tr
-        .setSelection(TextSelection.create(view.state.doc, defPos + 1))
+        .setSelection(TextSelection.create(view.state.doc, defPos + 2))
         .scrollIntoView(),
     )
   })
@@ -143,12 +147,17 @@ function createFootnoteReferenceView(node: PMNode, view: EditorView, _getPos: ()
 //  4. definition NodeView
 // ============================================================
 
-function createFootnoteDefinitionView(node: PMNode, view: EditorView, getPos: () => number) {
+// label 现在是 footnote_label 节点(text content)而非 NodeView 自管 DOM。
+// dom = <dl>,contentDOM = <div.body>,PM 渲染 [footnote_label, paragraph, ...]
+// 进 body 内部 —— label 节点自带 <dt> 标签与 .footnote-label 视觉 class(走
+// _footnote.scss 选择器),不再需要 labelSpan 自管。
+// 之前方案(label 在 attrs.label + NodeView 自造 <div.footnote-label> 不在
+// contentDOM 内)导致 PM 看不到 labelSpan,点击时 PM 默认推进光标到最近的
+// content = 描述段前,Backspace/Delete 删错位置。改后与 footnote_reference
+// 同范式(都是 content:'text*' 节点由 PM 接管文本编辑)。
+function createFootnoteDefinitionView(node: PMNode, view: EditorView, _getPos: () => number) {
   const root = document.createElement('dl')
   root.className = 'footnote-definition'
-
-  const labelSpan = document.createElement('div')
-  labelSpan.className = 'footnote-label'
 
   const body = document.createElement('div')
   body.className = 'footnote-content'
@@ -158,32 +167,20 @@ function createFootnoteDefinitionView(node: PMNode, view: EditorView, getPos: ()
   backref.textContent = '↩'
   backref.draggable = false
 
-  root.appendChild(labelSpan)
   root.appendChild(body)
   root.appendChild(backref)
 
   function currentLabel(): string {
-    return (node.attrs.label as string) || ''
-  }
-
-  function commitLabel() {
-    const newLabel = (labelSpan.textContent || '').trim()
-    const pos = getPos()
-    if (pos == null || pos < 0) return
-    if (newLabel !== currentLabel()) {
-      view.dispatch(view.state.tr.setNodeAttribute(pos, 'label', newLabel))
-    }
+    // label 住在 firstChild(footnote_label 节点)text content 内
+    return node.firstChild?.textContent ?? ''
   }
 
   function showDisplay() {
-    // 编辑中(光标在 labelSpan 里)不同步文本
-    if (labelSpan === document.activeElement) return
-
     const label = currentLabel()
     const numState = footnoteNumberKey.getState(view.state)
 
     root.id = `velo-fn-${slug(label)}`
-    labelSpan.textContent = label
+    // data-label 由 schema toDOM 从 firstChild.textContent 算出,这里只更新 root.id
 
     // 回链:回第一条 reference
     const firstRef = numState?.refs.get(label)?.[0]
@@ -207,18 +204,6 @@ function createFootnoteDefinitionView(node: PMNode, view: EditorView, getPos: ()
     }
   }
 
-  // input:每个键击同步到 node.label
-  labelSpan.addEventListener('input', () => {
-    commitLabel()
-  })
-  // Enter / Esc 退出编辑
-  labelSpan.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === 'Escape') {
-      e.preventDefault()
-      labelSpan.blur()
-    }
-  })
-
   // backref 的 mousedown / click:capture 阶段(与 mermaid/math 一致)
   // 理由同 sup —— 比 ProseMirror bubble mousedown 先跑,提前 preventDefault
   // 阻止 <a> 默认导航 + 阻止 ProseMirror 在 mouseup 调 selectClickedLeaf
@@ -240,8 +225,8 @@ function createFootnoteDefinitionView(node: PMNode, view: EditorView, getPos: ()
     contentDOM: body,
     update(newNode: PMNode) {
       if (newNode.type !== node.type) return false
-      const oldLabel = node.attrs.label as string
-      const newLabel = newNode.attrs.label as string
+      const oldLabel = node.firstChild?.textContent ?? ''
+      const newLabel = newNode.firstChild?.textContent ?? ''
       node = newNode
       if (oldLabel !== newLabel) showDisplay()
       // 编号可能因外部交易变化(其它 ref 增删),每次都重画

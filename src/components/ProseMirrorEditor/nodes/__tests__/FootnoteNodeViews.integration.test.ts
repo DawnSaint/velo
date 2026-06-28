@@ -26,12 +26,17 @@ const schema = new Schema({
       parseDOM: [{ tag: 'sup[data-type="footnote_reference"]' }],
       toDOM: () => ['sup', { 'data-type': 'footnote_reference', class: 'footnote-ref-node' }, 0],
     },
+    footnote_label: {
+      group: 'block',
+      content: 'text*',
+      parseDOM: [{ tag: 'dt' }],
+      toDOM: () => ['dt', 0],
+    },
     footnote_definition: {
       group: 'block',
-      content: 'paragraph',
-      attrs: { label: { default: '' } },
-      parseDOM: [{ tag: 'dl[data-type="footnote_definition"]', getAttrs: dom => ({ label: (dom as HTMLElement).dataset.label ?? '' }) }],
-      toDOM: node => ['dl', { 'data-type': 'footnote_definition', 'data-label': node.attrs.label, class: 'footnote-definition' }, ['dt', { class: 'footnote-label' }, node.attrs.label], ['dd', { class: 'footnote-content' }, 0], ['a', { class: 'footnote-backref', href: '#x' }, '↩']],
+      content: 'footnote_label paragraph',
+      parseDOM: [{ tag: 'dl[data-type="footnote_definition"]', contentElement: 'dl' }],
+      toDOM: node => ['dl', { 'data-type': 'footnote_definition', 'data-label': node.firstChild?.textContent ?? '', class: 'footnote-definition' }, ['dt', { class: 'footnote-label' }, node.firstChild?.textContent ?? ''], ['dd', { class: 'footnote-content' }, 0], ['a', { class: 'footnote-backref', href: '#x' }, '↩']],
     },
   },
 })
@@ -40,10 +45,10 @@ function mkRef(label: string) {
   return schema.nodes.footnote_reference.create(null, schema.text(label))
 }
 function mkDef(label: string) {
-  return schema.nodes.footnote_definition.create(
-    { label },
+  return schema.nodes.footnote_definition.create(null, [
+    schema.nodes.footnote_label.create(null, schema.text(label)),
     schema.nodes.paragraph.create(null, schema.text(`def-${label}`)),
-  )
+  ])
 }
 function mkDoc(...nodes: any[]) {
   return schema.nodes.doc.create(null, nodes)
@@ -78,7 +83,7 @@ describe('CTRL+click 跳转 reference → definition', () => {
     const p = schema.nodes.paragraph.create(null, [mkRef('a')])
     const doc = mkDoc(p, mkDef('a'))
     doc.descendants((n, pos) => {
-      if (n.type.name === 'footnote_definition' && n.attrs.label === 'a') defPos = pos
+      if (n.type.name === 'footnote_definition' && n.firstChild?.textContent === 'a') defPos = pos
     })
     ;({ view, cleanup } = mountView(doc))
   })
@@ -102,7 +107,8 @@ describe('CTRL+click 跳转 reference → definition', () => {
     const sup = findSup(view)!
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })
     sup.dispatchEvent(ev)
-    expect(view.state.selection.from).toBe(defPos + 1)
+    // 跳到 defPos + 2 = footnote_label 节点 text content 起点(inline)
+    expect(view.state.selection.from).toBe(defPos + 2)
   })
 
   it('(真浏览器序列) mousedown+mouseup+click 全程 CTRL,selection 仍应跳到 def', () => {
@@ -129,8 +135,8 @@ describe('CTRL+click 跳转 reference → definition', () => {
     // 注:ProseMirror 用 view.root (document) 监听 mouseup。
     // 如果我们的 mousedown.stopPropagation 起作用了,editor.mousedown
     // handler 不会跑、MouseDown 不会被创建、mouseup 上不会有人接。
-    // 那么 click 上我们自己的 handler 是唯一动 selection 的,from 应是 defPos+1。
-    expect(view.state.selection.from).toBe(defPos + 1)
+    // 那么 click 上我们自己的 handler 是唯一动 selection 的,from 应是 defPos+2。
+    expect(view.state.selection.from).toBe(defPos + 2)
     // 防御性 sanity:如果 selection 没动,说明 click handler 没跑
     expect(view.state.selection.from).not.toBe(initFrom)
   })
@@ -140,7 +146,7 @@ describe('CTRL+click 跳转 reference → definition', () => {
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true })
     sup.dispatchEvent(ev)
     // selection 不应跳到 def
-    expect(view.state.selection.from).not.toBe(defPos + 1)
+    expect(view.state.selection.from).not.toBe(defPos + 2)
   })
 })
 
@@ -244,5 +250,85 @@ describe('capture 阶段 mousedown 监听(防 ProseMirror 抢 selection)', () =>
     }))
     view.dom.removeEventListener('mousedown', () => { bubbleRan = true }, false)
     expect(bubbleRan).toBe(false)
+  })
+})
+
+// ============================================================
+//  回归测试:v0.5.8 footnote_definition label 编辑修复
+//
+//  之前(<= v0.5.7):label 在 attrs.label,NodeView 自管 <div.footnote-label>
+//  不在 contentDOM 子树内,PM 看不到 → 点击 label 时 PM 默认推进光标到
+//  最近 content(描述段前),Backspace/Delete 删错位置。
+//
+//  改后:label 拆成 footnote_label 节点(content:'text*'),与 footnote_reference
+//  同范式 —— PM 接管 label 文本编辑,光标自然进入。
+//
+//  验证:
+//  1. 点击 label(<dt>)后,selection 落在 label 节点内(text 内 offset),
+//     而不是 description 段(<dd> 内)开头。
+//  2. 通过 dispatch transaction 修改 label 文本(模拟键盘输入),PM
+//     接受修改,doc.firstChild.textContent 反映新 label(且不破坏 desc)。
+// ============================================================
+
+describe('footnote_definition label 可编辑(v0.5.8 回归)', () => {
+  let view: EditorView
+  let cleanup: () => void
+  let labelPos: number
+
+  beforeEach(() => {
+    const doc = mkDoc(mkDef('orig'))
+    // footnote_label 是 footnote_definition 的第一个 child(不是孙节点);
+    // doc > footnote_definition > footnote_label > text('orig')
+    doc.descendants((n, pos) => {
+      if (n.type.name === 'footnote_label' && n.textContent === 'orig') labelPos = pos
+    })
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const state = EditorState.create({ doc, schema, plugins: [footnoteNumberPlugin] })
+    view = new EditorView(host, { state })
+    cleanup = () => { view.destroy(); host.remove() }
+  })
+  afterEach(() => cleanup())
+
+  it('点击 label(<dt>)文本,selection 应落在 footnote_label 内', () => {
+    const dt = view.dom.querySelector('dl.footnote-definition dt') as HTMLElement
+    expect(dt).not.toBeNull()
+    // 模拟真实点击序列:mousedown + mouseup + click 都不带 modifier
+    dt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }))
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }))
+    dt.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+
+    // 修复前:selection 会落到 description paragraph 开头(labelPos + 节点大小之后)
+    // 修复后:selection 应在 label 节点内(>= labelPos, < labelPos + labelNodeSize)
+    const labelNode = view.state.doc.nodeAt(labelPos)!
+    const labelEnd = labelPos + labelNode.nodeSize
+    expect(view.state.selection.from).toBeGreaterThanOrEqual(labelPos)
+    expect(view.state.selection.from).toBeLessThanOrEqual(labelEnd)
+    // 关键修复断言:selection 不应落到 description 段(<dd> 内 paragraph)开头
+    // —— description 段在 label 之后,position > labelEnd 即落到描述段
+    expect(view.state.selection.from).toBeLessThanOrEqual(labelEnd)
+  })
+
+  it('dispatch 修改 label text 后,doc 的 footnote_definition firstChild 反映新 label', () => {
+    // 模拟用户编辑:删掉原 label 'orig',输入 'renamed'
+    // labelNode = 'orig'(4 字符)
+    const labelNode = view.state.doc.nodeAt(labelPos)!
+    const from = labelPos + 1
+    const to = from + labelNode.content.size
+    const tr = view.state.tr
+      .delete(from, to)
+      .insertText('renamed', from)
+    view.dispatch(tr)
+
+    // 验证:footnote_definition 的 firstChild(footnote_label)textContent 是 'renamed'
+    // 描述段保持不变
+    let def: any = null
+    view.state.doc.descendants((n) => {
+      if (n.type.name === 'footnote_definition') def = n
+    })
+    expect(def).not.toBeNull()
+    expect(def.firstChild?.textContent).toBe('renamed')
+    // description 段(text='def-orig' 由 mkDef 工厂填)保持
+    expect(def.child(1).textContent).toBe('def-orig')
   })
 })

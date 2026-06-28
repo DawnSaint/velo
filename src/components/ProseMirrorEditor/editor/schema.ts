@@ -264,24 +264,43 @@ const nodes: Record<string, NodeSpec> = {
   //  GFM 扩展节点
   // ============================================================
 
+  // 脚注 definition 的 label 现在是 footnote_label 节点的 text content(非 attrs),
+  // 与 footnote_reference 同范式(见 editor.md 禁令速查"不要把脚注编号写回 attrs.label")。
+  // 改之前 label 在 attrs.label + NodeView 自管一个不在 contentDOM 子树里的 labelSpan
+  // (input/keydown 同步),PM 看不到 labelSpan → 点击 label 时 PM 默认把光标推进
+  // 到最近的 content 子树 = 描述段前,Backspace/Delete 删错位置。
+  // 把 label 拆成 footnote_label 节点(content:'text*')作为强制首子,PM 接管
+  // label 文本编辑(光标自然进入、selection 正确)。
+  // 序列化:toMarkdown 从 firstChild.textContent 读 identifier;parseDOM
+  // 通过 <dt> 反向解析回 footnote_label。<dl> 整体作为 contentElement 让 PM
+  // 解析 <dt>(→ footnote_label) + <dd>(→ paragraph) 两个 block 兄弟节点。
   footnote_definition: {
     group: 'block',
-    content: 'block+',
+    content: 'footnote_label block+',
     defining: true,
-    attrs: {
-      label: { default: '' },
-    },
     parseDOM: [{
       tag: 'dl[data-type="footnote_definition"]',
-      contentElement: 'dd',
-      getAttrs: (dom: HTMLElement) => ({ label: dom.dataset.label ?? '' }),
+      contentElement: 'dl',
     }],
-    toDOM: (node) => [
-      'dl',
-      { 'data-label': node.attrs.label as string, 'data-type': 'footnote_definition' },
-      ['dt', {}, node.attrs.label as string],
-      ['dd', {}, 0],
-    ],
+    toDOM: (node) => {
+      const label = node.firstChild?.textContent ?? ''
+      return [
+        'dl',
+        { 'data-label': label, 'data-type': 'footnote_definition' },
+        0,
+      ]
+    },
+  },
+
+  // footnote_definition 的强制首子:承载 label 文本(content:'text*')。
+  // 与 footnote_reference 同范式 —— 文本由 PM 接管,NodeView 不需要自管 input。
+  // 不用 inline:true(它是 block,与 definition 同一行 flex 排版由 SCSS 处理);
+  // 不用 marks:''(让 label text 能带 mark)。
+  footnote_label: {
+    group: 'block',
+    content: 'text*',
+    parseDOM: [{ tag: 'dt' }],
+    toDOM: () => ['dt', 0],
   },
 
   footnote_reference: {

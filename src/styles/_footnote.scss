@@ -75,16 +75,37 @@
   text-decoration: none;
 }
 
-/* ---- 定义端: <dl class="footnote-definition"> ---- */
+/* ---- 定义端: <dl class="footnote-definition"> ----
+   dom 结构(v0.5.8 起):
+     <dl class="footnote-definition">
+       <div class="footnote-content">     ← contentDOM,PM 渲染 children
+         <dt>x</dt>                       ← footnote_label 节点
+         <p>yyy</p>                       ← 描述段
+       </div>
+       <a class="footnote-backref">↩</a>
+   </div> 是 flex 容器,label(<dt>) 在前,描述(<p>) 跟在 label 后面 inline。
+   label 现在是 PM 节点(footnote_label, content:'text*'),由 PM 接管文本编辑
+   —— 之前 NodeView 自造 <div.footnote-label> 不在 contentDOM 子树里导致
+   PM 看不到、点击时 selection 推进到描述段前。改后与 footnote_reference 同范式。 */
 .velo-editor .footnote-definition {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.4em;
   margin: 1em 0 0.5em;
   padding: 0.8em 0 0;
 }
 
-.velo-editor .footnote-definition .footnote-label {
+.velo-editor .footnote-definition .footnote-content {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: 0.6;
+}
+
+/* footnote_label 节点渲染为 <dt>,套用之前的 .footnote-label 视觉 */
+.velo-editor .footnote-definition .footnote-content > dt {
   flex: 0 0 auto;
   color: var(--md-primary-color, #1F71D9);
   font-weight: 600;
@@ -95,24 +116,21 @@
   border-radius: 2px;
   padding: 0 2px;
   transition: background-color 0.15s;
+  // 去掉浏览器默认 <dt> 边距,避免与 flex 排版冲突
+  margin: 0;
 
   &:hover {
     background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 10%, transparent);
   }
 
-  &:focus {
+  &:focus,
+  &:focus-within {
     background: #fff8dc;
     box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
   }
 }
 
-.velo-editor .footnote-definition .footnote-content {
-  flex: 1 1 auto;
-  min-width: 0;
-  opacity: 0.6;
-}
-
-/* 强制 content 内的 paragraph 走 inline,这样描述跟在 label 后同一行 */
+/* 描述段 inline,跟在 label 后面同一行;不强制 <p> 的 block 默认 */
 .velo-editor .footnote-definition .footnote-content > p {
   display: inline;
   margin: 0;

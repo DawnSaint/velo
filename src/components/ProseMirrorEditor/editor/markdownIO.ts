@@ -161,9 +161,16 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
     case 'footnoteDefinition': {
       const label = node.identifier
       const children = node.children.flatMap(c => mdastBlockToPM(c, schema))
-      // footnote_definition 要求 'block+',children 至少一个
+      // footnote_definition 要求 'footnote_label block+',children 至少一个
+      // 描述段;但 label 强制由 footnote_label 节点承载(mdast identifier → 文本)。
+      // 描述段为 0 时,自动补一个空 paragraph 满足 'block+'。
       if (children.length === 0) children.push(schema.node('paragraph'))
-      return [schema.node('footnote_definition', { label }, children)]
+      // 把 mdast identifier 放在 children 最前,作为 footnote_label text content。
+      // schema 不允许把 label 塞进 attrs.label(已删除),改走 content 路径
+      // —— 与 footnote_reference 的 'label as text content' 修复同范式。
+      const labelNode = schema.node('footnote_label', null,
+        label ? [schema.text(label)] : [])
+      return [schema.node('footnote_definition', null, [labelNode, ...children])]
     }
 
     case 'table':
@@ -512,13 +519,18 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
       }
     }
 
-    case 'footnote_definition':
+    case 'footnote_definition': {
+      // identifier 从 firstChild(footnote_label 节点)读 text content,
+      // 非 attrs.label(已删除)—— 与 footnote_reference 'label as text content'
+      // 修复同范式。
+      const label = node.firstChild?.textContent ?? ''
       return {
         type: 'footnoteDefinition',
-        identifier: node.attrs.label as string,
-        label: node.attrs.label as string,
+        identifier: label,
+        label,
         children: pmBlocksToMdast(node) as (BlockContent | DefinitionContent)[],
       }
+    }
 
     case 'table':
       return pmTableToMdast(node)

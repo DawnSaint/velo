@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Schema } from 'prosemirror-model'
 import { computeNumbering } from '../FootnoteNodeViews'
 
-// 构造一个最小 schema,只装 footnote_reference / footnote_definition 两个节点
+// 构造一个最小 schema,只装 footnote_reference / footnote_definition / footnote_label 三个节点
 // (不需要 remark 全套,这里只测纯算法)
 const schema = new Schema({
   nodes: {
@@ -22,12 +22,17 @@ const schema = new Schema({
       parseDOM: [{ tag: 'sup[data-type="footnote_reference"]' }],
       toDOM: () => ['sup', { 'data-type': 'footnote_reference' }, 0],
     },
+    footnote_label: {
+      group: 'block',
+      content: 'text*',
+      parseDOM: [{ tag: 'dt' }],
+      toDOM: () => ['dt', 0],
+    },
     footnote_definition: {
       group: 'block',
-      content: 'paragraph',
-      attrs: { label: { default: '' } },
-      parseDOM: [{ tag: 'dl[data-type="footnote_definition"]', getAttrs: dom => ({ label: (dom as HTMLElement).dataset.label ?? '' }) }],
-      toDOM: node => ['dl', { 'data-type': 'footnote_definition', 'data-label': node.attrs.label }, ['dt', node.attrs.label], ['dd', 0]],
+      content: 'footnote_label block+',
+      parseDOM: [{ tag: 'dl[data-type="footnote_definition"]', contentElement: 'dl' }],
+      toDOM: node => ['dl', { 'data-type': 'footnote_definition', 'data-label': node.firstChild?.textContent ?? '' }, ['dt', node.firstChild?.textContent ?? ''], ['dd', 0]],
     },
   },
 })
@@ -38,8 +43,11 @@ function mkRef(label: string) {
 
 function mkDef(label: string, content = 'content') {
   return schema.nodes.footnote_definition.create(
-    { label },
-    schema.nodes.paragraph.create(null, schema.text(content)),
+    null,
+    [
+      schema.nodes.footnote_label.create(null, schema.text(label)),
+      schema.nodes.paragraph.create(null, schema.text(content)),
+    ],
   )
 }
 
