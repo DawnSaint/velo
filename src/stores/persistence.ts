@@ -9,6 +9,15 @@ import {
   rename,
   tauriOnly,
 } from '@/tauri/fs'
+import { findSample } from '@/utils/samples'
+
+// Sample 文档走 Vite 动态 `import('?raw')` —— 每个 sample 被拆成独立 chunk,
+// 用户打开示例才下载,不打开就不下载(避免白付 10-20KB 体积)。字符串编译进
+// JS bundle 后,磁盘上没有任何用户可改的实体文件,reinstall / uninstall 自动
+// 跟着应用走,不存在单独清理问题。
+const SAMPLE_LOADERS: Record<string, () => Promise<{ default: string }>> = {
+  'sample.md': () => import('@/assets/sample.md?raw'),
+}
 
 // `tauriOnly()` 来自 `@/tauri/fs` —— dev web 端 load 返回 null / save 是
 // noop,store 走默认值继续渲染,不阻塞 dev 体验。
@@ -490,5 +499,54 @@ export async function saveRecentFilesPatch(patch: RecentFilesPatch): Promise<Per
   catch (e) {
     console.error('保存最近文件失败', e)
     return null
+  }
+}
+
+// ========== 示例文档 ==========
+//
+// sample.md / sample-code.md 通过 Vite 动态 `import('?raw')` 加载,Vite 给
+// 每个文件拆独立 chunk,内容以字符串形式编译进 JS bundle。
+//
+// 设计取舍(替代了原先 `bundle.resources` / `appLocalDataDir` 抽盘):
+// - 物理上无文件实体 → 用户无法直接修改 → 比 `bundle.resources` 落到
+//   `C:\Program Files\Velo\resources\` 还安全(虽然后者普通用户也无写权限,
+//   但 admin / 解锁权限的场景仍可能改)
+// - 懒加载 → 用户不打开示例就不下载对应 chunk,~5KB gzipped / chunk
+// - reinstall / uninstall 不需要任何 sample 相关的磁盘清理,bundle 跟着应用走
+//
+// 历史坑:之前抽到 `appLocalDataDir()/samples/` 加 `.extracted` marker 做幂等,
+// marker 一旦写过就再也覆盖不了 → reinstall 拿不到新内容。
+
+/**
+ * 读 sample 内容 —— Vite 动态 import 拆 chunk,只在使用时才下载。
+ * 不依赖 Tauri runtime(纯 Vite 上下文即可),任何环境(dev / release)走同一份逻辑。
+ */
+export async function readSampleContent(key: string): Promise<string | null> {
+  const entry = findSample(key)
+  if (!entry) return null
+  const loader = SAMPLE_LOADERS[entry.fileName]
+  if (!loader) return null
+  try {
+    const mod = await loader()
+    return mod.default
+  }
+  catch (e) {
+    console.error('[samples] failed to load', entry.fileName, e)
+    return null
+  }
+}
+
+/**
+ * 判断是否是首次启动:appDataDir 下没有 velo-settings.json 即为首次。
+ * 保守策略:无法判断时视为非首次(不弹出欢迎框)。
+ */
+export async function isFirstRun(): Promise<boolean> {
+  if (!tauriOnly()) return false
+  try {
+    const dir = await appDataDir()
+    return !(await exists(await join(dir, SETTINGS_FILE)))
+  }
+  catch {
+    return false
   }
 }

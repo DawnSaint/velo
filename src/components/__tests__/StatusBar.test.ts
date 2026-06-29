@@ -11,6 +11,8 @@ function mountStatusBar(overrides: Record<string, unknown> = {}) {
       content: '你好 Velo\n\nsecond paragraph',
       dirty: false,
       sourceMode: false,
+      readOnly: false,
+      readOnlyLocked: false,
       cursor: { line: 2, column: 3 },
       ...overrides,
     },
@@ -57,6 +59,33 @@ describe('StatusBar', () => {
     await button.trigger('click')
 
     expect(wrapper.emitted('toggle-source-mode')).toHaveLength(1)
+  })
+
+  it('emits toggle-read-only when the lock icon segment is clicked', async () => {
+    const wrapper = mountStatusBar({ readOnly: false })
+    const button = wrapper.get('[aria-label="切换到阅读模式"]')
+    await button.trigger('click')
+    expect(wrapper.emitted('toggle-read-only')).toHaveLength(1)
+  })
+
+  it('swaps the lock icon and aria-label by readOnly state', () => {
+    const editable = mountStatusBar({ readOnly: false })
+    expect(editable.find('[aria-label="切换到阅读模式"]').exists()).toBe(true)
+    expect(editable.find('[aria-label="切换到可编辑"]').exists()).toBe(false)
+
+    const locked = mountStatusBar({ readOnly: true })
+    expect(locked.find('[aria-label="切换到可编辑"]').exists()).toBe(true)
+    expect(locked.find('[aria-label="切换到阅读模式"]').exists()).toBe(false)
+  })
+
+  it('disables the read-only toggle when readOnlyLocked (sample document)', async () => {
+    const wrapper = mountStatusBar({ readOnly: true, readOnlyLocked: true })
+    const button = wrapper.get('[aria-label="切换到可编辑"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toContain('示例文档为只读')
+    // 即便强行 click 也不 emit —— documentStore 那层还会兜底(setter 尊重 locked)
+    await button.trigger('click')
+    expect(wrapper.emitted('toggle-read-only')).toBeUndefined()
   })
 
   it('does not expose a file path copy button', () => {

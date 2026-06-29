@@ -5,7 +5,7 @@ import FileActionsPanel from '../FileActionsPanel.vue'
 describe('FileActionsPanel', () => {
   it('renders grouped file actions with shortcuts', () => {
     const wrapper = mount(FileActionsPanel, {
-      props: { isTauri: true, exporting: false },
+      props: { isTauri: true, exporting: false, samplesAvailable: true },
     })
 
     for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '保存', '另存为', '导出']) {
@@ -14,12 +14,12 @@ describe('FileActionsPanel', () => {
     for (const shortcut of ['Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+Shift+E']) {
       expect(wrapper.text()).toContain(shortcut)
     }
-    expect(wrapper.findAll('[data-testid="file-actions-separator"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="file-actions-separator"]')).toHaveLength(3)
   })
 
   it('emits the matching event for each action row', async () => {
     const wrapper = mount(FileActionsPanel, {
-      props: { isTauri: true, exporting: false },
+      props: { isTauri: true, exporting: false, samplesAvailable: true },
     })
 
     await wrapper.get('[aria-label="新建文件"]').trigger('click')
@@ -41,7 +41,7 @@ describe('FileActionsPanel', () => {
 
   it('hides the new window action outside Tauri', () => {
     const wrapper = mount(FileActionsPanel, {
-      props: { isTauri: false, exporting: false },
+      props: { isTauri: false, exporting: false, samplesAvailable: true },
     })
 
     expect(wrapper.find('[aria-label="新窗口"]').exists()).toBe(false)
@@ -50,7 +50,7 @@ describe('FileActionsPanel', () => {
 
   it('disables export while exporting', async () => {
     const wrapper = mount(FileActionsPanel, {
-      props: { isTauri: true, exporting: true },
+      props: { isTauri: true, exporting: true, samplesAvailable: true },
     })
     const button = wrapper.get('[aria-label="导出中…"]')
 

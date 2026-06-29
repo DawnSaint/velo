@@ -16,6 +16,8 @@ const props = withDefaults(defineProps<{
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
   findOpen?: boolean
+  /** 只读模式：禁用编辑器输入。 */
+  readOnly?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '14px',
@@ -23,6 +25,7 @@ const props = withDefaults(defineProps<{
   isMacCodeBlock: true,
   darkMode: false,
   findOpen: false,
+  readOnly: false,
 })
 
 const emit = defineEmits<{
@@ -113,6 +116,7 @@ defineExpose({ getEditorView })
         <EditorInner
           ref="innerRef"
           :model-value="modelValue"
+          :read-only="readOnly"
           @update:model-value="emit('update:modelValue', $event)"
           @cursor-position-change="emit('cursor-position-change', $event)"
         />

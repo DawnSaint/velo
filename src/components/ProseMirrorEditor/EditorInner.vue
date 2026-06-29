@@ -307,9 +307,13 @@ const allPlugins = [...basePlugins, inputRulesPlugin, shortcutKeymap]
 //  Vue 组件壳
 // ============================================================
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string
-}>()
+  /** 只读模式：禁用编辑器输入，用于示例文档等不允许直接修改的场景。 */
+  readOnly?: boolean
+}>(), {
+  readOnly: false,
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -354,11 +358,12 @@ watch(() => props.modelValue, (newVal) => {
 // useProseMirror 返回的 containerRef 直接绑到 template ref。TS 看不到
 // template ref 的隐式 binding 会误报未使用变量,这里通过 defineExpose
 // 把它暴露出去 —— TS 看到暴露对象消费过 ref 就不再报。
-const { containerRef, getView } = useProseMirror({
+const { containerRef, getView, setReadOnly } = useProseMirror({
   schema: schema as VeloSchema,
   initialDoc: props.modelValue,
   fromMarkdown: (md, s) => fromMarkdown(md, s as VeloSchema),
   plugins: allPlugins,
+  editable: !props.readOnly,
   onChange: (doc) => {
     const md = toMarkdown(doc)
     lastSelfEmitted = md
@@ -371,6 +376,13 @@ const { containerRef, getView } = useProseMirror({
     mounted = true
     emitCursorPosition()
   },
+})
+
+// 动态切换只读:首次 mount 时 editable 已由 useProseMirror 的初值覆盖,此 watch
+// 只管"挂载后 readOnly 翻转"(示例文档 → 切回普通文档)。卸载后 setReadOnly
+// 内部 view 为 null 自动 no-op,无需判 unmounted。
+watch(() => props.readOnly, (readOnly) => {
+  setReadOnly(readOnly)
 })
 
 function focusEditor() {

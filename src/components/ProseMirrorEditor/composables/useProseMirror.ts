@@ -46,6 +46,11 @@ export interface UseProseMirrorOptions {
    * 此时 viewRef.value 已写入,DOM 已挂载。
    */
   onReady?: (view: EditorView) => void
+  /**
+   * 只读模式。true 时 EditorView.editable 返回 false,ProseMirror 不响应任何
+   * 编辑操作(键盘输入 / 粘贴 / 拖放均被忽略)。用于示例文档等不允许直接修改的场景。
+   */
+  editable?: boolean
 }
 
 export interface UseProseMirrorReturn {
@@ -55,6 +60,11 @@ export interface UseProseMirrorReturn {
   viewRef: ShallowRef<EditorView | null>
   /** 安全获取当前 view —— 销毁后返回 null,caller 不用自己判 null。 */
   getView: () => EditorView | null
+  /**
+   * 动态切换只读。view 已挂载时调 `view.setProps({ editable })`;未挂载 no-op
+   * (下次 mount 会用 `opts.editable` 初值)。用于示例文档等"挂载后才进入只读"的场景。
+   */
+  setReadOnly: (readOnly: boolean) => void
 }
 
 export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorReturn {
@@ -82,6 +92,7 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
 
     const view = new EditorView(container, {
       state,
+      editable: () => opts.editable ?? true,
       // 走自定义 dispatchTransaction —— 既应用到 view,又把 tr 喂给 onChange。
       // 不在这里序列化为 markdown,留给 caller(它有 schema 上下文)。
       dispatchTransaction(tr) {
@@ -112,5 +123,11 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     return viewRef.value
   }
 
-  return { containerRef, viewRef, getView }
+  function setReadOnly(readOnly: boolean): void {
+    const view = viewRef.value
+    if (!view) return
+    view.setProps({ editable: () => !readOnly })
+  }
+
+  return { containerRef, viewRef, getView, setReadOnly }
 }

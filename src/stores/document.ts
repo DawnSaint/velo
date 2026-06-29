@@ -36,6 +36,29 @@ export const useDocumentStore = defineStore('document', () => {
   const sourceMode = ref(false)
   const draftScope = ref<string | null>(null)
 
+  // 只读拆两层:
+  // - `_userReadOnly`:用户从 StatusBar / Ctrl+Shift+R / 命令面板等路径主动翻的
+  // - `readOnlyLocked`:装载时由 `loadContent` 设置 —— sample 装载时锁 true,
+  //   真实文件装载时锁 false;锁住时用户翻不动 readOnly(只能"另存为"再编辑)。
+  // 暴露的 `readOnly` 是 effective(两者 OR),setter 尊重 locked → 用户翻 false
+  // 也会被锁,这是 sample 必须的语义。UI 用 `readOnlyLocked` 判断 toggle 禁用态。
+  const _userReadOnly = ref(false)
+  const readOnlyLocked = ref(false)
+  const readOnly = computed({
+    get: () => _userReadOnly.value || readOnlyLocked.value,
+    set: (v) => {
+      if (readOnlyLocked.value) return
+      _userReadOnly.value = v
+    },
+  })
+
+  /**
+   * 虚拟文件名 —— 当 currentFilePath 为 null 但需要显示有意义的标题时
+   * (例如示例文档,内容来自 bundle.resources 不在磁盘上),由 caller 设。
+   * fileName computed 优先用它。加载真实文件时 caller 应清回 null。
+   */
+  const virtualFileName = ref<string | null>(null)
+
   let echosToAccept = 0
 
   const dirty = computed(() => content.value !== lastSavedContent.value)
@@ -48,11 +71,12 @@ export const useDocumentStore = defineStore('document', () => {
     draftScope.value = scope
   }
 
-  const fileName = computed(() =>
-    currentFilePath.value
+  const fileName = computed(() => {
+    if (virtualFileName.value) return virtualFileName.value
+    return currentFilePath.value
       ? currentFilePath.value.split(/[\\/]/).pop() ?? '未命名'
-      : '未命名',
-  )
+      : '未命名'
+  })
 
   // 缓存上一次写进原生 title bar 的字符串。setContent 每次按键都调
   // syncTitle,但 dirty 状态在编辑过程中通常保持不变(只有 clean ↔ dirty
@@ -168,16 +192,24 @@ export const useDocumentStore = defineStore('document', () => {
     void syncTitle()
   }
 
-  /** 加载一份内容到编辑器，并把它视作磁盘基线 */
-  function loadContent(c: string, path: string | null) {
+  /** 加载一份内容到编辑器,并把它视作磁盘基线。
+ * 第三个参数 `readOnlyLocked` 控制锁:sample 装载时传 true(永久只读),
+ * 真实文件 / 新建文档传 false(用户可自由翻)。装载时同时重置 `_userReadOnly`
+ * —— 切到新文件相当于"新的开始",用户之前的偏好不应该带过来。
+ */
+  function loadContent(c: string, path: string | null, readOnlyLocked_ = false) {
     currentFilePath.value = path
+    // 切换到真实文件时清掉虚拟名(sample 装载后由 caller 单独 setVirtualFileName)
+    virtualFileName.value = null
+    readOnlyLocked.value = readOnlyLocked_
+    _userReadOnly.value = false
     const willRecreateEditor = content.value !== c
     content.value = c
     lastSavedContent.value = c
     // 只在内容真的变了(→ ProseMirrorEditor 会重建 → 会 echo)时才等 echo
     echosToAccept = willRecreateEditor ? 1 : 0
     void syncTitle()
-    // 切换文件 / 新建：重建监听
+    // 切换文件 / 新建:重建监听
     if (path) void startWatchOf(path)
     else void stopWatch()
   }
@@ -189,6 +221,15 @@ export const useDocumentStore = defineStore('document', () => {
       `「${fileName.value}」有未保存的修改，确定要放弃吗？`,
       { title: '未保存的修改', kind: 'warning' },
     )
+  }
+
+  /** 只读模式下禁止写入磁盘 */
+  function guardReadOnly(): boolean {
+    if (readOnly.value) {
+      void message('示例文档为只读，请使用"另存为"保存到工作区后再编辑。', { title: '只读文档', kind: 'info' })
+      return true
+    }
+    return false
   }
 
   /**
@@ -228,6 +269,7 @@ export const useDocumentStore = defineStore('document', () => {
 
   /** 写盘成功返回 true；用户取消另存为 / 写盘抛错 返回 false。 */
   async function save(): Promise<boolean> {
+    if (await guardReadOnly()) return false
     if (!currentFilePath.value) return saveAs()
     const path = currentFilePath.value
     const snapshot = content.value
@@ -255,6 +297,7 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   async function saveAs(): Promise<boolean> {
+    if (await guardReadOnly()) return false
     const target = await saveDialog({ filters: MARKDOWN_DIALOG_FILTERS })
     if (!target) return false
     const snapshot = content.value
@@ -415,6 +458,9 @@ export const useDocumentStore = defineStore('document', () => {
     sourceMode,
     toggleSourceMode,
     setDraftScope,
+    readOnly,
+    readOnlyLocked,
+    virtualFileName,
     fileName,
     pendingRecoveryDrafts,
     init,

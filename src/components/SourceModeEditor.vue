@@ -16,7 +16,7 @@ import { ref, watch, onMounted, onBeforeUnmount, shallowRef } from 'vue'
 import { useDocumentStore } from '@/stores/document'
 import { useEditorStore } from '@/stores/editor'
 import { EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars } from '@codemirror/view'
-import { EditorState, EditorSelection } from '@codemirror/state'
+import { Compartment, EditorState, EditorSelection } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import {
   ensureTheme,
@@ -40,10 +40,13 @@ const props = withDefaults(defineProps<{
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有(与 ProseMirrorEditor 对仗)。 */
   findOpen?: boolean
+  /** 只读模式：禁用编辑器输入。 */
+  readOnly?: boolean
 }>(), {
   modelValue: '',
   darkMode: false,
   findOpen: false,
+  readOnly: false,
 })
 
 const emit = defineEmits<{
@@ -206,6 +209,14 @@ const forbidFileDropPaste = EditorView.domEventHandlers({
 })
 
 // ============================================================
+//  只读模式：EditorView.editable(内置 facet) + Compartment 动态切换。
+//  比手搓 readOnlyKeymap 更可靠 —— CM6 内部会在 editable=false 时拦截
+//  几乎所有 doc-changing dispatch(键入 / 粘贴 / 拖入)。
+// ============================================================
+
+const editableCompartment = new Compartment()
+
+// ============================================================
 //  mount CM6
 // ============================================================
 function createView(): EditorView {
@@ -226,6 +237,8 @@ function createView(): EditorView {
       // CM6 后端 dispatch cmFindHighlightEffect 驱动)。必须装在 state 里,
       // 后端 setHighlight 才有 effect 接收方。
       cmFindHighlightField,
+      // 只读 facet:editable=false 时 CM6 内部拦截所有 doc-changing dispatch
+      editableCompartment.of(EditorView.editable.of(!props.readOnly)),
       // docChanged → 回写 documentStore.content;doc/selection 变化 → 上报光标位置
       EditorView.updateListener.of((u) => {
         if (u.docChanged) {
@@ -285,6 +298,22 @@ watch(
     if (!view) return
     view.dispatch({
       effects: setShikiTheme.of({ lightTheme: light, darkTheme: dark }),
+    })
+  },
+)
+
+// ============================================================
+//  只读模式切换 → dispatch Compartment.reconfigure 动态更新 editable facet。
+//  初值由 createView 通过 compartment.of(...) 注入,这里只管"挂载后 readOnly 翻转"。
+//  view 为 null 时(view 尚未挂载 / 已销毁)no-op —— 创建时已用 props.readOnly 覆盖。
+// ============================================================
+watch(
+  () => props.readOnly,
+  (readOnly) => {
+    const view = viewRef.value
+    if (!view) return
+    view.dispatch({
+      effects: editableCompartment.reconfigure(EditorView.editable.of(!readOnly)),
     })
   },
 )

@@ -7,7 +7,7 @@ import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
@@ -17,6 +17,7 @@ import EditorSettings from '@/components/EditorSettings.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import FileActionsPanel from '@/components/FileActionsPanel.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
+import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
@@ -33,8 +34,7 @@ import {
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/composables/useResizeSplitter'
-// import sampleMdRaw from '@/assets/sample-code.md?raw'
-import sampleMdRaw from '@/assets/sample.md?raw'
+import { SAMPLE_ENTRIES, findSample } from '@/utils/samples'
 import veloLogo from '@/assets/Velo.png'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
@@ -56,13 +56,8 @@ const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
 const recentFilesStore = useRecentFilesStore()
 
-const sampleMd = sampleMdRaw.replace(
-  '/src/assets/Velo.png',
-  new URL(veloLogo, window.location.href).href,
-)
-// 同步把初始 sample 装入 store —— 必须早于 ProseMirrorEditor 子组件 mount,
-// 这样子组件第一次拿到的 props.modelValue 就是 sampleMd 而非空串
-documentStore.init(sampleMd)
+// 启动时装入空白内容；真实内容由工作区恢复 / 欢迎对话框 / CLI 参数加载。
+documentStore.init('')
 
 // store hydrate + shiki highlighter ready 必须在 ProseMirrorEditor 子组件
 // mount **之前**完成,否则首屏代码块会闪两遍:
@@ -88,6 +83,11 @@ documentStore.init(sampleMd)
 // true → PM mount,行为一致,不会卡白屏)。
 const settingsReady = ref(false)
 const codeBlockReady = ref(false)
+const welcomeVisible = ref(false)
+// sample 走 Vite 动态 ?raw —— 编译进 JS chunk,任何环境(dev web / dev Tauri /
+// release)都可用,不存在"读不到"的可能。保留 ref 是为了未来按构建类型关闭
+// (例如 SSR / 移动端),当前永远 true。
+const samplesAvailable = ref(true)
 
 void initSettings()
   .finally(() => { settingsReady.value = true })
@@ -358,6 +358,37 @@ function onWindowFocus() {
   void documentStore.checkExternalChange()
 }
 
+// ========== 欢迎对话框 ==========
+function onWelcomeBlank() {
+  welcomeVisible.value = false
+  documentStore.newDoc()
+}
+function onWelcomeOpenFile() {
+  welcomeVisible.value = false
+  documentStore.open()
+}
+function onWelcomeSample(key: string) {
+  welcomeVisible.value = false
+  void loadSample(key)
+}
+
+/**
+ * 装载示例文档(只读)。sample 内容从 bundle.resources 直接读,不再抽盘:
+ * - reinstall 时 MSI 替换安装目录 → resolveResource 自然拿到新版本
+ * - 安装目录文件对普通用户只读 → 物理上无法被修改
+ * - UI 层 :read-only prop 兜底,即使绕过也写不进
+ * 失败静默吞掉,虚拟标题不设 → fileName 回退到"未命名"。
+ */
+async function loadSample(key: string) {
+  const entry = findSample(key)
+  if (!entry) return
+  const content = await readSampleContent(key)
+  if (content === null) return
+  documentStore.loadContent(content, null, true)
+  // currentFilePath 为 null,设虚拟名让顶栏 / 状态栏 / 关闭拦截显示有意义的标题。
+  documentStore.virtualFileName = `示例 — ${entry.label}`
+}
+
 // ========== 查找替换 (v0.3.1) ==========
 // 状态全在 App.vue 一份,v-model:find-open 透传到 ProseMirrorEditor 再到 FindReplace。
 // 顶栏按钮的 active 样式、Ctrl+F 打开、X / Esc 关闭、按钮再点关闭 —— 全部
@@ -618,6 +649,10 @@ async function openRecentFile(path: string) {
   workspaceStore.setLastFile(path)
 }
 
+async function openSample(key: string) {
+  await loadSample(key)
+}
+
 const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
   const needWorkspace = !workspaceStore.activeRoot
   const items: CommandPaletteItem[] = [
@@ -780,6 +815,20 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
     },
   ]
 
+  if (samplesAvailable.value) {
+    for (const entry of SAMPLE_ENTRIES) {
+      items.push({
+        id: `sample:${entry.key}`,
+        title: entry.label,
+        subtitle: `示例文档 — ${entry.description}`,
+        group: 'app',
+        icon: 'source',
+        keywords: ['sample', entry.label, entry.description],
+        run: () => openSample(entry.key),
+      })
+    }
+  }
+
   for (const entry of recentFilesStore.entries.slice(0, 12)) {
     const displayPath = normalizeDisplayPath(entry.path)
     items.push({
@@ -875,6 +924,14 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     e.stopPropagation()
     quickOpenOpen.value = !quickOpenOpen.value
+  }
+  else if (k === 'r' && e.shiftKey) {
+    // 阅读模式 toggle(Ctrl/Cmd+Shift+R):复用 Ctrl+Shift+R 这个本属浏览器硬刷新
+    // 的快捷键 —— 应用层 capture 阶段 preventDefault 让 webview 永远拿不到刷新信号。
+    // 与下文 Ctrl+R / F5 拦截配合,桌面 markdown editor 下不存在"误刷新丢未保存"的路径。
+    e.preventDefault()
+    e.stopPropagation()
+    documentStore.readOnly = !documentStore.readOnly
   }
 }
 
@@ -1036,10 +1093,19 @@ onMounted(async () => {
 
   await recentFilesStore.hydrate()
 
+  // 0.15) 示例文档可见性 —— Vite ?raw 任何环境都可读,恒为 true。
+  //       这里保留赋值是为了未来如果按平台关闭示例入口时单点改这里。
+  samplesAvailable.value = true
+
   const initialDir = initialPayload.dirs?.[0]
   if (initialDir) workspaceStore.setActiveRoot(initialDir)
   const initialFile = initialPayload.files?.[0]
   if (initialFile) await documentStore.openPath(initialFile)
+
+  // 首次启动且无 CLI 参数 → 弹出欢迎对话框
+  if (!initialFile && !initialDir && await isFirstRun()) {
+    welcomeVisible.value = true
+  }
 
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
@@ -1174,8 +1240,10 @@ onBeforeUnmount(() => {
     <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white pl-3 text-gray-700 transition-colors dark:border-gray-800 dark:bg-[#111] dark:text-gray-300">
       <div class="flex min-w-0 flex-1 items-center gap-2">
         <img :src="veloLogo" alt="Velo" class="h-6 w-6">
-        <span data-tauri-drag-region class="ml-2 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
-          {{ documentStore.fileName }}{{ documentStore.dirty ? ' •' : '' }}
+        <span data-tauri-drag-region class="ml-2 flex min-w-0 items-baseline gap-1.5 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
+          <span class="truncate">{{ documentStore.fileName }}</span>
+          <span v-if="documentStore.readOnly" class="shrink-0 text-xs">（只读）</span>
+          <span v-if="documentStore.dirty" class="shrink-0">•</span>
         </span>
         <span data-tauri-drag-region class="ml-2 h-8 min-w-6 flex-1" />
       </div>
@@ -1235,6 +1303,7 @@ onBeforeUnmount(() => {
             v-if="leftPanelView === 'fileActions'"
             :is-tauri="tauri"
             :exporting="exportStore.exporting"
+            :samples-available="samplesAvailable"
             @new-doc="documentStore.newDoc()"
             @new-window="createNewAppWindow()"
             @open-file="documentStore.open()"
@@ -1242,6 +1311,7 @@ onBeforeUnmount(() => {
             @save="documentStore.save()"
             @save-as="documentStore.saveAs()"
             @export="exportStore.exportDocument()"
+            @open-sample="(name) => openSample(name)"
           />
           <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>
@@ -1282,6 +1352,7 @@ onBeforeUnmount(() => {
           :primary-color="store.primaryColor"
           :is-mac-code-block="store.isMacCodeBlock"
           :dark-mode="store.darkMode"
+          :read-only="documentStore.readOnly"
           @update:model-value="documentStore.setContent"
           @cursor-position-change="updateCursorPosition"
         />
@@ -1291,6 +1362,7 @@ onBeforeUnmount(() => {
           v-model:find-open="findOpen"
           :model-value="documentStore.content"
           :dark-mode="store.darkMode"
+          :read-only="documentStore.readOnly"
           @update:model-value="documentStore.setContent"
           @cursor-position-change="updateCursorPosition"
         />
@@ -1304,10 +1376,22 @@ onBeforeUnmount(() => {
       :content="documentStore.content"
       :dirty="documentStore.dirty"
       :source-mode="documentStore.sourceMode"
+      :read-only="documentStore.readOnly"
+      :read-only-locked="documentStore.readOnlyLocked"
       :cursor="cursorPosition"
       @pick-workspace="() => void workspaceStore.pickWorkspace()"
       @set-active-root="workspaceStore.setActiveRoot"
       @toggle-source-mode="documentStore.toggleSourceMode()"
+      @toggle-read-only="documentStore.readOnly = !documentStore.readOnly"
+    />
+
+    <!-- 首次启动欢迎对话框：新建 / 打开文件 / 浏览示例文档 -->
+    <WelcomeDialog
+      :visible="welcomeVisible"
+      :samples-available="samplesAvailable"
+      @create-blank="onWelcomeBlank"
+      @open-file="onWelcomeOpenFile"
+      @open-sample="onWelcomeSample"
     />
 
     <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->

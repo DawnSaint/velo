@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { Code2, Eye } from '@lucide/vue'
+import { Code2, Eye, PenLine, PenOff } from '@lucide/vue'
 import { computeDocumentStats } from '@/utils/documentStats'
 import { normalizeDisplayPath } from '@/utils/statusPath'
 import type { CursorPosition } from '@/utils/editorCursor'
@@ -12,6 +12,10 @@ const props = defineProps<{
   content: string
   dirty: boolean
   sourceMode: boolean
+  /** 编辑器 effective 只读状态 —— 由 App.vue 透传 documentStore.readOnly。 */
+  readOnly: boolean
+  /** 只读是否被锁(sample / 装载时锁定,用户翻不动)。 */
+  readOnlyLocked: boolean
   cursor: CursorPosition
 }>()
 
@@ -19,6 +23,7 @@ const emit = defineEmits<{
   'pick-workspace': []
   'set-active-root': [root: string | null]
   'toggle-source-mode': []
+  'toggle-read-only': []
 }>()
 
 const workspaceMenuOpen = ref(false)
@@ -141,8 +146,7 @@ onBeforeUnmount(() => {
 
     <button
       type="button"
-      class="statusbar-segment statusbar-icon-segment"
-      :class="{ 'statusbar-segment-active': sourceMode }"
+      class="statusbar-segment"
       :title="sourceMode ? '切换到所见即所得 (Ctrl+`)' : '切换到源码模式 (Ctrl+`)'"
       :aria-label="sourceMode ? '切换到所见即所得' : '切换到源码模式'"
       :aria-pressed="sourceMode"
@@ -150,6 +154,28 @@ onBeforeUnmount(() => {
     >
       <Eye v-if="sourceMode" :size="14" aria-hidden="true" />
       <Code2 v-else :size="14" aria-hidden="true" />
+    </button>
+    <!-- 阅读模式 toggle:与 sourceMode 同档位(都是编辑器行为模式切换)。
+         PM / CM6 的 :read-only prop + useProseMirror.setReadOnly / Compartment.reconfigure
+         已联通,这里只是 UI 入口。dirty 状态下也能切换(只冻结输入,不影响保存状态)。
+         readOnlyLocked 为 true 时(sample)按钮禁用 + tooltip 说明 —— 用户无法把
+         sample 翻回可编辑,需要"另存为"才能改。 -->
+    <button
+      type="button"
+      class="statusbar-segment"
+      :title="readOnlyLocked
+        ? '示例文档为只读,请使用「另存为」保存到工作区后再编辑'
+        : readOnly
+          ? '切换到可编辑 (Ctrl+Shift+R)'
+          : '切换到阅读模式(只读) (Ctrl+Shift+R)'"
+      :aria-label="readOnly ? '切换到可编辑' : '切换到阅读模式'"
+      :aria-disabled="readOnlyLocked"
+      :aria-pressed="readOnly"
+      :disabled="readOnlyLocked"
+      @click="emit('toggle-read-only')"
+    >
+      <PenOff v-if="readOnly" :size="12" aria-hidden="true" />
+      <PenLine v-else :size="12" aria-hidden="true" />
     </button>
     <button
       type="button"
@@ -208,23 +234,20 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-.statusbar-icon-segment { 
-  width: 1.75rem;
-  justify-content: center;
-  padding: 0;
-}
-
 button.statusbar-segment:not(:disabled):hover,
-button.statusbar-segment:not(:disabled):focus-visible,
-.statusbar-segment-active {
+button.statusbar-segment:not(:disabled):focus-visible {
   background: rgb(243 244 246);
   color: rgb(75 85 99);
   outline: none;
 }
 
+button.statusbar-segment:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 :global(.dark button.statusbar-segment:not(:disabled):hover),
-:global(.dark button.statusbar-segment:not(:disabled):focus-visible),
-:global(.dark .statusbar-segment-active) {
+:global(.dark button.statusbar-segment:not(:disabled):focus-visible) {
   background: rgb(55 65 81);
   color: rgb(209 213 219);
 }
