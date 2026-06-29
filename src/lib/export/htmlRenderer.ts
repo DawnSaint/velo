@@ -304,7 +304,7 @@ async function mdastNodeToHtml(node: RootContent | any, ctx: WalkContext): Promi
       return codeBlockFallbackHtml(value, lang)
     }
     case 'math': {
-      const { html, error } = renderKatexHtml(node.value, true)
+      const { html, error } = await renderKatexHtml(node.value, true)
       if (error) ctx.warnings.push(`块级公式渲染失败: ${error}`)
       return html
     }
@@ -528,7 +528,7 @@ async function inlineNodeToHtml(node: PhrasingContent | any, ctx: WalkContext): 
     case 'break':
       return '<br />'
     case 'inlineMath': {
-      const { html, error } = renderKatexHtml(node.value, false)
+      const { html, error } = await renderKatexHtml(node.value, false)
       if (error) ctx.warnings.push(`行内公式渲染失败: ${error}`)
       return html
     }

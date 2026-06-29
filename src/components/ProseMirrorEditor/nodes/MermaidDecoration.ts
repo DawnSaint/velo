@@ -26,8 +26,39 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-import mermaid from 'mermaid'
+import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
+
+// ========== mermaid 懒加载 ==========
+//
+// mermaid 包 ~3MB minified,首屏 doc 不含 ```mermaid 时无需加载。
+// 用模块级 lazy getter 把 `import mermaid` 推迟到第一次 render 时才执行,
+// Vite/rolldown 据此把 mermaid 拆出独立 chunk(配合 vite.config.ts 不再
+// codeSplitting:false)。`mermaid.initialize` 也挪到首次获取时执行,避免
+// 模块加载就跑 initialize 副作用。
+//
+// plugin view attach 后 buildDecorations 会扫描 doc,如果含 mermaid 节点
+// 会自然触发 getMermaid() → 异步加载 → 加载完渲染 SVG(已有 loader 占位)。
+
+let mermaidMod: typeof Mermaid | null = null
+let mermaidPromise: Promise<typeof Mermaid> | null = null
+
+function getMermaid(): Promise<typeof Mermaid> {
+  if (mermaidMod) return Promise.resolve(mermaidMod)
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((m) => {
+      const mermaid = m.default
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'default',
+      })
+      mermaidMod = mermaid
+      return mermaid
+    })
+  }
+  return mermaidPromise
+}
 
 // ========== ID 生成 ==========
 
@@ -42,12 +73,6 @@ function getMermaidTheme(): 'default' | 'dark' {
   if (document.documentElement.classList.contains('dark')) return 'dark'
   return 'default'
 }
-
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: 'strict',
-  theme: 'default',
-})
 
 // ========== HTML 转义(用于 error UI) ==========
 
@@ -72,6 +97,7 @@ async function renderMermaid(code: string, id: string, theme: 'default' | 'dark'
   const trimmed = code.trim()
   if (!trimmed) return { svg: '', error: null }
 
+  const mermaid = await getMermaid()
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',

@@ -43,7 +43,8 @@ import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
-import 'katex/dist/katex.min.css'
+// katex.min.css 不再静态 import —— katex 包整体懒加载(见 MathNodeViews.ts
+// 的 getKatex),CSS 也跟着第一次 render 时动态 import,避免首屏加载 ~80KB CSS。
 
 // ============================================================
 //  标题前 Backspace / Delete → 转段落(旧 EditorInner 行为保留)

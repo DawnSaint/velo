@@ -35,10 +35,11 @@ import {
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/composables/useResizeSplitter'
 import { SAMPLE_ENTRIES, findSample } from '@/utils/samples'
+import { mark, measure, report } from '@/utils/perf'
 import veloLogo from '@/assets/Velo.png'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
-import { isTauri } from '@tauri-apps/api/core'
+import { isTauri, invoke } from '@tauri-apps/api/core'
 import {
   getCurrentWindowLabel,
   newAppWindow,
@@ -90,7 +91,7 @@ const welcomeVisible = ref(false)
 const samplesAvailable = ref(true)
 
 void initSettings()
-  .finally(() => { settingsReady.value = true })
+  .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
     const { getHighlighter, ensureTheme, BASELINE_LANGS, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
@@ -114,12 +115,14 @@ void initSettings()
     await ensureTheme(light)
     await ensureTheme(dark)
     codeBlockReady.value = true
+    mark('code-block-ready')
   })
   .catch((err) => {
     // shiki 加载失败也别卡白屏,翻 ready 让 PM mount,plugin 内置 catch 会
     // 输出 warn,代码块走 SCSS 默认色(降级)
     console.warn('[App] shiki highlighter 预加载失败,降级到默认色:', err)
     codeBlockReady.value = true
+    mark('code-block-ready')
   })
 
 type LeftPanelView = 'fileActions' | 'sidebar' | 'settings' | null
@@ -1051,11 +1054,24 @@ const DRAFT_SAVE_INTERVAL_MS = 30_000
 let draftTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
+  // Vue 已把 App.vue 根挂上 DOM —— 打 mark(后续 await 链路里的 keydown 挂载
+  // 等不能推迟到这里之后,见 0-pre 注释)。
+  mark('mounted')
   // 0-pre) 关键:keydown 监听必须在第一个 await 之前挂上。
   //   启动期 await 一堆(读盘、invoke、openPath),用户在 await 期间按 Ctrl+F
   //   浏览器自己的 find 会先开 —— handler 还没挂就拦不住了。capture 阶段
   //   + preventDefault 是另一道保险,见 onKeydown 注释。
   window.addEventListener('keydown', onKeydown, { capture: true })
+
+  // F12 打开 WebView DevTools —— Cargo.toml 开了 `devtools` feature,release 包也能用。
+  // tauri command `open_devtools` 在 src-tauri/src/lib.rs 注册。dev 环境 Vite/浏览器
+  // 自带 F12,这里 invoke 会失败,catch 掉就行。
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F12' && tauri) {
+      e.preventDefault()
+      void invoke('open_devtools').catch(() => { /* dev 环境无此 command,忽略 */ })
+    }
+  })
 
   // 0) 加载大纲折叠状态 —— 必须早于 CLI 打开文件,
   //    否则 CLI 打开文件时,EditorOutline 的 filePath watch 读到的 store 是空的,
@@ -1228,6 +1244,23 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('focus', onWindowFocus)
 })
+
+// ========== 性能打点收口 ==========
+// editorRef 首次非 null = ProseMirrorEditor 实际 mount 完成。
+// 这是首屏"可交互"的真正终点 —— 在此之前 codeBlockReady 已 ready 但 PM 还没挂。
+// 触发点:一次 watch(editorRef) → mark + measure 全链路 + report 一次。
+let perfReported = false
+watch(editorRef, (v) => {
+  if (!v || perfReported) return
+  perfReported = true
+  mark('editor-mounted')
+  measure('settings', 'script-start', 'settings-ready')
+  measure('shiki', 'settings-ready', 'code-block-ready')
+  measure('app-mount', 'script-start', 'mounted')
+  measure('pm-mount', 'code-block-ready', 'editor-mounted')
+  measure('total-tti', 'script-start', 'editor-mounted')
+  report('editor-ready')
+}, { flush: 'post' })
 </script>
 
 <template>

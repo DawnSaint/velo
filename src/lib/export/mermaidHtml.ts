@@ -7,7 +7,25 @@
 // id 唯一性:用 module-local counter 自增,保证一次导出多 mermaid 块不冲突。
 // mermaid 内部按 id 注册 SVG 容器,重复 id 会让第二块覆盖第一块的 DOM 节点。
 
-import mermaid from 'mermaid'
+import type Mermaid from 'mermaid'
+
+// mermaid 懒加载 —— 与 editor 侧 MermaidDecoration.ts 的 getMermaid 共享 Vite
+// 拆出的 mermaid chunk。导出场景下不渲染到 DOM(只要 SVG 字符串),所以不需要
+// 额外副作用,直接 import 拿模块即可。
+
+let mermaidMod: typeof Mermaid | null = null
+let mermaidPromise: Promise<typeof Mermaid> | null = null
+
+function getMermaid(): Promise<typeof Mermaid> {
+  if (mermaidMod) return Promise.resolve(mermaidMod)
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((m) => {
+      mermaidMod = m.default
+      return m.default
+    })
+  }
+  return mermaidPromise
+}
 
 export interface MermaidRenderResult {
   svg: string
@@ -36,8 +54,9 @@ export async function renderMermaidSvg(
   if (!trimmed) {
     return { svg: '', error: null }
   }
+  const mermaid = await getMermaid()
   // mermaid 是 singleton(整个 app 共享一个),每次 render 前 re-init 切 theme。
-  // 跟 MermaidDecoration.ts:74-78 同范式;并发调用理论上有 race(两次
+  // 跟 MermaidDecoration.ts 同范式;并发调用理论上有 race(两次
   // initialize 互相覆盖 theme),但导出场景同步 await 各块,不会并发。
   mermaid.initialize({
     startOnLoad: false,

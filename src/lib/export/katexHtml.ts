@@ -9,7 +9,26 @@
 // 再走 inlineKatexWoff2Fonts 把 woff2 inline 成 base64 data URI 并 strip
 // woff/ttf 引用,保证导出 HTML 完全自包含(无 fonts/ 目录也能渲染)。
 
-import katex from 'katex'
+import type Katex from 'katex'
+
+// katex 懒加载 —— 与 editor 侧 MathNodeViews.ts 的 getKatex 共享 Vite 拆出的
+// katex chunk(同 dynamic import 路径,ESM 缓存同一模块实例)。导出场景不需要
+// katex.min.css(CSS 走 ./katexCss.ts 的 base64 inline),所以这里只 import
+// katex 库本身。
+
+let katexMod: typeof Katex | null = null
+let katexPromise: Promise<typeof Katex> | null = null
+
+function getKatex(): Promise<typeof Katex> {
+  if (katexMod) return Promise.resolve(katexMod)
+  if (!katexPromise) {
+    katexPromise = import('katex').then((m) => {
+      katexMod = m.default
+      return m.default
+    })
+  }
+  return katexPromise
+}
 
 export interface KatexRenderResult {
   html: string
@@ -25,7 +44,7 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
-export function renderKatexHtml(source: string, displayMode: boolean): KatexRenderResult {
+export async function renderKatexHtml(source: string, displayMode: boolean): Promise<KatexRenderResult> {
   if (!source || !source.trim()) {
     // 与 MathNodeViews 的"(空)"占位行为对齐
     return {
@@ -35,6 +54,7 @@ export function renderKatexHtml(source: string, displayMode: boolean): KatexRend
       error: null,
     }
   }
+  const katex = await getKatex()
   try {
     const html = katex.renderToString(source, {
       displayMode,

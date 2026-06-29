@@ -1,5 +1,5 @@
 import { Plugin, PluginKey } from 'prosemirror-state'
-import katex from 'katex'
+import type Katex from 'katex'
 import {
   createTextareaEditor,
   stopMousedownPropagation,
@@ -7,8 +7,37 @@ import {
   insertTabAtCursor,
 } from './TextareaEditor'
 
-function renderKatex(source: string, el: HTMLElement, displayMode: boolean) {
+// ========== katex 懒加载 ==========
+//
+// katex 包 ~270KB minified(+ 字体),首屏 doc 不含 $/$$ 公式时无需加载。
+// 用模块级 lazy getter 把 `import katex` + `import 'katex/dist/katex.min.css'`
+// 推迟到第一次 render 时才执行,Vite/rolldown 据此把 katex 拆出独立 chunk
+// (配合 vite.config.ts 不再 codeSplitting:false)。
+//
+// 调用点(showDisplay / startEdit)都改成 `void renderKatex(...)`,
+// 第一次 render 时 katex 尚未就绪 → innerHTML 先清空占位,加载完才填,
+// 视觉上"先空后渲染"(数学公式场景首次加载可接受)。
+
+let katexMod: typeof Katex | null = null
+let katexPromise: Promise<typeof Katex> | null = null
+
+function getKatex(): Promise<typeof Katex> {
+  if (katexMod) return Promise.resolve(katexMod)
+  if (!katexPromise) {
+    katexPromise = Promise.all([
+      import('katex'),
+      import('katex/dist/katex.min.css'),
+    ]).then(([m]) => {
+      katexMod = m.default
+      return m.default
+    })
+  }
+  return katexPromise
+}
+
+async function renderKatex(source: string, el: HTMLElement, displayMode: boolean): Promise<void> {
   el.innerHTML = ''
+  const katex = await getKatex()
   try {
     katex.render(source || ' ', el, { throwOnError: true, displayMode })
   }
@@ -41,7 +70,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   function showDisplay() {
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
-    renderKatex(readValue(), dom, false)
+    void renderKatex(readValue(), dom, false)
   }
 
   function startEdit() {
@@ -61,7 +90,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
 
     const preview = document.createElement('span')
     preview.className = 'edit-preview'
-    renderKatex(input.value, preview, false)
+    void renderKatex(input.value, preview, false)
 
     wrapper.appendChild(input)
     wrapper.appendChild(preview)
@@ -70,7 +99,7 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     isolateInputFromProseMirror(input)
     input.addEventListener('input', (e) => {
       e.stopPropagation()
-      renderKatex(input.value, preview, false)
+      void renderKatex(input.value, preview, false)
     })
 
     input.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -141,7 +170,7 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     if (editing) return
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
-    renderKatex(node.attrs.value, dom, true)
+    void renderKatex(node.attrs.value, dom, true)
   }
 
   function startEdit() {
@@ -176,7 +205,7 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     dom.innerHTML = ''
     dom.appendChild(editor.container)
     editor.textarea.addEventListener('input', () => {
-      renderKatex(editor!.textarea.value, editor!.preview, true)
+      void renderKatex(editor!.textarea.value, editor!.preview, true)
     })
     editor.focus()
   }
