@@ -74,6 +74,34 @@
   margin-top: 8px;
 }
 
+/* ---- 空公式占位（value 为空时显示，引导点击进编辑） ---- */
+.math-empty-placeholder {
+  pointer-events: none;          // 让 .math-node 上的 click 监听统一接管
+  user-select: none;
+  color: #888;
+  font-style: italic;
+  font-size: 0.85em;
+  opacity: 0;                    // 默认不可见
+  transition: opacity 0.15s;
+}
+// hover .math-node 时才淡入显示 hint
+.velo-editor .math-node:not(.is-editing):hover .math-empty-placeholder {
+  opacity: 1;
+}
+.math-block-node .math-empty-placeholder {
+  display: block;
+  padding: 4px;
+  text-align: center;
+}
+.math-inline-node .math-empty-placeholder {
+  display: inline-block;
+  padding: 2px 8px;
+}
+.dark .math-empty-placeholder,
+.velo-editor.dark .math-empty-placeholder {
+  color: #aaa;
+}
+
 /* ---- 暗色模式：编辑区 ---- */
 .dark .math-edit-input,
 .dark .edit-textarea,

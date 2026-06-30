@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [Unreleased]
+
+### Fixed
+- `$$` + Enter 创建的块级公式输入框不再异常消失，输入字符也不再把整段公式替换为文本。
+- 切换到源码模式再切回后，文档中已存在的数学公式不再消失。
+- 空公式块 / 空行内公式不再渲染为不可见的空白块；改为显示虚线占位框，点击仍可重新进入编辑。
+
 ## [0.5.8] — 2026-06-28
 
 ### Changed

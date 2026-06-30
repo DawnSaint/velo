@@ -35,9 +35,43 @@ function getKatex(): Promise<typeof Katex> {
   return katexPromise
 }
 
+// 编辑态下 NodeView 需要从 PM 事件链里摘出来的输入事件类型:
+//   eventBelongsToView 从 event.target 沿祖先链走到 view.dom,对每个有
+//   pmViewDesc 的节点问 stopEvent;返回 true → PM 整条链路忽略。
+//   isolateInputFromProseMirror 在 textarea / input 上 stopPropagation 是
+//   inner 一侧兜底,stopEvent 在 NodeView 外侧兜底,两道闸互不依赖。
+const INPUT_EVENT_TYPES = new Set([
+  'beforeinput',
+  'input',
+  'keydown',
+  'keyup',
+  'keypress',
+  'paste',
+  'copy',
+  'cut',
+  'compositionstart',
+  'compositionupdate',
+  'compositionend',
+  'drop',
+  'dragover',
+  'dragenter',
+  'dragleave',
+])
+
 async function renderKatex(source: string, el: HTMLElement, displayMode: boolean): Promise<void> {
+  // 节点可能已切到编辑态 / 被 PM 销毁(典型的 `$$`+Enter 场景):
+  //   showDisplay 同步排队 renderKatex → 微任务边界 → startEdit 同步挂上
+  //   editor(进入 is-editing)→ katex 包异步加载完才 resolve → 这时再
+  //   katex.render 到 el 会**覆盖刚挂好的 editor**,textarea 直接消失。
+  // 两道闸:同步入口处判一次 + await 之后再判一次,任一不通过就放弃写入。
+  //
+  // **入口闸不判 isConnected**:NodeView 工厂同步跑 showDisplay 时,PM 还没把 dom
+  // 挂到 view.dom(此时 isConnected === false),太早 return → 整个 NodeView 寿命里
+  // katex 都不再 render。await 之后 PM 已挂好,走第二道闸就够。
+  if (el.classList.contains('is-editing')) return
   el.innerHTML = ''
   const katex = await getKatex()
+  if (el.classList.contains('is-editing') || !el.isConnected) return
   try {
     katex.render(source || ' ', el, { throwOnError: true, displayMode })
   }
@@ -70,7 +104,12 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   function showDisplay() {
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
-    void renderKatex(readValue(), dom, false)
+    const value = readValue()
+    // 空 value 不走 katex:render(' ') 出来高度趋近 0,节点看起来"消失";
+    // 改成渲染可见占位,让用户能看见并点击重新进编辑。点击走 dom 上
+    // 的 click listener(startEdit),占位本身 pointer-events:none 透传。
+    if (!value) renderEmptyPlaceholder(dom, false)
+    else void renderKatex(value, dom, false)
   }
 
   function startEdit() {
@@ -153,6 +192,14 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     },
     destroy() { /* nothing */ },
     ignoreMutation() { return true },
+    // 编辑态下,textarea / preview 内部的所有输入事件不能让 PM 看到 —— PM 的
+    // eventBelongsToView 会从 event.target 一路走到 view.dom,对每个有
+    // pmViewDesc 的祖先调 stopEvent。这里返回 true → PM 整条链路忽略这个事件,
+    // 不会触发默认的 tr.insertText 把 math_inline 整个替换成输入字符。
+    stopEvent(event: Event) {
+      if (!editing) return false
+      return INPUT_EVENT_TYPES.has(event.type)
+    },
   }
 }
 
@@ -170,7 +217,9 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     if (editing) return
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
-    void renderKatex(node.attrs.value, dom, true)
+    // 空 value 渲染可见占位(同上 inline 注释)
+    if (!node.attrs.value) renderEmptyPlaceholder(dom, true)
+    else void renderKatex(node.attrs.value, dom, true)
   }
 
   function startEdit() {
@@ -200,8 +249,10 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
         showDisplay()
       },
     })
-    editor.setPreviewHtml(renderedHtml)
-    // 初始预览就是 dom.innerHTML 捕获的渲染结果,直接显示;input 监听负责后续重新渲染
+    // 初始预览就是 dom.innerHTML 捕获的渲染结果,直接显示;input 监听负责后续重新渲染。
+    // 仅在原本有 value 时恢复 — 空节点的 dom 现在是 .math-empty-placeholder,
+    // 把它塞回 preview 里会污染 dom(querySelector('.math-empty-placeholder') 仍能命中)。
+    if (renderedHtml && node.attrs.value) editor.setPreviewHtml(renderedHtml)
     dom.innerHTML = ''
     dom.appendChild(editor.container)
     editor.textarea.addEventListener('input', () => {
@@ -239,10 +290,33 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     },
     destroy() { editor?.dispose() },
     ignoreMutation() { return true },
+    // 编辑态下,editor(内部 textarea + preview)的所有输入事件不能让 PM 看到。
+    // 典型场景:`$$`+Enter 进入自动 edit → 用户敲字符 → PM 默认 handleTextInput
+    // 走 tr.insertText,把 math_block 当 NodeSelection 选中并替换成输入字符 →
+    // math 节点消失、textarea 随 nodeView 销毁一起消失。
+    // stopEvent 在 PM 的 eventBelongsToView 里被检查,返回 true → 整条事件
+    // 链路被 PM 忽略。isolateInputFromProseMirror 的 stopPropagation 是 textarea
+    // 端的兜底,这里是从 NodeView 端兜底,两道闸互不依赖。
+    stopEvent(event: Event) {
+      if (!editing) return false
+      return INPUT_EVENT_TYPES.has(event.type)
+    },
   }
 }
 
 // ========== 导出 ==========
+
+/**
+ * 空 value 的 math 节点渲染占位 DOM(虚线框 + 提示文字)。
+ * pointer-events:none 让点击透传到父 .math-node 的 click listener,
+ * 由 listener 调 startEdit() 重新进入编辑态。
+ */
+function renderEmptyPlaceholder(dom: HTMLElement, block: boolean): void {
+  const placeholder = document.createElement(block ? 'div' : 'span')
+  placeholder.className = 'math-empty-placeholder'
+  placeholder.textContent = block ? '点击编辑公式' : '公式'
+  dom.appendChild(placeholder)
+}
 
 /**
  * 标记"某个具体的 math_block 节点应该自动进入编辑态"。
