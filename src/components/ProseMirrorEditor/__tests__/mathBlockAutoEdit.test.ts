@@ -226,7 +226,8 @@ describe('math 空 value blur 后应保留可见占位', () => {
       plugins: [mathEditPlugin],
     })
     const view = new EditorView(container, { state })
-    await new Promise(r => setTimeout(r, 50))
+    // katex 懒加载首屏 < 100ms,留 200ms 兜底避免 flake(同文件第一个测试的 wait)
+    await new Promise(r => setTimeout(r, 200))
 
     const mathBlockEl = view.dom.querySelector('.math-block-node') as HTMLElement
     // 有内容 → 走 katex,不应有占位

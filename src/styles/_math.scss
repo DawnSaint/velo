@@ -1,21 +1,61 @@
-/* ========== 数学公式编辑 UI ========== */
+/* ========== 数学公式 UI ========== */
 
-/* 渲染态：hover 提示可点击 */
+/* 节点容器基础样式 */
 .velo-editor .math-node {
-  cursor: pointer;
   border-radius: 3px;
   transition: background 0.15s;
 }
-.velo-editor .math-node:not(.is-editing):hover {
+.velo-editor .math-inline-node[data-mode="display"] {
+  cursor: pointer;
+}
+.velo-editor .math-inline-node[data-mode="display"]:hover {
   background: rgba(128, 128, 128, 0.1);
 }
 
-/* 行内公式输入框 */
-.math-edit-input {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: inherit;
-  width: 200px;
+/* 行内公式:contentDOM(含 `$x^2$` 整体)+ 渲染层
+ *   DOM: [contentDOM `$x^2$`][katex 渲染层]
+ *
+ * B1(2026-06-30):content 含 `$` 分隔符,PM 通过 contentDOM 直接管理,用户可编辑 $。
+ * 不再有独立 prefix/suffix 装饰元素 —— `$` 是 contentDOM 内文本的一部分。
+ *
+ * - display 态(光标在节点外):隐藏 contentDOM,仅显示渲染层 → 阅读纯净
+ * - edit    态(光标在节点内):显示 contentDOM(含 $)+ 渲染层 → 源码与预览并列
+ *   源码更新时由 NodeView.update 实时把 katex 重渲染到 .math-inline-display。
+ *   注:edit 态下 `$` 是普通文本色(B1 取舍:可编辑优先于主题色高亮,
+ *   主题色高亮需 decoration 定位 `$` 字符,暂未实现)。
+ */
+.math-inline-source {
+  display: none;
+}
+.math-inline-node[data-mode="edit"] .math-inline-source {
+  display: inline;
+}
+.math-inline-node .math-inline-display {
+  display: inline;
+}
+
+/* edit 态下:源码与渲染层之间留间距,渲染层稍微 dim 提示"这是跟随预览" */
+.math-inline-node[data-mode="edit"] .math-inline-display {
+  margin-left: 6px;
+  opacity: 0.85;
+  border-left: 1px solid color-mix(in srgb, var(--md-primary-color, #1F71D9) 30%, transparent);
+  padding-left: 6px;
+}
+
+
+/* 空 math_inline 占位 —— display 态显示在渲染层,editing 态显示在 source 内 */
+.math-empty-placeholder {
+  pointer-events: none;
+  user-select: none;
+  color: #888;
+  font-style: italic;
+  font-size: 0.85em;
+  opacity: 0; // 默认不可见
+  transition: opacity 0.15s;
+}
+// hover display 态节点时淡入占位,提示"这里有公式但为空,点一下可编辑"
+.velo-editor .math-inline-node[data-mode="display"]:hover .math-empty-placeholder {
+  opacity: 1;
 }
 
 /* 公式渲染失败占位 */
@@ -36,37 +76,45 @@
   text-align: center;
 }
 
-/* 暗色模式：error 占位 */
+/* 暗色模式 */
 .dark .math-error,
 .velo-editor.dark .math-error {
   border-color: #f77878;
   color: #f77878;
 }
-
-
-/* ---- 编辑区 textarea / input 公共 ---- */
-.math-edit-input,
-.edit-textarea {
-  border: 1px solid var(--md-primary-color, #4a9eff);
-  font-family: 'Fira Code', Menlo, Consolas, monospace;
-  outline: none;
-  background: #fff;
-  color: #333;
+.dark .math-empty-placeholder,
+.velo-editor.dark .math-empty-placeholder {
+  color: #aaa;
 }
 
+/* ========== 块级公式(保留旧行为) ========== */
+.velo-editor .math-block-node {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s;
+  padding: 8px 0;
+}
+.velo-editor .math-block-node:not(.is-editing):hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+/* 块级公式编辑壳:在 MathNodeViews.ts 的 createMathBlockView 里走 createTextareaEditor */
 .edit-textarea {
   display: block;
   width: 100%;
   min-width: 320px;
   padding: 8px 12px;
+  border: 1px solid var(--md-primary-color, #1F71D9);
   border-radius: 4px;
+  font-family: 'Fira Code', Menlo, Consolas, monospace;
   font-size: inherit;
   line-height: 1.75;
   resize: none;
   overflow: hidden;
+  outline: none;
+  background: #fff;
+  color: #333;
 }
-
-/* ---- 编辑时下方渲染块（灰色参考） ---- */
 .edit-preview {
   opacity: 0.6;
   pointer-events: none;
@@ -74,20 +122,6 @@
   margin-top: 8px;
 }
 
-/* ---- 空公式占位（value 为空时显示，引导点击进编辑） ---- */
-.math-empty-placeholder {
-  pointer-events: none;          // 让 .math-node 上的 click 监听统一接管
-  user-select: none;
-  color: #888;
-  font-style: italic;
-  font-size: 0.85em;
-  opacity: 0;                    // 默认不可见
-  transition: opacity 0.15s;
-}
-// hover .math-node 时才淡入显示 hint
-.velo-editor .math-node:not(.is-editing):hover .math-empty-placeholder {
-  opacity: 1;
-}
 .math-block-node .math-empty-placeholder {
   display: block;
   padding: 4px;
@@ -97,17 +131,10 @@
   display: inline-block;
   padding: 2px 8px;
 }
-.dark .math-empty-placeholder,
-.velo-editor.dark .math-empty-placeholder {
-  color: #aaa;
-}
 
-/* ---- 暗色模式：编辑区 ---- */
-.dark .math-edit-input,
 .dark .edit-textarea,
-.velo-editor.dark .math-edit-input,
 .velo-editor.dark .edit-textarea {
   background: #1e1e1e;
   color: #d4d4d4;
-  border-color: var(--md-primary-color, #4a9eff);
+  border-color: var(--md-primary-color, #1F71D9);
 }

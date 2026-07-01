@@ -124,14 +124,29 @@ describe('markdownIO - math fence guard', () => {
     expect(doc.textContent).toContain('$$p_i = \\frac{\\sum_t log P_\\pi')
   })
 
-  it('同一行闭合的 $$...$$ 仍解析为行内公式', () => {
+  it('同一行闭合的 $$...$$ 仍解析为行内公式(保留双 $)', () => {
     const doc = fromMarkdown('$$p_i$$', schema)
     const para = doc.firstChild
     let foundInlineMath = false
     para?.forEach(child => {
-      if (child.type.name === 'math_inline' && child.textContent === 'p_i') foundInlineMath = true
+      // delimiterCount 保留:$$p_i$$ 解析后 content 仍是 $$p_i$$(双 $)
+      if (child.type.name === 'math_inline' && child.textContent === '$$p_i$$') foundInlineMath = true
     })
     expect(foundInlineMath).toBe(true)
+  })
+
+  it('$$...$$ 行内公式 round-trip 保留双 $(不降级成单 $)', () => {
+    const md = '$$y=f(x)$$ and $x^2$'
+    const doc = fromMarkdown(md, schema)
+    const back = toMarkdown(doc)
+    expect(normalize(back)).toEqual(normalize(md))
+  })
+
+  it('$$...$$ 行内公式 round-trip(独立段落)', () => {
+    const md = 'Force: $$F=ma$$'
+    const doc = fromMarkdown(md, schema)
+    const back = toMarkdown(doc)
+    expect(normalize(back)).toEqual(normalize(md))
   })
 })
 

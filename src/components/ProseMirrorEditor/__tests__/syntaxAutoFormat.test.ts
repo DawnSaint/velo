@@ -464,9 +464,94 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     const para = view.state.doc.firstChild!
     let foundMath = false
     para.forEach((child) => {
-      if (child.type.name === 'math_inline' && child.textContent === 'E=mc^2') foundMath = true
+      if (child.type.name === 'math_inline' && child.textContent === '$E=mc^2$') foundMath = true
     })
     expect(foundMath).toBe(true)
+    cleanup()
+  })
+
+  it('"$x$" 键入完成后光标停在节点内末尾(不立即隐藏 $x$)', () => {
+    // 用户主诉:打完最后一个 $ 立即变 Katex 形态隐藏了 $x$,希望光标还停在
+    // 末尾 $ 之后,同时显示 $x$ + 渲染层;继续输入别的字符(光标移出)才隐藏。
+    // 这里只断言 selection 位置(inlineMath.ts 改动核心);data-mode 的 edit 态
+    // 保持由 isCursorInNode 保证(光标在节点内 → edit),mathInlineDualMode.test.ts
+    // 已覆盖。
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '$x$')
+
+    // 找到 math_inline 节点位置
+    let nodePos = -1
+    view.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'math_inline') { nodePos = pos; return false }
+      return true
+    })
+    expect(nodePos).toBeGreaterThanOrEqual(0)
+
+    // content = `$x$`(3 字符),nodeSize = 5;节点内末尾(close tag 之前)= nodePos + 4
+    // 光标在此位置 → isCursorInNode true → edit 态保持
+    expect(view.state.selection.head).toBe(nodePos + 4)
+
+    cleanup()
+  })
+
+  it('"$$x$$" 段中键入 → 转 math_inline,前后不留多余 $', () => {
+    // 用户主诉:输入 $$x$$ 移开光标后,看到「$ 跟 katex 渲染的 x」——
+    // 根因:旧正则 /\$([^$\n]+)\$/g 在 $$x$$ 上只匹配中间 3 字符 $x$,
+    // 首尾两个 $ 留在段落里成普通文本 → 视觉上 "$ + math + $"。
+    // 新正则 /(\$\$?)([^$\n]+)\1/g 用反向引用配对首尾 $ 数量,完整吞下 $$x$$。
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '$$x$$')
+
+    const para = view.state.doc.firstChild!
+    let mathText: string | null = null
+    let mathCount = 0
+    para.forEach((child) => {
+      if (child.type.name === 'math_inline') {
+        mathCount++
+        mathText = child.textContent
+      }
+    })
+    // 唯一 1 个 math 节点,content 含完整 $$x$$
+    expect(mathCount).toBe(1)
+    expect(mathText).toBe('$$x$$')
+
+    // 段落中除 math 节点外不应残留任何 $ 字符(text 含 math content)
+    // 实际就是 math 节点本身,外层 text "See " 不应被切碎
+    const allText = para.textContent
+    expect(allText).toBe('See $$x$$')
+    cleanup()
+  })
+
+  it('"$$x$$" 逐字符键入(模拟真实输入)→ 不在 $$x$ 中间态误匹配', () => {
+    // 用户主诉:逐字符输入 $$x$$ 时,打完 $$x$ 的瞬间 regex 从 index 1 匹配 $x$,
+    // 把 $x$ 转成 math_inline 留下前导 $ → 用户看到 "$ + katex",序列化后变 \$$x$。
+    // 修复:正则加 (?<!\$) 负向后行断言,$$x$ 中间态不匹配,等输完 $$x$$ 才完整转换。
+    // typeAt 一次性插入掩盖了此问题,这里逐字符 dispatch 验证。
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    // 逐字符输入 $ $ x $ $
+    for (const ch of ['$', '$', 'x', '$', '$']) {
+      const pos = view.state.selection.head
+      view.dispatch(view.state.tr.insertText(ch, pos))
+    }
+
+    const para = view.state.doc.firstChild!
+    let mathText: string | null = null
+    let mathCount = 0
+    para.forEach((child) => {
+      if (child.type.name === 'math_inline') {
+        mathCount++
+        mathText = child.textContent
+      }
+    })
+    expect(mathCount).toBe(1)
+    expect(mathText).toBe('$$x$$')
+    expect(para.textContent).toBe('See $$x$$')
     cleanup()
   })
 

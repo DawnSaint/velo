@@ -36,8 +36,9 @@ const CONTAINER_BLACKLIST = new Set([
   'html_block',
   // mermaid v0.4.6+ 走 code_block { language: 'mermaid' },自动被 code_block 分支拦截
   'math_block',
-  // math_inline / html_inline / footnote_reference / image 都是 atom,
-  // 没有 text 子节点,inline detector 自然跳过,不需要单独列
+  // math_inline / html_inline 是非 text inline 节点(前者 atom 已去除
+  // 但 content:'text*',后者 atom)—— buildBlockText 用 NULL 占位跳过,不会被
+  // 任何 inline 正则匹配。footnote_reference / image 同理。
 ])
 
 interface DirtyRange {

@@ -330,13 +330,25 @@ const nodes: Record<string, NodeSpec> = {
   //  自定义节点(math)—— 见各 NodeView 文件
   // ============================================================
 
-  // math_inline / math_block:LaTeX 公式。
-  // - inline 走 KaTeX 行内渲染,内容为 source(textContent)
-  // - block 走 KaTeX displayMode,source 在 attrs.value 里
+  // math_inline:LaTeX 行内公式。Obsidian/Typora 风格:source 是 node 的 text content
+  // (非 atom),NodeView 显式渲染两端的 `$` 分隔符 + katex 预览;光标进入时切到
+  // edit 模式显示 source,光标离开时切到 display 模式只显示预览 —— 与
+  // footnote_reference "label as text content" 修复同范式(contentDOM 由 PM 接管,
+  // 选区自然进入节点内,Backspace/Delete 按节点内 selection 处理)。
+  //
+  // 之前 `atom: true` 的设计:NodeView 自己挂 input/textarea 做编辑,blur 后销毁编辑
+  // 壳重渲染 —— 用户感知"显式输入框",与"光标进入即编辑、离开即预览"的现代编辑器
+  // 体验割裂;NodeView 还要自管 stopEvent / isolateInput / 异步 stale-check 一堆补丁
+  // (editor.md 旧版"NodeView 必须实现 stopEvent" / "async render stale-check"段均
+  // 服务于这个旧设计)。去 atom 后这些补丁一并消失。
+  //
+  // 保留 `code: true` —— 选区不可"跨" math_inline(防止从外部文本选到公式中间
+  // 又从公式中间选到外部文本,与 footnote_reference 同形)。
+  // 保留 `marks: ''` —— source text 不参与外部 mark 继承。
   math_inline: {
     group: 'inline',
     inline: true,
-    atom: true,
+    atom: false,
     content: 'text*',
     marks: '',
     code: true,

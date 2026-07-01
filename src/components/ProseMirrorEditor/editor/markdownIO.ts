@@ -56,6 +56,29 @@ const processor = unified()
         }
         state.write('==')
       },
+      // 行内公式:覆盖 remark-math 的 inlineMath handler,根据 delimiterCount
+      // 决定输出 `$value$`(单 $)还是 `$$value$$`(双 $)。remark-math 默认总用
+      // 单 $,会把 doc 里的 `$$x$$` 降级成 `$x$`。padding / value 含 $ 升级 size
+      // 的逻辑保留自 mdast-util-math 的 inlineMath handler,确保边缘场景一致。
+      // handler 签名 (node, parent, state, info) —— 见 mdast-util-to-markdown。
+      inlineMath(node: any, _parent: any, _state: any) {
+        let value = node.value || ''
+        const delimiterCount = (node.delimiterCount as number) || 1
+        let size = delimiterCount
+        // value 里若出现 size 个连续 $ 的孤立序列,升级 size 防提前闭合
+        while (new RegExp('(^|[^$])' + '\\$'.repeat(size) + '([^$]|$)').test(value)) {
+          size++
+        }
+        const sequence = '$'.repeat(size)
+        // padding:value 首尾是空格/换行 或 首尾是 $ 时,前后补空格防歧义
+        if (
+          /[^ \r\n]/.test(value) &&
+          ((/^[ \r\n]/.test(value) && /[ \r\n]$/.test(value)) || /^\$|\$$/.test(value))
+        ) {
+          value = ' ' + value + ' '
+        }
+        return sequence + value + sequence
+      },
     },
     // `highlight` 是自定义 mdast 节点,Options 类型联合里没有 —— 用 any 绕过
   } as any)
@@ -66,12 +89,48 @@ const processor = unified()
 
 export function fromMarkdown(md: string, schema: Schema): PMNode {
   const tree = processor.runSync(processor.parse(md) as Root) as Root
+  // 给 inlineMath 节点标注 delimiterCount(首部分隔符 $ 数量,1 或 2)。
+  // remark-math 的 inlineMath.value 已剥离分隔符,需回查原始 md 保留 $$ 信息,
+  // 否则 `$$x^2$$` 会被降级成 `$x^2$` 存入 doc(用户打开文件后双 $ 变单 $)。
+  annotateMathDelimiterCount(tree, md)
   const blocks = tree.children.flatMap(n => mdastBlockToPM(n, schema))
   // 空文档兜底:doc 至少要一个 paragraph
   if (blocks.length === 0) {
     return schema.node('doc', null, [schema.node('paragraph')])
   }
   return schema.node('doc', null, blocks)
+}
+
+/**
+ * 遍历 mdast,给每个 inlineMath 节点加 `delimiterCount` 字段(1 或 2)。
+ *
+ * remark-math 的 mathFromMarkdown 把 `$x$` / `$$x$$` 都剥成 inlineMath.value=`x`,
+ * 丢失了分隔符数量信息。这里用 node.position.start.offset(指向分隔符首个 `$`)
+ * 从该位置向后数连续 `$` 的数量(上限 2,因为 micromark 只支持 1 或 2 个 $)。
+ *
+ * position.offset 基于 remarkMathFenceGuard 处理后的字符串,但该 guard 只改
+ * 行首未闭合的 `$$`,合法的行内 `$$x$$` 不受影响,offset 仍对齐原始 md。
+ */
+function annotateMathDelimiterCount(tree: Root, md: string): void {
+  const visit = (node: any): void => {
+    if (node.type === 'inlineMath') {
+      const offset = node.position?.start?.offset
+      if (typeof offset === 'number') {
+        // offset 指向分隔符首个 `$`,向后数连续 $ (inlineMath position 含分隔符)
+        let count = 0
+        let i = offset
+        while (i < md.length && md[i] === '$') { count++; i++ }
+        node.delimiterCount = Math.max(1, Math.min(count, 2))
+      }
+      else {
+        node.delimiterCount = 1
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const c of node.children) visit(c)
+    }
+  }
+  visit(tree)
 }
 
 // ============================================================
@@ -398,9 +457,15 @@ function inlineNodeToPM(
       return [schema.node('hardbreak')]
 
     case 'inlineMath':
-      // math_inline content 是 text*,把 source 当文本塞进去
+      // B1:content 含 `$` 分隔符 —— `$` + value + `$`。NodeView 渲染时剥离 $ 给 katex
+      // delimiterCount(2026-07-01):`$$x^2$$` 保留双 $,避免打开文件后降级成单 $。
+      // 由 fromMarkdown 的 annotateMathDelimiterCount 回查原始 md 标注。
+    {
+      const dc = (n.delimiterCount as number) || 1
+      const d = '$'.repeat(dc)
       return [schema.node('math_inline', null,
-        n.value ? [schema.text(n.value)] : [])]
+        n.value ? [schema.text(`${d}${n.value}${d}`)] : [])]
+    }
 
     case 'footnoteReference':
       // label 作为 footnote_reference 的 text content(非 attrs.label)。
@@ -595,13 +660,20 @@ function pmTableToMdast(table: PMNode): Table {
 //  PM 行内 → mdast(text + marks → emphasis/strong/.../inlineCode 树)
 // ============================================================
 
+// B1:math_inline content 含 `$` 分隔符,序列化时剥离首尾连续 $ 得纯 source。
+// `$x^2$` → `x^2`、`$$x^2$$` → `x^2`。mathInlineUnwrapPlugin 保证进来的 content
+// 必匹配 `$...$`,此处兜底处理边缘(剥完为空返回空串)。
+function stripMathDelimiters(s: string): string {
+  return s.replace(/^\$+/, '').replace(/\$+$/, '')
+}
+
 function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
   // 第一步:把每个 PM 子节点扁平化成 { kind, marks, ... } 描述
   type Span =
     | { kind: 'text'; marks: ReadonlyArray<{ name: string; attrs: Record<string, unknown> }>; value: string }
     | { kind: 'image'; marks: never[]; src: string; alt: string; title: string }
     | { kind: 'break'; marks: never[] }
-    | { kind: 'inlineMath'; marks: never[]; value: string }
+    | { kind: 'inlineMath'; marks: never[]; value: string; delimiterCount: number }
     | { kind: 'footnoteRef'; marks: never[]; label: string }
     | { kind: 'htmlInline'; marks: never[]; value: string }
 
@@ -624,7 +696,14 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       spans.push({ kind: 'break', marks: [] })
     }
     else if (name === 'math_inline') {
-      spans.push({ kind: 'inlineMath', marks: [], value: child.textContent })
+      // B1:content 含 `$`,序列化时剥离首尾 $ 得纯 source 给 mdast inlineMath.value
+      // delimiterCount(2026-07-01):从 content 首尾 $ 数量判断,保留 `$$x$$` 双 $ 信息,
+      // 避免 toMarkdown 把双 $ 降级成单 $。
+      const text = child.textContent
+      const openCount = (text.match(/^\$+/)?.[0] ?? '').length
+      const closeCount = (text.match(/\$+$/)?.[0] ?? '').length
+      const dc = Math.min(openCount, closeCount) || 1
+      spans.push({ kind: 'inlineMath', marks: [], value: stripMathDelimiters(text), delimiterCount: dc })
     }
     else if (name === 'footnote_reference') {
       // label 从 text content 读(非 attrs.label)—— schema 里 footnote_reference
@@ -693,7 +772,9 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       out.push({ type: 'break' })
     }
     else if (span.kind === 'inlineMath') {
-      out.push({ type: 'inlineMath', value: span.value } as PhrasingContent)
+      // delimiterCount 透传到 mdast 节点,由 processor.stringify 的 inlineMath
+      // handler 读取,决定输出 `$value$` 还是 `$$value$$`
+      out.push({ type: 'inlineMath', value: span.value, delimiterCount: span.delimiterCount } as PhrasingContent)
     }
     else if (span.kind === 'footnoteRef') {
       out.push({

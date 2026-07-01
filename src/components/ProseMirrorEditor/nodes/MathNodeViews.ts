@@ -1,10 +1,8 @@
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type Katex from 'katex'
 import {
   createTextareaEditor,
   stopMousedownPropagation,
-  isolateInputFromProseMirror,
-  insertTabAtCursor,
 } from './TextareaEditor'
 
 // ========== katex 懒加载 ==========
@@ -40,6 +38,7 @@ function getKatex(): Promise<typeof Katex> {
 //   pmViewDesc 的节点问 stopEvent;返回 true → PM 整条链路忽略。
 //   isolateInputFromProseMirror 在 textarea / input 上 stopPropagation 是
 //   inner 一侧兜底,stopEvent 在 NodeView 外侧兜底,两道闸互不依赖。
+// (math_block 编辑态仍依赖这套机制,math_inline 去 atom 后不再需要)
 const INPUT_EVENT_TYPES = new Set([
   'beforeinput',
   'input',
@@ -63,11 +62,13 @@ async function renderKatex(source: string, el: HTMLElement, displayMode: boolean
   //   showDisplay 同步排队 renderKatex → 微任务边界 → startEdit 同步挂上
   //   editor(进入 is-editing)→ katex 包异步加载完才 resolve → 这时再
   //   katex.render 到 el 会**覆盖刚挂好的 editor**,textarea 直接消失。
-  // 两道闸:同步入口处判一次 + await 之后再判一次,任一不通过就放弃写入。
   //
   // **入口闸不判 isConnected**:NodeView 工厂同步跑 showDisplay 时,PM 还没把 dom
   // 挂到 view.dom(此时 isConnected === false),太早 return → 整个 NodeView 寿命里
   // katex 都不再 render。await 之后 PM 已挂好,走第二道闸就够。
+  //
+  // math_inline 去 atom 后 is-editing 路径已删除(不再有显式编辑态),但 math_block
+  // 仍走 autoEditMathBlocks 这条路径 → 入口的 is-editing 检查对 math_block 仍有意义。
   if (el.classList.contains('is-editing')) return
   el.innerHTML = ''
   const katex = await getKatex()
@@ -86,124 +87,169 @@ async function renderKatex(source: string, el: HTMLElement, displayMode: boolean
 
 // ========== 行内公式 NodeView ==========
 //
-// inline 用 <input> 而非 <textarea>,结构跟 block / mermaid 差别大,
-// 不走 createTextareaEditor。直接复用 stopMousedownPropagation /
-// isolateInputFromProseMirror / insertTabAtCursor。
+// Obsidian Live Preview / Typora 风格 —— 与 footnote_reference "label as text content"
+// 同范式:
+//   - math_inline 节点 = schema `content: 'text*'`,source 文本由 PM 通过 contentDOM
+//     直接管理(光标能进入节点内逐字符编辑,Backspace/Delete 按节点内 selection 处理)。
+//   - NodeView DOM 结构:
+//       [prefix $][contentDOM source][suffix $][katex 渲染层]
+//   - 渲染层**始终可见**;data-mode 只控制 source + 前后 $ 是否显示:
+//       - display (光标在节点外):隐藏 source + 前后 $,仅显示渲染层 → 阅读纯净
+//       - edit    (光标在节点内):显示 source + 前后 $ + 渲染层 → 源码与预览并列,
+//         源码更新时由 update() 实时把 katex 重渲染到 .math-inline-display
+//   - `$` 分隔符走主题色 var(--md-primary-color),由 SCSS 控制
+//   - 模式切换由 NodeView 监听 `view.dom.ownerDocument` 的 `selectionchange` 事件,
+//     读 view.state.selection 判断 head 是否落在本节点 pos 范围内。
+//
+// 旧版(inline math 走 atom + 自管 input/textarea)的"显式输入框 + blur 消失"交互被
+// 完全替换 —— 用户感知"光标进入即显示源码、离开即折叠回渲染",与 footnote_reference
+// 修复后行为同型。
 
 function createMathInlineView(node: any, view: any, getPos: () => number) {
   const dom = document.createElement('span')
   dom.className = 'math-node math-inline-node'
-  let editing = false
+  dom.dataset.mode = 'display'
+
+  // B1:contentDOM 直接含完整 `$x^2$`(含分隔符,PM 管理,用户可编辑 $)。
+  // 不再有独立 prefix/suffix 装饰 —— `$` 就是 contentDOM 内文本的一部分,
+  // 用户删掉一个 `$` 后 content 不匹配 `$...$`,由 mathInlineUnwrapPlugin 降级为普通文本。
+  const contentDOM = document.createElement('span')
+  contentDOM.className = 'math-inline-source'
+  dom.appendChild(contentDOM)
+
+  // 渲染层(始终可见)—— 从 textContent 剥离首尾 $ 后给 katex。
+  // contenteditable=false:防止光标意外从 source 漂到渲染层里(PM 会把渲染层当可编辑
+  // 区域处理,导致选区错位),也防止 IME 在渲染层里启动输入。
+  const display = document.createElement('span')
+  display.className = 'math-inline-display'
+  display.setAttribute('contenteditable', 'false')
+  dom.appendChild(display)
+
+  // B1:剥离首尾连续 `$` 得纯 source 给 katex。`$x^2$` → `x^2`、`$$x^2$$` → `x^2`。
+  // 与 markdownIO.stripMathDelimiters 同源逻辑(各自本地副本,避免循环依赖)。
+  function stripDelimiters(s: string): string {
+    return s.replace(/^\$+/, '').replace(/\$+$/, '')
+  }
 
   function readValue(n: any = node): string {
     return n.textContent || ''
   }
 
-  stopMousedownPropagation(dom)
-
-  function showDisplay() {
-    dom.innerHTML = ''
-    dom.classList.remove('is-editing')
-    const value = readValue()
-    // 空 value 不走 katex:render(' ') 出来高度趋近 0,节点看起来"消失";
-    // 改成渲染可见占位,让用户能看见并点击重新进编辑。点击走 dom 上
-    // 的 click listener(startEdit),占位本身 pointer-events:none 透传。
-    if (!value) renderEmptyPlaceholder(dom, false)
-    else void renderKatex(value, dom, false)
+  function isCursorInNode(): boolean {
+    const pos = getPos()
+    if (pos < 0) return false
+    if (node.nodeSize === 0) return true // 空节点:始终显示空占位($ $),用户可点击进入输入
+    // 优先读 DOM selection —— PM 对鼠标点击导致的 DOM selection 变化的 state 同步
+    // 是异步的(rAF),selectionchange 触发时 view.state.selection 可能还是旧值 →
+    // 鼠标移出节点后 mode 不立即切换,用户须再点一下或输入才更新。
+    // 直接检查 DOM selection 的 anchorNode 是否在 contentDOM 子树内,无延迟。
+    const sel = view.dom.ownerDocument.getSelection()
+    if (sel && sel.rangeCount > 0 && sel.anchorNode && view.dom.contains(sel.anchorNode)) {
+      // anchorNode 在编辑器内,直接用 DOM 判断(绕开 PM state 同步延迟)
+      let n: Node | null = sel.anchorNode
+      while (n) {
+        if (n === contentDOM) return true // 光标在 contentDOM 子树内 → 在节点内
+        if (n === dom) return false // 在 dom(math-inline-node)内但不在 contentDOM 内
+        n = n.parentNode
+      }
+      return false // 在 view.dom 内但不在本节点内
+    }
+    // Fallback: 读 view.state.selection
+    // (jsdom 下 DOM Selection API 同步不完整,测试用 dispatch(tr.setSelection) 时
+    // state 即时正确;键盘导航走 tr.setSelection,state 也是即时同步的)
+    const head = view.state.selection.$head
+    return head.pos > pos && head.pos < pos + node.nodeSize
   }
 
-  function startEdit() {
-    if (editing) return
-    editing = true
-    dom.innerHTML = ''
-    dom.classList.add('is-editing')
-
-    const wrapper = document.createElement('span')
-    wrapper.className = 'math-edit-wrapper'
-
-    const input = document.createElement('input')
-    input.type = 'text'
-    input.value = readValue()
-    input.className = 'math-edit-input'
-    input.placeholder = 'LaTeX 源码'
-
-    const preview = document.createElement('span')
-    preview.className = 'edit-preview'
-    void renderKatex(input.value, preview, false)
-
-    wrapper.appendChild(input)
-    wrapper.appendChild(preview)
-    dom.appendChild(wrapper)
-
-    isolateInputFromProseMirror(input)
-    input.addEventListener('input', (e) => {
-      e.stopPropagation()
-      void renderKatex(input.value, preview, false)
-    })
-
-    input.addEventListener('keydown', (e: KeyboardEvent) => {
-      e.stopPropagation()
-      if (e.key === 'Escape') { e.preventDefault(); cancel() }
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        insertTabAtCursor(input)
-      }
-    })
-
-    input.addEventListener('blur', () => { save() })
-
-    function save() {
-      if (!editing) return
-      editing = false
-      if (input.value !== readValue()) {
-        const pos = getPos()
-        if (pos >= 0) {
-          const newNode = node.type.create(null, view.state.schema.text(input.value))
-          view.dispatch(view.state.tr.replaceWith(pos, pos + node.nodeSize, newNode))
-        }
-        else { showDisplay() }
-      }
-      else { showDisplay() }
-    }
-
-    function cancel() {
-      if (!editing) return
-      editing = false
+  function syncMode() {
+    const target = isCursorInNode() ? 'edit' : 'display'
+    if (dom.dataset.mode !== target) {
+      dom.dataset.mode = target
+      // 切换后立即刷新一次渲染 —— 切到 edit 时 source 可见,渲染层要保持与 source 同步;
+      // 切到 display 时 source 隐藏,渲染层就是用户唯一能看到的,务必是最新。
       showDisplay()
     }
-
-    setTimeout(() => input.focus(), 0)
   }
 
-  dom.addEventListener('click', (e) => {
-    e.stopPropagation()
-    if (!editing) startEdit()
-  })
+  function showDisplay() {
+    const value = readValue() // 含 `$` 分隔符,如 `$x^2$` 或 `$$x^2$$`
+    const source = stripDelimiters(value) // 剥离首尾 $ 得纯 source 给 katex
+    // 空 source 渲染可见占位 —— 节点不可见会让用户以为"math 节点丢了"。
+    // 占位 pointer-events:none 透传到 .math-node mousedown,点击进编辑态。
+    if (!source) renderEmptyPlaceholder(display)
+    else void renderKatex(source, display, false)
+  }
 
-  showDisplay()
+  function renderEmptyPlaceholder(target: HTMLElement) {
+    target.innerHTML = ''
+    const ph = document.createElement('span')
+    ph.className = 'math-empty-placeholder'
+    ph.textContent = '公式'
+    target.appendChild(ph)
+  }
+
+  // selectionchange 监听:文档级事件(浏览器在 selection 变化时触发),触发时
+  // view.state.selection 已被 PM 同步更新,可直接读。
+  // 每个 math_inline NodeView 注册一个 listener,通常 inline math 数量少,开销可
+  // 接受;若未来密度上升,可改为单个 plugin + WeakSet<NodeView> 集中分发。
+  const onSelectionChange = () => { syncMode() }
+  view.dom.ownerDocument.addEventListener('selectionchange', onSelectionChange)
+
+  // 初始:根据当前 selection 决定 mode,然后跑首次渲染
+  syncMode()
+  if (dom.dataset.mode === 'display') showDisplay()
+
+  // display 态点击展开:contentDOM 此时 display:none,PM 无法把 DOM selection 放进
+  // 隐藏元素 → 光标落到节点边界 → isCursorInNode 不成立 → selectionchange 不触发 →
+  // mode 不切 → 死锁,用户须点很多次才能偶然命中展开 source。
+  // 这里在 mousedown 阶段拦截:先切 edit 让 contentDOM 可见(display:none → inline,
+  // CSS 同步应用),再主动 dispatch TextSelection 到节点内,PM 才能把 DOM selection
+  // 正确同步到 contentDOM。edit 态点击不拦截,PM 正常处理光标移动。
+  dom.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    if (dom.dataset.mode !== 'display') return
+    e.preventDefault()
+    e.stopPropagation()
+    const pos = getPos()
+    if (pos < 0) return
+    // 先切 edit 让 contentDOM 可见 —— 否则 PM 同步 DOM selection 到 display:none 元素
+    // 会失败,selectionchange 不触发,死锁在 display 态。
+    dom.dataset.mode = 'edit'
+    // 根据点击 x 相对渲染层中点,决定光标放节点开头还是结尾 —— 符合"点左半进开头、
+    // 点右半进结尾"的直觉。
+    const start = pos + 1
+    const end = Math.max(start, pos + node.nodeSize - 1)
+    const rect = display.getBoundingClientRect()
+    const target = e.clientX > rect.left + rect.width / 2 ? end : start
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, target)))
+    view.focus()
+  })
 
   return {
     dom,
+    contentDOM,
     update(newNode: any) {
       const valueChanged = readValue() !== readValue(newNode)
       node = newNode
-      if (!editing && valueChanged) showDisplay()
+      // source 变化 → 始终重渲染渲染层(edit 态用户键入时也要看到预览跟着变,
+      // 不能只在 display 态刷;否则用户在 edit 态打 `x^2` 只能看到 `$x^2$` 裸文本,
+      // 看不到渲染后的 x²,完全失去 Obsidian Live Preview 的体验)。
+      if (valueChanged) showDisplay()
+      syncMode() // 节点移动后 pos 范围变了,重新判定
       return true
     },
-    destroy() { /* nothing */ },
-    ignoreMutation() { return true },
-    // 编辑态下,textarea / preview 内部的所有输入事件不能让 PM 看到 —— PM 的
-    // eventBelongsToView 会从 event.target 一路走到 view.dom,对每个有
-    // pmViewDesc 的祖先调 stopEvent。这里返回 true → PM 整条链路忽略这个事件,
-    // 不会触发默认的 tr.insertText 把 math_inline 整个替换成输入字符。
-    stopEvent(event: Event) {
-      if (!editing) return false
-      return INPUT_EVENT_TYPES.has(event.type)
+    destroy() {
+      view.dom.ownerDocument.removeEventListener('selectionchange', onSelectionChange)
     },
+    ignoreMutation() { return true },
   }
 }
 
 // ========== 块级公式 NodeView ==========
+//
+// 块级保持原行为:整块占一个段落位置,点击进 textarea 编辑态,blur 写回。
+// 用户主诉是"行内公式"的显式输入框,块级语义不同(整段选中、Enter 行为复杂),
+// 暂不改成 Obsidian/Typora 块级风格。后续若需要再统一改造。
 
 function createMathBlockView(node: any, view: any, getPos: () => number) {
   const dom = document.createElement('div')
@@ -339,5 +385,52 @@ export const mathEditPlugin = new Plugin({
       math_inline: (node, view, getPos) => createMathInlineView(node, view, getPos as () => number),
       math_block: (node, view, getPos) => createMathBlockView(node, view, getPos as () => number),
     },
+    // 光标在 math_inline content 末尾(尾 `$` 之后,close tag 之前)时输入非 `$` 字符 →
+    // 字符插到节点**之外**,光标也移出 → isCursorInNode false → syncMode 切 display 收起。
+    // 输入 `$` 不拦截(用户编辑分隔符,如 `$x$` → `$$x$$`)。
+    // 配合 inlineMath.ts 的"转换后光标设到 content 末尾",实现 Obsidian Live Preview:
+    //   打完 `$x$` → 光标在尾 $ 后,edit 态显示 $x$ + 渲染;继续输入别的字符 → 移出收起。
+    handleTextInput(view, from, to, text) {
+      if (from !== to || !text) return false
+      const $pos = view.state.doc.resolve(from)
+      for (let d = $pos.depth; d >= 1; d--) {
+        const node = $pos.node(d)
+        if (node.type.name === 'math_inline') {
+          const mathPos = $pos.before(d)
+          const contentEnd = mathPos + 1 + node.content.size
+          if (from !== contentEnd) return false
+          if (text === '$') return false
+          const afterNode = mathPos + node.nodeSize
+          const tr = view.state.tr.insertText(text, afterNode)
+          tr.setSelection(TextSelection.create(tr.doc, afterNode + text.length))
+          view.dispatch(tr)
+          return true
+        }
+      }
+      return false
+    },
+  },
+  // B1 降级:math_inline content 必须匹配 `$...$`(首尾各至少一个 $,中间非空)。
+  // 用户删掉一个 $ 后 content 变成 `$x^2` 或 `x^2$` → 不匹配 → unwrap 成普通 text,
+  // 用户可重新打 $ 触发 inlineMathSyntax 再成公式。
+  // `$$x^2$$` 首尾都有 $ 仍合法(行内双 $);块级只认两行独立 `$$`,不在此处处理。
+  appendTransaction(trs, _oldState, newState) {
+    if (!trs.some(tr => tr.docChanged)) return null
+    const matches: Array<{ pos: number; size: number; text: string }> = []
+    newState.doc.descendants((node, pos) => {
+      if (node.type.name === 'math_inline') {
+        const text = node.textContent
+        if (!/^\$.+\$$/.test(text)) matches.push({ pos, size: node.nodeSize, text })
+      }
+      return true
+    })
+    if (matches.length === 0) return null
+    const tr = newState.tr
+    // 从后往前替换,避免前面替换导致后面 pos 偏移
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const { pos, size, text } = matches[i]
+      tr.replaceWith(pos, pos + size, text ? newState.schema.text(text) : [])
+    }
+    return tr
   },
 })
