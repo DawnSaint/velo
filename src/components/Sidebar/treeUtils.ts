@@ -80,6 +80,27 @@ export function validateName(
   return null
 }
 
+/**
+ * 在 siblingNames 集合中生成不冲突的"副本"名称。
+ *   - `foo.md` → `foo 副本.md` → `foo 副本 2.md` → ...
+ *   - `foo` (目录) → `foo 副本` → `foo 副本 2` → ...
+ * 用于复制 / 粘贴时避免覆盖同名项。
+ */
+export function uniqueName(name: string, siblingNames: Set<string>): string {
+  // 分离 stem 与扩展名(.md 当扩展名;其它后缀(如 .png)也当扩展名以保留类型)。
+  const dot = name.lastIndexOf('.')
+  const hasExt = dot > 0 && dot < name.length - 1
+  const stem = hasExt ? name.slice(0, dot) : name
+  const ext = hasExt ? name.slice(dot) : '' // 含 leading dot,如 ".md"
+
+  if (!siblingNames.has(name)) return name
+  const candidate = `${stem} 副本${ext}`
+  if (!siblingNames.has(candidate)) return candidate
+  let n = 2
+  while (siblingNames.has(`${stem} 副本 ${n}${ext}`)) n++
+  return `${stem} 副本 ${n}${ext}`
+}
+
 /** 把用户输入拼成"最终落地名":新建文件补 .md;新建目录原值;重命名 .md 文件补 .md;其它原值。 */
 export function finalName(
   value: string,

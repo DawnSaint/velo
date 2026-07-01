@@ -17,7 +17,9 @@
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { ChevronRight, File, Folder, Image } from '@lucide/vue'
 import {
+  copyFile as fsCopyFile,
   mkdir as fsMkdir,
+  readDir as fsReadDir,
   remove as fsRemove,
   rename as fsRename,
   writeTextFile,
@@ -25,6 +27,8 @@ import {
 import { join, sep } from '@/tauri/path'
 import { confirm as nativeConfirm, message as nativeMessage } from '@/tauri/dialog'
 import { revealItemInDir } from '@/tauri/opener'
+import { tauriOnly } from '@/tauri/fs'
+import { newAppWindow } from '@/tauri/window'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
@@ -39,6 +43,7 @@ import {
   isAncestorOrSelf,
   isImageName,
   parentDirOfPath,
+  uniqueName,
   validateName,
 } from './treeUtils'
 
@@ -382,6 +387,18 @@ interface ContextMenuState {
 const contextMenu = ref<ContextMenuState | null>(null)
 const contextMenuRef = ref<InstanceType<typeof FileTreeContextMenu> | null>(null)
 
+// ========== 复制 / 粘贴(v0.5.x) ==========
+//
+// 单实例"剪贴板":只记源路径 + 源是否目录。粘贴时:
+//  - 文件:走 fs.copyFile 二进制复制
+//  - 目录:递归 mkdir + copyFile
+//  - 目标目录已有同名项:走 uniqueName 自动重命名("foo 副本.md" / "foo 副本 2.md" 等)
+//  - 不能把目录粘贴到自身或子目录内(同 move 的 ancestor 守卫)
+// 粘贴成功后刷新目标目录 children。clipcleard 不清,支持多次粘贴(对齐 VSCode)。
+
+/** 剪贴板:已复制的源路径 + 是否目录;null = 未复制。 */
+const clipboard = ref<{ srcPath: string, isDir: boolean } | null>(null)
+
 function isRootNode(node: TreeNode): boolean {
   return workspace.activeRoot !== null && node.fullPath === workspace.activeRoot
 }
@@ -411,7 +428,7 @@ function closeContextMenu() {
 // ========== 容器空白处右键 → 根目录上下文菜单(v0.5.1)==========
 //
 // 语义:文件树空白处右键 = 在工作区根操作。只保留"新建文件 / 新建文件夹"——
-// 重命名 / 删除 / reveal / "作为工作区打开" / "在编辑器中打开" 对根都无意义
+// 重命名 / 删除 / reveal / "在新窗口中打开" / "在编辑器中打开" 对根都无意义
 // (根 row 本身不弹菜单,空白菜单与之对齐:工作区根上不暴露这些操作)。
 // `@contextmenu.self` 确保只在容器自身命中,子行的右键继续走 onRowContextMenu。
 function onContainerContextMenu(event: MouseEvent) {
@@ -485,7 +502,7 @@ async function openInlineNew(parentDir: string, kind: 'newFile' | 'newDir') {
   inlineNew.value = {
     parentDir,
     kind,
-    value: kind === 'newFile' ? '未命名文档' : '新文件夹',
+    value: '',
     error: null,
   }
   await focusInlineNextTick()
@@ -639,13 +656,90 @@ async function openInEditor(node: TreeNode) {
   workspace.setLastFile(node.fullPath)
 }
 
-/** 子目录 → 作为工作区根打开。直接调 setActiveRoot,与顶栏"打开文件夹"按钮等价
- *  (不弹目录选择对话框,目录已知就是 node.fullPath)。当前 sidebarTab 保留不动
- *  —— setActiveRoot 已按问题 1 的修法不强切 tab。 */
+/** 子目录 → 在新窗口中打开为该工作区根。走 newAppWindow({ dirs:[...] }),
+ *  新窗口 onMounted 领到 payload 后路由 setActiveRoot,与当前窗口状态隔离。
+ *  web 端(无 Tauri)降级为当前窗口内 setActiveRoot,与旧行为一致。 */
 function openAsWorkspace(node: TreeNode) {
   closeContextMenu()
   if (!node.isDir) return
-  workspace.setActiveRoot(node.fullPath)
+  if (tauriOnly()) {
+    void newAppWindow({ dirs: [node.fullPath] })
+  }
+  else {
+    workspace.setActiveRoot(node.fullPath)
+  }
+}
+
+/** 把节点记入剪贴板(不立刻读数据,粘贴时再读)。 */
+function copyNode(node: TreeNode) {
+  closeContextMenu()
+  clipboard.value = { srcPath: node.fullPath, isDir: node.isDir }
+}
+
+/**
+ * 递归复制目录。逐条目 mkdir + readDir + copyFile,失败即抛。
+ * 用 fsReadDir 而非 dirIndex 子树(源可能未展开,children=undefined)。
+ */
+async function copyDirRecursive(srcDir: string, dstDir: string) {
+  await fsMkdir(dstDir, { recursive: false }).catch((e) => {
+    // 目标已存在(uniqueName 已避开,但 race 下仍可能)→ 复用;其它抛。
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes('already exists')) throw e
+  })
+  const entries = await fsReadDir(srcDir)
+  for (const entry of entries) {
+    const childSrc = `${srcDir}/${entry.name}`
+    const childDst = `${dstDir}/${entry.name}`
+    if (entry.isDirectory) {
+      await copyDirRecursive(childSrc, childDst)
+    }
+    else {
+      await fsCopyFile(childSrc, childDst)
+    }
+  }
+}
+
+/** 把剪贴板中的源粘贴到 dstDir。同名自动重命名;目录不能贴入自身后代。 */
+async function pasteInto(dstDir: string) {
+  const clip = clipboard.value
+  if (!clip) return
+  closeContextMenu()
+
+  // 目录:不能贴入自身或子目录(同 move 的 ancestor 守卫)。
+  if (clip.isDir && isAncestorOrSelf(clip.srcPath, dstDir)) {
+    await nativeMessage('不能将目录粘贴到自身或其子目录', { title: '粘贴失败', kind: 'warning' })
+    return
+  }
+
+  // 取目标目录已加载的 children name 集合作同名源;未加载则跳过,让后端兜底。
+  const dstNode = dirIndex.get(dstDir)
+  const siblingNames = dstNode?.children
+    ? new Set(dstNode.children.map(c => c.name))
+    : null
+  const srcName = basename(clip.srcPath)
+  const finalDstName = siblingNames ? uniqueName(srcName, siblingNames) : srcName
+  const dstPath = await join(dstDir, finalDstName)
+
+  // 同路径静默 noop(把项粘贴到原父目录且未重命名 → 会与源同名冲突,已在 uniqueName 处理;
+  // 但如果 siblingNames=null 未加载则走到这里,fs 端会 reject 报"already exists")。
+  try {
+    if (clip.isDir) {
+      await copyDirRecursive(clip.srcPath, dstPath)
+    }
+    else {
+      await fsCopyFile(clip.srcPath, dstPath)
+    }
+  }
+  catch (e) {
+    await nativeMessage(formatFsError(e, '粘贴失败'), { title: '粘贴失败', kind: 'error' })
+    return
+  }
+
+  // 刷新目标目录 children(未加载则跳过;展开态才可见新项)。
+  const parent = dirIndex.get(dstDir)
+  if (parent && parent.children) {
+    await loadDirChildren(parent)
+  }
 }
 
 // ========== 全局点击 / 键盘 / dragend ==========
@@ -660,6 +754,11 @@ function onGlobalPointerDown(event: PointerEvent) {
         if (n instanceof Element && n.hasAttribute('data-inline-row')) return
         n = n.parentNode
       }
+    }
+    // 行内新建 + 空值 + blur → 静默取消(不对空名弹错误);Enter 空值仍走 submitInline 报错误
+    if (inlineNew.value && !inlineNew.value.value.trim()) {
+      cancelInline()
+      return
     }
     void submitInline()
     return
@@ -775,7 +874,7 @@ function displayName(node: TreeNode): string {
             v-if="item.kind === 'inlineNew'"
             data-inline-row
             :style="indentStyle(item.depth)"
-            class="flex items-center gap-1 py-1 pr-2 text-xs"
+            class="flex items-center gap-1 h-8 pr-2 text-xs"
           >
             <span class="flex size-4 shrink-0" />
             <Folder v-if="item.subKind === 'newDir'" class="size-3.5 shrink-0 text-gray-400" />
@@ -785,7 +884,7 @@ function displayName(node: TreeNode): string {
               v-model="inlineNew!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-0.5 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
+              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
               :title="inlineNew!.error ?? ''"
               data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
@@ -799,7 +898,7 @@ function displayName(node: TreeNode): string {
             v-else-if="inlineRename && inlineRename.node === item.node"
             data-inline-row
             :style="indentStyle(item.depth)"
-            class="flex items-center gap-1 py-1 pr-2 text-xs"
+            class="flex items-center gap-1 h-8 pr-2 text-xs"
           >
             <span class="flex size-4 shrink-0" />
             <Folder v-if="item.node.isDir" class="size-4 shrink-0 text-gray-400" />
@@ -810,7 +909,7 @@ function displayName(node: TreeNode): string {
               v-model="inlineRename!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-0.5 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
+              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
               :title="inlineRename!.error ?? ''"
               data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
@@ -823,7 +922,7 @@ function displayName(node: TreeNode): string {
           <div
             v-else
             :style="indentStyle(item.depth)"
-            class="group flex cursor-pointer items-center gap-1 py-1.5 pr-2 text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
+            class="group flex cursor-pointer items-center gap-1 h-8 pr-2 text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
             :class="{
               'bg-gray-200 dark:bg-gray-800': !item.node.isDir && item.node.fullPath === activeFile,
               'ring-1 ring-blue-400 dark:ring-blue-500': item.node.isDir && item.node.fullPath === dragOverTarget,
@@ -881,10 +980,13 @@ function displayName(node: TreeNode): string {
     :y="contextMenu.y"
     :node="contextMenu.node"
     :root-context="contextMenu.rootContext"
+    :can-paste="clipboard !== null"
     @open-in-editor="openInEditor(contextMenu.node)"
     @open-as-workspace="openAsWorkspace(contextMenu.node)"
     @new-file="openInlineNew(targetDirForNew(contextMenu.node), 'newFile')"
     @new-dir="openInlineNew(targetDirForNew(contextMenu.node), 'newDir')"
+    @copy="copyNode(contextMenu.node)"
+    @paste="pasteInto(targetDirForNew(contextMenu.node))"
     @rename="openInlineRename(contextMenu.node)"
     @delete="confirmAndDelete(contextMenu.node)"
     @reveal="revealInExplorer(contextMenu.node)"

@@ -26,6 +26,7 @@ import {
   readDir as _readDir,
   remove as _remove,
   rename as _rename,
+  copyFile as _copyFile,
   watch as _watch,
   type UnwatchFn,
   type DirEntry,
@@ -53,4 +54,6 @@ export const mkdir = _mkdir
 export const readDir = _readDir
 export const remove = _remove
 export const rename = _rename
+/** 单文件复制(二进制安全,不走文本编解码)。目录复制需上层递归 readDir + copyFile 拼。 */
+export const copyFile = _copyFile
 export const watch = _watch

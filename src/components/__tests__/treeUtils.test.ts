@@ -13,6 +13,7 @@ import {
   isVisible,
   parentDirOfPath,
   sortEntries,
+  uniqueName,
   validateName,
 } from '../Sidebar/treeUtils'
 import type { DirEntry } from '@tauri-apps/plugin-fs'
@@ -118,6 +119,26 @@ describe('treeUtils', () => {
       expect(formatFsError(new Error('boom'), '失败')).toBe('失败:boom')
       expect(formatFsError('raw msg', '失败')).toBe('失败:raw msg')
       expect(formatFsError({ code: 42 }, '失败')).toBe('失败:{"code":42}')
+    })
+  })
+
+  describe('uniqueName', () => {
+    it('无冲突返回原名', () => {
+      expect(uniqueName('foo.md', new Set(['bar.md', 'baz.md']))).toBe('foo.md')
+    })
+    it('同名冲突 → 加 " 副本"', () => {
+      expect(uniqueName('foo.md', new Set(['foo.md']))).toBe('foo 副本.md')
+    })
+    it('原名 + 副本 都已存在 → "副本 2" / "副本 3" 递增', () => {
+      expect(uniqueName('foo.md', new Set(['foo.md', 'foo 副本.md']))).toBe('foo 副本 2.md')
+      expect(uniqueName('foo.md', new Set(['foo.md', 'foo 副本.md', 'foo 副本 2.md']))).toBe('foo 副本 3.md')
+    })
+    it('目录(无扩展名)同样规则', () => {
+      expect(uniqueName('docs', new Set(['docs']))).toBe('docs 副本')
+      expect(uniqueName('docs', new Set(['docs', 'docs 副本']))).toBe('docs 副本 2')
+    })
+    it('非 .md 扩展名(.png)保留扩展名', () => {
+      expect(uniqueName('pic.png', new Set(['pic.png']))).toBe('pic 副本.png')
     })
   })
 })

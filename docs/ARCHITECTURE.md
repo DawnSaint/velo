@@ -68,7 +68,7 @@ velo/
 │       │   ├── Sidebar.vue         大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
 │       │   ├── EditorOutline.vue   嵌在 Sidebar tab 内
 │       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD + 内部拖拽 move(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示 / 跨目录拖动 rename)
-│       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定“点外部”)
+│       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;v0.5.x 加复制 / 粘贴;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定”点外部”)
 │       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
 │       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
 │       ├── composables/            shell 层通用 composable(v0.5.5 起)

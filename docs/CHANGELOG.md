@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **文件树复制 / 粘贴**：右键菜单新增「复制」与「粘贴」,支持文件与整个目录的复制;粘贴时若目标目录已有同名项自动加 " 副本" 后缀。
+
 ### Changed
 - 行内数学公式改用 Obsidian Live Preview / Typora 风格:不再有显式输入框。阅读态仅显示渲染后的公式;点击公式后,源码 `$y=f(x)$` 出现在公式前,渲染后的公式保留并实时跟随源码变化,`$` 分隔符用主题色高亮。光标离开源码区域后,`$...$` 隐藏,仅保留渲染公式,回归阅读状态。块级公式保持原有"点击进编辑"行为不变。
 

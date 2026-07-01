@@ -16,7 +16,8 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import FileTree from '../Sidebar/FileTree.vue'
-import { readDir, rename as fsRename, remove as fsRemove, writeTextFile, mkdir as fsMkdir } from '@tauri-apps/plugin-fs'
+import { copyFile, readDir, rename as fsRename, remove as fsRemove, writeTextFile, mkdir as fsMkdir } from '@tauri-apps/plugin-fs'
+import { message } from '@tauri-apps/plugin-dialog'
 import { confirm } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import type { DirEntry } from '@tauri-apps/plugin-fs'
@@ -46,6 +47,13 @@ function findRowByName(wrapper: ReturnType<typeof mount>, name: string) {
 function nonRootRows(wrapper: ReturnType<typeof mount>) {
   // 根 row 文本 = workspace 的 basename;用 title 属性区分:根的 title 是工作区根全路径
   return wrapper.findAll('.group').filter(r => r.attributes('title') !== '/test/root')
+}
+
+/** 按 title(全路径)精确匹配行 —— 同名文件/目录在不同层级时,按 text 包含匹配会误中。 */
+function findRowByTitle(wrapper: ReturnType<typeof mount>, title: string) {
+  const row = wrapper.findAll('.group').find(r => r.attributes('title') === title)
+  if (!row) throw new Error(`row not found by title=${title}`)
+  return row
 }
 
 describe('FileTree', () => {
@@ -244,11 +252,19 @@ describe('FileTree', () => {
     return w
   }
 
-  /** 在指定 row 上右键,触发菜单;return 菜单 div(已 querySelector 出来)。 */
+  /** 在指定 row 上右键,触发菜单;return 菜单 div(已 querySelector 出来)。
+   *  rowName = 行名字符串,按 text 包含匹配(单层场景够用)。 */
   async function openContextMenuOnRow(wrapper: ReturnType<typeof mount>, rowName: string) {
     const row = findRowByName(wrapper, rowName)
     expect(row).toBeTruthy()
     triggerContextMenu(row!)
+    await nextTick()
+    return document.body.querySelector('.velo-tree-context-menu') as HTMLDivElement
+  }
+
+  /** 在指定 .group 行 wrapper 上右键(精确,同名多层级时用)。 */
+  async function openContextMenuOnRowEl(row: ReturnType<typeof findRowByName>) {
+    triggerContextMenu(row)
     await nextTick()
     return document.body.querySelector('.velo-tree-context-menu') as HTMLDivElement
   }
@@ -266,32 +282,37 @@ describe('FileTree', () => {
 
   // ── 菜单出现 / 关闭 ──
 
-  it('右键 .md 文件行 → 菜单出现,6 个菜单项(含"在编辑器中打开")', async () => {
+  it('右键 .md 文件行 → 菜单出现,7 个菜单项(含"在编辑器中打开"和"复制")', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     const menu = await openContextMenuOnRow(wrapper, 'note.md')
     expect(menu).toBeTruthy()
     const items = menu.querySelectorAll('button')
-    // 在编辑器中打开 / 新建文件 / 新建文件夹 / 重命名 / 删除 / 在资源管理器中显示 = 6
-    expect(items.length).toBe(6)
+    // 在编辑器中打开 / 新建文件 / 新建文件夹 / 复制 / 重命名 / 删除 / 在资源管理器中显示 = 7
+    expect(items.length).toBe(7)
     expect(items[0].textContent).toContain('在编辑器中打开')
     expect(items[1].textContent).toContain('新建文件')
     expect(items[2].textContent).toContain('新建文件夹')
-    expect(items[3].textContent).toContain('重命名')
-    expect(items[4].textContent).toContain('删除')
-    expect(items[5].textContent).toContain('在资源管理器中显示')
+    expect(items[3].textContent).toContain('复制')
+    expect(items[4].textContent).toContain('重命名')
+    expect(items[5].textContent).toContain('删除')
+    expect(items[6].textContent).toContain('在资源管理器中显示')
 
     wrapper.unmount()
   })
 
-  it('右键目录行 → 菜单出现,6 个菜单项(含"作为工作区打开",删除可用)', async () => {
+  it('右键目录行 → 菜单出现,7 个菜单项(含"在新窗口中打开"和"复制",删除可用)', async () => {
     // 工作区根不进 flatItems 视图(模板注释:不显示根节点本身);
-    // 子目录右键应能"作为工作区打开" + 删除可用(disabled 属性已移除)。
+    // 子目录右键应能"在新窗口中打开" + 删除可用(disabled 属性已移除)。
     const wrapper = await mountWithEntries([entry('sub', true)])
     const menu = await openContextMenuOnRow(wrapper, 'sub')
     const items = menu.querySelectorAll('button')
-    expect(items.length).toBe(6)
-    expect(items[0].textContent).toContain('作为工作区打开')
-    const deleteBtn = items[4] as HTMLButtonElement
+    expect(items.length).toBe(7)
+    expect(items[0].textContent).toContain('在新窗口中打开')
+    expect(items[1].textContent).toContain('新建文件')
+    expect(items[2].textContent).toContain('新建文件夹')
+    expect(items[3].textContent).toContain('复制')
+    expect(items[4].textContent).toContain('重命名')
+    const deleteBtn = items[5] as HTMLButtonElement
     expect(deleteBtn.disabled).toBe(false)
     wrapper.unmount()
   })
@@ -418,11 +439,9 @@ describe('FileTree', () => {
     expect(row).toBeTruthy()
     const input = activeInlineInput()
     expect(input).toBeTruthy()
-    expect(input!.value).toBe('未命名文档')
+    // 默认空值(不再预填占位文字)
+    expect(input!.value).toBe('')
     expect(document.activeElement).toBe(input)
-    // 文本被 select:input 的 selectionStart=0, selectionEnd=length
-    expect(input!.selectionStart).toBe(0)
-    expect(input!.selectionEnd).toBe(input!.value.length)
     // ".md" 是静态 span,不是 input 的一部分
     const mdSuffix = row!.querySelector('span.text-gray-500')
     expect(mdSuffix?.textContent).toBe('.md')
@@ -475,7 +494,7 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  it('新建文件:输入空 → Enter 触发空错误提示,row 保留', async () => {
+  it('新建文件:默认空值 + blur → 静默取消,不建文件', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
     const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
@@ -483,23 +502,39 @@ describe('FileTree', () => {
     await newFileBtn.click()
     await nextTick()
 
-    const input = activeInlineInput()!
-    // 默认 "未命名文档" 全选,按 Backspace 模拟清空
-    input.value = ''
-    input.dispatchEvent(new Event('input'))
+    // 默认空值,点外部(blur)→ 空名 = 放弃新建(静默 cancelInline,不建文件)
+    expect(activeInlineInput()!.value).toBe('')
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await flushPromises()
+
+    expect(writeTextFile).not.toHaveBeenCalled()
+    expect(activeInlineRow()).toBeFalsy()
+    wrapper.unmount()
+  })
+
+  it('新建文件:默认空值 + Enter → 显示空错误,row 保留', async () => {
+    const wrapper = await mountWithEntries([entry('note.md', false)])
+    await openContextMenuOnRow(wrapper, 'note.md')
+    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+      .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
+    await newFileBtn.click()
     await nextTick()
+
+    // Enter 空值 → submitInline 报"名称不能为空",row 保留
+    const input = activeInlineInput()!
+    expect(input.value).toBe('')
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
 
     expect(writeTextFile).not.toHaveBeenCalled()
-    expect(input.title).toContain('名称不能为空')
+    expect(activeInlineInput()!.title).toContain('名称不能为空')
     expect(activeInlineRow()).toBeTruthy()
     wrapper.unmount()
   })
 
   // ── 「新建目录」行内 input ──
 
-  it('点击「新建文件夹」→ 行内 input 出现 + 默认 "新文件夹" + 无 .md 后缀', async () => {
+  it('点击「新建文件夹」→ 行内 input 出现 + 默认空值 + 无 .md 后缀', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
     const newDirBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
@@ -509,7 +544,8 @@ describe('FileTree', () => {
 
     const row = activeInlineRow()
     const input = activeInlineInput()!
-    expect(input.value).toBe('新文件夹')
+    // 默认空值(不再预填占位文字)
+    expect(input.value).toBe('')
     // 目录无 .md 后缀
     expect(row!.querySelector('span.text-gray-500')).toBeFalsy()
     expect(document.activeElement).toBe(input)
@@ -982,6 +1018,152 @@ describe('FileTree', () => {
 
     expect(emptyRow.element.querySelectorAll('span.size-4 > svg').length).toBe(0) // 探测发现空 → 无箭头
     expect(hasItemsRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 有 child → 箭头保留
+    wrapper.unmount()
+  })
+
+  // ── 复制 / 粘贴(v0.5.x) ──
+
+  it('点击「复制」→ 剪贴板记录源路径(菜单「粘贴」随后可见)', async () => {
+    const wrapper = await mountWithEntries([entry('note.md', false), entry('other.md', false)])
+    // 初始:菜单无「粘贴」(clipboard 空)
+    let menu = await openContextMenuOnRow(wrapper, 'other.md')
+    expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('粘贴'))).toBe(false)
+
+    // 右键 note.md → 复制
+    menu = await openContextMenuOnRow(wrapper, 'note.md')
+    const copyBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('复制')) as HTMLButtonElement
+    expect(copyBtn).toBeTruthy()
+    await copyBtn.click()
+    await nextTick()
+
+    // 再右键 other.md → 菜单出现「粘贴」
+    menu = await openContextMenuOnRow(wrapper, 'other.md')
+    const pasteBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('粘贴')) as HTMLButtonElement
+    expect(pasteBtn).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  // 展开目录(走真实路径:点击展开箭头,让 loadDirChildren 跑起来)。
+  async function expandDir(wrapper: ReturnType<typeof mount>, dirName: string) {
+    const row = findRowByName(wrapper, dirName)!
+    await row.trigger('click')
+    await flushPromises()
+    await nextTick()
+    await flushPromises()
+    await nextTick()
+  }
+
+  /** 手动挂载:先设 readDir mock 实现(path 分发),再 mount;避免 mountWithEntries 的 mockResolvedValue 覆盖。 */
+  async function mountWithDirImpl(rootEntries: DirEntry[], dirImpl: (path: string) => DirEntry[]): Promise<ReturnType<typeof mount>> {
+    const workspace = useWorkspaceStore()
+    workspace.activeRoot = '/test/root'
+    vi.mocked(readDir).mockImplementation(async (p: unknown) => {
+      const path = typeof p === 'string' ? p : p?.toString() ?? ''
+      if (path === '/test/root') return rootEntries
+      return dirImpl(path)
+    })
+    const w = mount(FileTree, { attachTo: document.body })
+    await flushPromises()
+    await nextTick()
+    return w
+  }
+
+  it('复制文件 → 粘贴到兄弟目录 → fs.copyFile 调用 + 刷新目标', async () => {
+    const w = await mountWithDirImpl(
+      [entry('a.md', false), entry('sub', true)],
+      () => [],
+    )
+    await expandDir(w, 'sub')
+
+    // 复制根级 a.md(用 title 精确匹配,避免误中 sub 下的同名文件)
+    let menu = await openContextMenuOnRowEl(findRowByTitle(w, '/test/root/a.md'))
+    const copyBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('复制')) as HTMLButtonElement
+    await copyBtn.click()
+    await nextTick()
+
+    // 右键 sub 目录 → 粘贴
+    menu = await openContextMenuOnRow(w, 'sub')
+    const pasteBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('粘贴')) as HTMLButtonElement
+    expect(pasteBtn).toBeTruthy()
+    await pasteBtn.click()
+    await flushPromises()
+
+    expect(copyFile).toHaveBeenCalledWith('/test/root/a.md', '/test/root/sub/a.md')
+    w.unmount()
+  })
+
+  it('粘贴时目标已有同名项 → uniqueName 自动重命名(加" 副本")', async () => {
+    const w = await mountWithDirImpl(
+      [entry('a.md', false), entry('sub', true)],
+      (path) => path === '/test/root/sub' ? [entry('a.md', false)] : [],
+    )
+    await expandDir(w, 'sub')
+
+    let menu = await openContextMenuOnRowEl(findRowByTitle(w, '/test/root/a.md'))
+    const copyBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('复制')) as HTMLButtonElement
+    await copyBtn.click()
+    await nextTick()
+
+    menu = await openContextMenuOnRow(w, 'sub')
+    const pasteBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('粘贴')) as HTMLButtonElement
+    await pasteBtn.click()
+    await flushPromises()
+
+    expect(copyFile).toHaveBeenCalledWith('/test/root/a.md', '/test/root/sub/a 副本.md')
+    w.unmount()
+  })
+
+  it('粘贴目录到自身子目录 → 拒绝 + 弹 warning(message)', async () => {
+    const w = await mountWithDirImpl(
+      [entry('parent', true)],
+      (path) => path === '/test/root/parent' ? [entry('child', true)] : [],
+    )
+    await expandDir(w, 'parent')
+
+    // 复制 parent
+    let menu = await openContextMenuOnRow(w, 'parent')
+    const copyBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('复制')) as HTMLButtonElement
+    await copyBtn.click()
+    await nextTick()
+
+    // 右键 child → 粘贴
+    menu = await openContextMenuOnRow(w, 'child')
+    const pasteBtn = Array.from(menu.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('粘贴')) as HTMLButtonElement
+    await pasteBtn.click()
+    await flushPromises()
+
+    expect(copyFile).not.toHaveBeenCalled()
+    expect(message).toHaveBeenCalledWith(
+      '不能将目录粘贴到自身或其子目录',
+      expect.objectContaining({ title: '粘贴失败', kind: 'warning' }),
+    )
+    w.unmount()
+  })
+
+  it('根节点右键无「复制」,容器空白处右键无「复制」', async () => {
+    const wrapper = await mountWithEntries([entry('a.md', false)])
+    // 根节点右键
+    const rootRow = wrapper.findAll('.group')[0]
+    triggerContextMenu(rootRow)
+    await nextTick()
+    let menu = document.body.querySelector('.velo-tree-context-menu')!
+    expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
+
+    // 容器空白处右键
+    const container = wrapper.find('[class*="overflow-y-auto"]').element as HTMLElement
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
+    container.dispatchEvent(ev)
+    await nextTick()
+    menu = document.body.querySelector('.velo-tree-context-menu')!
+    expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
     wrapper.unmount()
   })
 })
