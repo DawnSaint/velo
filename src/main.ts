@@ -3,6 +3,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 
 import './styles/index.scss'
+import './styles/tailwind.css'
 import { mark } from '@/utils/perf'
 
 // 入口脚本第一行 —— 整条首屏指标链路的起点

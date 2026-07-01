@@ -1,0 +1,2 @@
+/* Tailwind v4 入口 — 必须放在独立 .css 文件 (Sass 会拦截 .scss 里的 @import,无法走 Tailwind Vite 插件) */
+@import "tailwindcss";
