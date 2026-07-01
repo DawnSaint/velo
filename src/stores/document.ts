@@ -63,6 +63,12 @@ export const useDocumentStore = defineStore('document', () => {
 
   const dirty = computed(() => content.value !== lastSavedContent.value)
 
+  // "用户明确意图切到新文件"的 hint 信号。EditorInner.vue 里第二条 watch 看这个
+  // 计数器递增,即便 modelValue 没真变(content 已是 '' 时再点 Ctrl+N,Vue watch 不
+  // 触发),也能 force focus 拉焦点进编辑器。这条路径只管"显式意图"——普通开已有文件
+  // 不动 token,沿用 openFocus 基于 doc 形态的默认规则(屏幕顶部不抢焦点)。
+  const focusRequestToken = ref(0)
+
   function toggleSourceMode() {
     sourceMode.value = !sourceMode.value
   }
@@ -334,6 +340,7 @@ export const useDocumentStore = defineStore('document', () => {
 
   async function newDoc() {
     if (!(await confirmDiscardIfDirty())) return
+    focusRequestToken.value++
     loadContent('', null)
   }
 
@@ -472,6 +479,7 @@ export const useDocumentStore = defineStore('document', () => {
     virtualFileName,
     fileName,
     pendingRecoveryDrafts,
+    focusRequestToken,
     init,
     setContent,
     loadContent,

@@ -65,6 +65,39 @@ export interface UseProseMirrorReturn {
    * (下次 mount 会用 `opts.editable` 初值)。用于示例文档等"挂载后才进入只读"的场景。
    */
   setReadOnly: (readOnly: boolean) => void
+  /**
+   * 视口滚动归零。view.dom 自身不带 overflow(PM 的 .ProseMirror 是 contentEditable
+   * 而非 scroll container),真实滚动容器是上层 (App.vue / index.vue 上的 `overflow-auto`)
+   * 包装 div。这里沿祖先链 walk 到第一个 overflow:auto/scroll 的元素,scrollTop = 0。
+   * 找不到候选时不报错(no-op),留给 vue 层处理。
+   */
+  resetScrollToTop: () => void
+}
+
+/**
+ * 从 `start` 向上找第一个 overflow:auto|scroll 的祖先。用于"切换文档时复位
+ * viewport 滚动位置" —— view.dom 自身不带 overflow,真实滚动容器在上层
+ * (css class 例如 Tailwind 的 `overflow-auto`)。
+ *
+ * 通过 getComputedStyle 读 css(包括 class-based 规则),不仅 inline style。
+ * 找遍到 html/body 仍没找到返回 null(caller 视情况退化处理)。
+ *
+ * 函数式纯逻辑,放到 useProseMirror 模块里因为只有 view context 下用得到,
+ * 单独抽文件没必要。同时导出给 __tests__ 测。
+ */
+export function findScrollAncestor(start: HTMLElement): HTMLElement | null {
+  let cur: HTMLElement | null = start
+  while (cur && cur !== cur.parentElement) {
+    const cs = getComputedStyle(cur)
+    if (
+      cs.overflowY === 'auto' || cs.overflowY === 'scroll'
+      || cs.overflow === 'auto' || cs.overflow === 'scroll'
+    ) {
+      return cur
+    }
+    cur = cur.parentElement
+  }
+  return null
 }
 
 export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorReturn {
@@ -129,5 +162,12 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     view.setProps({ editable: () => !readOnly })
   }
 
-  return { containerRef, viewRef, getView, setReadOnly }
+  function resetScrollToTop(): void {
+    const view = viewRef.value
+    if (!view) return
+    const target = findScrollAncestor(view.dom)
+    if (target) target.scrollTop = 0
+  }
+
+  return { containerRef, viewRef, getView, setReadOnly, resetScrollToTop }
 }

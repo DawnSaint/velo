@@ -8,7 +8,7 @@
 // - modelValue 外部变化时(切文件 / CLI 打开 / fs:watch 同步)→ 直接 view.updateState
 //   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
-import { onBeforeUnmount, watch } from 'vue'
+import { nextTick, onBeforeUnmount, watch } from 'vue'
 import { EditorState, Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import { inputRules, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
@@ -20,6 +20,7 @@ import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-co
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
+import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { useProseMirror } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
@@ -339,27 +340,61 @@ function emitCursorPosition() {
   emit('cursor-position-change', cursorFromTextBefore(textBefore))
 }
 
-watch(() => props.modelValue, (newVal) => {
+watch(() => props.modelValue, async (newVal) => {
   if (newVal === lastSelfEmitted) return
   const view = getView()
   if (!view) return
 
   const doc = fromMarkdown(newVal, schema as VeloSchema)
+  const openFocus = decideOpenFocus(doc)
   view.updateState(EditorState.create({
     schema,
     doc,
     plugins: allPlugins,
+    selection: openFocus.selection,
   }))
-  if (mounted) {
+  // 切换文档时把视口滚动位置归零 —— PM updateState 会尽量保留旧视口
+  // 位置(尤其旧文档短、视口足以装下新文档时),即便 selection 已经在
+  // doc 顶部,viewport 仍可能停在旧位置。
+  // view.dom 自身不带 overflow(PM 的 .ProseMirror 只是 contentEditable),
+  // 真实滚动容器是上层 overflow:auto 的 wrapper —— useProseMirror 的
+  // resetScrollToTop() 沿祖先链 walk 找最近的可滚祖先并 scrollTop=0。
+  resetScrollToTop()
+  // 等同 tick 的 props 副作用跑完(典型:从只读 sample 切到新建文件时,
+  // readOnly watch 在同一 tick 内把 view.editable 从 false 翻 true)。
+  // 否则 view.focus() 在 editable=false 状态下调用,PM 拒键盘事件,
+  // 用户感知"焦点没拉进编辑器"。
+  await nextTick()
+  // 打开文件:按 doc 形态决定是否抢焦点。
+  // 决策见 editor/openFocus.ts —— 默认不抢焦点,避免屏幕顶部高亮(TOC / 首段)
+  // 抢占用户注意力;唯一例外是文档以空段落结尾(典型:新建空白文档),
+  // 这种情况下把 selection 移到末尾并 focus,免去用户点一下编辑器再打字的步骤。
+  if (mounted && openFocus.shouldFocus) {
     try { view.focus() } catch { /* 销毁期忽略 */ }
   }
   emitCursorPosition()
 })
 
+// 用户明确意图切换文件(目前只 newDoc 走这条)的独立 hint 通道。
+// 解决"content 已是 '' 时再点 Ctrl+N,Vue modelValue watch 不触发"的死锁——
+// focusRequestToken 在 stores/document.ts 的 newDoc() 内 ++,
+// 任一 Vue watch 触发(token watch 独立于 modelValue watch)。
+watch(() => useDocumentStore().focusRequestToken, async (n, prev) => {
+  // 初始化那一次:prev === undefined,跳过(初始 focus 走 mount 路径,不在这里管)
+  if (prev === undefined) return
+  if (n === prev) return
+  if (!mounted) return
+  // 等 modelValue watch(同 tick 内 dispatch)+ readOnly watch + 其它 props 翻转完成
+  await nextTick()
+  const view = getView()
+  if (!view) return
+  try { view.focus() } catch { /* 销毁期忽略 */ }
+})
+
 // useProseMirror 返回的 containerRef 直接绑到 template ref。TS 看不到
 // template ref 的隐式 binding 会误报未使用变量,这里通过 defineExpose
 // 把它暴露出去 —— TS 看到暴露对象消费过 ref 就不再报。
-const { containerRef, getView, setReadOnly } = useProseMirror({
+const { containerRef, getView, setReadOnly, resetScrollToTop } = useProseMirror({
   schema: schema as VeloSchema,
   initialDoc: props.modelValue,
   fromMarkdown: (md, s) => fromMarkdown(md, s as VeloSchema),

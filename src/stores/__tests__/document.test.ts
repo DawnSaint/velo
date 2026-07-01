@@ -387,6 +387,75 @@ describe('document store', () => {
     })
   })
 
+  // 6.5 focusRequestToken:newDoc 的显式切换意图 hint
+  // 让 EditorInner 第二条 watch 能在"content 已是 ''"的二次新建路径上
+  // 强制 focus 进编辑器(否则 Vue modelValue watch 因 reference-equal 不触发)。
+  describe('newDoc() 显式 focus hint(focusRequestToken)', () => {
+    it('首次 newDoc:token 从 0 → 1,且 content 跟初始不同(loadContent 真跑了)', async () => {
+      // 注:content 的精确值由 markdownIO canonical 决定(loadContent 走
+      // toMarkdown(fromMarkdown(c,...)),空文档会被表为 '\n\n\n' 等),
+      // 不是 newDoc 的契约。这里用 "不等于 init 的内容" 更稳。
+      const store = useDocumentStore()
+      store.init('hello world')
+      expect(store.focusRequestToken).toBe(0)
+      expect(store.content).toBe('hello world')
+
+      await store.newDoc()
+
+      expect(store.focusRequestToken).toBe(1)
+      expect(store.content).not.toBe('hello world')
+    })
+
+    it('连续 newDoc(content 已是 \'\n\n\' 类 canonical 不变):token 仍递增,这是 fix 的核心', async () => {
+      // 复现"功能栏新建后再点一次新建不 focus"的根因:
+      // 空文档 canonical 形式在 content.value 已经存在,Vue modelValue watch 因
+      // reference-equal 不触发;focusRequestToken 必须独立提供"用户明确切换"的
+      // 信号让 EditorInner 第二条 watch 能跑。
+      const store = useDocumentStore()
+      store.init('')
+      // 把 content 设为等同于 newDoc 后的 canonical('\n\n\n' 这种)
+      store.loadContent('', null)
+      const baseline = store.content
+      expect(baseline).not.toBe('') // canonical ≠ raw ''
+      expect(store.focusRequestToken).toBe(0)
+
+      await store.newDoc()
+      expect(store.focusRequestToken).toBe(1)
+      expect(store.content).toBe(baseline)
+
+      // 关键:第二次 newDoc 时 content 没变,token 必须递增
+      await store.newDoc()
+      expect(store.focusRequestToken).toBe(2)
+      expect(store.content).toBe(baseline)
+    })
+
+    it('拒绝丢弃未保存修改时 newDoc 早退,token 不递增', async () => {
+      const store = await setupOpenedFile('hello', '/p.md')
+      store.setContent('hello edited') // dirty
+      vi.mocked(confirm).mockResolvedValueOnce(false) // 拒绝丢弃
+
+      const before = store.focusRequestToken
+      const contentBefore = store.content
+
+      await store.newDoc()
+
+      // 早退:token 不变,content 不变
+      expect(store.focusRequestToken).toBe(before)
+      expect(store.content).toBe(contentBefore)
+    })
+
+    it('init / loadContent 不动 token —— 只有 newDoc 是"显式意图切换"信号', async () => {
+      const store = useDocumentStore()
+      store.init('') // 启动期 init
+      expect(store.focusRequestToken).toBe(0)
+
+      // 打开文件不该 bump token(沿用 openFocus 默认规则,不抢焦点)
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPath('/a.md')
+      expect(store.focusRequestToken).toBe(0)
+    })
+  })
+
   // 7. dirty 是 computed
   describe('dirty 是 computed', () => {
     it('setContent 改变后立刻反映;改回 baseline 后清零', () => {

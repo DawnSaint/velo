@@ -1,2 +1,12 @@
 /* Tailwind v4 入口 — 必须放在独立 .css 文件 (Sass 会拦截 .scss 里的 @import,无法走 Tailwind Vite 插件) */
 @import "tailwindcss";
+
+/* Tailwind v4 默认 dark variant 走 `prefers-color-scheme: dark` 媒体查询,
+ * 不会识别 .dark 类。Velo 用的是类切换策略 (App.vue:1268 在根 div 上加 .dark) —
+ * 必须显式注册自定义 variant 把 .dark 重新当成触发器。
+ *
+ * 写法 `&:where(.dark, .dark *)`:
+ * - `&` 匹配宿主元素自身的 .dark 类 (v3 darkMode:'class' 原生等价)
+ * - `.dark *` 匹配嵌套在 .dark 容器内的元素 (子节点自身不带 .dark 也能翻面)
+ * - `:where()` 零特异性,不污染 cascade 权重 (跟 v3 `.dark` 同优先级) */
+@custom-variant dark (&:where(.dark, .dark *));
