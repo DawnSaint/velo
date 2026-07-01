@@ -493,7 +493,26 @@ export function toMarkdown(doc: PMNode): string {
     type: 'root',
     children: pmBlocksToMdast(doc),
   }
-  return processor.stringify(tree).toString()
+  let out = processor.stringify(tree).toString()
+  // 尾部空行补偿。mdast-util-to-markdown 按 CommonMark 规范强制文档以单个
+  // \n 收尾并吃掉尾部空段 —— 但 PM doc 里这些空段是活的(preprocessBlankLines
+  // 注入的 <br /> 占位转成了空 paragraph)。这里按 doc 尾部连续空段数把 \n 补
+  // 回来,让 toMarkdown(fromMarkdown(x)) 对尾部空行严格 idempotent:
+  //   K=1 空段 → 补到 ...¶¶¶ (N=3) → fromMarkdown 重建 1 空段
+  //   K=2 空段 → 补到 ...¶¶¶¶¶ (N=5) → fromMarkdown 重建 2 空段
+  // 规则:strip 尾部所有 \n 后补 2K+1 个 \n(K≥1);K=0 时不动,保留 stringify 的单 \n。
+  // 边界:恰好 1 个尾部空行(X¶¶,N=2)CommonMark 无法表示,fromMarkdown 不产空段,
+  // 这里也无法重建 —— 该场景塌缩成 0,与 VSCode/Typora 一致。
+  let k = 0
+  for (let i = doc.childCount - 1; i >= 0; i--) {
+    const c = doc.child(i)
+    if (c.type.name === 'paragraph' && c.childCount === 0) k++
+    else break
+  }
+  if (k > 0) {
+    out = out.replace(/\n*$/, '') + '\n'.repeat(2 * k + 1)
+  }
+  return out
 }
 
 function pmBlocksToMdast(parent: PMNode): RootContent[] {

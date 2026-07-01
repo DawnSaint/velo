@@ -8,14 +8,12 @@ import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 /**
  * 工具:把 store 拉到一个"可操作"的稳定状态
  *  - content=lastSaved=initialContent,currentFilePath=path
- *  - echosToAccept=0(已消费掉 init + openPath 两轮 echo)
  */
 async function setupOpenedFile(initialContent: string, path: string) {
   const store = useDocumentStore()
   store.init(initialContent)
-  store.setContent(initialContent) // 消费 init 的 echo
   vi.mocked(readTextFile).mockResolvedValue(initialContent)
-  await store.openPath(path) // willRecreateEditor=false → 不再制造 echo
+  await store.openPath(path)
   return store
 }
 
@@ -101,8 +99,8 @@ describe('document store', () => {
       const store = useDocumentStore()
       store.init('hello')           // title: "未命名 - Velo Editor"(clean)
       const callsAfterInit = setTitleMock.mock.calls.length
-      // 消费 init 的 echo + 几次"无效果"的 setContent(dirty 一直 false)
-      store.setContent('hello')     // echo,dirty 仍 false
+      // 几次"无效果"的 setContent(dirty 一直 false)
+      store.setContent('hello')     // dirty 仍 false
       store.setContent('hello')     // dirty 仍 false
       store.setContent('hello')     // dirty 仍 false
       expect(setTitleMock.mock.calls.length).toBe(callsAfterInit)
@@ -111,7 +109,6 @@ describe('document store', () => {
     it('dirty 状态切换时才触发 setTitle(clean→dirty 一次)', async () => {
       const store = useDocumentStore()
       store.init('hello')           // title 落地一次
-      store.setContent('hello')     // 消费 echo,dirty 仍 false
       const callsBeforeEdit = setTitleMock.mock.calls.length
 
       // 真正编辑 → dirty 变 true → title 末尾的 " •" 出现 → setTitle 一次
@@ -144,7 +141,6 @@ describe('document store', () => {
     it('loadContent 切到新 fileName → title 变化 → setTitle', async () => {
       const store = useDocumentStore()
       store.init('hello')
-      store.setContent('hello')     // 消费 echo
       const callsBefore = setTitleMock.mock.calls.length
 
       vi.mocked(readTextFile).mockResolvedValue('x')
@@ -156,48 +152,70 @@ describe('document store', () => {
     })
   })
 
-  // 2. setContent 消费 echosToAccept 哨兵,首次 echo 不算用户编辑
-  describe('setContent + echosToAccept', () => {
-    it('init 后首次 setContent 算 echo,baseline 跟进、不变脏', () => {
+  // 2. setContent 不推进基线 —— 回归:echo 误吞导致 checkExternalChange 误报
+  describe('setContent 不推进基线(回归 echo 误吞 bug)', () => {
+    it('setContent 后 dirty 正确反映 content vs lastSaved 的差异', () => {
       const store = useDocumentStore()
       store.init('hello')
-      // 模拟编辑器把 'hello' 规范化成 'hello\n' 回吐
-      store.setContent('hello\n')
-      expect(store.dirty).toBe(false) // baseline 跟进 → content === lastSaved
-    })
+      // 编辑器回吐同样内容(规范化后不变)—— 不应推进基线
+      store.setContent('hello')
+      expect(store.dirty).toBe(false)
 
-    it('echo 之后再 setContent 算用户编辑、变脏', () => {
-      const store = useDocumentStore()
-      store.init('hello')
-      store.setContent('hello') // 消费 echo
-      store.setContent('hello world') // 真实编辑
+      // 用户真实编辑 —— 应变脏
+      store.setContent('hello world')
       expect(store.dirty).toBe(true)
     })
-  })
 
-  // 3. loadContent 中 willRecreateEditor 判定(通过 openPath 间接测)
-  describe('loadContent willRecreateEditor(经 openPath)', () => {
-    it('内容变化 → echosToAccept=1 → setContent 消费 echo', async () => {
-      const store = useDocumentStore()
-      store.init('') // 故意让 init 内容不同于 openPath 读到的内容
-      store.setContent('') // 消费 init echo
+    // 回归:用户编辑后立刻切窗口再 focus,不应弹"外部修改"对话框。
+    // 根因是 echosToAccept 计数器把用户编辑误吞成 echo,推进了 lastSavedContent,
+    // 导致 checkExternalChange 看到 disk(旧) !== lastSaved(新) !== content(新)。
+    it('编辑后切窗口 focus 不误报外部修改', async () => {
+      const store = await setupOpenedFile('hello\n', '/p.md')
+      store.setContent('hello world\n') // 用户真实编辑
+      expect(store.dirty).toBe(true)
 
-      vi.mocked(readTextFile).mockResolvedValue('hello')
-      await store.openPath('/p1') // loadContent('hello','/p1'),willRecreateEditor=true
-      // 此时 echosToAccept=1,content=lastSaved='hello'
-      store.setContent('hello') // echo 消费
-      expect(store.dirty).toBe(false)
+      // 切窗口再 focus:磁盘内容仍是 'hello\n'(未保存)
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.checkExternalChange()
+
+      // disk === lastSavedContent('hello\n') → 应早退,不弹 confirm,content 不变
+      expect(confirm).not.toHaveBeenCalled()
+      expect(store.content).toBe('hello world\n') // 用户编辑保留
     })
 
-    it('内容不变 → echosToAccept=0,不会制造虚假 echo', async () => {
+    it('loadContent 切到新文件后,内容一致则不变脏', async () => {
       const store = useDocumentStore()
-      store.init('hello')
-      store.setContent('hello') // 消费 init echo
+      store.init('')
 
-      vi.mocked(readTextFile).mockResolvedValue('hello')
-      await store.openPath('/p1') // willRecreateEditor=false,echosToAccept=0
-      // 即便再调 setContent,没有 echo 可消费;但 content===lastSaved 也不脏
-      store.setContent('hello')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPath('/p1')
+      expect(store.dirty).toBe(false)
+      expect(store.content).toBe('hello\n')
+    })
+
+    // 回归:多空行文件 + 输入空格再删除,不应该一直 dirty。
+    // 根因是 markdownIO 的 round-trip(块级 `<br />` 占位公式 + PM 段落兄弟序列化)
+    // 对多空行不是 identity:磁盘原文"X\n\n\n\n\n\n\n"经过 fromMarkdown→toMarkdown
+    // 后变成"X\n\n\n\n\n"(丢 N),导致 PM canonical 与磁盘原文不等。
+    // 修法:loadContent 时把磁盘内容走一遍 markdownIO,canonical 形式同时塞进
+    // `content` 与 `lastSavedContent`,editor 后续 emit 是同 canonical,edit+revert 归零。
+    it('多空行文件 load 后,type 再 delete 回到原状 → dirty=false(回归用户报告的 · 不消失)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      const disk = 'X\n\n\n\n\n\n\n\n' // 7 个 \n = 6 个视觉空行
+      vi.mocked(readTextFile).mockResolvedValueOnce(disk)
+      await store.openPath('/multi-blank.md')
+      // load 时 canonicalize:content 与 lastSavedContent 都对齐 canonical 形式
+      const canonical = store.content
+      expect(store.dirty).toBe(false)
+      expect(canonical).not.toBe(disk) // canonical 与磁盘原文不等(load 时已规范化)
+
+      // 编辑器在某空段输入空格 —— dirty=true
+      store.setContent(canonical.replace('\n\n', '\n\n '))
+      expect(store.dirty).toBe(true)
+
+      // 编辑器删掉空格回到 canonical —— 与基线一致
+      store.setContent(canonical)
       expect(store.dirty).toBe(false)
     })
   })
@@ -228,33 +246,33 @@ describe('document store', () => {
     })
 
     it('c. !dirty,disk 变化 → 静默重载,不弹确认', async () => {
-      const store = await setupOpenedFile('hello', '/p.md')
-      // dirty=false;disk 读到 'hello updated'(不同于 content/lastSaved)
-      vi.mocked(readTextFile).mockResolvedValue('hello updated')
+      const store = await setupOpenedFile('hello\n', '/p.md')
+      // dirty=false;disk 读到 'hello updated\n'(不同于 content/lastSaved)
+      vi.mocked(readTextFile).mockResolvedValue('hello updated\n')
 
       await store.checkExternalChange()
-      expect(store.content).toBe('hello updated')
+      expect(store.content).toBe('hello updated\n')
       expect(store.dirty).toBe(false)
       expect(confirm).not.toHaveBeenCalled()
     })
 
     it('d-同意. dirty,disk 变化 → 弹确认,同意则 reload', async () => {
-      const store = await setupOpenedFile('hello', '/p.md')
-      store.setContent('hello edited') // dirty=true
-      vi.mocked(readTextFile).mockResolvedValue('hello updated')
+      const store = await setupOpenedFile('hello\n', '/p.md')
+      store.setContent('hello edited\n') // dirty=true
+      vi.mocked(readTextFile).mockResolvedValue('hello updated\n')
       vi.mocked(confirm).mockResolvedValueOnce(true)
       await store.checkExternalChange()
-      expect(store.content).toBe('hello updated')
+      expect(store.content).toBe('hello updated\n')
       expect(confirm).toHaveBeenCalledTimes(1)
     })
 
     it('d-拒绝. dirty,disk 变化 → 弹确认,拒绝则保留本地版本', async () => {
-      const store = await setupOpenedFile('hello', '/p.md')
-      store.setContent('hello edited') // dirty=true
-      vi.mocked(readTextFile).mockResolvedValue('hello updated')
+      const store = await setupOpenedFile('hello\n', '/p.md')
+      store.setContent('hello edited\n') // dirty=true
+      vi.mocked(readTextFile).mockResolvedValue('hello updated\n')
       vi.mocked(confirm).mockResolvedValueOnce(false)
       await store.checkExternalChange()
-      expect(store.content).toBe('hello edited') // 本地版本保留
+      expect(store.content).toBe('hello edited\n') // 本地版本保留
       expect(confirm).toHaveBeenCalledTimes(1)
     })
   })
@@ -374,7 +392,6 @@ describe('document store', () => {
     it('setContent 改变后立刻反映;改回 baseline 后清零', () => {
       const store = useDocumentStore()
       store.init('hello')
-      store.setContent('hello') // 消费 init echo
       expect(store.dirty).toBe(false)
 
       store.setContent('hello world') // 真实编辑
@@ -392,7 +409,6 @@ describe('document store', () => {
     it('saveCurrentDraft:clean 时直接 return,不调底层写盘', async () => {
       const store = useDocumentStore()
       store.init('hello')
-      store.setContent('hello') // 消费 echo,内容 = baseline
       // 重新绑定 writeTextFile 的 mock,统计调用次数
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
@@ -404,7 +420,6 @@ describe('document store', () => {
     it('saveCurrentDraft:dirty 时写一份草稿到 appDataDir/drafts/', async () => {
       const store = useDocumentStore()
       store.init('hello')
-      store.setContent('hello') // 消费 init echo
       store.setContent('hello world') // 真实编辑 → dirty
       // currentFilePath 还是 null(刚 init),会用 'untitled' 这个固定 ID
       const writes = vi.mocked(writeTextFile)
@@ -421,11 +436,7 @@ describe('document store', () => {
     it('saveCurrentDraft:非 ASCII 路径下能正常落盘(回归 btoa 编码 bug)', async () => {
       const store = useDocumentStore()
       store.init('')
-      store.setContent('') // 消费 init echo
-      // loadContent 会把 content 设为 '你好',并把 echosToAccept=1(等 editor echo)
-      // 测试里没有真 editor,先把那次"echo"消费掉,再做一次真实编辑
       store.loadContent('你好', '/文档/笔记.md')
-      store.setContent('你好') // 消费 loadContent 的 echo
       store.setContent('你好世界') // 真实编辑 → dirty
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
@@ -445,9 +456,7 @@ describe('document store', () => {
     it('saveCurrentDraft:同一路径两次 dirty,落盘 id 稳定(原地覆盖)', async () => {
       const store = useDocumentStore()
       store.init('')
-      store.setContent('') // 消费 echo
       store.loadContent('v1', '/文档/v.md')
-      store.setContent('v1') // 消费 loadContent 的 echo
       store.setContent('v1-edited') // dirty
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
@@ -468,9 +477,7 @@ describe('document store', () => {
     it('saveCurrentDraft:不同 draftScope 下同一文件草稿 id 不冲突', async () => {
       const store = useDocumentStore()
       store.init('')
-      store.setContent('')
       store.loadContent('base', '/same.md')
-      store.setContent('base')
       store.setContent('window one')
       store.setDraftScope('main')
       const writes = vi.mocked(writeTextFile)
@@ -513,7 +520,6 @@ describe('document store', () => {
     it('saveCurrentDraft:无 draftScope 时保留旧 untitled id', async () => {
       const store = useDocumentStore()
       store.init('')
-      store.setContent('')
       store.setContent('dirty')
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
@@ -612,7 +618,6 @@ describe('document store', () => {
 
       const store = useDocumentStore()
       store.init('')
-      store.setContent('') // 消费 init echo
 
       // 模拟 CLI 启动:openPath 先设好 currentFilePath
       await store.openPath('/p1.md')
@@ -637,7 +642,6 @@ describe('document store', () => {
     it('openPath 读文件失败:弹原生 message 提示,不调 loadContent(不污染状态)', async () => {
       const store = useDocumentStore()
       store.init('keep this') // 已有内容 / path
-      store.setContent('keep this') // 消费 echo
       const before = store.content
       const pathBefore = store.currentFilePath
 
@@ -662,7 +666,6 @@ describe('document store', () => {
     it('openPath 成功:不弹错误提示', async () => {
       const store = useDocumentStore()
       store.init('keep this')
-      store.setContent('keep this') // 消费 echo
 
       const { message } = await import('@tauri-apps/plugin-dialog')
       vi.mocked(message).mockClear()
@@ -672,7 +675,7 @@ describe('document store', () => {
 
       expect(ok).toBe(true)
       expect(vi.mocked(message)).not.toHaveBeenCalled()
-      expect(store.content).toBe('new content')
+      expect(store.content).toBe('new content\n')
       expect(store.currentFilePath).toBe('/new.md')
       expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/new.md'])
     })
@@ -688,7 +691,7 @@ describe('document store', () => {
 
       await store.recoverDraft('a')
 
-      expect(store.content).toBe('A content')
+      expect(store.content).toBe('A content\n')
       expect(store.currentFilePath).toBe('/a.md')
       expect(store.pendingRecoveryDrafts.map(d => d.id)).toEqual(['b'])
     })
@@ -715,7 +718,7 @@ describe('document store', () => {
       expect(remaining).not.toContain('file-x')
       expect(remaining).toEqual(['file-y'])
       // 内容应该是用户点的最新那条
-      expect(store.content).toBe('newest')
+      expect(store.content).toBe('newest\n')
       expect(store.currentFilePath).toBe('/x.md')
     })
 

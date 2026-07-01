@@ -11,6 +11,8 @@ import {
   deleteDraft as deleteDraftFromFs,
   type Draft,
 } from './persistence'
+import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
+import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 
 // Tauri 的错误形态不一致:writeTextFile 拒绝时是 Error,readTextFile 拒绝时
 // 可能是 string。统一抽成字符串塞进 message 弹窗。
@@ -58,8 +60,6 @@ export const useDocumentStore = defineStore('document', () => {
    * fileName computed 优先用它。加载真实文件时 caller 应清回 null。
    */
   const virtualFileName = ref<string | null>(null)
-
-  let echosToAccept = 0
 
   const dirty = computed(() => content.value !== lastSavedContent.value)
 
@@ -173,13 +173,18 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
-  /** 编辑器把当前 markdown 回写进 store —— 也是 v-model 的 update 钩子。 */
+  /**
+   * 编辑器把当前 markdown 回写进 store —— 也是 v-model 的 update 钩子。
+   *
+   * 注意:这里**不**更新 lastSavedContent。基线只在 loadContent / save /
+   * recoverDraft 里推进。之前用 echosToAccept 计数器让编辑器回吐的
+   * "规范化版本"推进基线,但计数器没法区分"编辑器 echo"和"用户真实编辑"
+   * —— 如果用户恰好在 echo 到达前敲了键,那次编辑会被误吞成 echo,
+   * 把 lastSavedContent 推向新内容。后果:切窗口失焦再 focus 时
+   * checkExternalChange 看到 disk(旧) !== lastSavedContent(新) !== content(新),
+   * dirty=true,于是弹出"文件在编辑器外被修改"的误报。
+   */
   function setContent(v: string) {
-    if (echosToAccept > 0) {
-      echosToAccept--
-      // 把规范化后的版本采纳为新基线，dirty 因此保持 false
-      lastSavedContent.value = v
-    }
     content.value = v
     void syncTitle()
   }
@@ -188,7 +193,6 @@ export const useDocumentStore = defineStore('document', () => {
   function init(initial: string) {
     content.value = initial
     lastSavedContent.value = initial
-    echosToAccept = 1 // 等编辑器首次 mount 后的 echo
     void syncTitle()
   }
 
@@ -203,11 +207,16 @@ export const useDocumentStore = defineStore('document', () => {
     virtualFileName.value = null
     readOnlyLocked.value = readOnlyLocked_
     _userReadOnly.value = false
-    const willRecreateEditor = content.value !== c
-    content.value = c
-    lastSavedContent.value = c
-    // 只在内容真的变了(→ ProseMirrorEditor 会重建 → 会 echo)时才等 echo
-    echosToAccept = willRecreateEditor ? 1 : 0
+    // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
+    // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
+    // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
+    // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
+    // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
+    // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
+    // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
+    const canonical = toMarkdown(fromMarkdown(c, pmSchema))
+    content.value = canonical
+    lastSavedContent.value = canonical
     void syncTitle()
     // 切换文件 / 新建:重建监听
     if (path) void startWatchOf(path)

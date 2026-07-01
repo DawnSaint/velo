@@ -704,7 +704,8 @@ describe('FileTree', () => {
     expect(fsRename).toHaveBeenCalledWith('/test/root/note.md', '/test/root/note2.md')
     // 当前打开文件被重命名 → currentFilePath 更新,content 保留
     expect(docStore.currentFilePath).toBe('/test/root/note2.md')
-    expect(docStore.content).toBe('# old')
+    // content 是 markdownIO canonical 形式(loadContent 规范化),'# old' → '# old\n'
+    expect(docStore.content).toBe('# old\n')
     expect(recent.entries.map(e => e.path)).toEqual(['/test/root/note2.md'])
     wrapper.unmount()
   })

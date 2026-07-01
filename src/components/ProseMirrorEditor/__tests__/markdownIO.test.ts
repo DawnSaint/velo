@@ -305,4 +305,22 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
       expect(doc2.children[i].textContent).toBe(doc1.children[i].textContent)
     }
   })
+
+  it('尾部空行 toMarkdown 严格 idempotent(K≥2 守恒,不再每轮丢 2)', () => {
+    // 修复前:processor.stringify 按 CommonMark 吃掉尾部空段,每 round 丢 2\n。
+    // 修复后:toMarkdown 出口按 doc 尾部连续空段数补 \n,使
+    //   toMarkdown(fromMarkdown(toMarkdown(doc))) === toMarkdown(doc)
+    // 严格成立。K=尾部空段数;这里测 K=1..3 对应的磁盘空行数。
+    //   磁盘 'b\n\n\n'(2 空行)→ doc K=1 → canonical 'b\n\n\n'  (N=3)
+    //   磁盘 'b\n\n\n\n\n'(4 空行)→ doc K=2 → canonical 'b\n\n\n\n\n'(N=5)
+    //   磁盘 'b\n\n\n\n\n\n\n'(6 空行)→ doc K=3 → canonical 'b\n\n\n\n\n\n\n'(N=7)
+    const cases = ['b\n\n\n', 'b\n\n\n\n\n', 'b\n\n\n\n\n\n\n']
+    for (const md of cases) {
+      const canon = toMarkdown(fromMarkdown(md, schema))
+      const canon2 = toMarkdown(fromMarkdown(canon, schema))
+      const canon3 = toMarkdown(fromMarkdown(canon2, schema))
+      expect(canon2).toBe(canon)
+      expect(canon3).toBe(canon)
+    }
+  })
 })
