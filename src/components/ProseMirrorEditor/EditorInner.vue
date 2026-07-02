@@ -32,6 +32,7 @@ import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
+import { createImageEditPlugin, imageEditEscapeKeymap } from './image/imageEditPlugin'
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
@@ -202,16 +203,19 @@ function isTauriEnv(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
-const imageNodeView = createImageNodeView({
-  proxyDomURL: (url: string) => {
-    if (!isTauriEnv()) return url
-    if (/^(https?:|data:|asset:|tauri:)/.test(url)) return url
-    const currentFilePath = useDocumentStore().currentFilePath
-    const absPath = resolveImageAssetAbsPath(url, currentFilePath)
-    if (!absPath.startsWith('/') && !/^[A-Z]:/i.test(absPath)) return absPath
-    return convertFileSrc(absPath)
-  },
-})
+// 把 markdown 里的 src(相对 / 绝对路径)转成浏览器可展示 url —— image NodeView
+// 与 imageEdit 预览 widget 共用同一份解析,避免渲染态与编辑态预览分叉。
+function resolveImageSrc(url: string): string {
+  if (!isTauriEnv()) return url
+  if (/^(https?:|data:|asset:|tauri:)/.test(url)) return url
+  const currentFilePath = useDocumentStore().currentFilePath
+  const absPath = resolveImageAssetAbsPath(url, currentFilePath)
+  if (!absPath.startsWith('/') && !/^[A-Z]:/i.test(absPath)) return absPath
+  return convertFileSrc(absPath)
+}
+
+const imageNodeView = createImageNodeView({ proxyDomURL: resolveImageSrc })
+const imageEditPlugin = createImageEditPlugin({ proxyDomURL: resolveImageSrc })
 
 // image_inline NodeView 接到 mathEditPlugin 同一个 Plugin 里。
 const imageInlineViewPlugin = new Plugin({
@@ -281,6 +285,8 @@ const basePlugins: Plugin[] = [
   markdownPastePlugin,
   linkClickPlugin,
   linkEditEscapeKeymap,
+  imageEditPlugin,
+  imageEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   codeHighlightPlugin,
   imageInlineViewPlugin,

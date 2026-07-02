@@ -16,18 +16,7 @@
     -moz-tab-size: 8;
   }
 
-  // ProseMirror 末尾自动追加的内置元素(trailingBreak / separator)。
-  // 不能禁掉——ProseMirror 用它们管末尾指针。这里把宽度归零,inline 排版,
-  // 既不占视觉空间,又保留 ProseMirror 的内部行为。
-  // separator 的 display 用 !important 覆盖 ProseMirror 默认的 inline-block。
-  .ProseMirror-separator,
-  .ProseMirror-trailingBreak {
-    width: 0;
-    user-select: none;
-    pointer-events: none;
-  }
-  .ProseMirror-separator { display: inline !important; }
-  .ProseMirror-trailingBreak { display: inline; }
+  .ProseMirror-separator { display: none }
 
   // 占位提示(空文档首段)
   .ProseMirror p.is-editor-empty:first-child::before {

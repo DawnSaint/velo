@@ -12,7 +12,7 @@
 //   math_inline / html_inline)天然跳过
 // - 黑名单容器(code_block / html_block / mermaid / math_block)整段 return false
 //   不下钻,字面量 `### ` 不会被当 heading
-// - 与 linkClickPlugin.session 重叠的范围跳过,不跟用户的源码编辑抢
+// - 与 linkClick / imageEdit session 重叠的范围跳过,不跟用户的源码编辑抢
 //
 // 性能:appendTransaction 返回的 tr 不会再触发自己(ProseMirror 文档保证),
 // 死循环只在单次 apply 内 —— pattern 必须不会匹配 apply 输出的内容(例如
@@ -29,6 +29,7 @@ import {
   type InlineSyntax,
 } from '../editor/syntaxRegistry'
 import { linkClickPluginKey } from './linkClick'
+import { imageEditKey } from '../image/imageEditPlugin'
 
 // 容器型黑名单:整个节点跳过(包括子节点)
 const CONTAINER_BLACKLIST = new Set([
@@ -124,13 +125,19 @@ function rangesToTextblocks(ranges: DirtyRange[], state: EditorState): DirtyText
 }
 
 /**
- * 当前 link 编辑态 session 的范围 —— 与之相交的 textblock 不被框架抢着转,
- * 用户改源码时框架退避。
+ * 当前活跃编辑态 session(link / image)的范围 —— 与之相交的 textblock 不被
+ * 框架抢着转,用户改源码时框架退避。
+ *
+ * image session 必须一起退避:点图片编辑按钮会把 image atom 替换成
+ * `![alt](src)` 纯文本,内层 `[alt](src)` 正好命中 link inline 正则 ——
+ * 不退避的话源码会被立即转成 link mark,`!` 成孤儿文本。
  */
-function getLinkEditRange(state: EditorState): { from: number, to: number } | null {
-  const session = linkClickPluginKey.getState(state)?.session ?? null
-  if (!session) return null
-  return { from: session.editFrom, to: session.editTo }
+function getActiveEditRange(state: EditorState): { from: number, to: number } | null {
+  const linkSession = linkClickPluginKey.getState(state)?.session ?? null
+  if (linkSession) return { from: linkSession.editFrom, to: linkSession.editTo }
+  const imageSession = imageEditKey.getState(state)?.session ?? null
+  if (imageSession) return { from: imageSession.editFrom, to: imageSession.editTo }
+  return null
 }
 
 function rangesIntersect(a: { from: number, to: number }, b: { from: number, to: number }): boolean {
@@ -230,7 +237,7 @@ function tryInlineSyntaxes(
   tr: Transaction,
   block: DirtyTextblock,
   syntaxes: readonly InlineSyntax[],
-  linkEditRange: { from: number, to: number } | null,
+  activeEditRange: { from: number, to: number } | null,
 ): boolean {
   let touched = false
   const schema = tr.doc.type.schema
@@ -272,8 +279,8 @@ function tryInlineSyntaxes(
       }
       if (skip) continue
 
-      // 与 link 编辑态 session 重叠 → 跳过
-      if (linkEditRange && rangesIntersect({ from: matchFrom, to: matchTo }, linkEditRange)) {
+      // 与编辑态 session(link / image)重叠 → 跳过
+      if (activeEditRange && rangesIntersect({ from: matchFrom, to: matchTo }, activeEditRange)) {
         continue
       }
 
@@ -319,7 +326,7 @@ export const syntaxAutoFormatPlugin = new Plugin({
     const inlineSyntaxes = getInlineSyntaxes()
     if (blockSyntaxes.length === 0 && inlineSyntaxes.length === 0) return null
 
-    const linkEditRange = getLinkEditRange(newState)
+    const activeEditRange = getActiveEditRange(newState)
     let tr = newState.tr
     let touched = false
 
@@ -329,7 +336,7 @@ export const syntaxAutoFormatPlugin = new Plugin({
         touched = true
         continue
       }
-      if (tryInlineSyntaxes(tr, block, inlineSyntaxes, linkEditRange)) {
+      if (tryInlineSyntaxes(tr, block, inlineSyntaxes, activeEditRange)) {
         touched = true
       }
     }

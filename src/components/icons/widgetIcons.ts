@@ -19,6 +19,11 @@ const COPY_INNER
   = '<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />'
   + '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />'
 const CHECK_INNER = '<polyline points="20 6 9 17 4 12" />'
+// code-xml:lucide 标准 path(左 < + 右 > + 中间斜杠 /)
+const CODE_XML_INNER
+  = '<path d="m18 16 4-4-4-4" />'
+  + '<path d="m6 8-4 4 4 4" />'
+  + '<path d="m14.5 4-5 16" />'
 // Trash2:lucide 标准 path(lid + body 合并,line 表中间两条竖线)
 const TRASH_INNER
   = '<polyline points="3 6 5 6 21 6" />'
@@ -39,3 +44,6 @@ export const checkSvg = (size: number): string => makeSvg(CHECK_INNER, size, 2.5
 
 /** 垃圾桶(mermaid 删除、TOC 删除)。 */
 export const trashSvg = (size: number): string => makeSvg(TRASH_INNER, size)
+
+/** code-xml 图标(图片源码编辑按钮)。 */
+export const codeXmlSvg = (size: number): string => makeSvg(CODE_XML_INNER, size)

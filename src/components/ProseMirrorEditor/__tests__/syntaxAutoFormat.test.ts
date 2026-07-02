@@ -12,6 +12,7 @@ import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { linkClickPlugin } from '../plugins/linkClick'
+import { createImageEditPlugin, triggerImageEdit } from '../image/imageEditPlugin'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { taskListPlugin } from '../nodes/TaskListNodeView'
 import {
@@ -797,5 +798,41 @@ describe('syntaxAutoFormat: 黑名单 / 防死循环', () => {
     })
     expect(refCount).toBe(1)
     cleanup()
+  })
+})
+
+describe('syntaxAutoFormat: image edit session 退避', () => {
+  it('图片源码 ![alt](src) 不被 inline link 正则吃成 link mark', () => {
+    // 回归:无 title 源码 `![alt](src)` 内层 `[alt](src)` 正好命中 link inline
+    // 正则;imageEdit session 必须让 syntaxAutoFormat 退避,否则 `!` 成孤儿、
+    // alt 被包成 link mark,用户看到的源码被即时转成渲染态 link。
+    const imageNode = schema.nodes.image.create({ src: 'a.png', alt: 'alt', title: '' })
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = schema.node('doc', null, [schema.node('paragraph', null, [imageNode])])
+    const state = EditorState.create({
+      schema,
+      doc,
+      plugins: [linkClickPlugin, createImageEditPlugin({ proxyDomURL: (u) => u }), syntaxAutoFormatPlugin],
+    })
+    const view = new EditorView(host, { state })
+
+    let pos = -1
+    view.state.doc.descendants((n, p) => {
+      if (n.type.name === 'image') { pos = p; return false }
+      return true
+    })
+    triggerImageEdit(view, pos)
+
+    // 源码保留为纯文本,未被转成 link mark
+    expect(view.state.doc.textContent).toBe('![alt](a.png)')
+    let hasLink = false
+    view.state.doc.descendants((n) => {
+      if (n.isText && n.marks.some(m => m.type.name === 'link')) hasLink = true
+    })
+    expect(hasLink).toBe(false)
+
+    view.destroy()
+    host.remove()
   })
 })

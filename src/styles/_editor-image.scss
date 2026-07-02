@@ -21,8 +21,10 @@
 // 选中时 wrapper 加 .selected(由 NodeView.selectNode 加)。
 
 // 包装 span 转 block 撑满行宽,里面内容(text-align: center)居中
+// position: relative 作为悬浮编辑按钮的 containing block
 .velo-image-inline {
   display: block;
+  position: relative;
   text-align: center;
 
   // 有图态:img 居中,outline 透明(默认)
@@ -47,6 +49,44 @@
   &.selected > img.image-inline {
     outline-color: var(--md-primary-color, #1F71D9);
     outline-width: 2px;
+  }
+
+  // 悬浮编辑按钮:常驻 DOM,默认隐藏,选中(.selected)时显现。
+  // 严格对齐代码块工具条复制按钮(.velo-code-copy-btn):透明底、继承色、
+  // hover 浅灰底,尺寸 height:1.6em / padding:0 .4em / font-size:.9em ——
+  // 不带独立背景色 / 强调色,否则会变成"长方形带颜色的色块"与复制按钮割裂。
+  > .image-edit-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: .2em;
+    height: 1.6em;
+    padding: 0 .4em;
+    font-size: .9em;
+    line-height: 1;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    vertical-align: middle;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.12s ease, visibility 0.12s ease;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+  }
+
+  &.selected > .image-edit-btn {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 
   // 空态 input 框/上传按钮/预览图——跟 image-inline 提供的默认 UI 配套
@@ -108,6 +148,32 @@
   }
 }
 
+// 选中图片(image NodeSelection)时隐藏文本光标。image 是 contenteditable=false
+// 的 inline atom,NodeSelection 的 focus 端在 Chrome/WebView2 会被渲染到下一个
+// 可编辑文本(图片下方段落首字符)—— 选区范围整段落在不可编辑内容上,浏览器把
+// 可视光标"借位"到最近可编辑位置(纯渲染产物,PM state 仍是 NodeSelection,
+// 选区对象仍覆盖图片;编辑按钮 / .selected 蓝框依故可见)。选中态不需要任何文本
+// 光标,整个编辑器 caret-color: transparent;取消选中(.selected 移除)后自动恢复。
+// 走 :has() —— WebView2(Chromium ≥105)原生支持。
+.velo-editor:has(.velo-image-inline.selected) {
+  caret-color: transparent;
+}
+
+// image 是 paragraph 内的 inline atom,但 NodeView display:block 使其独占一行。
+// prosemirror-view 的 addTextblockHacks(viewdesc.ts):末子非 TextViewDesc 即补
+// <br class="ProseMirror-trailingBreak">;Chrome/Safari/WebView2 上若末子
+// contentEditable=false(本 image NodeView span 即是)还**额外**补一个零宽
+// <img class="ProseMirror-separator">(prosemirror.css 给它 display:inline !important,
+// 但空 alt 无宽度,不撑行)。故 DOM 形如 [image-span][separator][trailingBreak],
+// trailingBreak 与 image span 之间隔着 separator —— 相邻兄弟选择器须同时覆盖
+// "span 直连 br" 与 "span 经 separator 连 br" 两条路径(Firefox 不加 separator)。
+// 仅隐藏紧随图片之后的那条 trailing break;空段自己的 trailing break(段落高度 /
+// 光标来源)不动。separator 零宽不撑行,无需处理。
+.velo-image-inline + .ProseMirror-trailingBreak,
+.velo-image-inline + .ProseMirror-separator + .ProseMirror-trailingBreak {
+  display: none;
+}
+
 // image-inline 暗色态——只用 .dark 祖先(没配对 .velo-editor.dark),
 // 保持原行为不动。
 .dark .velo-image-inline:hover > img.image-inline {
@@ -126,4 +192,33 @@
 
 .dark .velo-image-inline .placeholder {
   color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .velo-image-inline > .image-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+// 图片源码编辑态:Decoration.inline 在源码文本上加视觉指示(浅底 + 等宽字体),
+// 提示当前是"编辑源码"而非渲染态。同 .velo-link-source-edit 的处理思路。
+.velo-image-source-edit {
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.dark .velo-image-source-edit {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+// 图片源码编辑态的预览 widget(Decoration.widget,渲染在源码文本之后 side:1,
+// 落在源码下方)。替换 image atom → 纯文本后 image NodeView 销毁,编辑期间靠这个
+// widget 保留图片;源码合法时实时跟随 src 变化(同 math_block 预览),残缺时不挂。
+img.velo-image-source-preview {
+  display: block;
+  margin: 8px auto 0;
+  max-width: 100%;
+  max-height: 300px;
+  height: auto;
+  border-radius: 4px;
+  user-select: none;
+  -webkit-user-drag: none;
 }

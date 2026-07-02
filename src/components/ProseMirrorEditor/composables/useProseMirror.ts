@@ -21,6 +21,7 @@ import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import type { Plugin, Transaction } from 'prosemirror-state'
 import type { Node as PMNode, Schema } from 'prosemirror-model'
+import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 
 export interface UseProseMirrorOptions {
   /** Schema 实例 —— caller 在 editor/schema.ts 装配后传进来。 */
@@ -131,7 +132,9 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
       dispatchTransaction(tr) {
         const next = view.state.apply(tr)
         view.updateState(next)
-        if (tr.docChanged && opts.onChange) {
+        // SKIP_CONTENT_EMIT:进入编辑态这类瞬时结构变更(image→源码文本)不应
+        // 触发内容回写 —— 详见 editor/transactionMeta.ts。选区回调照常走。
+        if (tr.docChanged && opts.onChange && !tr.getMeta(SKIP_CONTENT_EMIT)) {
           opts.onChange(next.doc, tr)
         }
         if ((tr.docChanged || tr.selectionSet) && opts.onSelectionChange) {
