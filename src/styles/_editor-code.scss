@@ -317,7 +317,9 @@ html.dark .velo-lang-custom-suggest {
 // ============================================================
 
 .velo-cm-source {
-  font-family: var(--md-font-family, -apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif);
+  // 源码态用等宽 JetBrains Mono(--font-mono),markdown 源文本(#/-/` 等标记)
+  // 用等宽更易对齐与编辑;原走正文字体(--md-font-family)已弃用。
+  font-family: var(--font-mono);
   font-size: var(--md-font-size, 14px);
 
   .cm-editor {
@@ -328,6 +330,14 @@ html.dark .velo-lang-custom-suggest {
     line-height: inherit;
     outline: none;
     &.cm-focused { outline: none; }
+  }
+
+  // CM6 baseTheme 给 .cm-scroller 硬设 font-family: monospace(系统等宽),选择器
+  // .ͼN .cm-scroller 特异性 0,2,0 压住从 .cm-editor 的继承 → 源码文本走系统等宽
+  // 而非 JetBrains Mono。用 .velo-cm-source .cm-editor .cm-scroller(0,3,0) 显式
+  // 覆盖;.cm-content / .cm-line 继承它,行号 gutter 继承 .velo-cm-source 的 mono。
+  .cm-editor .cm-scroller {
+    font-family: var(--font-mono, 'JetBrains Mono', Menlo, Consolas, monospace);
   }
 
   // 行内容兜底色(无 token 包裹的空白走 :root --shiki-light)
@@ -351,7 +361,7 @@ html.dark .velo-lang-custom-suggest {
     margin-left: 0;
     margin-right: auto;
     padding: 2em 0;
-    font-weight: 600;
+    font-weight: 400;
   }
 
   // token span:shikiCmPlugin 写 inline --shiki-light/dark(局部变量定义),

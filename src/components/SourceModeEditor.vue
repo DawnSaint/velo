@@ -327,7 +327,14 @@ onMounted(async () => {
   viewRef.value = view
   view.focus()
   emitCursorPosition(view)
-  void ensureMarkdownGrammar()
+  // markdown grammar 首次进源码模式才加载(BASELINE_LANGS 不含 markdown)。
+  // 首帧 build 时 grammar 可能还没装 → getTokensSync 返回 null → 空 decoration;
+  // resolve 后须 dispatch setShikiTheme effect 触发一次 rebuild 才出 token,否则
+  // 要等用户敲第一个字符(docChanged)才染色。
+  await ensureMarkdownGrammar()
+  // await 期间组件可能已卸载(用户切走),守卫后再 dispatch
+  if (viewRef.value !== view) return
+  view.dispatch({ effects: setShikiTheme.of({ lightTheme: lightTheme.value, darkTheme: darkTheme.value }) })
 })
 
 onBeforeUnmount(() => {

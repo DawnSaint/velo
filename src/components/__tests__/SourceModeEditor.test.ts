@@ -66,10 +66,15 @@ vi.mock('@/components/ProseMirrorEditor/nodes/CodeBlockLangs', async (importOrig
     getTokensSync: (
       _hl: unknown,
       code: string,
-      _lang: string,
+      lang: string,
       lightTheme: string,
       darkTheme: string,
-    ) => fakeTokenize(code, lightTheme, darkTheme),
+    ) => {
+      // 尊重 loadedLanguages:lang 未装 → 返回 null(模拟生产 lang-miss 路径,
+      // 对应 BASELINE_LANGS 不含 markdown 时源码模式首帧空 decoration)
+      if (!fakeHl.loadedLanguages.has(lang.toLowerCase())) return null
+      return fakeTokenize(code, lightTheme, darkTheme)
+    },
     // 手动可控的 ensureTheme:resolve 时把 theme id 写进 fakeHl.loadedThemes,
     // 模拟"hl 装上主题 hex 后下次 codeToTokens 出真色"。resolve 由测试代码控制。
     ensureTheme: (themeId: string) => new Promise<void>((resolve) => {
@@ -81,7 +86,13 @@ vi.mock('@/components/ProseMirrorEditor/nodes/CodeBlockLangs', async (importOrig
         },
       })
     }),
-    ensureMarkdownGrammar: async () => {},
+    // resolve 时把 markdown 装进 loadedLanguages,模拟生产 loadLanguage 完成。
+    // 必须 await 让出微任务 —— 生产 loadLanguage 是真异步 I/O;若 add 同步执行,
+    // "onMounted 未 await 就 dispatch"的 bug 会被掩盖(void 调用同步加好 grammar)。
+    ensureMarkdownGrammar: async () => {
+      await Promise.resolve()
+      fakeHl.loadedLanguages.add('markdown')
+    },
     // 测试无关的导出,挂上占位避免 TS / 调用方报错
     setDecorationRebuildCallback: () => {},
     ensureLanguage: async () => {},
@@ -143,6 +154,9 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     // App.vue codeBlockReady 已 ensure 过。测试里也预装,模拟"初始挂载时主题已可用"。
     fakeHl.loadedThemes.add('one-light')
     fakeHl.loadedThemes.add('one-dark-pro')
+    // markdown grammar 默认预装(模拟第二次进源码模式 / 已加载缓存场景);
+    // "首次未预装"回归测试自己 delete
+    fakeHl.loadedLanguages = new Set(['markdown'])
   })
 
   afterEach(() => {
@@ -150,6 +164,7 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     wrapper = null
     pendingEnsure.length = 0
     fakeHl.loadedThemes.clear()
+    fakeHl.loadedLanguages.clear()
   })
 
   it('初始挂载:默认主题已 loaded,CM6 decoration 用 loaded hex 渲染', async () => {
@@ -229,6 +244,22 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     const html = cmHtml(wrapper)
     expect(html).toContain('#loaded-dracula')
     expect(html).not.toContain('#loaded-one-light')
+  })
+
+  it('markdown grammar 首次未预装:ensureMarkdownGrammar resolve 后 dispatch rebuild 出 token', async () => {
+    // 模拟生产第一次进源码模式:BASELINE_LANGS 不含 markdown,grammar 未装
+    fakeHl.loadedLanguages.delete('markdown')
+    wrapper = mount(SourceModeEditor, {
+      props: { modelValue: '# hello' },
+    })
+    await flushAll()
+
+    // onMounted:首帧 build 时 grammar 没装 → 空 decoration;await ensureMarkdownGrammar
+    // (grammar 装上) → dispatch setShikiTheme effect → ViewPlugin rebuild → 出 token。
+    // 修复前一直空,要等用户敲首字符(docChanged)才染色。
+    const html = cmHtml(wrapper)
+    expect(html).toContain('#loaded-one-light')
+    expect(html).not.toContain('#not-loaded-light')
   })
 
   it('emits initial cursor position after mount', async () => {

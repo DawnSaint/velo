@@ -95,7 +95,7 @@ void initSettings()
   .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
-    const { getHighlighter, ensureTheme, BASELINE_LANGS, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
+    const { getHighlighter, ensureTheme, ensureMarkdownGrammar, BASELINE_LANGS, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
       '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
     )
     const { extractLangsFromDoc } = await import(
@@ -117,6 +117,11 @@ void initSettings()
     await ensureTheme(dark)
     codeBlockReady.value = true
     mark('code-block-ready')
+    // 预加载 markdown grammar(源码模式高亮用,BASELINE_LANGS 不含)。fire-and-forget
+    // 不阻塞首屏 PM mount;用户切源码模式时 grammar 大概率已装 → 首帧即染色,
+    // 无需等加载。竞态(启动后秒切源码模式,grammar 仍在加载)由 SourceModeEditor
+    // onMounted 的 await + dispatch setShikiTheme effect 兜底触发 rebuild。
+    void ensureMarkdownGrammar()
   })
   .catch((err) => {
     // shiki 加载失败也别卡白屏,翻 ready 让 PM mount,plugin 内置 catch 会

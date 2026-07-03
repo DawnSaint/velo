@@ -30,7 +30,18 @@ import { writeTextFile } from '@/tauri/fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { useDocumentStore } from './document'
 import { useEditorStore } from './editor'
-import { buildExportHtml } from '@/lib/export/htmlRenderer'
+import type { buildExportHtml } from '@/lib/export/htmlRenderer'
+
+// 懒加载导出渲染:htmlRenderer 顶层静态 import 了 katexCss + jetbrainsCss,二者
+// 各自 import.meta.glob(?inline, eager) 把 ~845KB base64 字体(20 katex + 4 jetbrains)
+// 烘进模块。若 eager 走静态 import,这 ~845KB 常驻主 bundle —— 即使用户从不导出。
+// 推迟到首次导出才加载(用户点导出时多一次 chunk fetch,可接受,与 katex 懒加载同范式)。
+// type 只用 `Parameters<typeof buildExportHtml>[0]`,import type 在运行时擦除不拉模块。
+let exportHtmlMod: Promise<typeof import('@/lib/export/htmlRenderer')> | null = null
+function loadExportHtml() {
+  if (!exportHtmlMod) exportHtmlMod = import('@/lib/export/htmlRenderer')
+  return exportHtmlMod
+}
 
 // filter 顺序 == saveDialog 默认 filter:PDF 在前 → 默认选 PDF。
 const EXPORT_FILTERS = [
@@ -130,6 +141,7 @@ export const useExportStore = defineStore('export', () => {
    * 失败抛错由 exportDocument 外层 catch + message 兜底。
    */
   async function exportToHtml(target: string, opts: Parameters<typeof buildExportHtml>[0]): Promise<void> {
+    const { buildExportHtml } = await loadExportHtml()
     const { html } = await buildExportHtml(opts)
     await writeTextFile(target, html)
   }
@@ -148,6 +160,7 @@ export const useExportStore = defineStore('export', () => {
    * macOS / Linux 当前返回 PdfError::Unsupported,前端直接抛错展示给用户。
    */
   async function exportToPdf(target: string, opts: Parameters<typeof buildExportHtml>[0]): Promise<void> {
+    const { buildExportHtml } = await loadExportHtml()
     const { html } = await buildExportHtml(opts)
     await invoke<void>('export_pdf', { outputPath: target, html })
   }
