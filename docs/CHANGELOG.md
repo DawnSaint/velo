@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.10] — 2026-07-03
+
+### Added
+- **源码编辑态（Obsidian Live Preview 风格）**：光标进入加粗 / 斜体 / 删除线 / 高亮等 mark 范围时，整段切换为可编辑的 markdown 源码字符，移出光标自动还原；编辑过程保留原始 `*` / `_` 分隔符，保存后不丢失。
+- **图片源码编辑**：选中图片后可进入源码编辑态，以纯文本编辑 `![alt](src)` 并在下方实时预览，移出光标提交、Escape 还原。
+- **启动模式设置**：新增「上次文件 / 新文档」启动模式，决定应用启动时打开哪个文件。
+
+### Fixed
+- 修复打开顶部为 `[TOC]` 的文档时自动选中目录的问题；并修复打开文件后视口未归零、焦点未正确拉入编辑区的问题（新建文件或从只读示例切出时尤为明显）。
+- 修复图片下方多余空行，以及选中图片后键入字符泄到下一个段落的问题。
+- 修复链接 / 图片源码编辑中含空格的 `href` / `src` 被转义、链接编辑态期间点击加粗导致文本翻倍等问题。
+- 修复示例文档中 Velo 图片加载失败的问题。
+
 ## [0.5.9] — 2026-07-01
 
 ### Added

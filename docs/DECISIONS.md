@@ -173,12 +173,12 @@
 - **Decision**: 选 A。保留 single-instance 插件，二次启动在现有进程创建新 `velo-window-{n}` app window。主窗口 label 显式为 `main`，capability 授权 `main` + `velo-window-*`。
 - **Consequences**: `documentStore`/`workspaceStore` 自然成为 per-window runtime 状态。workspace 保存改为 active root patch merge 防跨窗口覆盖；草稿 ID 带 window label scope。
 
- ---
+---
 
- ## 0.5.10
+## v0.5.10 — 源码编辑态
 
- ### ADR-20260702-001: 编辑器框架维持 ProseMirror
+### ADR-20260702-001: 编辑器框架维持 ProseMirror
 
- - **Context**: 开发反复撞到 PM 原生复杂度（atom + 内嵌 contentEditable 的 selection 不进 atom、`NodeView` 隔离与异步渲染 stale-check、`text*` inline 节点的 `textBetween` 塌缩、跨模式光标 LCS 对齐）。评估 `Tiptap` / `Lexical` / `EditorJS` 能否消除这些痛点。
- - **Decision**: 留在 PM。`Tiptap` 是 PM 之上的薄包装层，5 类痛点只消化 1 类（schema 写法），且"约定优于配置"会反过来藏住其余 4 类；`Lexical` 是不同文档模型，迁移等价于重写且 Vue 集成弱于 React；`EditorJS` 是块编辑器范式，与"源码可读 WYSIWYG"目标错位。
- - **Consequences**: 继续在 PM 上投入 in-house 抽象层而非换框架；`NodeView` 踩坑经验沉淀为团队资产，不随框架漂移；保留 markdown 双向管线 + 源码模式独立栈的完整控制权；后续协作编辑等强需求出现时再局部评估框架补充（非基础替换）。
+- **Context**: 开发反复撞到 PM 原生复杂度（atom + 内嵌 contentEditable 的 selection 不进 atom、`NodeView` 隔离与异步渲染 stale-check、`text*` inline 节点的 `textBetween` 塌缩、跨模式光标 LCS 对齐）。评估 `Tiptap` / `Lexical` / `EditorJS` 能否消除这些痛点。
+- **Decision**: 留在 PM。`Tiptap` 是 PM 之上的薄包装层，5 类痛点只消化 1 类（schema 写法），且"约定优于配置"会反过来藏住其余 4 类；`Lexical` 是不同文档模型，迁移等价于重写且 Vue 集成弱于 React；`EditorJS` 是块编辑器范式，与"源码可读 WYSIWYG"目标错位。
+- **Consequences**: 继续在 PM 上投入 in-house 抽象层而非换框架；`NodeView` 踩坑经验沉淀为团队资产，不随框架漂移；保留 markdown 双向管线 + 源码模式独立栈的完整控制权；后续协作编辑等强需求出现时再局部评估框架补充（非基础替换）。
