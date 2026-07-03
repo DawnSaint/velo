@@ -28,6 +28,7 @@ import { inlineMathSyntax } from './inline/inlineMath'
 import { footnoteRefSyntax } from './inline/footnoteRef'
 import { linkSyntax } from './inline/link'
 import { highlightSyntax } from './inline/highlight'
+import { inlineCodeSyntax } from './inline/code'
 import { htmlTagSyntax } from './inline/htmlTag'
 
 registerBlockSyntax(headingSyntax)
@@ -53,6 +54,9 @@ registerInlineSyntax(strongSyntax)
 registerInlineSyntax(strikeSyntax)
 registerInlineSyntax(emphasisUnderscoreSyntax)
 registerInlineSyntax(highlightSyntax)
+// inline code(`` `code` ``):backtick 围栏。独占 mark(excludes:'_'),不与上面 mark
+// 抢匹配;放 htmlTag 之前 —— backtick 与 `<...>` 无交集,顺序非关键但保持靠后
+registerInlineSyntax(inlineCodeSyntax)
 // htmlTag 必须注册(否则整条语法静默失效) + 放最后 —— PAIRED / SELF_CLOSE
 // 模式只匹配完整闭合的 `<tag>content</tag>` 或 `<tag/>`,不抢 mark 语法的
 // 匹配。敲到一半的 `<kbd>` 保留 plain text,源码模式看到的 `\<kbd>` 是

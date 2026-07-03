@@ -40,12 +40,13 @@ import { imageEditKey } from '../image/imageEditPlugin'
 
 export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceEdit')
 
-// 目标 mark:strong / emphasis / highlight / strike(code 是字面量;link 自有 session)。
-const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'strike_through'])
+// 目标 mark:strong / emphasis / highlight / strike / code(行内代码;link 自有 session)。
+const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'strike_through', 'code'])
 
 // 标记嵌套顺序(开:外→内;闭:内→外)。照 markdownIO wrapWithMarks 的外→内序反转得开序,
 // 闭序为开序的反转。highlight 单独处理(其无 marker attr,且 wrapWithMarks 不含它)。
-const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight'] as const
+// code 排最末(最内)—— 它 excludes:'_' 独占,实际不会与其他 mark 并存,位置无副作用。
+const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'code'] as const
 const CLOSE_ORDER = [...OPEN_ORDER].reverse() as readonly string[]
 
 interface MarkSourceEditSession {
@@ -65,23 +66,26 @@ function emptyState(): MarkSourceEditState {
   return { session: null, pendingCommit: null }
 }
 
-/** mark → 分隔符文本。strong/emphasis 的 marker attr 决定 `*` vs `_`。 */
+/** mark → 分隔符文本。strong/emphasis 的 marker attr 决定 `*` vs `_`。code 用单个 backtick
+ *  (多 backtick 代码 `` `` .. `` `` 重建时降级为单 backtick,已知限制;源文件加载不受影响)。 */
 function markerText(mark: Mark): string | null {
   switch (mark.type.name) {
     case 'strong': return (mark.attrs.marker === '_' ? '__' : '**')
     case 'emphasis': return (mark.attrs.marker === '_' ? '_' : '*')
     case 'highlight': return '=='
     case 'strike_through': return '~~'
+    case 'code': return '`'
     default: return null
   }
 }
 
-/** 黑名单容器 / code mark —— 与 markCommands.ts:38-40 逐字对齐。 */
+/** 黑名单容器(code_block / math_block)—— 这些是字面量区域,光标在内不进 mark session。
+ *  注意:行内 code mark **不**在此列 —— code mark 本身是 session 目标,光标进入要换源码。
+ *  (markCommands.ts 的 code mark 黑名单是 Ctrl+B 不在 code 内切换,与本处目的不同。) */
 function isBlacklisted(state: EditorState, pos: number): boolean {
   const $pos = state.doc.resolve(pos)
   if ($pos.parent.type.name === 'code_block') return true
   if ($pos.parent.type.name === 'math_block') return true
-  if ($pos.marks().some(m => m.type.name === 'code')) return true
   return false
 }
 

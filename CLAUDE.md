@@ -139,6 +139,7 @@
 - `alert` 涉及 schema + remark(remarkAlert) + markdownIO 双向 + syntax/block/alert + 注册
 - `footnote` 涉及 schema + NodeView + FootnoteNumberPlugin + syntax/inline/footnoteRef + 注册
 - `_italic` / `~~strike~~` 涉及 schema + syntax/inline + 注册(无 NodeView / 无 remark)
+- `` `code` `` 涉及 schema(已有 `code` mark,`excludes:'_'` 独占) + syntax/inline/code + 注册 + markSourceEdit session(进 enter 守卫 `isBlacklisted` 需放行 `code` mark,只挡 `code_block`/`math_block` 容器)。无 NodeView / 无 remark(remark-parse 原生 inlineCode);markdownIO 双向已由 `inlineNodeToPM`/`wrapWithMarks` 处理,改 syntax 不碰 markdownIO 但 round-trip 用例已覆盖
 - `[TOC]` 涉及 schema + Decoration.widget(TocDecoration) + markdownIO 双向 + syntax/block/toc + 注册(无 NodeView / 无 remark)
 
 

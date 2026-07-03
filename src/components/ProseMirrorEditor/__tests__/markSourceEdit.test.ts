@@ -356,4 +356,103 @@ describe('mark 源码编辑 session', () => {
     expect(getTextContent(view.state.doc)).toBe('A')
     view.destroy()
   })
+
+  // ---------- 行内 code mark 源码编辑 session(v0.5.11) ----------
+  // code mark(excludes:'_')独占,与 bold/italic 同走 markSourceEditPlugin;
+  // 进入换 `code` 源码,移出 commit(fromMarkdown 还原)/ Escape 还原。
+
+  it('光标进入 code 末尾 → 整段换成 `code` 源码,session 活跃', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    await enterAt(view, 9) // code 末尾边界(markStart=5,markEnd=9)
+    expect(getTextContent(view.state.doc)).toBe('See `code` tail')
+    expect(markSourceEditKey.getState(view.state)?.session).not.toBeNull()
+    view.destroy()
+  })
+
+  it('不改移出 → code mark 还原(text=code)', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    await enterAt(view, 9)
+    await moveCursorOut(view)
+    const found = findMarkNode(view.state.doc, 'code')
+    expect(found).not.toBeNull()
+    expect(found!.node.text).toBe('code')
+    view.destroy()
+  })
+
+  it('改源码 `code`→`cod` 移出 → fromMarkdown 还原 code mark(text=cod)', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    await enterAt(view, 9)
+    const s = markSourceEditKey.getState(view.state)?.session!
+    // 源码 `code`:editFrom=5,'e' 在 editTo-2(闭 backtick 在 editTo-1)
+    view.dispatch(view.state.tr.delete(s.editTo - 2, s.editTo - 1))
+    await tick(5)
+    await moveCursorOut(view)
+    const found = findMarkNode(view.state.doc, 'code')
+    expect(found).not.toBeNull()
+    expect(found!.node.text).toBe('cod')
+    view.destroy()
+  })
+
+  it('Escape 还原:改坏后 Escape → 还原原 `code`,光标在 editFrom', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    await enterAt(view, 9)
+    const s = markSourceEditKey.getState(view.state)?.session!
+    view.dispatch(view.state.tr.insertText('X', s.editFrom))
+    await tick(5)
+    view.focus()
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await tick()
+    const found = findMarkNode(view.state.doc, 'code')
+    expect(found).not.toBeNull()
+    expect(found!.node.text).toBe('code')
+    expect(markSourceEditKey.getState(view.state)?.session).toBeNull()
+    view.destroy()
+  })
+
+  it('左边界排除:光标在 code markStart → 不进 session', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    // markStart=5(inclusive 左边界,resolve(5).marks() 不含 code)→ 不触发
+    await enterAt(view, 5)
+    expect(markSourceEditKey.getState(view.state)?.session).toBeNull()
+    expect(getTextContent(view.state.doc)).toBe('See code tail')
+    view.destroy()
+  })
+
+  it('退避:code session 内键入 → syntaxAutoFormat 不把 `code` 转回 code mark', async () => {
+    const view = makeView([
+      schema.text('See '),
+      schema.text('code', [schema.marks.code.create()]),
+      schema.text(' tail'),
+    ])
+    await enterAt(view, 9)
+    // 在源码内部插一个字符(过开 ` 之后)→ 光标仍在 session 内,不触发 commit
+    const s = markSourceEditKey.getState(view.state)?.session!
+    view.dispatch(view.state.tr.insertText('X', s.editFrom + 2))
+    await tick(5)
+    expect(markSourceEditKey.getState(view.state)?.session).not.toBeNull()
+    // doc 仍是含字面 backtick 的源码态(未被 syntaxAutoFormat 转成 code mark)
+    expect(getTextContent(view.state.doc)).toContain('`')
+    expect(findMarkNode(view.state.doc, 'code')).toBeNull()
+    view.destroy()
+  })
 })

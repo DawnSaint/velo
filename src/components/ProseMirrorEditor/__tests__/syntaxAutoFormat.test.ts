@@ -34,6 +34,7 @@ import { emphasisStarSyntax } from '../syntax/inline/emphasisStar'
 import { strongSyntax } from '../syntax/inline/strong'
 import { strikeSyntax } from '../syntax/inline/strike'
 import { highlightSyntax } from '../syntax/inline/highlight'
+import { inlineCodeSyntax } from '../syntax/inline/code'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
 import { htmlTagSyntax } from '../syntax/inline/htmlTag'
 
@@ -55,6 +56,7 @@ beforeAll(() => {
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
   registerInlineSyntax(highlightSyntax)
+  registerInlineSyntax(inlineCodeSyntax)
   registerInlineSyntax(htmlTagSyntax)
 })
 
@@ -582,6 +584,44 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     cleanup()
   })
 
+  it('"`code`" 段中键入 → 加 code mark(行内代码实时转换)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '`fn`')
+    const para = view.state.doc.firstChild!
+    const code = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'fn')
+    expect(code?.marks.find(m => m.type.name === 'code')).toBeDefined()
+    // 回写 round-trip:`fn` 仍可序列化为 `fn`
+    expect(para.textContent).toBe('See fn')
+    cleanup()
+  })
+
+  it('"``code``" 双 backtick 段中键入 → 加 code mark(backref 对称)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '``fn``')
+    const para = view.state.doc.firstChild!
+    const code = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'fn')
+    expect(code?.marks.find(m => m.type.name === 'code')).toBeDefined()
+    cleanup()
+  })
+
+  it('code_block 内键入 `fn` 不转行内 code(黑名单容器)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('code_block', null, [schema.text('see ')]),
+    ])
+    typeAt(view, 1 + 'see '.length, '`fn`')
+    // 仍是 code_block,内部为字面量 `fn`(无 code mark)
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('code_block')
+    expect(block.textContent).toBe('see `fn`')
+    cleanup()
+  })
+
   it('"<kbd>Mod</kbd>" 段中键入 → 转 html_inline', () => {
     const { view, cleanup } = mountView([
       schema.node('paragraph', null, [schema.text('Press ')]),
@@ -889,6 +929,10 @@ describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
 
   it('"==hl==" 闭合后继续输入不继承 highlight', () => {
     expect(continueTypingHasMark('==hl==', 'highlight')).toBe(false)
+  })
+
+  it('"`code`" 闭合后继续输入不继承 code', () => {
+    expect(continueTypingHasMark('`code`', 'code')).toBe(false)
   })
 
   it('回归:手动 addStoredMark 后连续输入仍继承 strong(确认 inclusive 未被破坏)', () => {
