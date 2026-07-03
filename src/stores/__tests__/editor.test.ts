@@ -28,6 +28,11 @@ describe('editor store 默认值', () => {
     expect(store.darkMode).toBe(false)
   })
 
+  it('showCodeLineNumbers 默认 false(v0.5.11 可选行号,默认关闭)', () => {
+    const store = useEditorStore()
+    expect(store.showCodeLineNumbers).toBe(false)
+  })
+
   it('所有 ref 可写且双向反映', () => {
     const store = useEditorStore()
     store.darkMode = true
@@ -35,5 +40,8 @@ describe('editor store 默认值', () => {
 
     store.primaryColor = '#FF0000'
     expect(store.primaryColor).toBe('#FF0000')
+
+    store.showCodeLineNumbers = true
+    expect(store.showCodeLineNumbers).toBe(true)
   })
 })

@@ -191,6 +191,71 @@ html.dark .velo-code-toolbar-widget > .velo-code-copy-btn:hover {
 }
 
 // ============================================================
+//  代码块行号 widget(v0.5.11,JS 绝对定位浮在 pre 内部左侧,纯视觉)
+//
+//  设计要点(与 SourceMode .cm-lineNumbers 对仗):
+//  - line-height **和 font-size 都必须**与 .velo-editor pre 完全一致
+//    (line-height: 1.6 / font-size: 1em)。两者都影响行号 vs 代码行的像素
+//    对齐:line-height 不一致 → 行间距错位(整列错);font-size 不一致 → 字
+//    符 baseline 错位(同 Y 位置上字符中心偏,行号数字会"飘"在代码行上/下
+//    几像素)。实测 0.95em vs 1em 差 5% 字符高,baseline 偏移肉眼可见。
+//  - 子元素 velo-code-gutter-line 不允许加 padding/margin/border,
+//    严格继承父级 line-height / font-size。
+//  - font-family 走 var(--font-mono)(JetBrains Mono / 等宽 fallback)与
+//    pre 一致,数字宽度稳定,不会因字体差异抖动。
+//  - min-width 预留 3 位数字宽度,跨长行号抖动平滑。
+//  - opacity 0.5 + 颜色兑水:行号是辅助视觉,不抢代码内容的注意力。
+//  - pointer-events: none(JS 已设):不响应点击,行号不抢 ProseMirror 选区。
+//  - z-index: 1,低于 toolbar(z-index: 2),保证工具条浮在行号之上。
+//  - mermaid code_block(渲染态 SVG 取代 pre)在 plugin 端跳过不挂 widget,
+//    无需在 SCSS 端配合隐藏。
+//  - dark 翻面:三路命中,跟 .velo-editor pre 的 dark 命中规则同形。
+// ============================================================
+
+.velo-code-gutter-widget {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono, 'JetBrains Mono', Menlo, Consolas, monospace);
+  font-size: 1em;
+  line-height: 1.6;
+  color: var(--shiki-light, #24292e);
+  opacity: 0.5;
+  text-align: right;
+  user-select: none;
+  min-width: 2.4em;
+  padding-right: 0.4em;
+}
+
+// 子行号 div:不允许加 padding/margin/border/font-size,严格继承父级
+// line-height / font-size —— 行号的"行"必须跟代码的"行"用同一基线公式。
+.velo-code-gutter-line {
+  line-height: 1.6;
+  font-size: 1em;
+  // 高度 = 单行高度,跟 pre 的 line-height: 1.6 × font-size 对齐
+  // 不显式设 height,靠 font-size + line-height 撑出(避免 sub-pixel 误差)
+}
+
+html.dark .velo-code-gutter-widget,
+.dark .velo-code-gutter-widget,
+.velo-editor.dark .velo-code-gutter-widget {
+  color: var(--shiki-dark, #c9d1d9);
+}
+
+// Mac 代码块模式(红黄绿圆点装饰):pre 顶部 padding 改成 2.4em 让出圆点空间。
+// 行号 widget 浮在 pre 内部左侧,与圆点(absolute left: 1em)在 padding 区分占
+// 不同位置,二者不冲突。无需额外调整。
+
+// 行号启用时:把 pre 的 padding-left 加宽,给 gutter widget 让出空间。
+// 默认 padding-left: 1em,加宽到 3 em 后,2.8em 宽 widget(2.4em content +
+// 0.4em padding-right)+ 0.6em 留白正好装下。pre 启用行号 → SCSS 加 padding-left;
+// 行号关闭 → 还原 1em(由 plugin 的 Decoration.node 切换 data-velo-gutter)。
+// 关键:此规则**必须**在 .velo-editor pre 默认 padding 之后声明,以更高特异性
+// 覆盖默认 1em。
+.velo-editor pre[data-velo-gutter="true"] {
+  padding-left: 3em;
+}
+
+// ============================================================
 //  Mac 代码块:红黄绿圆点装饰(在外层 .mac-code-block.velo-editor 上)
 // ============================================================
 

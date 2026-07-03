@@ -106,6 +106,13 @@ describe('markdownIO round-trip', () => {
       expect(normalize(back)).toEqual(normalize(md))
     })
   }
+
+  // v0.5.11:WYSIWYG 代码块行号是纯视觉装饰(Decoration.widget),不进
+  // schema attrs、不进 markdown 序列化。round-trip 必须严格 idempotent。
+  it('v0.5.11:code_block 行号不污染 markdown 文本', () => {
+    const md = '```js\nconst a = 1\nconst b = 2\n```'
+    expect(normalize(toMarkdown(fromMarkdown(md, schema)))).toEqual(normalize(md))
+  })
 })
 
 describe('markdownIO - math fence guard', () => {

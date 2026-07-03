@@ -39,6 +39,8 @@ export interface PersistedSettings {
     codeDarkTheme?: string
     /** 启动时打开内容的选择。'last-file' | 'new-doc'。 */
     startupMode?: 'last-file' | 'new-doc'
+    /** WYSIWYG 代码块行号(可选,默认 false)。v0.5.11 加。 */
+    showCodeLineNumbers?: boolean
   }
   document: {
     autoSaveEnabled: boolean

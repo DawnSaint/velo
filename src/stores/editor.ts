@@ -17,6 +17,10 @@ export const useEditorStore = defineStore('editor', () => {
   const codeDarkTheme = ref(DEFAULT_DARK_THEME)
   /** 启动时打开内容的选择。默认 'last-file'。 */
   const startupMode = ref<StartupMode>('last-file')
+  /** WYSIWYG 代码块行号(可选开关,默认关闭)。
+   * 行号是纯视觉装饰,plugin `codeLineNumberPlugin` 读这个字段决定是否挂 widget,
+   * 不进 schema / 不进 markdown 序列化。 */
+  const showCodeLineNumbers = ref(false)
 
   return {
     fontSize,
@@ -27,5 +31,6 @@ export const useEditorStore = defineStore('editor', () => {
     codeLightTheme,
     codeDarkTheme,
     startupMode,
+    showCodeLineNumbers,
   }
 })

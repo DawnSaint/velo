@@ -301,6 +301,7 @@ async function initSettings() {
     if (typeof e.codeLightTheme === 'string') store.codeLightTheme = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
+    if (typeof e.showCodeLineNumbers === 'boolean') store.showCodeLineNumbers = e.showCodeLineNumbers
   }
   const d = loaded.document
   if (d) {
@@ -321,6 +322,7 @@ function snapshotSettings(): PersistedSettings {
       codeLightTheme: store.codeLightTheme,
       codeDarkTheme: store.codeDarkTheme,
       startupMode: store.startupMode,
+      showCodeLineNumbers: store.showCodeLineNumbers,
     },
     document: {
       autoSaveEnabled: documentStore.autoSaveEnabled,
@@ -1157,6 +1159,7 @@ onMounted(async () => {
       () => store.codeLightTheme,
       () => store.codeDarkTheme,
       () => store.startupMode,
+      () => store.showCodeLineNumbers,
       () => documentStore.autoSaveEnabled,
       () => documentStore.autoSaveOnBlur,
     ],
@@ -1216,6 +1219,24 @@ onMounted(async () => {
         lightTheme: light,
         darkTheme: dark,
       }))
+    },
+  )
+
+  // 4.5.x) WYSIWYG 代码块行号(v0.5.11):用户改 store.showCodeLineNumbers →
+  // dispatch setMeta(lineNumbersKey, { enabled }) → plugin.decorations()
+  // 重跑(enabled=true 挂 widget / false 返回 DecorationSet.empty)。
+  // 不开 immediate:plugin state.init 已从 store 同步读初值(见
+  // CodeLineNumberWidget.ts 的 makeInitialState),首挂时开关状态已就位。
+  // 本 watch 只管"用户后续改"。
+  const { lineNumbersKey } = await import(
+    '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
+  )
+  watch(
+    () => store.showCodeLineNumbers,
+    (enabled) => {
+      const view = editorRef.value?.getEditorView()
+      if (!view || view.isDestroyed) return
+      view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled }))
     },
   )
 

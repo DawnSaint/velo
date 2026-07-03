@@ -38,6 +38,7 @@ import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
+import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { hrEnterCommand } from './syntax/block/hr'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
@@ -296,6 +297,7 @@ const basePlugins: Plugin[] = [
   markSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   codeHighlightPlugin,
+  codeLineNumberPlugin,
   imageInlineViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,
