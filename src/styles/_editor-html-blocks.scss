@@ -17,7 +17,7 @@
 // linkClickPlugin 等编辑态的源码文本加上 .velo-link-source-edit,提示用户
 // "这是在编辑 markdown 源码"——等宽字体 + 浅灰底,与正文区分开
 .velo-link-source-edit {
-  font-family: Menlo, Operator Mono, Consolas, Monaco, monospace;
+  font-family: var(--font-mono);
   background-color: rgba(0, 0, 0, 0.05);
   border-radius: 3px;
   padding: 0 3px;

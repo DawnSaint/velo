@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [Unreleased]
+
+### Changed
+- 代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的等宽字体栈第一候选改为 JetBrains Mono（随安装包内置 woff2，导出 HTML 也内联 base64 字体数据保证视觉一致）。
+
 ## [0.5.10] — 2026-07-03
 
 ### Added

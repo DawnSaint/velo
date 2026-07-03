@@ -1,0 +1,43 @@
+// JetBrains Mono:代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的
+// 等宽字体栈第一候选。
+//
+// 字体文件放在 public/fonts/jetbrainsmono/(4 个 woff2,共 ~380KB),由 Vite 在
+// dev / build 原样复制到 dist 根,url('/fonts/...') 路径在 Tauri webview 内
+// 直接命中;导出 HTML 走单独一条 inlined data URI 路径(见 lib/export/
+// jetbrainsCss.ts),避免外部浏览器找不到 url(/fonts/...) 回退到系统字体。
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrainsmono/JetBrainsMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/jetbrainsmono/JetBrainsMono-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrainsmono/JetBrainsMono-Italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/jetbrainsmono/JetBrainsMono-BoldItalic.woff2') format('woff2');
+}
+
+:root {
+  --font-mono: 'JetBrains Mono', Menlo, Operator Mono, Consolas, Monaco, monospace;
+}

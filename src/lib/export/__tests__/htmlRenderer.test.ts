@@ -82,7 +82,11 @@ describe('htmlRenderer', () => {
     // remarkHighlight 是 transformer,只 parse 不 runSync 会跳过 —— ==hi== 不生效。
     const { html } = await buildExportHtml(baseOpts('普通 ==重点== 文本'))
     expect(html).toContain('<mark>重点</mark>')
-    expect(html).not.toContain('==')
+    // 正文里不应残留 == 源码标记(但 <style> 内联的 base64 data URI 可能含 == 填充,
+    // 故只断言 body 区域,不全文搜)。
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/)
+    expect(bodyMatch).not.toBeNull()
+    expect(bodyMatch![1]).not.toContain('==')
   })
 
   it('renders links with decoded href', async () => {

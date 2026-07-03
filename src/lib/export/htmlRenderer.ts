@@ -60,6 +60,7 @@ import { renderMermaidSvg, mermaidErrorHtml } from './mermaidHtml'
 import { renderCodeBlockHtml, codeBlockFallbackHtml } from './shikiHtml'
 import { sanitizeHtml } from './sanitizeHtml'
 import { loadKatexCssWithFontsInlined } from './katexCss'
+import { buildJetbrainsFontFaceCss } from './jetbrainsCss'
 
 // ========== 入口 ==========
 
@@ -161,6 +162,9 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   // 让导出 HTML 完全自包含(否则 url(fonts/...) 在外部 webview / 打印机 webview
   // 都解析不到,公式字体回退到系统字体,与编辑器内不一致)。
   const katexCss = await loadKatexCssWithFontsInlined()
+  // JetBrains Mono 字体 @font-face(内联 data URI),让导出 HTML 在外部浏览器 /
+  // 打印机 webview 内也使用同一套等宽字体,不依赖 /fonts/... 路径。
+  const jetbrainsCss = buildJetbrainsFontFaceCss()
 
   const title = fileName || 'Velo Export'
   const html = `<!DOCTYPE html>
@@ -176,6 +180,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   --md-font-size: ${escapeHtml(fontSize)};
 }
 ${editorCss}
+${jetbrainsCss}
 ${katexCss}
 /* 导出 HTML 自适应:浏览器 / 打印机的系统暗色会翻面,不需要 <html class="dark"> */
 @media (prefers-color-scheme: dark) {

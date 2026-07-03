@@ -32,6 +32,13 @@ html, body {
   padding: 0;
 }
 
+// 等宽字体栈:与编辑器 _fonts.scss 的 --font-mono 定义同步。
+// 导出 HTML 的 @font-face 由 lib/export/jetbrainsCss.ts 在 JS 层注入,
+// 不从 _fonts.scss 重复 Forward(那里 url('/fonts/...') 路径在外部浏览器解析不到)。
+:root {
+  --font-mono: 'JetBrains Mono', Menlo, Operator Mono, Consolas, Monaco, monospace;
+}
+
 .velo-editor {
   max-width: 880px;
   margin: 0 auto;

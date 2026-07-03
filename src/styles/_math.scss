@@ -65,7 +65,7 @@
   border: 1px dashed #e5534b;
   border-radius: 3px;
   color: #e5534b;
-  font-family: 'Fira Code', Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   cursor: pointer;
   word-break: break-all;
@@ -106,7 +106,7 @@
   padding: 8px 12px;
   border: 1px solid var(--md-primary-color, #1F71D9);
   border-radius: 4px;
-  font-family: 'Fira Code', Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: inherit;
   line-height: 1.75;
   resize: none;
