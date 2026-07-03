@@ -33,6 +33,7 @@ import { emphasisUnderscoreSyntax } from '../syntax/inline/emphasis'
 import { emphasisStarSyntax } from '../syntax/inline/emphasisStar'
 import { strongSyntax } from '../syntax/inline/strong'
 import { strikeSyntax } from '../syntax/inline/strike'
+import { highlightSyntax } from '../syntax/inline/highlight'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
 import { htmlTagSyntax } from '../syntax/inline/htmlTag'
 
@@ -53,6 +54,7 @@ beforeAll(() => {
   registerInlineSyntax(strongSyntax)
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
+  registerInlineSyntax(highlightSyntax)
   registerInlineSyntax(htmlTagSyntax)
 })
 
@@ -834,5 +836,76 @@ describe('syntaxAutoFormat: image edit session 退避', () => {
 
     view.destroy()
     host.remove()
+  })
+})
+
+// =====================================================================
+//  语法闭合后继续输入不继承 mark
+// =====================================================================
+
+describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
+  // 用户主诉:`**bold**` / `==hl==` / `*it*` 等闭合后继续输入仍是粗体/高亮/斜体。
+  // 根因:apply 后光标停在 inner 末尾 = inclusive mark 右边界,storedMarks=null 时
+  // ProseMirror 回退到 $from.marks()(含该 mark)→ 继续继承。
+  // 修复:apply 末尾 removeStoredMark(markType) → storedMarks=[] 覆盖继承。
+  // 不用 inclusive:false —— 会破坏 Ctrl+B 连续输入(storedMark 首字符消耗后靠
+  // inclusive 边界继承);link 能用 inclusive:false 因它不靠 Ctrl+B 连续输入。
+
+  /** 输入完整语法后继续输入 X,返回 X 是否带 markName(bug=true / 修复=false) */
+  function continueTypingHasMark(input: string, markName: string): boolean {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, input)
+    // 闭合后继续输入 X(inner 不含 X,故 includes('X') 只命中继续输入的节点)
+    view.dispatch(view.state.tr.insertText('X', view.state.selection.head))
+    const para = view.state.doc.firstChild!
+    const x = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => (c.text || '').includes('X'))
+    const has = x?.marks.some(m => m.type.name === markName) ?? false
+    cleanup()
+    return has
+  }
+
+  it('"**bold**" 闭合后继续输入不继承 strong', () => {
+    expect(continueTypingHasMark('**bold**', 'strong')).toBe(false)
+  })
+
+  it('"__bold__" 闭合后继续输入不继承 strong', () => {
+    expect(continueTypingHasMark('__bold__', 'strong')).toBe(false)
+  })
+
+  it('"*italic*" 闭合后继续输入不继承 emphasis', () => {
+    expect(continueTypingHasMark('*italic*', 'emphasis')).toBe(false)
+  })
+
+  it('"_italic_" 闭合后继续输入不继承 emphasis', () => {
+    expect(continueTypingHasMark('_italic_', 'emphasis')).toBe(false)
+  })
+
+  it('"~~strike~~" 闭合后继续输入不继承 strike_through', () => {
+    expect(continueTypingHasMark('~~strike~~', 'strike_through')).toBe(false)
+  })
+
+  it('"==hl==" 闭合后继续输入不继承 highlight', () => {
+    expect(continueTypingHasMark('==hl==', 'highlight')).toBe(false)
+  })
+
+  it('回归:手动 addStoredMark 后连续输入仍继承 strong(确认 inclusive 未被破坏)', () => {
+    // removeStoredMark 只影响语法 apply 那一笔的 storedMarks,不改 schema 的
+    // inclusive(默认 true)。Ctrl+B 路径(addStoredMark 后连续输入)依赖 inclusive:
+    // 首字符消耗 storedMark 后,后续字符靠 inclusive 边界继承。此用例锁定该约束,
+    // 防止未来误把 strong 改成 inclusive:false 回退性地"解决"本 bug。
+    const { view, cleanup } = mountView()
+    const strongType = schema.marks.strong
+    view.dispatch(view.state.tr.addStoredMark(strongType.create()))
+    view.dispatch(view.state.tr.insertText('b'))
+    view.dispatch(view.state.tr.insertText('o'))
+    view.dispatch(view.state.tr.insertText('x'))
+    const para = view.state.doc.firstChild!
+    const box = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'box')
+    expect(box?.marks.some(m => m.type.name === 'strong')).toBe(true)
+    cleanup()
   })
 })

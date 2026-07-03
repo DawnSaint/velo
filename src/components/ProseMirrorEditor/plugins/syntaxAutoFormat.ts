@@ -30,6 +30,7 @@ import {
 } from '../editor/syntaxRegistry'
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
+import { markSourceEditKey } from './markSourceEdit'
 
 // 容器型黑名单:整个节点跳过(包括子节点)
 const CONTAINER_BLACKLIST = new Set([
@@ -137,6 +138,9 @@ function getActiveEditRange(state: EditorState): { from: number, to: number } | 
   if (linkSession) return { from: linkSession.editFrom, to: linkSession.editTo }
   const imageSession = imageEditKey.getState(state)?.session ?? null
   if (imageSession) return { from: imageSession.editFrom, to: imageSession.editTo }
+  // mark 源码编辑 session:用户在改 `**bold**` 源码时不能被 strongSyntax 又转回 mark
+  const markSession = markSourceEditKey.getState(state)?.session ?? null
+  if (markSession) return { from: markSession.editFrom, to: markSession.editTo }
   return null
 }
 

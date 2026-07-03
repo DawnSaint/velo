@@ -30,6 +30,8 @@ export const strongSyntax: InlineSyntax = {
     tr.delete(from, to)
     tr.insertText(inner, from)
     tr.addMark(from, from + inner.length, strongType.create({ marker: isStarForm ? '*' : '_' }))
+    // 闭合后移除 storedMark,避免继续输入继承(设计要点见 editor.md syntax 节)
+    tr.removeStoredMark(strongType)
     return true
   },
 }

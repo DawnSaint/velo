@@ -22,6 +22,8 @@ export const emphasisUnderscoreSyntax: InlineSyntax = {
     tr.delete(from, to)
     tr.insertText(inner, from)
     tr.addMark(from, from + inner.length, emphasisType.create({ marker: '_' }))
+    // 闭合后移除 storedMark,避免继续输入继承(设计要点见 editor.md syntax 节)
+    tr.removeStoredMark(emphasisType)
     return true
   },
 }

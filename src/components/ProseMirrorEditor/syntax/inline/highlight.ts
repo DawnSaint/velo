@@ -26,6 +26,8 @@ export const highlightSyntax: InlineSyntax = {
     tr.delete(from, to)
     tr.insertText(inner, from)
     tr.addMark(from, from + inner.length, highlightType.create())
+    // 闭合后移除 storedMark,避免继续输入继承(设计要点见 editor.md syntax 节)
+    tr.removeStoredMark(highlightType)
     return true
   },
 }

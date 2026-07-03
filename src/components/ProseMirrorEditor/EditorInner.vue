@@ -35,6 +35,7 @@ import { imageUploadPlugin } from './image/imageUploadPlugin'
 import { createImageEditPlugin, imageEditEscapeKeymap } from './image/imageEditPlugin'
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
+import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
@@ -287,6 +288,12 @@ const basePlugins: Plugin[] = [
   linkEditEscapeKeymap,
   imageEditPlugin,
   imageEditEscapeKeymap,
+  // mark 源码编辑(Obsidian Live Preview 风格):光标进入 **bold** 等 mark 范围 →
+  // appendTransaction 把整段换源码字符可编辑;移出光标 commit 还原。放 syntaxAutoFormat
+  // 之前 —— appendTransaction 的 enter 让 syntaxAutoFormat 的 getActiveEditRange 在
+  // pass 2 读到 session 自动退避(不会把用户源码 `**` 又转回 mark)。
+  markSourceEditPlugin,
+  markSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   codeHighlightPlugin,
   imageInlineViewPlugin,
