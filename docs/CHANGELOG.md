@@ -9,14 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
-## [Unreleased]
+## [0.5.11] — 2026-07-03
 
 ### Added
 - **行内代码实时键入与源码编辑态**：键入 `` `code` `` 现在即时转为行内代码样式（此前仅源文件中已有的行内代码会被解析）；光标进入行内代码范围时切换为可编辑的 backtick 源码，移出光标自动还原，与加粗 / 斜体 / 高亮等行为一致。
 - **WYSIWYG 代码块行号（可选开关）**：设置面板新增「代码块行号」开关，开启后 WYSIWYG 代码块左侧显示行号；与源代码模式行号样式一致，横向滚动保持行号列固定，跨多行不抖动。mermaid 块不显示。
 
 ### Changed
-- 代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的等宽字体栈第一候选改为 JetBrains Mono（随安装包内置 woff2，导出 HTML 也内联 base64 字体数据保证视觉一致）。
+- **等宽字体改用 JetBrains Mono**：代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的等宽字体栈第一候选改为 JetBrains Mono（随安装包内置 woff2，导出 HTML 也内联 base64 字体数据保证视觉一致）。
+- **设置面板 UI 重做**：字号改为可拖滑块（12–24px，整数吸附）；开关项从原生 checkbox 改为主题色 switch；行布局统一为 label + 右控件。
+- **默认编辑器字号 14px → 16px**。
+- **暗色模式切换去过渡**：移除顶栏 / 功能栏 / 侧栏分隔条等 chrome 的颜色过渡，切换瞬间与编辑区同帧翻面。
 
 ## [0.5.10] — 2026-07-03
 
