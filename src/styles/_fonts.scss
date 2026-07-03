@@ -1,17 +1,21 @@
 // JetBrains Mono:代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的
 // 等宽字体栈第一候选。
 //
-// 字体文件放在 public/fonts/jetbrainsmono/(4 个 woff2,共 ~380KB),由 Vite 在
-// dev / build 原样复制到 dist 根,url('/fonts/...') 路径在 Tauri webview 内
-// 直接命中;导出 HTML 走单独一条 inlined data URI 路径(见 lib/export/
-// jetbrainsCss.ts),避免外部浏览器找不到 url(/fonts/...) 回退到系统字体。
+// 字体文件放在 src/fonts/jetbrainsmono/(4 个 woff2,共 ~380KB)。CSS 里用相对
+// url() 引用,Vite 在 dev / build 把它当 bundled 资源处理(build 出 /assets/ 带 hash);
+// 导出 HTML 走单独一条 inlined base64 data URI 路径(见 lib/export/jetbrainsCss.ts,
+// 同文件 ?inline glob),避免外部浏览器 / 打印机 webview 解析不到 url() 回退系统字体。
+//
+// 不能放 public/:public/ 资源只能按 URL 字符串引用,Vite 禁止从 JS import
+// (jetbrainsCss.ts 的 ?inline glob 会报 "Assets in public directory cannot be
+// imported from JavaScript")。放 src/ 让导出路径能 import 拿到 base64。
 
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/jetbrainsmono/JetBrainsMono-Regular.woff2') format('woff2');
+  src: url('../fonts/jetbrainsmono/JetBrainsMono-Regular.woff2') format('woff2');
 }
 
 @font-face {
@@ -19,7 +23,7 @@
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/jetbrainsmono/JetBrainsMono-Bold.woff2') format('woff2');
+  src: url('../fonts/jetbrainsmono/JetBrainsMono-Bold.woff2') format('woff2');
 }
 
 @font-face {
@@ -27,7 +31,7 @@
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/jetbrainsmono/JetBrainsMono-Italic.woff2') format('woff2');
+  src: url('../fonts/jetbrainsmono/JetBrainsMono-Italic.woff2') format('woff2');
 }
 
 @font-face {
@@ -35,7 +39,7 @@
   font-style: italic;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/jetbrainsmono/JetBrainsMono-BoldItalic.woff2') format('woff2');
+  src: url('../fonts/jetbrainsmono/JetBrainsMono-BoldItalic.woff2') format('woff2');
 }
 
 :root {
