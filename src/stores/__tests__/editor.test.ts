@@ -7,9 +7,9 @@ describe('editor store 默认值', () => {
     setActivePinia(createPinia())
   })
 
-  it('fontSize 默认 14px', () => {
+  it('fontSize 默认 16px', () => {
     const store = useEditorStore()
-    expect(store.fontSize).toBe('14px')
+    expect(store.fontSize).toBe('16px')
   })
 
   it('primaryColor 默认 Velo 蓝', () => {

@@ -89,7 +89,7 @@ function emitAction(row: FileActionRow) {
 </script>
 
 <template>
-  <section class="flex h-full min-w-0 flex-col overflow-hidden bg-white text-gray-700 transition-colors dark:bg-[#111] dark:text-gray-200" aria-label="文件操作">
+  <section class="flex h-full min-w-0 flex-col overflow-hidden bg-white text-gray-700 dark:bg-[#111] dark:text-gray-200" aria-label="文件操作">
     <header class="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
       <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">File</p>
       <h2 class="mt-1 text-sm font-semibold text-gray-800 dark:text-gray-100">文件</h2>

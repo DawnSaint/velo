@@ -6,7 +6,7 @@ import { DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } from '@/components/ProseMirro
 export type StartupMode = 'last-file' | 'new-doc'
 
 export const useEditorStore = defineStore('editor', () => {
-  const fontSize = ref('14px')
+  const fontSize = ref('16px')
   const primaryColor = ref('#1F71D9')
   const fontFamily = ref('-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif')
   const isMacCodeBlock = ref(true)

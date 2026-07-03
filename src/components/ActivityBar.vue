@@ -37,7 +37,7 @@ function select(event: ActivityBarEvent) {
 
 <template>
   <nav
-    class="activity-bar flex w-12 shrink-0 flex-col items-center justify-between py-2 border-r border-gray-200  text-gray-900 transition-colors dark:border-gray-800 dark:bg-[#1a1a1a] dark:text-gray-100"
+    class="activity-bar flex w-12 shrink-0 flex-col items-center justify-between py-2 border-r border-gray-200  text-gray-900 dark:border-gray-800 dark:bg-[#1a1a1a] dark:text-gray-100"
     aria-label="功能栏"
   >
     <div class="flex flex-col items-center gap-1">

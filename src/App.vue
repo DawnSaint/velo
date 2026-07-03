@@ -1279,10 +1279,10 @@ watch(editorRef, (v) => {
   <div
     :class="{ 'dark': store.darkMode }"
     :style="{ '--md-primary-color': store.primaryColor }"
-    class="flex h-screen flex-col text-gray-900 transition-colors dark:text-gray-100"
+    class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
     <!-- 顶栏 -->
-    <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white pl-3 text-gray-700 transition-colors dark:border-gray-800 dark:bg-[#111] dark:text-gray-300">
+    <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white pl-3 text-gray-700 dark:border-gray-800 dark:bg-[#111] dark:text-gray-300">
       <div class="flex min-w-0 flex-1 items-center gap-2">
         <img :src="veloLogo" alt="Velo" class="h-6 w-6">
         <span data-tauri-drag-region class="ml-2 flex min-w-0 items-baseline gap-1.5 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
@@ -1495,7 +1495,7 @@ watch(editorRef, (v) => {
   width: 1px;
   pointer-events: none;
   background-color: #e5e7eb; /* gray-200 */
-  transition: left 120ms ease, width 120ms ease, background-color 120ms ease;
+  transition: left 120ms ease, width 120ms ease;
 }
 .dark .velo-splitter::before {
   background-color: #1f2937; /* gray-800 */

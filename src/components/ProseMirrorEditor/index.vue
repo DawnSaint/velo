@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<{
   readOnly?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
-  fontSize: '14px',
+  fontSize: '16px',
   primaryColor: '#0F4C81',
   isMacCodeBlock: true,
   darkMode: false,
