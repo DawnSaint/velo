@@ -2,6 +2,9 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 
+/** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
+export type StartupMode = 'last-file' | 'new-doc'
+
 export const useEditorStore = defineStore('editor', () => {
   const fontSize = ref('14px')
   const primaryColor = ref('#1F71D9')
@@ -12,6 +15,8 @@ export const useEditorStore = defineStore('editor', () => {
   const codeLightTheme = ref(DEFAULT_LIGHT_THEME)
   /** 代码块深色主题 id。 */
   const codeDarkTheme = ref(DEFAULT_DARK_THEME)
+  /** 启动时打开内容的选择。默认 'last-file'。 */
+  const startupMode = ref<StartupMode>('last-file')
 
   return {
     fontSize,
@@ -21,5 +26,6 @@ export const useEditorStore = defineStore('editor', () => {
     darkMode,
     codeLightTheme,
     codeDarkTheme,
+    startupMode,
   }
 })

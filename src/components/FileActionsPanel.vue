@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { FilePlusCorner, AppWindowMac, FileUp, FolderOpen, Save, Upload, Download, BookOpen } from '@lucide/vue'
-import { SAMPLE_ENTRIES } from '@/utils/samples'
+import { SAMPLE } from '@/utils/samples'
 
 type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'open-sample'
 
@@ -66,12 +66,9 @@ const groups = computed<FileActionGroup[]>(() => {
   if (props.samplesAvailable) {
     g.push({
       header: '示例文档',
-      rows: SAMPLE_ENTRIES.map(entry => ({
-        key: entry.key,
-        label: entry.label,
-        shortcut: '—',
-        event: 'open-sample',
-      })),
+      rows: [
+        { key: SAMPLE.key, label: SAMPLE.label, shortcut: '—', event: 'open-sample' },
+      ],
     })
   }
   return g

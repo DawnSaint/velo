@@ -135,6 +135,14 @@ describe('parseImageSource / serializeImageSource', () => {
     expect(parseImageSource('![alt](src "t" )')).toEqual({ alt: 'alt', src: 'src', title: 't' })
   })
 
+  it('合法:src 含空格(本地路径 / 含空格锚点)', () => {
+    // 旧 [^()\s]* 排空格 → 含空格 src 判残缺,展开编辑 commit 后被 toMarkdown 转义成
+    // \![..]\(..)。与 syntax/inline/link.ts pattern 对齐放宽。
+    expect(parseImageSource('![alt](path with space.png)')).toEqual({ alt: 'alt', src: 'path with space.png', title: '' })
+    expect(parseImageSource('![alt](# Markdown 语法)')).toEqual({ alt: 'alt', src: '# Markdown 语法', title: '' })
+    expect(parseImageSource('![alt](path with space "my title")')).toEqual({ alt: 'alt', src: 'path with space', title: 'my title' })
+  })
+
   it('残缺:返回 null', () => {
     expect(parseImageSource('text ![alt](src)')).toBeNull() // 前缀
     expect(parseImageSource('![alt]src')).toBeNull() // 缺括号

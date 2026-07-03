@@ -10,12 +10,13 @@ export interface ImageSource {
   title: string
 }
 
-// mdast image 约定:alt 不含 `]`,src 不含 `)` 与空白,title 用 `"..."` 包裹。
+// mdast image 约定:alt 不含 `]`,src 不含 `()` 与 `'`,允许内部空格/中文(本地路径含
+//   空格 / 含空格锚点常见写法,与 syntax/inline/link.ts pattern 对齐),title 用 `"..."`。
 //   ^!\[([^\]]*)\]            [alt],alt 任意非 ]
-//   \(([^()\s]*)              (src,src 非括号非空白
+//   \(([^()']*?)              (src,非括号非单引号,允许空格(non-greedy 让 title 分支优先)
 //   (?:\s+"([^"]*)")?          可选 " title",title 非 "
 //   \s*\)\s*$                  ) 收尾,允许前后空白
-const IMAGE_SOURCE_RE = /^!\[([^\]]*)\]\(([^()\s]*)(?:\s+"([^"]*)")?\s*\)\s*$/
+const IMAGE_SOURCE_RE = /^!\[([^\]]*)\]\(([^()']*?)(?:\s+"([^"]*)")?\s*\)\s*$/
 
 /** 合法 → {src, alt, title};残缺 → null。title 缺省为 ""。 */
 export function parseImageSource(raw: string): ImageSource | null {

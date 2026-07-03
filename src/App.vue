@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide, computed } from 'vue'
-import { Search } from '@lucide/vue'
+import { MessageSquare } from '@lucide/vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
@@ -34,7 +34,7 @@ import {
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/composables/useResizeSplitter'
-import { SAMPLE_ENTRIES, findSample } from '@/utils/samples'
+import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
 import veloLogo from '@/assets/Velo.png'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -48,6 +48,7 @@ import {
 } from '@/tauri/window'
 
 const tauri = isTauri()
+const isDev = import.meta.env.DEV
 const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
@@ -294,6 +295,7 @@ async function initSettings() {
     if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
     if (typeof e.codeLightTheme === 'string') store.codeLightTheme = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
+    if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
   }
   const d = loaded.document
   if (d) {
@@ -313,6 +315,7 @@ function snapshotSettings(): PersistedSettings {
       darkMode: store.darkMode,
       codeLightTheme: store.codeLightTheme,
       codeDarkTheme: store.codeDarkTheme,
+      startupMode: store.startupMode,
     },
     document: {
       autoSaveEnabled: documentStore.autoSaveEnabled,
@@ -376,18 +379,23 @@ function onWelcomeSample(key: string) {
 }
 
 /**
- * 装载示例文档(只读)。sample 内容从 bundle.resources 直接读,不再抽盘:
- * - reinstall 时 MSI 替换安装目录 → resolveResource 自然拿到新版本
- * - 安装目录文件对普通用户只读 → 物理上无法被修改
- * - UI 层 :read-only prop 兜底,即使绕过也写不进
- * 失败静默吞掉,虚拟标题不设 → fileName 回退到"未命名"。
+ * 装载示例文档(只读)。sample 走 Vite 动态 ?raw import(拆 chunk,用才下载),字符串
+ * 编译进 bundle —— 磁盘无文件实体,用户无法修改,reinstall 跟随应用走。失败静默
+ * (null 不进 loadContent);sample.md 里的 Velo.png 占位由下方 replace 换成打包后的
+ * veloLogo URL(?raw 字符串不被 Vite 资源重写)。
  */
 async function loadSample(key: string) {
   const entry = findSample(key)
   if (!entry) return
   const content = await readSampleContent(key)
   if (content === null) return
-  documentStore.loadContent(content, null, true)
+  // sample.md 以 ?raw 字符串编译进 bundle,Vite 不重写其中的 Velo.png,
+  // release 下该路径不在 dist → 404。替换成显式 import 过的 veloLogo(Vite 会打包+hash 改名)。
+  const resolved = content.replace(
+    'Velo.png',
+    new URL(veloLogo, window.location.href).href,
+  )
+  documentStore.loadContent(resolved, null, true)
   // currentFilePath 为 null,设虚拟名让顶栏 / 状态栏 / 关闭拦截显示有意义的标题。
   documentStore.virtualFileName = `示例 — ${entry.label}`
 }
@@ -496,11 +504,6 @@ function openReplace() {
   else {
     findQuery.value = sel
   }
-}
-
-function toggleFind() {
-  if (findOpen.value) findOpen.value = false
-  else openFind()
 }
 
 // ========== Ctrl+P 查找文件(v0.5.2)==========
@@ -819,17 +822,15 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
   ]
 
   if (samplesAvailable.value) {
-    for (const entry of SAMPLE_ENTRIES) {
-      items.push({
-        id: `sample:${entry.key}`,
-        title: entry.label,
-        subtitle: `示例文档 — ${entry.description}`,
-        group: 'app',
-        icon: 'source',
-        keywords: ['sample', entry.label, entry.description],
-        run: () => openSample(entry.key),
-      })
-    }
+    items.push({
+      id: `sample:${SAMPLE.key}`,
+      title: SAMPLE.label,
+      subtitle: `示例文档 — ${SAMPLE.description}`,
+      group: 'app',
+      icon: 'source',
+      keywords: ['sample', SAMPLE.label, SAMPLE.description],
+      run: () => openSample(SAMPLE.key),
+    })
   }
 
   for (const entry of recentFilesStore.entries.slice(0, 12)) {
@@ -1123,6 +1124,16 @@ onMounted(async () => {
     welcomeVisible.value = true
   }
 
+  // 无 CLI 参数 + 非首次启动:按 editor.startupMode 决定打开内容。
+  //   - 'last-file'(默认):尝试打开全局最近文件(recentFilesStore 已在 0.1 hydrate);
+  //     文件已不存在时 openPath 返回 false,静默保留空白文档。
+  //   - 'new-doc':保留 init('') 的空白文档,不做任何事。
+  // CLI 打开文件 / 目录时跳过,避免覆盖显式启动意图。
+  if (!initialFile && !initialDir && store.startupMode === 'last-file') {
+    const lastPath = recentFilesStore.entries[0]?.path
+    if (lastPath) await documentStore.openPath(lastPath)
+  }
+
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
   //      注意:draft 落盘 / 恢复扫描必须放 CLI 打开文件之后(见下面 1.5)。
@@ -1140,6 +1151,7 @@ onMounted(async () => {
       () => store.darkMode,
       () => store.codeLightTheme,
       () => store.codeDarkTheme,
+      () => store.startupMode,
       () => documentStore.autoSaveEnabled,
       () => documentStore.autoSaveOnBlur,
     ],
@@ -1287,16 +1299,15 @@ watch(editorRef, (v) => {
           :entries="recentFilesStore.entries"
           @open-recent="openRecentFile"
         />
-        <!-- 搜索(Ctrl+F) — toggle:点一次开,再点一次关。active 样式跟设置按钮一样 -->
+        <!-- 开发模式：手动打开欢迎对话框 -->
         <button
+          v-if="isDev"
+          type="button"
           class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          :class="{
-            'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300': findOpen,
-          }"
-          title="文内搜索 (Ctrl+F)"
-          @click="toggleFind"
+          title="打开欢迎对话框"
+          @click="welcomeVisible = true"
         >
-          <Search :size="16" />
+          <MessageSquare :size="16" />
         </button>
         <span class="mx-2 h-5 w-px bg-gray-200 dark:bg-gray-700" />
         <WindowControls v-if="tauri" />

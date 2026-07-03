@@ -52,6 +52,11 @@ export function createImageNodeView(opts: ImageViewOptions) {
 
     function render(currentNode: PMNode) {
       wrapper.replaceChildren()
+      // 内层 frame:inline-block 收缩到图片宽度,作为编辑按钮的 containing block。
+      // 外层 wrapper display:block 撑满行 + text-align:center 居中 frame;按钮 absolute
+      // 相对 frame 而非 wrapper,图片未撑满行时仍贴图片右上角,不会飘到行边外。
+      const frame = document.createElement('span')
+      frame.className = 'image-frame'
       const src = currentNode.attrs.src as string
       if (!src) {
         // 空态:占位 + 提示。imageUploadPlugin 会在 paste/drop 时直接把
@@ -59,18 +64,18 @@ export function createImageNodeView(opts: ImageViewOptions) {
         const placeholder = document.createElement('span')
         placeholder.className = 'image-edit'
         placeholder.textContent = '粘贴或拖入图片'
-        wrapper.appendChild(placeholder)
-        wrapper.appendChild(editBtn)
-        return
+        frame.appendChild(placeholder)
+      } else {
+        const img = document.createElement('img')
+        img.className = 'image-inline'
+        img.src = opts.proxyDomURL(src)
+        img.alt = (currentNode.attrs.alt as string) || ''
+        const title = currentNode.attrs.title as string
+        if (title) img.title = title
+        frame.appendChild(img)
       }
-      const img = document.createElement('img')
-      img.className = 'image-inline'
-      img.src = opts.proxyDomURL(src)
-      img.alt = (currentNode.attrs.alt as string) || ''
-      const title = currentNode.attrs.title as string
-      if (title) img.title = title
-      wrapper.appendChild(img)
-      wrapper.appendChild(editBtn)
+      frame.appendChild(editBtn)
+      wrapper.appendChild(frame)
     }
 
     render(node)

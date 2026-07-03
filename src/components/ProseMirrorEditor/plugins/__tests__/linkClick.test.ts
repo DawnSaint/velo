@@ -9,6 +9,7 @@ import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { Schema } from 'prosemirror-model'
 import { linkClickPlugin, linkClickPluginKey } from '../linkClick'
+import { SKIP_CONTENT_EMIT } from '../../editor/transactionMeta'
 import { open } from '@tauri-apps/plugin-shell'
 
 // jsdom 不实现 scrollIntoView;module-scope 持有 mock 实例,各测试 reset 后再断言。
@@ -116,6 +117,27 @@ describe('linkClickPlugin', () => {
     cleanup()
   })
 
+  it('enter edit session dispatches SKIP_CONTENT_EMIT (no content emit on link→source swap)', () => {
+    // 进入编辑态是瞬时视图切换(link mark → 源码纯文本),不挂 SKIP_CONTENT_EMIT 会让
+    // onChange 回写 toMarkdown 把纯文本转义成 \[..\]\(..),污染 documentStore.content;
+    // 切源代码模式读到转义串,切回所见即所得后 fromMarkdown 解析转义串只剩纯文本,
+    // 无法变回链接。参照 imageEditPlugin.triggerImageEdit 同款 meta。
+    const { view, cleanup } = mountView(paragraphWithLink('https://x.com'))
+    let captured: { tr: any } | null = null
+    const origDispatch = view.dispatch
+    view.dispatch = (tr: any) => {
+      if (tr.getMeta(SKIP_CONTENT_EMIT) !== undefined) captured = { tr }
+      origDispatch.call(view, tr)
+    }
+    const a = view.dom.querySelector('a') as HTMLAnchorElement
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    view.dispatch = origDispatch
+
+    expect(captured).not.toBeNull()
+    expect(captured!.tr.getMeta(SKIP_CONTENT_EMIT)).toBe(true)
+    cleanup()
+  })
+
   it('cursor leaving edit range commits: source parsed and link re-applied', () => {
     const { view, cleanup } = mountView(paragraphWithLink('https://x.com'))
     const a = view.dom.querySelector('a') as HTMLAnchorElement
@@ -131,6 +153,23 @@ describe('linkClickPlugin', () => {
     expect(view.dom.querySelector('a')).not.toBeNull()
     expect(view.dom.querySelector('a')?.getAttribute('href')).toBe('https://x.com')
     expect(view.dom.textContent).not.toContain('[')
+    cleanup()
+  })
+
+  it('cursor leaving commits: space-containing anchor href preserved (no escape)', () => {
+    // `[回到开头](# Markdown 语法)` 这种含空格的锚点 href:link.ts pattern 与
+    // fromMarkdown 都把整段 `# Markdown 语法` 当 href。旧 parseLinkSource 正则
+    // [^()\s]* 排空格 → commit 判残缺 → 纯文本被 toMarkdown 转义成 \[..\]\(..)。
+    const { view, cleanup } = mountView(paragraphWithLink('# Markdown 语法'))
+    const a = view.dom.querySelector('a') as HTMLAnchorElement
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+    const endPos = view.state.doc.content.size
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, endPos)))
+
+    expect(view.dom.querySelector('a')).not.toBeNull()
+    expect(view.dom.querySelector('a')?.getAttribute('href')).toBe('# Markdown 语法')
+    expect(view.dom.textContent).not.toContain('\\[')
     cleanup()
   })
 

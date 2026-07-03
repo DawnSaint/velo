@@ -1,6 +1,9 @@
 
 ## KNOWN ISSUES
 
+- **mark / link / image 源码编辑态期间切源代码模式会看到转义串**：进入编辑态的 trigger 事务挂了 `SKIP_CONTENT_EMIT` 不回写，但用户在 session 内键入修改源码时，每次键入 tr 不挂该 meta（commit 才需要回写）→ `onChange` 回写 `toMarkdown` 把纯文本 `[..](..)` / `**..**` 转义成 `\[..\]\(..)` / `\*\*..\*\*`，污染 `documentStore.content`。此时切源代码模式读到转义串，切回所见即所得后 `fromMarkdown` 解析转义串只得纯文本，无法变回 link / mark。光标移出 commit 时回写恢复正常。彻底修复需 session 期间所有 tr 跳过回写、commit 时一次性同步（待做）。link / image / markSourceEdit 三者共有此限制。
+
+
 
 
 ## DIFF

@@ -15,20 +15,30 @@
 }
 
 // image-inline NodeView DOM:
-//   <span class="velo-image-inline">     ← wrapper(空态 + 有图态共用)
-//     空态: <div class="image-edit">...<input class="link-input-area">...<img class="image-preview">
-//     有图态: <img class="image-inline">
+//   <span class="velo-image-inline">     ← wrapper:block 撑满行,居中 frame
+//     <span class="image-frame">          ← inline-block 收缩到图片宽,按钮 containing block
+//       空态: <span class="image-edit">...
+//       有图态: <img class="image-inline">
+//       <button class="image-edit-btn">   ← absolute 相对 frame → 跟随图片而非行边
 // 选中时 wrapper 加 .selected(由 NodeView.selectNode 加)。
 
-// 包装 span 转 block 撑满行宽,里面内容(text-align: center)居中
-// position: relative 作为悬浮编辑按钮的 containing block
+// wrapper block 撑满行宽,text-align:center 居中内层 frame;
+// frame inline-block 收缩到图片宽度并作为按钮 containing block ——
+// 图片未撑满行时按钮仍贴图片右上角,不会飘到行边外。
 .velo-image-inline {
   display: block;
   position: relative;
   text-align: center;
 
+  // 内层 frame:inline-block 收缩到图片宽度,作按钮 containing block。
+  > .image-frame {
+    display: inline-block;
+    position: relative;
+    vertical-align: middle;
+  }
+
   // 有图态:img 居中,outline 透明(默认)
-  > img.image-inline {
+  > .image-frame > img.image-inline {
     display: inline-block;
     vertical-align: middle;
     max-width: 100%;
@@ -41,12 +51,12 @@
   }
 
   // hover:低调灰边
-  &:hover > img.image-inline {
+  &:hover > .image-frame > img.image-inline {
     outline-color: rgba(0, 0, 0, 0.2);
   }
 
   // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected
-  &.selected > img.image-inline {
+  &.selected > .image-frame > img.image-inline {
     outline-color: var(--md-primary-color, #1F71D9);
     outline-width: 2px;
   }
@@ -55,7 +65,7 @@
   // 严格对齐代码块工具条复制按钮(.velo-code-copy-btn):透明底、继承色、
   // hover 浅灰底,尺寸 height:1.6em / padding:0 .4em / font-size:.9em ——
   // 不带独立背景色 / 强调色,否则会变成"长方形带颜色的色块"与复制按钮割裂。
-  > .image-edit-btn {
+  > .image-frame > .image-edit-btn {
     position: absolute;
     top: 4px;
     right: 4px;
@@ -83,7 +93,7 @@
     }
   }
 
-  &.selected > .image-edit-btn {
+  &.selected > .image-frame > .image-edit-btn {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -176,7 +186,7 @@
 
 // image-inline 暗色态——只用 .dark 祖先(没配对 .velo-editor.dark),
 // 保持原行为不动。
-.dark .velo-image-inline:hover > img.image-inline {
+.dark .velo-image-inline:hover > .image-frame > img.image-inline {
   outline-color: rgba(255, 255, 255, 0.25);
 }
 
@@ -194,7 +204,7 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-.dark .velo-image-inline > .image-edit-btn:hover {
+.dark .velo-image-inline > .image-frame > .image-edit-btn:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 

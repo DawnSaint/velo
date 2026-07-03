@@ -37,6 +37,8 @@ export interface PersistedSettings {
     darkMode: boolean
     codeLightTheme?: string
     codeDarkTheme?: string
+    /** 启动时打开内容的选择。'last-file' | 'new-doc'。 */
+    startupMode?: 'last-file' | 'new-doc'
   }
   document: {
     autoSaveEnabled: boolean

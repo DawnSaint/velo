@@ -32,6 +32,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import { keymap } from 'prosemirror-keymap'
 import { open } from '@tauri-apps/plugin-shell'
 import { fromMarkdown, toMarkdown } from '../editor/markdownIO'
+import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 
 export const linkClickPluginKey = new PluginKey('linkClick')
 
@@ -230,6 +231,11 @@ function startLinkEdit(view: EditorView, event: MouseEvent): void {
   const cursorPos = from + 1
   let tr = view.state.tr.delete(from, to).insertText(source, from)
   tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos))
+  // 进入编辑态是瞬时视图切换(link mark → 源码纯文本),不是内容编辑 —— 跳过内容
+  // 回写,否则 toMarkdown 把纯文本 `[..](..)` 转义成 `\[..\]\(..)` 污染
+  // documentStore.content;此时切源代码模式读到转义串,切回所见即所得后 fromMarkdown
+  // 解析转义串只得纯文本,无法变回链接。commit / Escape 不挂(需回写重建 link)。
+  tr = tr.setMeta(SKIP_CONTENT_EMIT, true)
   tr = tr.setMeta(linkClickPluginKey, {
     type: 'start' as const,
     session: {
@@ -279,7 +285,10 @@ function commitLinkEdit(view: EditorView): void {
   // 计算 inline nodes 的总大小,以便正确贴 link mark
   // PM 中 inline node 的位置:节点自身的 pos..pos+nodeSize
   let cursor = editFrom
-  const linkMark = view.state.schema.marks.link.create({ href: parsed.href })
+  // 有 title 才设(schema default null),避免无 title 链接被写成 title='' 影响 toMarkdown
+  const linkMark = view.state.schema.marks.link.create(
+    parsed.title ? { href: parsed.href, title: parsed.title } : { href: parsed.href },
+  )
   for (const node of inlineNodes) {
     tr = tr.insert(cursor, node)
     if (node.isText) {
@@ -367,16 +376,17 @@ function buildLinkSource(view: EditorView, from: number, to: number, href: strin
 
 /**
  * 解析 commit 时的源码文本。
- * 返回 { text, href } 或 null(用户改坏了)。
- * 仅匹配严格的 [text](url),title 字段暂不支持(后续可扩展)。
+ * 返回 { text, href, title } 或 null(用户改坏了)。
  */
-function parseLinkSource(source: string): { text: string, href: string } | null {
-  // 允许尾部空白,允许内层含 markdown 格式(用 non-greedy)
-  const match = source.match(/^\[([\s\S]*?)\]\(([^()\s]*)\)\s*$/)
+function parseLinkSource(source: string): { text: string, href: string, title: string } | null {
+  // href 允许内部空格/中文 —— 与 syntax/inline/link.ts 的 pattern 对齐:
+  // 键入 `[回到开头](# Markdown 语法)` / fromMarkdown 解析锚点都把含空格串整段当
+  // href。旧 [^()\s]* 排空格 → 这类链接 commit 判残缺 → 纯文本被 toMarkdown 转义成
+  // \[..\]\(..)。现 [^()']*? 允许空格不含 () 与 '(单引号 title 走双引号分支不匹配,
+  // 排 ' 避免被吞进 href);可选 " title"(link mark 有 title attr)。
+  const match = source.match(/^\[([\s\S]*?)\]\(([^()']*?)(?:\s+"([^"]*)")?\s*\)\s*$/)
   if (!match) return null
-  const text = match[1]
-  const href = match[2]
-  return { text, href }
+  return { text: match[1], href: match[2], title: match[3] ?? '' }
 }
 
 /**

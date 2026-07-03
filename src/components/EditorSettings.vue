@@ -39,19 +39,6 @@ function themeLabel(t: { displayName: string, id: string }): string {
         </select>
       </div>
 
-      <!-- 主色 -->
-      <div>
-        <label class="mb-1 block text-xs text-gray-400">主色</label>
-        <div class="flex items-center gap-2">
-          <input
-            v-model="store.primaryColor"
-            type="color"
-            class="h-8 w-8 cursor-pointer rounded-lg border dark:border-gray-700"
-          >
-          <span class="text-xs text-gray-400">{{ store.primaryColor }}</span>
-        </div>
-      </div>
-
       <!-- 代码块主题:浅色 + 深色,各一个下拉(带过滤)。切换走
         lazy load(~100-300ms),由 App.vue watch store 触发 ensureTheme +
         dispatch rebuild。独立于 darkMode toggle(后者是纯 CSS 切色)。 -->
@@ -72,6 +59,31 @@ function themeLabel(t: { displayName: string, id: string }): string {
         >
           <option v-for="t in darkThemes" :key="t.id" :value="t.id">{{ themeLabel(t) }}</option>
         </select>
+      </div>
+
+      <!-- 启动时打开内容 -->
+      <div>
+        <label class="mb-1 block text-xs text-gray-400">启动时打开</label>
+        <select
+          v-model="store.startupMode"
+          class="w-full rounded-lg border bg-white p-1.5 text-sm outline-none dark:border-gray-700 dark:bg-[#252525]"
+        >
+          <option value="last-file">上次打开的文件</option>
+          <option value="new-doc">新文档</option>
+        </select>
+      </div>
+
+      <!-- 主色 -->
+      <div>
+        <label class="mb-1 block text-xs text-gray-400">主色</label>
+        <div class="flex items-center gap-2">
+          <input
+            v-model="store.primaryColor"
+            type="color"
+            class="velo-color-circle h-6 w-6 cursor-pointer rounded-full border p-0 dark:border-gray-700"
+          />
+          <span class="text-xs text-gray-400">{{ store.primaryColor }}</span>
+        </div>
       </div>
 
       <!-- 开关项 -->
@@ -96,3 +108,25 @@ function themeLabel(t: { displayName: string, id: string }): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 去掉 input[type=color] 默认外观,内部色块(::-webkit-color-swatch / ::-moz-color-swatch)
+ * 撑满整个圆,否则只有外框是圆的,中间是方形色块。 */
+.velo-color-circle {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  overflow: hidden;
+}
+.velo-color-circle::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.velo-color-circle::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+.velo-color-circle::-moz-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+</style>

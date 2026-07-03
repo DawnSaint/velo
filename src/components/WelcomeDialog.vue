@@ -4,7 +4,7 @@
 // 注意：本组件只 emit 示例的 key('syntax' / 'code'),不读盘 —— 读盘 / 路径
 // 拼接由 App.vue 在 `loadSample(key)` 单点处理,避免多处分散 `join` 逻辑。
 
-import { SAMPLE_ENTRIES } from '@/utils/samples'
+import { SAMPLE } from '@/utils/samples'
 import { FilePlus, FolderOpen, BookOpen } from '@lucide/vue'
 
 const props = defineProps<{
@@ -44,7 +44,7 @@ const emit = defineEmits<{
           <!-- 选项列表 -->
           <div class="px-6 py-4">
             <button
-              class="flex w-full items-center gap-3 rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+              class="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
               @click="$emit('create-blank')"
             >
               <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0F4C81]/10 text-[#0F4C81] dark:bg-[#0F4C81]/20">
@@ -57,7 +57,7 @@ const emit = defineEmits<{
             </button>
 
             <button
-              class="flex w-full items-center gap-3 rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+              class="flex w-full items-center gap-3 rounded-2xl border border-gray-200 mt-3 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
               @click="$emit('open-file')"
             >
               <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0F4C81]/10 text-[#0F4C81] dark:bg-[#0F4C81]/20">
@@ -76,17 +76,15 @@ const emit = defineEmits<{
               </div>
               <template v-if="props.samplesAvailable">
                 <button
-                  v-for="entry in SAMPLE_ENTRIES"
-                  :key="entry.key"
-                  class="flex w-full items-center gap-3 rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
-                  @click="$emit('open-sample', entry.key)"
+                  class="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+                  @click="$emit('open-sample', SAMPLE.key)"
                 >
                   <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                     <BookOpen class="h-5 w-5" />
                   </div>
                   <div class="min-w-0">
-                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ entry.label }}</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ entry.description }}</div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ SAMPLE.label }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ SAMPLE.description }}</div>
                   </div>
                 </button>
               </template>
@@ -99,12 +97,6 @@ const emit = defineEmits<{
             </div>
           </div>
 
-          <!-- 底部提示 -->
-          <div class="border-t border-gray-200 px-6 py-3 dark:border-gray-700">
-            <p class="text-xs text-gray-400 dark:text-gray-500">
-              示例文档为只读参考，编辑后请使用"另存为"保存到你的工作区。
-            </p>
-          </div>
         </div>
       </div>
     </Transition>

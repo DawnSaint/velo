@@ -51,7 +51,7 @@ Markdown 是一种轻量级标记语言，用于格式化纯文本。它以简�
 - **链接**：用方括号和圆括号创建链接 `[显示文本](链接地址)`。链接跳转（**Ctrl/Cmd + 单击**）：外部 [CommonMark 规范](https://commonmark.org)、[GFM 文档](https://github.github.com/gfm/)，或页内锚点 [回到开头](# Markdown 语法)。
 - **图片**：和链接类似，只需在前面加上 `!`，如 `![描述文本](图片链接)`。
 
-![img](/src/assets/Velo.png)
+![img](Velo.png)
 
 
 
