@@ -73,6 +73,11 @@ export interface UseProseMirrorReturn {
    * 找不到候选时不报错(no-op),留给 vue 层处理。
    */
   resetScrollToTop: () => void
+  /**
+   * 视口滚动恢复到指定 px(切标签保留滚动位置)。与 resetScrollToTop 同一个滚动容器,
+   * 只是把 0 换成传入值。Step 3 每标签 EditorState 保留用。
+   */
+  restoreScrollTop: (px: number) => void
 }
 
 /**
@@ -172,5 +177,12 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     if (target) target.scrollTop = 0
   }
 
-  return { containerRef, viewRef, getView, setReadOnly, resetScrollToTop }
+  function restoreScrollTop(px: number): void {
+    const view = viewRef.value
+    if (!view) return
+    const target = findScrollAncestor(view.dom)
+    if (target) target.scrollTop = px
+  }
+
+  return { containerRef, viewRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
 }

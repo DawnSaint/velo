@@ -22,7 +22,7 @@ import { schema, type VeloSchema } from './editor/schema'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
-import { useProseMirror } from './composables/useProseMirror'
+import { useProseMirror, findScrollAncestor } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
 import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
@@ -344,6 +344,11 @@ const emit = defineEmits<{
 // 否则 → 直接 view.updateState 替换内部状态,plugin state 因 init 跑而归零
 // (等价于"销毁重建 EditorView",但不动 view 实例,不重挂 NodeView 容器)。
 let lastSelfEmitted: string | null = null
+// 切标签恢复期间(tabSwitchToken watch 调 view.updateState(cachedState) 后)
+// 置 true,让同 tick 的 modelValue watch 跳过重建 —— 否则缓存恢复的 undo 历史被
+// EditorState.create 重置掉。flush:'sync' 的 tabSwitchToken watch 先跑置位,
+// pre-flush 的 modelValue watch 读到后清位跳过。
+let pendingTabRestore = false
 // 首次挂载完成 = onReady 跑过 = mounted。后续 watch 触发的都是"外部 modelValue
 // 切换",这时拉焦点回编辑区(切文件 / CLI 打开 / 外部同步的明确意图)。
 // 启动期(mounted=false)不抢焦点,避免把 DraftRecoveryDialog 等启动期弹窗的
@@ -397,6 +402,12 @@ function emitCursorPosition() {
 }
 
 watch(() => props.modelValue, async (newVal) => {
+  if (pendingTabRestore) {
+    // 切标签恢复已由 tabSwitchToken watch 调 view.updateState(cachedState) 处理,
+    // 这里不能再 EditorState.create 重建(会丢 undo)。清 flag 跳过。
+    pendingTabRestore = false
+    return
+  }
   if (newVal === lastSelfEmitted) return
   const view = getView()
   if (!view) return
@@ -431,6 +442,21 @@ watch(() => props.modelValue, async (newVal) => {
   emitCursorPosition()
 })
 
+const documentStore = useDocumentStore()
+// 切标签:恢复该标签缓存的 PM state(保 undo 历史 / 光标),而非 modelValue watch 的重建路径。
+// flush:'sync' 确保 tabSwitchToken 自增后立即恢复,先于 modelValue(pre-flush)watch 跑;
+// 后者看到 pendingTabRestore=true 跳过重建。
+watch(() => documentStore.tabSwitchToken, () => {
+  if (!mounted) return
+  const view = getView()
+  if (!view) return
+  const cached = documentStore.peekActivePmStateForRestore()
+  if (!cached) return // 无缓存 / 内容已外部改 → 走 modelValue watch 重建
+  pendingTabRestore = true
+  view.updateState(cached.state as EditorState)
+  if (cached.scrollTop != null) restoreScrollTop(cached.scrollTop)
+}, { flush: 'sync' })
+
 // 用户明确意图切换文件(目前只 newDoc 走这条)的独立 hint 通道。
 // 解决"content 已是 '' 时再点 Ctrl+N,Vue modelValue watch 不触发"的死锁——
 // focusRequestToken 在 stores/document.ts 的 newDoc() 内 ++,
@@ -450,7 +476,7 @@ watch(() => useDocumentStore().focusRequestToken, async (n, prev) => {
 // useProseMirror 返回的 containerRef 直接绑到 template ref。TS 看不到
 // template ref 的隐式 binding 会误报未使用变量,这里通过 defineExpose
 // 把它暴露出去 —— TS 看到暴露对象消费过 ref 就不再报。
-const { containerRef, getView, setReadOnly, resetScrollToTop } = useProseMirror({
+const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop } = useProseMirror({
   schema: schema as VeloSchema,
   initialDoc: props.modelValue,
   fromMarkdown: (md, s) => fromMarkdown(md, s as VeloSchema),
@@ -460,9 +486,13 @@ const { containerRef, getView, setReadOnly, resetScrollToTop } = useProseMirror(
     const md = toMarkdown(doc)
     lastSelfEmitted = md
     emit('update:modelValue', md)
+    // state 缓存走 onSelectionChange(它覆盖 docChanged + selectionSet,更全)
   },
-  onSelectionChange: () => {
+  onSelectionChange: (view) => {
     emitCursorPosition()
+    // Step 3: 选区变化(含光标移动)也缓存,切回时恢复光标位 —— 不只编辑才记
+    const scroller = (findScrollAncestor(view.dom) ?? view.dom)
+    documentStore.captureActivePmState(view.state, scroller.scrollTop)
   },
   onReady: () => {
     mounted = true

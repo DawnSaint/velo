@@ -86,8 +86,7 @@ async function onFileClick(node: TreeNode) {
     return
   }
   if (!MD_EXT_RE.test(node.name)) return
-  if (!(await documentStore.confirmDiscardIfDirty())) return
-  const ok = await documentStore.openPath(node.fullPath)
+  const ok = await documentStore.openPathInTab(node.fullPath)
   if (!ok) return
   workspace.setLastFile(node.fullPath)
 }
@@ -351,14 +350,9 @@ async function performMove(srcPath: string, dstDir: string) {
   workspace.renamePathPrefix(srcPath, newPath)
   recentFiles.renamePathPrefix(srcPath, newPath)
 
-  // 2) 当前打开文件联动:不重载内容,只换路径(见 docs/architecture/file-tree.md)
-  const cur = documentStore.currentFilePath
-  if (cur === srcPath) {
-    documentStore.loadContent(documentStore.content, newPath)
-  }
-  else if (cur && srcNode.isDir && (cur.startsWith(srcPath + '/') || cur.startsWith(srcPath + '\\'))) {
-    documentStore.loadContent(documentStore.content, newPath + cur.slice(srcPath.length))
-  }
+  // 2) 多标签联动:所有打开标签里命中 srcPath(文件)或其前缀(目录)的 path 换成 newPath,
+  //    不动 content / dirty 基线(改名不该清 dirty)
+  await documentStore.renameOpenPaths(srcPath, newPath)
 
   // 3) 旧路径下的 dirIndex 子树孤儿清理(否则 fs.watch 会撞到死路径置 node.error)
   pruneDirIndexPrefix(srcPath)
@@ -572,10 +566,8 @@ async function submitInline() {
       // 联动工作区 / 全局最近文件里的旧路径,否则移动或重命名后菜单会指向死路径
       workspace.renamePathPrefix(node.fullPath, newPath)
       recentFiles.renamePathPrefix(node.fullPath, newPath)
-      // 联动当前打开文件:只更新 currentFilePath,不动 content
-      if (documentStore.currentFilePath === node.fullPath) {
-        documentStore.loadContent(documentStore.content, newPath)
-      }
+      // 联动多标签:命中旧路径的打开标签只换 path,不动 content / dirty
+      await documentStore.renameOpenPaths(node.fullPath, newPath)
       const parent = dirIndex.get(parentDir)
       if (parent) await loadDirChildren(parent)
       cancelInline()
@@ -588,13 +580,9 @@ async function submitInline() {
 
 // ========== 删除 + 联动当前打开文件 ==========
 
-/** pathToDelete 是否包含 currentFilePath(目录删除时判定). */
+/** pathToDelete 是否包含任意打开标签的路径(多标签下查全部标签,非仅活动)。 */
 function deleteContainsOpenFile(pathToDelete: string): boolean {
-  const cur = documentStore.currentFilePath
-  if (!cur) return false
-  const s = sep()
-  const trimmed = pathToDelete.endsWith(s) ? pathToDelete : pathToDelete + s
-  return cur === pathToDelete || cur.startsWith(trimmed)
+  return documentStore.countOpenTabsUnder(pathToDelete) > 0
 }
 
 async function confirmAndDelete(node: TreeNode) {
@@ -602,14 +590,14 @@ async function confirmAndDelete(node: TreeNode) {
   const name = node.name
   let message: string
   if (isDir) {
-    const dirtyOpen = deleteContainsOpenFile(node.fullPath) && documentStore.dirty
-    message = dirtyOpen
-      ? `「${name}」中有正在编辑且未保存的文件,删除后修改将丢失。\n确定要继续吗？`
+    const dirtyOpen = documentStore.countDirtyTabsUnder(node.fullPath)
+    message = dirtyOpen > 0
+      ? `「${name}」中有 ${dirtyOpen} 个正在编辑且未保存的文件,删除后修改将丢失。\n确定要继续吗？`
       : `确定要删除目录「${name}」及其所有内容吗？`
   }
   else {
-    const dirtyOpen = documentStore.currentFilePath === node.fullPath && documentStore.dirty
-    message = dirtyOpen
+    const dirtyOpen = documentStore.countDirtyTabsUnder(node.fullPath)
+    message = dirtyOpen > 0
       ? `「${name}」有未保存修改,删除后修改将丢失。\n确定要继续吗？`
       : `确定要删除「${name}」吗？`
   }
@@ -625,7 +613,8 @@ async function confirmAndDelete(node: TreeNode) {
     const parent = dirIndex.get(parentDir)
     if (parent) await loadDirChildren(parent)
     if (deleteContainsOpenFile(node.fullPath)) {
-      documentStore.loadContent('', null)
+      // 多标签:删除路径下的所有标签(含活动标签);不弹脏盘确认 —— 删除已在外层 confirm
+      await documentStore.closeTabsUnderPath(node.fullPath)
     }
     closeContextMenu()
   }
@@ -650,8 +639,7 @@ async function revealInExplorer(node: TreeNode) {
 async function openInEditor(node: TreeNode) {
   closeContextMenu()
   if (node.isDir || !MD_EXT_RE.test(node.name)) return
-  if (!(await documentStore.confirmDiscardIfDirty())) return
-  const ok = await documentStore.openPath(node.fullPath)
+  const ok = await documentStore.openPathInTab(node.fullPath)
   if (!ok) return
   workspace.setLastFile(node.fullPath)
 }

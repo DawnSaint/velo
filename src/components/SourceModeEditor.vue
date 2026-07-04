@@ -79,6 +79,10 @@ const shikiExts = shikiExtensions({
 // 的 lastSelfEmitted 语义)。CM6 docChanged 时记下本次发出去的串,外部 watch
 // 拿到 modelValue 若等于它,跳过同步。
 let lastSelfEmitted = ''
+// 切标签恢复期间(tabSwitchToken watch 调 view.setState(cachedState) 后)置 true,
+// 让同 tick 的 modelValue watch 跳过全量替换 dispatch —— 否则缓存恢复的 undo
+// 历史被一次全量 tr 污染(undo 会跨标签回退)。
+let pendingTabRestore = false
 
 function emitCursorPosition(view: EditorView) {
   const head = view.state.selection.main.head
@@ -247,6 +251,11 @@ function createView(): EditorView {
           emit('update:modelValue', next)
         }
         if (u.docChanged || u.selectionSet) emitCursorPosition(u.view)
+        // Step 3: 缓存活动标签的 CM6 state + 滚动位,切回时 setState 恢复(保 undo / 滚动 / 光标)
+        if (u.docChanged || u.selectionSet || u.viewportChanged) {
+          const scroller = u.view.scrollDOM
+          documentStore.captureActiveCmState(u.view.state, scroller.scrollTop)
+        }
       }),
     ],
   })
@@ -260,6 +269,12 @@ function createView(): EditorView {
 watch(
   () => props.modelValue,
   (next) => {
+    if (pendingTabRestore) {
+      // 切标签恢复已由 tabSwitchToken watch 调 view.setState(cachedState) 处理,
+      // 这里不能再全量替换 dispatch(会污染 undo)。清 flag 跳过。
+      pendingTabRestore = false
+      return
+    }
     const view = viewRef.value
     if (!view) return
     // 自身刚 emit 的回写,跳过(避免光标被重置)
@@ -276,6 +291,23 @@ watch(
     })
     emitCursorPosition(view)
   },
+)
+
+// 切标签:恢复该标签缓存的 CM6 state(保 undo 历史 / 光标),而非 modelValue watch 的全量替换。
+// 注意 CM6 的 setState 是整 state 替换(含 history 字段),undo 历史随缓存走。
+// flush:'sync' 确保先于 modelValue(pre-flush)watch 跑,后者看到 pendingTabRestore 跳过。
+watch(
+  () => documentStore.tabSwitchToken,
+  () => {
+    const view = viewRef.value
+    if (!view) return
+    const cached = documentStore.peekActiveCmStateForRestore()
+    if (!cached) return // 无缓存 → 走 modelValue watch 重建
+    pendingTabRestore = true
+    view.setState(cached.state as EditorState)
+    if (cached.scrollTop != null) view.scrollDOM.scrollTop = cached.scrollTop
+  },
+  { flush: 'sync' },
 )
 
 // ============================================================

@@ -34,16 +34,16 @@
 
 | 类别 | 技术 |
 |------|------|
-| 前端框架 | Vue 3 (`<script setup>`) |
+| 前端框架 | Vue 3 |
 | 状态管理 | Pinia |
 | 语言 | TypeScript |
 | 构建 | Vite |
 | 桌面壳 | Tauri 2.0 |
-| 编辑器 | ProseMirror (WYSIWYG) |
+| WYSIWYG 编辑器 | ProseMirror |
 | 源代码模式编辑器 | CodeMirror 6 |
 | 数学公式 | KaTeX |
 | 图表 | Mermaid |
-| CSS | Tailwind 3 + Sass |
+| CSS | Tailwind + Sass |
 
 具体版本见 `package.json` / `src-tauri/Cargo.toml`。
 

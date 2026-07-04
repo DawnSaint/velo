@@ -108,11 +108,10 @@ export async function handleTreePathDrop(
 
   const name = basename(path)
 
-  // .md → 打开(与 FileTree.onFileClick 同路径:脏盘确认 + openPath + setLastFile)
+  // .md → 打开到新标签(与 FileTree.onFileClick 同路径:openPathInTab + setLastFile)
   if (isMarkdownPath(name)) {
     const documentStore = useDocumentStore()
-    if (!(await documentStore.confirmDiscardIfDirty())) return { handled: true }
-    const ok = await documentStore.openPath(path)
+    const ok = await documentStore.openPathInTab(path)
     if (ok) useWorkspaceStore().setLastFile(path)
     return { handled: true }
   }

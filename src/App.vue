@@ -23,6 +23,7 @@ import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import RecentFilesButton from '@/components/RecentFilesButton.vue'
+import TabBar from '@/components/TabBar.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
@@ -415,9 +416,8 @@ async function loadSample(key: string) {
     'Velo.png',
     new URL(veloLogo, window.location.href).href,
   )
-  documentStore.loadContent(resolved, null, true)
-  // currentFilePath 为 null,设虚拟名让顶栏 / 状态栏 / 关闭拦截显示有意义的标题。
-  documentStore.virtualFileName = `示例 — ${entry.label}`
+  // sample 走新标签(或复用干净未命名标签),只读装载 + 虚拟标题
+  documentStore.openSampleTab(resolved, `示例 — ${entry.label}`)
 }
 
 // ========== 查找替换 (v0.3.1) ==========
@@ -592,8 +592,7 @@ async function selectWorkspaceSearchHit(hit: WorkspaceSearchHit): Promise<boolea
 }
 
 async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
-  if (!(await documentStore.confirmDiscardIfDirty())) return
-  const ok = await documentStore.openPath(hit.fullPath)
+  const ok = await documentStore.openPathInTab(hit.fullPath)
   if (!ok) return
   workspaceStore.setLastFile(hit.fullPath)
   await nextTick()
@@ -669,8 +668,7 @@ function openFolderAsWorkspace() {
 }
 
 async function openRecentFile(path: string) {
-  if (!(await documentStore.confirmDiscardIfDirty())) return
-  const ok = await documentStore.openPath(path)
+  const ok = await documentStore.openPathInTab(path)
   if (!ok) return
   workspaceStore.setLastFile(path)
 }
@@ -1140,7 +1138,7 @@ onMounted(async () => {
   const initialDir = initialPayload.dirs?.[0]
   if (initialDir) workspaceStore.setActiveRoot(initialDir)
   const initialFile = initialPayload.files?.[0]
-  if (initialFile) await documentStore.openPath(initialFile)
+  if (initialFile) await documentStore.openPathInTab(initialFile)
 
   // 首次启动且无 CLI 参数 → 弹出欢迎对话框
   if (!initialFile && !initialDir && await isFirstRun()) {
@@ -1154,14 +1152,14 @@ onMounted(async () => {
   // CLI 打开文件 / 目录时跳过,避免覆盖显式启动意图。
   if (!initialFile && !initialDir && store.startupMode === 'last-file') {
     const lastPath = recentFilesStore.entries[0]?.path
-    if (lastPath) await documentStore.openPath(lastPath)
+    if (lastPath) await documentStore.openPathInTab(lastPath)
   }
 
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
   //      注意:draft 落盘 / 恢复扫描必须放 CLI 打开文件之后(见下面 1.5)。
   draftTimer = setInterval(() => {
-    void documentStore.saveCurrentDraft()
+    void documentStore.saveAllDrafts()
   }, DRAFT_SAVE_INTERVAL_MS)
 
   // 0.5) 设置变化 → 落盘的 watch。必须在 load 之后挂,否则 load 自身会触发写盘。
@@ -1270,18 +1268,22 @@ onMounted(async () => {
   if (tauri) {
     const win = getCurrentWindow()
     await win.onCloseRequested(async (event) => {
-      if (!documentStore.dirty) return
+      // 多标签:统计所有脏盘标签;任一脏盘都先拦截,交给用户统一处理
+      const dirtyCount = documentStore.tabs.filter(t => t.dirty).length
+      if (dirtyCount === 0) return
       event.preventDefault()
       const wantSave = await confirm(
-        `「${documentStore.fileName}」有未保存的修改，是否保存？`,
+        `${dirtyCount} 个文档有未保存的修改，是否全部保存？`,
         { title: '未保存的修改', kind: 'warning' },
       )
       if (wantSave) {
-        const ok = await documentStore.save()
+        // saveAllDirtyTabs 遍历所有脏盘标签写盘;无 path 的走 saveAs 弹 dialog。
+        // 任一失败 / 用户取消另存为 → 返回 false,不 destroy(保留用户修改)。
+        const ok = await documentStore.saveAllDirtyTabs()
         if (ok) await win.destroy()
         return
       }
-      const discard = await confirm('放弃修改并直接关闭？', {
+      const discard = await confirm('放弃所有修改并直接关闭？', {
         title: '确认关闭',
         kind: 'warning',
       })
@@ -1329,19 +1331,17 @@ watch(editorRef, (v) => {
     :style="{ '--md-primary-color': store.primaryColor }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
-    <!-- 顶栏 -->
-    <header class="flex items-center justify-between gap-3 border-b border-gray-200 bg-white pl-3 text-gray-700 dark:border-gray-800 dark:bg-[#111] dark:text-gray-300">
-      <div class="flex min-w-0 flex-1 items-center gap-2">
+    <!-- 顶栏:分 logo 段(宽 = ActivityBar 48 + displaySidebarWidth,标签起始随 splitter 联动)
+         + 标签段(TabBar,活动标签底部无 border 与编辑器衔接) + 右侧控件 -->
+    <header class="flex h-9 shrink-0 items-stretch bg-white text-gray-700 dark:bg-[#111] dark:text-gray-300">
+      <div class="flex shrink-0 items-center gap-2 pl-3 border-b border-gray-200 dark:border-gray-800" :style="{ width: `${48 + displaySidebarWidth}px` }">
         <img :src="veloLogo" alt="Velo" class="h-6 w-6">
-        <span data-tauri-drag-region class="ml-2 flex min-w-0 items-baseline gap-1.5 truncate text-sm text-gray-400" :title="documentStore.currentFilePath ?? ''">
-          <span class="truncate">{{ documentStore.fileName }}</span>
-          <span v-if="documentStore.readOnly" class="shrink-0 text-xs">（只读）</span>
-          <span v-if="documentStore.dirty" class="shrink-0">•</span>
-        </span>
-        <span data-tauri-drag-region class="ml-2 h-8 min-w-6 flex-1" />
+        <span data-tauri-drag-region class="h-full flex-1" />
       </div>
 
-      <div class="flex shrink-0 items-center gap-1">
+      <TabBar />
+
+      <div class="flex shrink-0 items-center gap-1 pr-1 border-b border-gray-200 dark:border-gray-800">
         <!-- 最近文件 -->
         <RecentFilesButton
           :entries="recentFilesStore.entries"
@@ -1433,7 +1433,7 @@ watch(editorRef, (v) => {
         decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
         setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。
       -->
-      <template v-if="codeBlockReady">
+      <template v-if="codeBlockReady && documentStore.activeId">
         <ProseMirrorEditor
           v-if="!documentStore.sourceMode"
           ref="editorRef"
@@ -1459,6 +1459,29 @@ watch(editorRef, (v) => {
           @cursor-position-change="updateCursorPosition"
         />
       </template>
+      <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->
+      <div
+        v-else-if="codeBlockReady && !documentStore.activeId"
+        class="flex flex-1 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
+      >
+        <span class="text-sm">没有打开的文档</span>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            @click="documentStore.newDoc()"
+          >
+            新建
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            @click="documentStore.open()"
+          >
+            打开…
+          </button>
+        </div>
+      </div>
     </div>
 
     <StatusBar

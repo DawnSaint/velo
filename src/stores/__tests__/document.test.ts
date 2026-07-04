@@ -429,19 +429,24 @@ describe('document store', () => {
       expect(store.content).toBe(baseline)
     })
 
-    it('拒绝丢弃未保存修改时 newDoc 早退,token 不递增', async () => {
+    it('多标签:newDoc 不弹脏盘确认(新标签不打扰活动标签),活动脏盘标签保留', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
-      store.setContent('hello edited') // dirty
-      vi.mocked(confirm).mockResolvedValueOnce(false) // 拒绝丢弃
+      store.setContent('hello edited') // /p.md 标签 dirty
+      vi.mocked(confirm).mockClear()
 
       const before = store.focusRequestToken
-      const contentBefore = store.content
 
       await store.newDoc()
 
-      // 早退:token 不变,content 不变
-      expect(store.focusRequestToken).toBe(before)
-      expect(store.content).toBe(contentBefore)
+      // 新标签创建 → token 递增(不再因脏盘确认而早退)
+      expect(store.focusRequestToken).toBe(before + 1)
+      // 多标签:newDoc 开新标签,不弹当前标签的脏盘确认
+      expect(confirm).not.toHaveBeenCalled()
+      // /p.md 标签仍在且仍 dirty(未被新标签覆盖)
+      const pId = store.findTabByPath('/p.md')
+      expect(pId).toBeTruthy()
+      const pTab = store.tabs.find(t => t.id === pId)
+      expect(pTab?.dirty).toBe(true)
     })
 
     it('init / loadContent 不动 token —— 只有 newDoc 是"显式意图切换"信号', async () => {
