@@ -74,7 +74,8 @@ export function createImageNodeView(opts: ImageViewOptions) {
         if (title) img.title = title
         frame.appendChild(img)
       }
-      frame.appendChild(editBtn)
+      // 阅读模式下不渲染编辑按钮(view.editable=false 时无编辑入口,triggerImageEdit 兜底)
+      if (view.editable) frame.appendChild(editBtn)
       wrapper.appendChild(frame)
     }
 

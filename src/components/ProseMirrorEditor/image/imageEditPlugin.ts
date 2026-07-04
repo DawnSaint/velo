@@ -226,6 +226,8 @@ export const imageEditEscapeKeymap = keymap({
 /** 选中图片后点按钮触发:replace image atom → 源码文本,默认选中 `()` 内的 src。
  *  src 是改链接最高频的操作;无 title 时 src 正是 `()` 内的全部内容。 */
 export function triggerImageEdit(view: EditorView, pos: number): void {
+  // 阅读模式下不展开源码(保持 image 渲染态)
+  if (!view.editable) return
   const node = view.state.doc.nodeAt(pos)
   if (!node || node.type.name !== 'image') return
 

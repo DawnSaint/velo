@@ -40,6 +40,10 @@ import { imageEditKey } from '../image/imageEditPlugin'
 
 export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceEdit')
 
+// 模块级 view 引用:appendTransaction 没有 view 参数,用它读 view.editable 判断阅读模式。
+// 单 EditorView 实例场景安全(view spec 设置,destroy 清 null)。
+let editorView: EditorView | null = null
+
 // 目标 mark:strong / emphasis / highlight / strike / code(行内代码;link 自有 session)。
 const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'strike_through', 'code'])
 
@@ -310,6 +314,8 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
   // 光标进入 mark → 换源码进 session。走 appendTransaction(同步、PM 惯用通道),
   // 且让 syntaxAutoFormat 退避自动生效(getActiveEditRange 读 newState,pass 2 已有 session)。
   appendTransaction(transactions, _oldState, newState) {
+    // 阅读模式下不展开源码:view.editable=false 时光标进入 mark 范围不换源码字符,保持渲染态。
+    if (editorView && !editorView.editable) return null
     // 守卫 (a):已开会话不重复进
     if (markSourceEditKey.getState(newState)?.session) return null
     // 守卫 (b):仅纯选区变化(方向键 / 点击)触发;键入 / IME / 粘贴是 docChanged 不触发
@@ -354,13 +360,17 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
     return tr
   },
 
-  view(_view) {
+  view(initialView) {
+    editorView = initialView
     return {
       update(view) {
         const pluginState = markSourceEditKey.getState(view.state)
         if (pluginState?.pendingCommit) {
           commitMarkEdit(view)
         }
+      },
+      destroy() {
+        editorView = null
       },
     }
   },

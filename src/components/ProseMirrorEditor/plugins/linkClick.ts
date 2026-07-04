@@ -162,10 +162,9 @@ function handleLinkClick(view: EditorView, event: MouseEvent): boolean {
   const href = anchor.getAttribute('href')
   if (!href) return false
 
-  event.preventDefault()
-
-  // Ctrl/Cmd + 点击 → 跳转(行为保持不变)
+  // Ctrl/Cmd + 点击 → 跳转(阅读模式下也保留:文档内锚点滚动 / 外部 URL 系统浏览器)
   if (event.ctrlKey || event.metaKey) {
+    event.preventDefault()
     if (href.startsWith('#')) {
       scrollToAnchor(view, href.slice(1))
     }
@@ -175,7 +174,9 @@ function handleLinkClick(view: EditorView, event: MouseEvent): boolean {
     return true
   }
 
-  // 普通点击 → 进入 inline source edit
+  // 普通点击 → 进入 inline source edit(阅读模式下不展开,保持渲染态)
+  if (!view.editable) return false
+  event.preventDefault()
   startLinkEdit(view, event)
   return true
 }

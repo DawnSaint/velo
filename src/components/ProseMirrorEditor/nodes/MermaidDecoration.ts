@@ -324,6 +324,8 @@ function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
     e.stopPropagation()
     const view = currentView
     if (!view || view.isDestroyed) return
+    // 阅读模式:不展开源码(保持 SVG 渲染态)
+    if (!view.editable) return
     view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: pos }))
   })
   return btn

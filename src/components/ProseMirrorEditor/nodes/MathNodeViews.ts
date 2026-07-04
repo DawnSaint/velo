@@ -162,6 +162,14 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   }
 
   function syncMode() {
+    // 阅读模式:强制 display,不进 edit(光标进入 $...$ 不展开 source,保持渲染态)
+    if (!view.editable) {
+      if (dom.dataset.mode !== 'display') {
+        dom.dataset.mode = 'display'
+        showDisplay()
+      }
+      return
+    }
     const target = isCursorInNode() ? 'edit' : 'display'
     if (dom.dataset.mode !== target) {
       dom.dataset.mode = target
@@ -208,6 +216,8 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   dom.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return
     if (dom.dataset.mode !== 'display') return
+    // 阅读模式:不展开 source,让 PM/浏览器默认处理点击
+    if (!view.editable) return
     e.preventDefault()
     e.stopPropagation()
     const pos = getPos()
@@ -270,6 +280,8 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
 
   function startEdit() {
     if (editing) return
+    // 阅读模式:不进编辑态(兜底,click / autoEdit 已守卫)
+    if (!view.editable) return
     editing = true
     const renderedHtml = dom.innerHTML
     dom.classList.add('is-editing')
@@ -308,6 +320,8 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   }
 
   dom.addEventListener('click', (e) => {
+    // 阅读模式:不进编辑态,不 stopPropagation(让 PM 默认处理)
+    if (!view.editable) return
     e.stopPropagation()
     if (!editing) startEdit()
   })
@@ -322,7 +336,9 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   // 完就 click),改走 NodeView 自检路径更可靠。
   if (autoEditMathBlocks.has(node)) {
     autoEditMathBlocks.delete(node)
-    setTimeout(() => { if (!editing) startEdit() }, 0)
+    // 阅读模式:不自动进编辑态(`$$`+Enter 在 editable=false 时不触发,WeakSet 标记
+    // 可能残留,这里消费并跳过)
+    if (view.editable) setTimeout(() => { if (!editing) startEdit() }, 0)
   }
 
   return {
