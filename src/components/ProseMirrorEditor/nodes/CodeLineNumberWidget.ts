@@ -54,6 +54,7 @@ import type { EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
 import { useEditorStore } from '@/stores/editor'
+import { isCodeBlockFolded } from './FoldDecoration'
 
 // ============================================================
 //  Plugin state
@@ -261,6 +262,13 @@ function buildDecorations(
     // 源码编辑态(用户切到"看源码")SVG 隐藏,pre 显示 —— 这种状态下
     // 仍按 mermaid 整体跳过(用户已确认 v0.5.11 始终不显示)。
     if (lang === 'mermaid') return
+    // 在 fold 范围内的 code_block:祖先 heading/list_item 折叠时,本
+    // code_block 被 ancestor `velo-folded` class 设为 display:none,
+    // 但行号 widget 是 position:absolute 浮在 pre 外,失去定位锚点 →
+    // 飞到界面左上角。修法:fold range 内的 code_block 整段不挂行号
+    // widget(连同 `data-velo-gutter` padding 加宽一起跳过,折叠态 pre
+    // 自身不可见,padding 也无意义)。
+    if (isCodeBlockFolded(pos)) return
     const blockStart = pos + 1
     const blockEnd = pos + node.nodeSize - 1
     // 空 code_block(无内容):不显示行号

@@ -39,6 +39,8 @@ import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/mark
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
+import { foldDecoration, foldKey, collectFoldableKeys } from './nodes/FoldDecoration'
+import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { hrEnterCommand } from './syntax/block/hr'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
@@ -305,6 +307,7 @@ const basePlugins: Plugin[] = [
   taskListPlugin,
   footnoteEditPlugin,
   tocDecoration,
+  foldDecoration,
   findHighlight,
 ]
 
@@ -346,6 +349,44 @@ let lastSelfEmitted: string | null = null
 // 启动期(mounted=false)不抢焦点,避免把 DraftRecoveryDialog 等启动期弹窗的
 // 焦点踢走。
 let mounted = false
+
+// 折叠状态同步:文件切换时,把 store 里稳定 key 翻译成当前 doc 的 contentStart
+// 灌进 plugin。文件 path 变化是这个 watch 的唯一信号(modelValue 变可能是
+// 同文件内容回写,不能误触发)。
+// 旧路径上的折叠 pos 灌 store 走 plugin view hook 的 diff 同步(见
+// FoldDecoration.ts view.update 注释),本 watch 只负责"新文件灌入折叠 pos"。
+const foldStore = useFoldStore()
+let lastSeenFilePath: string | null = null
+
+/**
+ * 把 store 里的稳定 key 集合翻译成当前 doc 的 contentStart 数组。
+ * 翻译失败的 key(用户改了 block 内容,key 变了)直接丢 —— 旧 block 已
+ * 不存在,保留无意义;这是稳定 key 设计的取舍(见 stores/folding.ts 注释)。
+ */
+function foldKeysToPositions(
+  doc: ReturnType<typeof fromMarkdown>,
+  keys: string[],
+): number[] {
+  if (keys.length === 0) return []
+  const set = new Set(keys)
+  const positions: number[] = []
+  for (const { contentStart, stableKey } of collectFoldableKeys(doc)) {
+    if (set.has(stableKey)) positions.push(contentStart)
+  }
+  return positions
+}
+
+watch(() => useDocumentStore().currentFilePath, async (newPath) => {
+  if (newPath === lastSeenFilePath) return
+  lastSeenFilePath = newPath
+  if (!mounted) return
+  const view = getView()
+  if (!view) return
+  // 取新 doc:同 tick 内 modelValue watch 已 updateState,这里直接读
+  const positions = foldKeysToPositions(view.state.doc, foldStore.getKeysFor(newPath))
+  if (positions.length === 0) return
+  view.dispatch(view.state.tr.setMeta(foldKey, { initCollapsed: positions }))
+})
 
 function emitCursorPosition() {
   const view = getView()

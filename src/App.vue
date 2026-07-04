@@ -7,7 +7,8 @@ import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
+import { useFoldStore } from '@/stores/folding'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
@@ -54,6 +55,7 @@ const MAIN_WINDOW_LABEL = 'main'
 const store = useEditorStore()
 const documentStore = useDocumentStore()
 const outlineStore = useOutlineStore()
+const foldStore = useFoldStore()
 const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
 const recentFilesStore = useRecentFilesStore()
@@ -343,6 +345,17 @@ const debouncedOutlineSave = debounce(() => {
   void saveOutlineState({
     version: 1,
     files: outlineStore.snapshot(),
+  })
+}, 500)
+
+// ========== 块级折叠状态持久化(v0.5.12) ==========
+// 形态对齐 outline:启动 load,后续 plugin view hook diff 同步 store → 500ms debounce 落盘。
+// 必须早于 CLI 打开文件,fold 灌入逻辑依赖 store 已就绪(EditorInner.vue 的
+// currentFilePath watch 调 foldKeysToPositions 拿 store keys)。
+const debouncedFoldSave = debounce(() => {
+  void saveFoldState({
+    version: 1,
+    files: foldStore.snapshot(),
   })
 }, 500)
 
@@ -1095,6 +1108,9 @@ onMounted(async () => {
   const outlineLoaded = await loadOutlineState()
   if (outlineLoaded?.files) outlineStore.loadFrom(outlineLoaded.files)
 
+  const foldLoaded = await loadFoldState()
+  if (foldLoaded?.files) foldStore.loadFrom(foldLoaded.files)
+
   let windowLabel: string | null = null
   let initialPayload: CliArgsPayload = { files: [], dirs: [] }
   if (tauri) {
@@ -1168,6 +1184,12 @@ onMounted(async () => {
   watch(
     () => outlineStore.collapsedByPath,
     () => { debouncedOutlineSave() },
+    { deep: true },
+  )
+
+  watch(
+    () => foldStore.collapsedByPath,
+    () => { debouncedFoldSave() },
     { deep: true },
   )
 

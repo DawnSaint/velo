@@ -15,6 +15,8 @@ function makeSvg(inner: string, size: number, strokeWidth = 2): string {
 
 const CHEVRON_DOWN_INNER = '<polyline points="6 9 12 15 18 9" />'
 const CHEVRON_UP_INNER = '<polyline points="18 15 12 9 6 15" />'
+// chevron-right:折叠态 toggle 用(>> 形态,lucide 标准)
+const CHEVRON_RIGHT_INNER = '<polyline points="9 18 15 12 9 6" />'
 const COPY_INNER
   = '<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />'
   + '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />'
@@ -35,6 +37,9 @@ export const chevronDownSvg = (size: number): string => makeSvg(CHEVRON_DOWN_INN
 
 /** 向上箭头(mermaid 展开)。 */
 export const chevronUpSvg = (size: number): string => makeSvg(CHEVRON_UP_INNER, size)
+
+/** 向右箭头(块级折叠 toggle,折叠态)。 */
+export const chevronRightSvg = (size: number): string => makeSvg(CHEVRON_RIGHT_INNER, size)
 
 /** 复制图标(代码块复制按钮)。 */
 export const copySvg = (size: number): string => makeSvg(COPY_INNER, size)

@@ -141,6 +141,58 @@ export async function saveOutlineState(s: PersistedOutlineState): Promise<void> 
   }
 }
 
+// ========== 块级折叠状态(v0.5.12) ==========
+//
+// `velo-folding-state.json` 记录"每篇文档哪些块被折叠"。key 是稳定
+// 字符串(由 block 类型 + 内容指纹派生,见 stores/folding.ts 注释),
+// 不是 doc 绝对 pos —— 关闭 / 重开后 pos 失效,稳定 key 才能跨开关保留。
+//
+// 形态对齐 `velo-outline-state.json`(v0.3.0 起就有了),fallback 策略也一致:
+// 损坏 / 缺文件 / 版本不匹配 → null,store 用空状态继续。
+
+const FOLD_FILE = 'velo-folding-state.json'
+const FOLD_VERSION = 1
+
+export interface PersistedFoldState {
+  version: number
+  // path → 该文件下处于折叠态的 block 稳定 key 数组
+  files: Record<string, string[]>
+}
+
+export async function loadFoldState(): Promise<PersistedFoldState | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    const path = await join(dir, FOLD_FILE)
+    if (!(await exists(path))) return null
+    const json = await readTextFile(path)
+    const parsed = JSON.parse(json)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    if (parsed.version !== FOLD_VERSION) return null
+    if (typeof parsed.files !== 'object' || parsed.files === null) return null
+    return parsed as PersistedFoldState
+  }
+  catch (e) {
+    console.warn('加载折叠状态失败', e)
+    return null
+  }
+}
+
+export async function saveFoldState(s: PersistedFoldState): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    if (!(await exists(dir))) {
+      await mkdir(dir, { recursive: true })
+    }
+    const path = await join(dir, FOLD_FILE)
+    await writeTextFile(path, JSON.stringify(s, null, 2))
+  }
+  catch (e) {
+    console.error('保存折叠状态失败', e)
+  }
+}
+
 // ========== 崩溃恢复草稿 ==========
 //
 // 脏盘期间定时把当前内容写到 appDataDir/drafts/{id}.json。

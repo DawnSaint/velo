@@ -1,0 +1,160 @@
+// 块级折叠(heading / list_item)—— v0.5.12。
+//
+// 范式:对齐 mermaid / toc / codeLineNumber widget —— 视觉靠 SCSS 接管,
+// ProseMirror 只管 selection / dispatch。
+//
+// 关键布局:
+//  - **toggle 按钮浮在 heading / list_item 元素自身**外侧左侧 gutter
+//    (block 设 position:relative,toggle 设 position:absolute + left:-22px),
+//    **不挤压** heading / list 文本 —— 文本在原本的渲染位置不动,按钮只
+//    占用 gutter 宽度。
+//  - **不实现 code_block 折叠** —— toolbar 几何冲突,先 ship heading / list。
+//  - 折叠区段隐藏:`velo-folded` 整块 display:none。
+//  - placeholder widget:极简灰色 `...`,heading / list_item 挂在 fold 区段起点
+//    side:-1(上一可见 block 末尾),inline 跟首行同行。
+//  - .velo-editor 的 padding-left 是冗余保险(防止首行 heading 在最左
+//    位置时 toggle 浮出去,但一般不需要,因为 .velo-editor 父级 px-8 已经
+//    让出 32px)。
+
+// ============================================================
+//  Block 上下文:position:relative 作为 toggle 绝对定位锚点
+// ============================================================
+.velo-editor h1,
+.velo-editor h2,
+.velo-editor h3,
+.velo-editor h4,
+.velo-editor h5,
+.velo-editor h6,
+.velo-editor li {
+  position: relative;
+}
+
+// ============================================================
+//  Toggle 按钮(每个 foldable block 内部首位,但视觉浮在 gutter)
+// ============================================================
+
+.velo-fold-toggle {
+  position: absolute;
+  left: -28px;
+  // **关键:字号继承 + flex 居中,处理 heading h1-h6 字号不一致问题。**
+  // heading font-size 是 1em / 1.2em / 1.4em / 1.6em / 2em;line-height
+  // 继承 .velo-editor 的 1.75,box 高 = 1.75em_heading。vertical center
+  // = 0.875em_heading。
+  // font-size: inherit 让 button 字号跟 heading 字号同步,em 单位相对
+  // heading 字号;然后 top: 0.875em = heading box 中心,transform:
+  // translateY(-50%) 相对 button 自身高度(24px)上移一半,button 视觉
+  // 中心跟 heading box 中心对齐 —— 对 h1-h6 / li(li 字号继承自 p=1em)
+  // 都正确,不再"偏上/偏下"。
+  font-size: inherit;
+  top: 0.875em;
+  transform: translateY(-50%) rotate(0deg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--md-text-muted, #888);
+  cursor: pointer;
+  user-select: none;
+  caret-color: transparent;
+  vertical-align: middle;
+  transform-origin: center;
+  // 默认隐藏,父级 hover 或自身 hover 时显示
+  opacity: 0;
+  // hover 仅变 color,不要 background —— 视觉轻,跟 mermaid / toc 工具条
+  // 区分(mermaid toolbar 有 hover bg 是因为"工具"语义更重,fold toggle
+  // 是状态按钮,需要更克制)
+  transition: color 0.12s ease, transform 0.2s ease, opacity 0.12s ease;
+}
+
+// hover 父级 heading / li 时显示 toggle
+.velo-editor h1:hover > .velo-fold-toggle,
+.velo-editor h2:hover > .velo-fold-toggle,
+.velo-editor h3:hover > .velo-fold-toggle,
+.velo-editor h4:hover > .velo-fold-toggle,
+.velo-editor h5:hover > .velo-fold-toggle,
+.velo-editor h6:hover > .velo-fold-toggle,
+.velo-editor li:hover .velo-fold-toggle,
+.velo-fold-toggle:hover {
+  opacity: 1;
+}
+
+// list 上下文 override:toggle 相对 li 左缘位置改成 24px + 2em(ul/ol
+// padding 缩进 2em),保证 list button 视觉 .velo-editor 左缘 24+2em,
+// 跟 list 文字起点 2em 对齐。
+.velo-editor li .velo-fold-toggle {
+  left: calc(-28px - 1em);
+}
+
+// 折叠态:把 chevron 旋转 -90deg(▼ → ▶),0.2s 平滑过渡。
+// 视觉上"点 toggle 时按钮转一下"提示状态变化。
+.velo-fold-toggle[data-fold-state='collapsed'] {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+// 已折叠的 toggle 始终可见 —— 用户已主动折叠,需要常驻让他能再次展开
+.velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h1:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h2:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h3:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h4:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h5:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor h6:hover > .velo-fold-toggle[data-fold-state='collapsed'],
+.velo-editor li:hover .velo-fold-toggle[data-fold-state='collapsed'] {
+  opacity: 1;
+}
+
+.velo-fold-toggle:hover {
+  color: var(--md-primary-color, #3b82f6);
+}
+
+html.dark .velo-fold-toggle {
+  color: var(--md-text-muted-dark, #aaa);
+}
+
+html.dark .velo-fold-toggle:hover {
+  color: var(--md-primary-color, #60a5fa);
+}
+
+// ============================================================
+//  折叠区段隐藏(folded class)
+// ============================================================
+
+// heading / list_item 折叠区段:整块 `display: none`,
+// 用 !important 确保不被其他规则覆盖
+.velo-editor .velo-folded {
+  display: none !important;
+}
+
+// ============================================================
+//  Placeholder(折叠区段起点,极简 `...`)
+// ============================================================
+//
+// 灰色(去斜体,色阶比 text-muted 更浅),hover 主色,inline 接在 trigger
+// block 文本末尾。点击展开。
+.velo-fold-placeholder {
+  display: inline-block;
+  margin-left: 0.3em;
+  padding: 0;
+  font-size: 1em;
+  color: var(--md-fold-placeholder, #b0b0b0);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  user-select: none;
+  caret-color: transparent;
+  transition: color 0.12s ease;
+}
+
+.velo-fold-placeholder:hover {
+  color: var(--md-primary-color, #3b82f6);
+}
+
+html.dark .velo-fold-placeholder {
+  color: var(--md-fold-placeholder-dark, #6a6a6a);
+}
+
+html.dark .velo-fold-placeholder:hover {
+  color: var(--md-primary-color, #60a5fa);
+}

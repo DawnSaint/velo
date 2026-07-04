@@ -28,6 +28,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
+import { isMermaidFolded } from './FoldDecoration'
 
 // ========== mermaid 懒加载 ==========
 //
@@ -192,6 +193,14 @@ function buildDecorations(state: EditorState, deco: MermaidDecoState): Decoratio
     // 计算绝对 pos:doc 顶级子节点 descendants 给 fragment offset,绝对 pos =
     // pos + 1(跳过 child 的 open token,即 $from.start() 风格)。
     const absolutePos = pos + 1
+    // **fold 范围内 mermaid 不渲染 widget**:pre 已被 velo-folded
+    // display:none 隐藏,但 SVG widget 是 pre 的 sibling(锚 side: 1,
+    // 不在 pre 内部,挂 velo-folded 影响不到),不跳过的会在 fold 区间
+    // 外浮一个完整 mermaid → "折叠"视觉不成立。跳过整个 widget(pre +
+    // SVG + toolbar)跟 fold 区段一起隐,展开帧 isMermaidFolded 翻 false
+    // → widget 重建 → mermaid 完整回归(同 foldedCodeBlockPosSet 这条
+    // 路径已经在 apply 阶段同步好)。
+    if (isMermaidFolded(pos)) return
     // 这个 mermaid 是否展开:editNodeSet 包含其绝对 pos(允许多 mermaid 同时展开)。
     const isEditing = deco.editNodeSet.has(absolutePos)
     // 1) pre 隐藏 / 显示
