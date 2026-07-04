@@ -90,6 +90,8 @@ src/
     │   └── Sidebar.test.ts
     └── ProseMirrorEditor/
         ├── __tests__/                    # 编辑器核心:markdownIO / 语法 / 键位 / NodeView / 插件
+        │   ├── foldDecoration.test.ts    折叠 plugin(makeStableKey / collectFoldableKeys / apply / 跨 plugin 同步)
+        │   └── foldCrossPlugins.test.ts   跨 plugin 集成(codeLineNumber × fold / mermaid × fold),**必须独立成文件**(module-level Set 泄漏源)
         ├── nodes/__tests__/
         ├── plugins/__tests__/
         └── findreplace/__tests__/

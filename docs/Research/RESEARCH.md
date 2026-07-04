@@ -2,6 +2,14 @@
 
 > Pre-implementation 设计研究：候选方案尚未拍板。后续若决定实现，重大取舍进 `DECISIONS.md` ADR，最终架构同步 `ARCHITECTURE.md`。本文档随对应功能实现同步删除（各节注明对应 ROADMAP 条目）。
 
+## 调研条目
+
+| 文件 | 对应 ROADMAP | 调研日期 | 状态 |
+|---|---|---|---|
+| [block-drag-reorder.md](./block-drag-reorder.md) | 段落拖拽重排（hover gutter 拽手） | 2026-07-04 | 初版调研完成，待 PoC |
+| [RESEARCH.md#obsidian-风格知识图谱调研](#obsidian-风格知识图谱调研) | 双链 / 反向链接 | 2026-06-25 | 初版 |
+| [RESEARCH.md#git-集成调研报告](#git-集成调研报告) | Git 集成 | — | — |
+
 ---
 
 ## Obsidian 风格知识图谱调研

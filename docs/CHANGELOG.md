@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [0.5.12] — 2026-07-04
+
+### Added
+- **块级折叠（heading / list_item）**：在标题或列表项左侧 hover 显示折叠按钮 ▼，点击即可折叠其下方内容（标题折到下一个同级/上级标题之前，列表项折首段后的嵌套块）；折叠后显示灰色 `...` placeholder，点击即可展开。折叠状态按文件路径持久化，重开应用还原。
+  - hover 才显示按钮，已折叠的常驻可见（便于再次展开）；chevron 旋转 -90deg 动画提示状态变化。
+  - 折叠区段不含代码块时不影响；含代码块且开启行号时行号同步隐藏、展开后恢复；含 mermaid 时 mermaid 整块（SVG + toolbar）跟随区段一起隐藏。
+  - 搜索命中折叠区段时自动幂等展开、不跳到错误位置。
+
+### Changed
+- **只读模式收口**：只读模式下隐藏代码语言切换 / mermaid 删除与切换 / TOC 删除 / 任务勾选等编辑类按钮，并禁用进入源码展开态（加粗 / 斜体 / 链接 / 图片 / 公式 / mermaid 的源码编辑）；保留链接跳转、复制、大纲与脚注导航等只读可用操作。
+
 ## [0.5.11] — 2026-07-03
 
 ### Added

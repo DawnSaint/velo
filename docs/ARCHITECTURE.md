@@ -58,7 +58,7 @@ velo/
 │   └── architecture/            架构模块文档（含 testing.md 测试规约）
 ├── src/
 │   ├── App.vue                    顶栏 + 左侧 ActivityBar + 左侧功能区(文件操作 / 工作区文件树 / 大纲 / 设置) + 编辑器 + 底部状态栏
-│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
+│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / 块级折叠(folding) / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
 │   ├── utils/                     fuzzy / commandPalette / quickOpenIndex / workspaceSearch 等跨组件纯工具
@@ -90,6 +90,8 @@ velo/
 │           │   ├── FootnoteNodeViews.ts
 │           │   ├── TocDecoration.ts        TOC 目录 Decoration.widget
 │           │   ├── CodeHighlightWidget.ts
+│           │   ├── CodeLineNumberWidget.ts  code_block 行号(可选开关)v0.5.11
+│           │   ├── FoldDecoration.ts    块级折叠(heading / list_item)v0.5.12
 │           │   ├── shikiCmPlugin.ts    源代码模式 CM6 shiki 高亮 ViewPlugin
 │           │   └── TextareaEditor.ts  多行 textarea 编辑壳
 │           ├── findreplace/       查找替换 (浮层UI + PM/CM6 双后端 + 高亮 + 匹配函数)
