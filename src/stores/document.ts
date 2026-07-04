@@ -451,6 +451,37 @@ export const useDocumentStore = defineStore('document', () => {
     return true
   }
 
+  /**
+   * 多标签"强制新开"入口:无论该 path 是否已开标签,**始终**新开一个标签装载它。
+   * 文件树中键点击(FileTree.vue 的 auxclick.middle)用这条 —— 与 openPathInTab
+   * 的"已开则复用"语义相反,允许同一文件以独立标签多次打开(各自独立 undo /
+   * 滚动 / 光标,见 DocState.pmState / cmState / scrollTop 缓存)。如果活动
+   * 标签是干净的空白未命名标签,直接复用该标签避免多一个空标签。
+   *
+   * 错误处理与 openPathInTab 同款:readTextFile 抛错 → 弹原生 message → 返回 false,
+   * **不**创建空标签,活动标签保持原状。
+   */
+  async function openPathInNewTab(path: string): Promise<boolean> {
+    let c: string
+    try {
+      c = await readTextFile(path)
+    }
+    catch (e) {
+      console.error('打开文件失败', path, e)
+      await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      return false
+    }
+    // 与 openPathInTab 复用同一规则:活动标签非干净空白 → 新开一个空白标签再激活。
+    // 这里**不**先 findTabByPath —— 强制新开,即便 path 已被其它标签装载过。
+    if (!isPristineBlank(activeDoc())) {
+      const id = createTab()
+      switchTab(id)
+    }
+    loadContent(c, path)
+    useRecentFilesStore().push(path)
+    return true
+  }
+
   /** 装载示例(只读,无磁盘实体)到新标签或复用干净未命名标签。 */
   function openSampleTab(content: string, label: string) {
     if (!isPristineBlank(activeDoc())) {
@@ -912,6 +943,7 @@ export const useDocumentStore = defineStore('document', () => {
     open,
     openPath,
     openPathInTab,
+    openPathInNewTab,
     openSampleTab,
     save,
     saveDoc,

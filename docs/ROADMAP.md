@@ -34,9 +34,9 @@
 - [ ] 系统托盘 + 快速捷径
 - [ ] 设置面板、工具栏重做
 - [ ] 左侧功能栏可自定义（排序、隐藏）
-- [ ] 编辑器多标签：单窗口内同时打开多个 .md，标签条横排，关闭脏盘弹 confirm；标签状态走 `documentStore` 多实例化（`documents: Map<id, DocState>` + `activeId`，`currentFilePath` / `content` / `lastSavedContent` 等下沉到 DocState）
+- [x] 编辑器多标签：单窗口内同时打开多个 .md，标签条横排，关闭脏盘弹 confirm；标签状态走 `documentStore` 多实例化（`documents: Map<id, DocState>` + `activeId`，`currentFilePath` / `content` / `lastSavedContent` 等下沉到 DocState）
 - [ ] 标签持久化到 `velo-workspaces.json` 的 per-workspace `openTabs: string[]`，恢复工作区时重开上次的标签集
-- [ ] 文件树↔标签联动：点击树节点优先复用已开标签，不重复打开；中键点击 = 新标签打开
+- [x] 文件树↔标签联动：点击树节点优先复用已开标签，不重复打开；中键点击 = 新标签打开
 
 ### 视觉与个性化
 

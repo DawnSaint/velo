@@ -21,6 +21,16 @@
 - 保存: `writeTextFile`,**写盘前乐观推进** `lastSavedContent` 过滤自己的 fs:watch 事件;失败回滚
 - Ctrl+S / 失焦 / 关闭拦截走同一 `save()`
 
+## 多标签打开入口(v0.6.0)
+
+| 入口 | 行为 | 触发点 |
+|------|------|--------|
+| `openPathInTab(path)` | 已开 → 切到该标签;未开 → 新开(或复用干净未命名标签) | 树点击 / 右键"在编辑器中打开" / Ctrl+P 选中 / 工作区搜索命中 / 顶栏最近 / Welcome 选文件 / 拖入编辑器 / CLI args |
+| `openPathInNewTab(path)` | **始终**新开标签,即便 path 已被打开 | 树中键点击(VSCode 资源管理器中键语义);允许同一文件以独立标签并存(各自独立 undo / 滚动 / 光标) |
+| `openSampleTab(content, label)` | 装载示例到新标签或复用干净未命名标签 | Welcome 选 sample |
+
+两份入口共用同一条 read → loadContent → push recent 流水线,仅"是否复用已开标签"分支不同;错误处理(readTextFile 抛错 → 弹原生 message → 不创建空标签)对齐。
+
 ## 外部改动同步
 
 `checkExternalChange`(fs:watch + window focus 兜底)按序判定:

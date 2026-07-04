@@ -91,6 +91,22 @@ async function onFileClick(node: TreeNode) {
   workspace.setLastFile(node.fullPath)
 }
 
+/** 文件行中键点击(auxclick.middle):与 click 不同,**始终**在新标签打开 —— 即便该
+ *  path 已被打开过也强制再开一个标签(VSCode 资源管理器中键行为)。允许同一文件
+ *  在多个标签中并存,各自独立 undo / 滚动 / 光标(每标签 EditorState 缓存)。
+ *
+ *  - 目录 / 非 .md 文件 / 根行:no-op(目录不存在"打开新标签"语义;图片打开走拖拽
+ *    到编辑器或 ImagePastePlugin,不在这里重复实现)。
+ *  - 与 click 同款 setLastFile:打开仍是"用户意图最近"信号,工作区重开恢复最近文件
+ *    不区分开标签方式,避免 click / middle-click 之间产生"最近"分歧。 */
+async function onRowAuxClick(node: TreeNode) {
+  if (node.isDir) return
+  if (!MD_EXT_RE.test(node.name)) return
+  const ok = await documentStore.openPathInNewTab(node.fullPath)
+  if (!ok) return
+  workspace.setLastFile(node.fullPath)
+}
+
 defineExpose({ refreshDir, rebuildFromRoot })
 
 const activeFile = computed(() => documentStore.currentFilePath)
@@ -919,6 +935,7 @@ function displayName(node: TreeNode): string {
             :data-testid="isRootNode(item.node) ? 'workspace-root' : `file-row-${item.node.name}`"
             draggable="true"
             @click="onFileClick(item.node)"
+            @auxclick.middle.prevent="onRowAuxClick(item.node)"
             @dragstart="onRowDragStart($event, item.node)"
             @dragover="onRowDragOver($event, item.node)"
             @drop="onRowDrop($event, item.node)"

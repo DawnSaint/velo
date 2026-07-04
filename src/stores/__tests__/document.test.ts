@@ -461,6 +461,153 @@ describe('document store', () => {
     })
   })
 
+  // 6.7 文件树↔标签联动:v0.6.0,click 复用 / middle-click 强制新开
+  //  - openPathInTab:已开 → 切到该标签;未开 → 新开(走现有逻辑)
+  //  - openPathInNewTab:**始终**新开,即便 path 已被打开过(中键点击)
+  describe('文件树↔标签联动(openPathInTab / openPathInNewTab)', () => {
+    it('openPathInTab:未开 path → 新开标签并激活', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValueOnce('hello\n')
+
+      await store.openPathInTab('/a.md')
+
+      expect(store.tabs.length).toBe(1)
+      expect(store.activeId).toBe(store.tabs[0].id)
+      expect(store.currentFilePath).toBe('/a.md')
+      expect(store.content).toBe('hello\n')
+    })
+
+    it('openPathInTab:已开 path → 切到该标签,不复用(只有一个标签承载该 path)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      // 打开两次 /a.md
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInTab('/a.md')
+      const firstId = store.activeId
+
+      // 第二次 openPathInTab 同 path → 切回,不开新标签
+      await store.openPathInTab('/a.md')
+
+      expect(store.tabs.length).toBe(1)
+      expect(store.activeId).toBe(firstId)
+    })
+
+    it('openPathInNewTab:未开 path → 新开标签并激活(行为同 openPathInTab)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValueOnce('hello\n')
+
+      await store.openPathInNewTab('/a.md')
+
+      expect(store.tabs.length).toBe(1)
+      expect(store.currentFilePath).toBe('/a.md')
+      expect(store.content).toBe('hello\n')
+    })
+
+    // 核心:中键点击的差异化语义
+    it('openPathInNewTab:已开 path → 仍新开一个独立标签(两个标签同 path)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInNewTab('/a.md')
+      const firstId = store.activeId
+
+      // 第二次 openPathInNewTab 同 path → 再开一个
+      await store.openPathInNewTab('/a.md')
+      const secondId = store.activeId
+
+      expect(store.tabs.length).toBe(2)
+      expect(secondId).not.toBe(firstId) // 不同标签
+      expect(store.activeId).toBe(secondId) // 新标签激活
+      // 两个标签都装载 /a.md
+      expect(store.tabs.map(t => t.fileName)).toEqual(['a.md', 'a.md'])
+    })
+
+    it('openPathInNewTab:连续两次 → 两个独立标签,各自 baseline 独立', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInNewTab('/a.md')
+      const firstId = store.activeId
+      // 第一个标签编辑 → dirty
+      store.setContent('hello world\n')
+
+      // 第二次开 /a.md → 新标签,clean(独立 baseline)
+      await store.openPathInNewTab('/a.md')
+      const secondId = store.activeId
+
+      expect(firstId).not.toBe(secondId)
+      // 第一个标签应仍是 dirty(它的 baseline 没变)
+      const firstTab = store.tabs.find(t => t.id === firstId)
+      expect(firstTab?.dirty).toBe(true)
+      // 当前活动的新标签 clean(刚装载)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('openPathInNewTab:活动标签是干净空白 → 复用该标签,不再叠新空白标签', async () => {
+      const store = useDocumentStore()
+      store.init('') // 启动期空白标签 = 干净空白
+      vi.mocked(readTextFile).mockResolvedValueOnce('hello\n')
+
+      await store.openPathInNewTab('/a.md')
+
+      // init 时已有一个空白标签;openPathInNewTab 应复用,不再 createTab
+      expect(store.tabs.length).toBe(1)
+      expect(store.currentFilePath).toBe('/a.md')
+    })
+
+    it('openPathInNewTab:读盘失败 → 弹原生 message,不创建空标签', async () => {
+      const store = useDocumentStore()
+      store.init('') // 干净空白标签
+      const tabsBefore = store.tabs.length
+
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      vi.mocked(message).mockClear()
+      vi.mocked(readTextFile).mockRejectedValueOnce(new Error('No such file'))
+
+      const ok = await store.openPathInNewTab('/missing.md')
+
+      expect(ok).toBe(false)
+      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+      // 不污染状态:没创建新空白标签,干净空白还在
+      expect(store.tabs.length).toBe(tabsBefore)
+      expect(store.currentFilePath).toBeNull()
+    })
+
+    it('openPathInNewTab:成功 → 推到全局最近文件', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValueOnce('hello\n')
+
+      await store.openPathInNewTab('/a.md')
+
+      expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/a.md'])
+    })
+
+    it('openPathInNewTab:活动标签 dirty 时不弹脏盘确认(新开标签不打扰原活动标签)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInNewTab('/a.md')
+      // 编辑 /a.md 标签
+      store.setContent('hello world\n')
+      expect(store.dirty).toBe(true)
+
+      vi.mocked(confirm).mockClear()
+      vi.mocked(readTextFile).mockResolvedValueOnce('other\n')
+
+      // 中键点击 /other.md → 新开标签,不弹脏盘确认
+      await store.openPathInNewTab('/other.md')
+
+      expect(confirm).not.toHaveBeenCalled()
+      // /a.md 标签仍在且 dirty
+      const aId = store.findTabByPath('/a.md')
+      const aTab = store.tabs.find(t => t.id === aId)
+      expect(aTab?.dirty).toBe(true)
+    })
+  })
+
   // 7. dirty 是 computed
   describe('dirty 是 computed', () => {
     it('setContent 改变后立刻反映;改回 baseline 后清零', () => {
