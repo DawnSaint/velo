@@ -1210,4 +1210,246 @@ describe('document store', () => {
       expect(vi.mocked(remove)).toHaveBeenCalled()
     })
   })
+
+  // ========== 多标签 + openFilePaths(v0.6.x 标签持久化) ==========
+  //
+  // openFilePaths 是 workspaceStore 持久化 openTabs 的数据源:
+  // 插入序 = 标签条从左到右;过滤未命名空白 / sample;允许同 path 出现多次。
+  // App.vue 的 watcher 把这个数组写到 workspaceState.openTabs,启动恢复
+  // 再走 openPathInTab({ silent: true }) 顺序重开。
+
+  describe('openFilePaths + openPathInTab({ silent })', () => {
+    it('空 store:openFilePaths 是空数组', () => {
+      const store = useDocumentStore()
+      store.init('')
+      expect(store.openFilePaths).toEqual([])
+    })
+
+    it('插入两个文件后 openFilePaths 保 documents 插入序', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValueOnce('A').mockResolvedValueOnce('B')
+      await store.openPathInTab('/a.md')
+      await store.openPathInTab('/b.md')
+      expect(store.openFilePaths).toEqual(['/a.md', '/b.md'])
+    })
+
+    it('未命名空白 / sample 标签被过滤,只剩有 currentFilePath 的', async () => {
+      const store = useDocumentStore()
+      store.init('') // 首个空白未命名标签
+      vi.mocked(readTextFile).mockResolvedValueOnce('real')
+      await store.openPathInTab('/real.md')
+      store.openSampleTab('# sample content', 'sample.md')
+      expect(store.openFilePaths).toEqual(['/real.md'])
+    })
+
+    it('同一 path 多次开(openPathInNewTab)→ openFilePaths 含重复项', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('content')
+      await store.openPathInTab('/a.md')
+      // 强制新开同一 path
+      await store.openPathInNewTab('/a.md')
+      expect(store.openFilePaths).toEqual(['/a.md', '/a.md'])
+    })
+
+    it('closeTab 后 openFilePaths 收敛,顺序仍保文档剩余顺序', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('content')
+      await store.openPathInTab('/a.md')
+      await store.openPathInTab('/b.md')
+      await store.openPathInTab('/c.md')
+      const middleTab = store.tabs.find(t => t.fileName === 'b.md')!
+      vi.mocked(saveDialog as any).mockResolvedValue(undefined) // 关 dirty 标签时 confirm
+      vi.mocked(confirm).mockResolvedValue(true)
+      await store.closeTab(middleTab.id)
+      expect(store.openFilePaths).toEqual(['/a.md', '/c.md'])
+    })
+
+    it('openPathInTab({ silent: true }) 失败时只 console.warn,不弹原生 message', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
+
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      vi.mocked(message).mockClear()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const ok = await store.openPathInTab('/missing.md', { silent: true })
+      expect(ok).toBe(false)
+      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
+    it('openPathInTab(默认) 失败时弹原生 message', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
+
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      vi.mocked(message).mockClear()
+      const ok = await store.openPathInTab('/missing.md')
+      expect(ok).toBe(false)
+      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // 8.5 批量并行恢复 openPathsInTabs(v0.6.x):
+  //  - IO 并行:Promise.all(readTextFile × N),不串行
+  //  - commit 同步:循环里无 await,所有 reactive 在同一 microtask 触发
+  //  - 复用 init 空白只一次(pristineConsumed 标记)
+  //  - silent 失败路径不弹 message,非 silent 顺次 await message
+  //  - 返回成功 path 列表(供 caller 决定最终 switchTab)
+  describe('openPathsInTabs 批量并行恢复', () => {
+    it('空输入 → 返回空数组,不动 store', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      const tabsBefore = store.tabs.length
+      const restored = await store.openPathsInTabs([])
+      expect(restored).toEqual([])
+      expect(store.tabs.length).toBe(tabsBefore)
+    })
+
+    it('三个文件全部成功:openFilePaths 保持输入顺序,复用 init 空白只一次', async () => {
+      const store = useDocumentStore()
+      store.init('') // 首个干净空白标签
+      vi.mocked(readTextFile).mockResolvedValue('content')
+
+      const restored = await store.openPathsInTabs(['/a.md', '/b.md', '/c.md'])
+
+      expect(restored).toEqual(['/a.md', '/b.md', '/c.md'])
+      // init 空白被第 1 个文件复用 + 后 2 个 createTab = 3 个标签
+      expect(store.tabs.length).toBe(3)
+      // 插入序保 openFilePaths 顺序
+      expect(store.openFilePaths).toEqual(['/a.md', '/b.md', '/c.md'])
+      // 三个 doc 都装载了对应文件
+      expect(store.tabs.map(t => t.fileName)).toEqual(['a.md', 'b.md', 'c.md'])
+      // 全部推到全局最近文件
+      expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/c.md', '/b.md', '/a.md'])
+    })
+
+    // 核心断言:IO 是并行的,不是串行。readTextFile 内部用 mockImplementation
+    // 记录同时 in-flight 的调用数:Promise.all 模式下,3 个 promise 在同一个
+    // microtask 内 kick off,in-flight 计数应为 3;串行 await 模式下永远 ≤ 1。
+    it('IO 阶段真并发:readTextFile 同时 in-flight 数 = N', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      let inFlight = 0
+      let maxInFlight = 0
+      vi.mocked(readTextFile).mockImplementation(async (p: any) => {
+        inFlight++
+        if (inFlight > maxInFlight) maxInFlight = inFlight
+        // 故意延迟,确保并发的 promise 同时存在
+        await new Promise(r => setTimeout(r, 20))
+        inFlight--
+        return `content-of-${String(p).split(/[\\/]/).pop()}`
+      })
+
+      await store.openPathsInTabs(['/a.md', '/b.md', '/c.md'])
+
+      // 并发模式下应该看到过 3 个 in-flight
+      expect(maxInFlight).toBeGreaterThanOrEqual(2)
+    })
+
+    it('中途失败:成功路径装载,失败路径不进 restored', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile)
+        .mockResolvedValueOnce('A')
+        .mockRejectedValueOnce(new Error('not found'))
+        .mockResolvedValueOnce('C')
+
+      const restored = await store.openPathsInTabs(['/a.md', '/missing.md', '/c.md'], { silent: true })
+
+      expect(restored).toEqual(['/a.md', '/c.md'])
+      expect(store.openFilePaths).toEqual(['/a.md', '/c.md'])
+      // init 被 /a.md 复用 + /c.md createTab = 2 个标签
+      expect(store.tabs.length).toBe(2)
+    })
+
+    it('silent 失败:console.warn,不弹原生 message', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      vi.mocked(message).mockClear()
+
+      const restored = await store.openPathsInTabs(['/missing.md'], { silent: true })
+
+      expect(restored).toEqual([])
+      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
+    it('非 silent 失败:console.error + 弹原生 message', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
+
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      vi.mocked(message).mockClear()
+
+      const restored = await store.openPathsInTabs(['/missing.md'])
+
+      expect(restored).toEqual([])
+      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+      const [body] = vi.mocked(message).mock.calls[0]
+      expect(String(body)).toContain('not found')
+    })
+
+    it('复用 init 空白只一次:第 2..N 个文件 createTab,不开第 2 个空白标签', async () => {
+      const store = useDocumentStore()
+      store.init('') // init 已创建 1 个空白标签
+      const initBlankId = store.activeId
+      vi.mocked(readTextFile).mockResolvedValue('content')
+
+      await store.openPathsInTabs(['/a.md', '/b.md'])
+
+      // init 复用装载 /a.md + /b.md createTab = 2 个标签
+      expect(store.tabs.length).toBe(2)
+      // 第一个标签 id 就是 init 创建的(被复用)
+      expect(store.tabs[0].id).toBe(initBlankId)
+      // init 空白被复用装载 /a.md
+      expect(store.tabs[0].fileName).toBe('a.md')
+    })
+
+    it('全部失败:restored = [],documents 不变(只剩 init 空白)', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      const initBlankId = store.activeId
+      vi.mocked(readTextFile).mockRejectedValue(new Error('disk error'))
+
+      const restored = await store.openPathsInTabs(['/a.md', '/b.md'], { silent: true })
+
+      expect(restored).toEqual([])
+      // init 空白标签原样保留
+      expect(store.tabs.length).toBe(1)
+      expect(store.activeId).toBe(initBlankId)
+      expect(store.openFilePaths).toEqual([])
+    })
+
+    it('commit 阶段是同步的:createTab/switchTab/loadContent 都在同一 microtask 完成', async () => {
+      // 验证 commit 阶段不 await —— 让 mockImplementation 在 readTextFile 期间
+      // 看到 documents.size === 0(commit 还没跑),在 commit 后看到完整 N。
+      const store = useDocumentStore()
+      store.init('')
+      const sizesAtReadTime: number[] = []
+      vi.mocked(readTextFile).mockImplementation(async () => {
+        sizesAtReadTime.push(store.tabs.length)
+        return 'c'
+      })
+
+      await store.openPathsInTabs(['/a.md', '/b.md', '/c.md'])
+
+      // IO 阶段(在第一个 await 之前)tabs 还是 1(init);commit 阶段已经全跑完
+      expect(sizesAtReadTime.every(s => s === 1)).toBe(true)
+      // commit 后 tabs = init(1) + /b.md、/c.md createTab(2) = 3
+      expect(store.tabs.length).toBe(3)
+    })
+  })
 })

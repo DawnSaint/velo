@@ -170,7 +170,7 @@ describe('workspace store', () => {
     const saved = JSON.parse(String(body))
     expect(Object.keys(saved.workspaces).sort()).toEqual(['/new', '/old'])
     expect(saved.active).toBe('/new')
-    expect(saved.version).toBe(3)
+    expect(saved.version).toBe(4)
   })
 
   it('saveWorkspacePatch 连续保存不同 root 不互删', async () => {
@@ -353,5 +353,95 @@ describe('workspace store', () => {
     // 切回 a 应恢复 300
     store.setActiveRoot('/a')
     expect(store.sidebarWidth).toBe(300)
+  })
+
+  // ========== openTabs + activeTab(v0.6.x 标签持久化)==========
+  //
+  // 配套写入公式来自 App.vue 的 watcher:`setOpenTabsForActiveWorkspace` 接收
+  // 当前 window 的 openFilePaths + active doc 路径,内部按 activeRoot 过滤跨
+  // 工作区路径后落盘。配合 renamePathPrefix / removePathPrefix 在 move /
+  // delete 链路自动收敛。
+
+  it('setOpenTabsForActiveWorkspace:有 activeRoot 时写入并快照可还原', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    store.setOpenTabsForActiveWorkspace(['/proj/a.md', '/proj/b.md'], '/proj/a.md')
+    expect(store.activeWorkspace.openTabs).toEqual(['/proj/a.md', '/proj/b.md'])
+    expect(store.activeWorkspace.activeTab).toBe('/proj/a.md')
+
+    const snap = store.snapshot()
+    setActivePinia(createPinia())
+    const next = useWorkspaceStore()
+    next.loadFrom(snap)
+    expect(next.activeWorkspace.openTabs).toEqual(['/proj/a.md', '/proj/b.md'])
+    expect(next.activeWorkspace.activeTab).toBe('/proj/a.md')
+  })
+
+  it('setOpenTabsForActiveWorkspace:无 activeRoot 时 no-op,不污染状态', () => {
+    const store = useWorkspaceStore()
+    store.setOpenTabsForActiveWorkspace(['/a.md', '/b.md'], '/a.md')
+    // 无活跃工作区 → 不写;快照里也没 workspaces
+    const snap = store.snapshot()
+    expect(snap.active).toBeNull()
+    expect(snap.workspaces).toEqual({})
+  })
+
+  it('setOpenTabsForActiveWorkspace:跨 root 路径自动过滤,不污染新工作区', () => {
+    // 用户从 /old 工作区切到 /new:documents 里 /old/a.md 没被关(切工作区不关文档);
+    // watcher 把所有 openFilePaths 传过来,/old/a.md 必须被过滤,否则
+    // 写在 /new.workspaces.openTabs 里是错的(它不属于 /new)。
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/new')
+    store.setOpenTabsForActiveWorkspace(['/old/a.md', '/new/x.md'], '/old/a.md')
+    expect(store.activeWorkspace.openTabs).toEqual(['/new/x.md'])
+    expect(store.activeWorkspace.activeTab).toBeNull()
+  })
+
+  it('renamePathPrefix 重写 openTabs + activeTab 的旧前缀', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    store.setOpenTabsForActiveWorkspace(
+      ['/proj/old/a.md', '/proj/keep.md', '/proj/old/sub/b.md'],
+      '/proj/old/a.md',
+    )
+    store.renamePathPrefix('/proj/old', '/proj/new')
+    expect(store.activeWorkspace.openTabs).toEqual([
+      '/proj/new/a.md',
+      '/proj/keep.md',
+      '/proj/new/sub/b.md',
+    ])
+    expect(store.activeWorkspace.activeTab).toBe('/proj/new/a.md')
+  })
+
+  it('removePathPrefix 清掉 openTabs 中落在 prefix 下的路径,activeTab 同步置空', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    store.setOpenTabsForActiveWorkspace(
+      ['/proj/old/a.md', '/proj/keep.md', '/proj/old/sub/b.md'],
+      '/proj/old/a.md',
+    )
+    store.removePathPrefix('/proj/old')
+    expect(store.activeWorkspace.openTabs).toEqual(['/proj/keep.md'])
+    expect(store.activeWorkspace.activeTab).toBeNull()
+  })
+
+  it('loadFrom 兼容 v3 JSON(无 openTabs 字段)→ 兜底空数组', () => {
+    const store = useWorkspaceStore()
+    store.loadFrom({
+      version: 3,
+      active: '/old',
+      workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
+    })
+    expect(store.activeWorkspace.openTabs).toEqual([])
+    expect(store.activeWorkspace.activeTab).toBeNull()
+  })
+
+  it('snapshotActiveForPersistence 包含 openTabs + activeTab', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    store.setOpenTabsForActiveWorkspace(['/proj/a.md', '/proj/b.md'], '/proj/b.md')
+    const patch = store.snapshotActiveForPersistence()
+    expect(patch.workspaces['/proj'].openTabs).toEqual(['/proj/a.md', '/proj/b.md'])
+    expect(patch.workspaces['/proj'].activeTab).toBe('/proj/b.md')
   })
 })

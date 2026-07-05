@@ -344,7 +344,8 @@ export async function deleteAllDrafts(): Promise<void> {
 const WORKSPACES_FILE = 'velo-workspaces.json'
 // v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600)。
 // v3(v0.5.6):active 降级为 main 冷启动 hint;多窗口保存走 patch merge。
-const WORKSPACES_VERSION = 3
+// v4(v0.6.x):WorkspaceState 新增 openTabs + activeTab(标签持久化,恢复工作区时重开上次的标签集)。
+const WORKSPACES_VERSION = 4
 
 export type SidebarTab = 'outline' | 'files' | 'search'
 
@@ -359,6 +360,14 @@ export interface WorkspaceState {
   recentFiles?: string[]
   /** 该工作区下用户拖拽过的侧栏宽度(px,200-600);缺失回退默认 256(v0.5.5). */
   sidebarWidth?: number
+  /** 该工作区上次打开的标签文件绝对路径列表(顺序 = 标签条从左到右)。
+   *  允许同一 path 出现多次(VSCode 同款 each-instance 独立 undo / 滚动 / 光标)。
+   *  写盘由 workspaceStore.setOpenTabsForActiveWorkspace 推;无标签时回退空数组。
+   *  v0.6.x。 */
+  openTabs?: string[]
+  /** 该工作区上次活动的标签绝对路径。restore 时用作 switchTab 目标;
+   *  路径不在 openTabs 内(漂移) → 回退到最后一个装载成功的。 */
+  activeTab?: string | null
 }
 
 export interface PersistedWorkspaces {
@@ -385,8 +394,8 @@ export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
     const json = await readTextFile(path)
     const parsed = JSON.parse(json)
     if (typeof parsed !== 'object' || parsed === null) return null
-    // v1/v2/v3 都接受:v3 只是把 active 语义降级为 main 冷启动 hint。
-    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== WORKSPACES_VERSION) return null
+    // v1/v2/v3/v4 都接受:v3 是 active 语义降级;v4 仅增字段,无需迁移。
+    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== WORKSPACES_VERSION) return null
     if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return null
     return parsed as PersistedWorkspaces
   }

@@ -1076,6 +1076,23 @@ watch(() => documentStore.currentFilePath, (p) => {
   workspaceStore.setLastFile(p)
 })
 
+// 标签集合(openFilePaths)与当前 active 标签路径变化 → 同步到 active workspace
+// 的 openTabs + activeTab(v0.6.x)。workspaceStore 内跨 root 自动过滤,App.vue 不需要
+// 关心当前 activeRoot 是否仍是 1)。已有 workspaceStore deep watcher 1205-1209 接
+// debouncedWorkspaceSave,无需新 debounce。这里不传 currentFilePath 把 active tab
+// 标识为绝对路径——当 active 是空白标签或 sample 时,setOpenTabsForActiveWorkspace
+// 内部传 null 落盘,与 lastFile 自然分离(后者同样被 setLastFile 写回 active doc 的
+// currentFilePath,语义不同)。
+watch(
+  [() => documentStore.openFilePaths, () => documentStore.currentFilePath] as const,
+  ([paths, active]) => {
+    workspaceStore.setOpenTabsForActiveWorkspace(
+      paths,
+      active,
+    )
+  },
+)
+
 // ========== 草稿定时落盘 ==========
 // dirty 时每 DRAFT_SAVE_INTERVAL_MS 写一份到 appDataDir/drafts/,崩溃 / 强杀时
 // 下次启动能恢复。store 自己已经在 save() / saveAs() 成功后清掉了,这里只管"周期"。
@@ -1137,7 +1154,19 @@ onMounted(async () => {
   // 动态窗口默认不继承其它窗口的 active,避免新空窗口自动打开别的工作区。
   const workspacesLoaded = await loadWorkspaces()
   const shouldRestoreActive = !tauri || (windowLabel === MAIN_WINDOW_LABEL && !initialPayload.dirs?.[0])
+
+  // 关键:loadFrom 之后**立即**把 openTabs + activeTab 拍快照到本地。
+  // 原因:下面 startup 段(CLI initialFile / startupMode='last-file')会调
+  // openPathInTab,触发"documentStore → workspaceStore" 的 watcher 把
+  // activeWorkspace.openTabs 覆盖成当前 documents 状态(只剩 1 个)。
+  // 此时再读 activeWorkspace.openTabs 就丢了。用本地副本绕开这个 race。
+  let persistedOpenTabs: string[] = []
+  let persistedActiveTab: string | null = null
   if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded, { restoreActive: shouldRestoreActive })
+  if (shouldRestoreActive && workspaceStore.activeRoot) {
+    persistedOpenTabs = (workspaceStore.activeWorkspace.openTabs ?? []).slice()
+    persistedActiveTab = workspaceStore.activeWorkspace.activeTab ?? null
+  }
 
   await recentFilesStore.hydrate()
 
@@ -1163,6 +1192,33 @@ onMounted(async () => {
   if (!initialFile && !initialDir && store.startupMode === 'last-file') {
     const lastPath = recentFilesStore.entries[0]?.path
     if (lastPath) await documentStore.openPathInTab(lastPath)
+  }
+
+  // 0.2) 恢复工作区持久化的标签集合(v0.6.x)。
+  //    注意:这里用上面快照到本地的 persistedOpenTabs / persistedActiveTab,
+  //    **不**读 workspaceStore.activeWorkspace.openTabs —— 上面 startupMode='last-file'
+  //    那段会调 openPathInTab 并触发我的 watcher,把 activeWorkspace.openTabs 覆盖成
+  //    当前 documents 状态(只剩 1 个)。用本地副本绕开这个 race。
+  //    副作用:本次 restore 期间 watcher 多次 fire 会让 workspaces[root].openTabs 看似
+  //    与 persistedOpenTabs 不同步,但 debounce 500ms 后会写回完整状态(包含 startupMode
+  //    期间打开的最近文件)。
+  //    openPathInTab 传 { silent: true }:启动期个别文件被外部删,只 console.warn
+  //    不弹原生错误框,避免连弹几个吓到用户。
+  if (persistedOpenTabs.length > 0) {
+    // 批量并行恢复(v0.6.x):openPathsInTabs 内 IO 阶段 Promise.all 并发 readTextFile,
+    // commit 阶段同步批量写 store,所有 reactive 触发在同一 microtask 内合并,
+    // TabBar 一次性拿到 N 个新 tab —— 不会肉眼可见地"一个个出现"。
+    // 失败路径(silent:true)只 console.warn,不弹原生错误框。
+    const restored = await documentStore.openPathsInTabs(persistedOpenTabs, { silent: true })
+    // 切到上次 activeTab(若仍在 restored 内);否则回退到最后一个装载成功的。
+    const wantActive = persistedActiveTab
+      && restored.includes(persistedActiveTab)
+      ? persistedActiveTab
+      : restored[restored.length - 1]
+    if (wantActive) {
+      const id = documentStore.findTabByPath(wantActive)
+      if (id) documentStore.switchTab(id)
+    }
   }
 
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。

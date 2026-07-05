@@ -137,6 +137,8 @@ velo/
 
 **状态栏**: `App.vue` 汇总 `documentStore` 的内容 / 文件 / dirty / sourceMode、`workspaceStore` 的 active root / known roots，以及当前挂载编辑器上报的光标行列，传给 `StatusBar.vue` 展示。光标行列是 UI-only 状态，不进入 `documentStore`、不持久化；文档统计直接从 `documentStore.content` 计算。源码模式切换入口放在状态栏,仍只翻转 `documentStore.sourceMode`。
 
+**标签持久化(v0.6.0)**: `WorkspaceState` 增 `openTabs: string[]` + `activeTab?: string`(WORKSPACES_VERSION 4),数据源 `documentStore.openFilePaths`,由 App.vue watcher 自动同步(已有 deep watch 触发 500ms debounce)。启动恢复在 `loadFrom({restoreActive:true})` 命中后异步串行 `openPathInTab(p, { silent: true })` + `switchTab`;`setActiveRoot` 切工作区**不**应用新 workspace 的 openTabs(同 sidebarWidth READ 语义)。详见 [`architecture/file-tree.md`](./architecture/file-tree.md) 工作区段。
+
 **文件 IO / 同步 / 持久化**: 打开 / 保存、外部改动同步、崩溃恢复草稿、持久化文件,以及写盘 / echo / fs:watch 的设计取舍与维护者注意点,见 [`architecture/document-io.md`](./architecture/document-io.md)。
 
 ---

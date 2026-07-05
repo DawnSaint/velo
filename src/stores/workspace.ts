@@ -39,6 +39,8 @@ function isPathInRoot(path: string, root: string): boolean {
 }
 
 function emptyWorkspaceState(): WorkspaceState {
+  // openTabs 不给默认:不持久化"未开任何标签"和"开过标签已全部关闭"是两种状态,
+  // 让 normalize 时回退到 [] 已足够,这里不显式写入,保持 mock 数据紧凑。
   return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [], sidebarWidth: SIDEBAR_WIDTH_DEFAULT }
 }
 
@@ -170,6 +172,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 双分隔符判定(/ + \)避免引入 `sep()` 异步调用;旧值末尾 + 分隔符判 prefix,
    * 保证 `/a/b1` 不会被 `/a/b` 匹中。
    */
+  /** 记录当前窗口的 openTabs + activeTab 到 active workspace。
+   *  只在有 activeRoot 时生效(切回 root=null 也 no-op,不清空,
+   *  与 sidebarTab / sidebarWidth 同款语义)。
+   *  跨 root 的 path 自动过滤,避免"用户从 /A 工作区切到 /B 后
+   *  /A 的文件路径被错误写到 /B"——App.vue 的 watcher 会传当前全部
+   *  openFilePaths,store 内部按 activeRoot 裁剪。
+   *  启动恢复(openPathInTab)走这套;空数组写回空数组,启动时
+   *  不会误以为 openTabs 存在 vs 缺失。 */
+  function setOpenTabsForActiveWorkspace(openTabs: string[], activeTabPath: string | null) {
+    if (!activeRoot.value) return
+    const root = activeRoot.value
+    const filteredTabs = (openTabs ?? []).filter(p => typeof p === 'string' && isPathInRoot(p, root))
+    const filteredActive = activeTabPath && isPathInRoot(activeTabPath, root) ? activeTabPath : null
+    const ws = ensureWorkspace(root)
+    ws.openTabs = filteredTabs
+    ws.activeTab = filteredActive
+  }
+
   function renamePathPrefix(oldPath: string, newPath: string) {
     if (!activeRoot.value) return
     if (oldPath === newPath) return
@@ -194,6 +214,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         return p
       })
     }
+    // openTabs / activeTab 走同款重写:文件被外部 mv 之后,持久化路径同步更新,
+    // 否则下次重启按旧路径 openPathInTab 会失败(白跳一个 tab)。
+    if (ws.openTabs?.length) {
+      ws.openTabs = ws.openTabs.map((p) => {
+        if (p === oldPath) return newPath
+        if (p.startsWith(oldSep1) || p.startsWith(oldSep2)) return newPath + p.slice(oldPath.length)
+        return p
+      })
+    }
+    const at = ws.activeTab
+    if (at === oldPath) ws.activeTab = newPath
+    else if (at && (typeof at === 'string') && (at.startsWith(oldSep1) || at.startsWith(oldSep2))) {
+      ws.activeTab = newPath + at.slice(oldPath.length)
+    }
   }
 
   function removePathPrefix(pathPrefix: string) {
@@ -204,6 +238,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (ws.recentFiles?.length) {
       ws.recentFiles = ws.recentFiles.filter(p => !isPathInRoot(p, pathPrefix))
     }
+    // openTabs / activeTab 同款裁剪(目录被删 → 落入该目录的 tab 文件也已无法恢复)。
+    if (ws.openTabs?.length) {
+      ws.openTabs = ws.openTabs.filter(p => !isPathInRoot(p, pathPrefix))
+    }
+    if (ws.activeTab && isPathInRoot(ws.activeTab as string, pathPrefix)) ws.activeTab = null
   }
 
   function setSidebarTab(tab: SidebarTab) {
@@ -237,6 +276,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       sidebarTab: v.sidebarTab ?? 'outline',
       recentFiles: [...(v.recentFiles ?? [])],
       sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
+      // v3 JSON 无 openTabs 时给空数组;无 activeTab 时给 null。openTabs 与
+      // expandedDirs / recentFiles 同款"以数组形式持久化"。
+      openTabs: Array.isArray(v.openTabs) ? v.openTabs.slice() : [],
+      activeTab: typeof v.activeTab === 'string' ? v.activeTab : null,
     }
   }
 
@@ -306,6 +349,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setDirExpanded,
     isDirExpanded,
     setLastFile,
+    setOpenTabsForActiveWorkspace,
     renamePathPrefix,
     removePathPrefix,
     setSidebarTab,

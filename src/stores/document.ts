@@ -183,6 +183,19 @@ export const useDocumentStore = defineStore('document', () => {
     }))
   })
 
+  /** 所有"有磁盘实体"的标签路径(插入序 = 标签条从左到右)。
+   *  空白未命名 / sample / 草稿恢复失败等无 currentFilePath 的 doc 被过滤掉。
+   *  允许同一 path 出现多次(中键 or openPathInNewTab 强制新开,VSCode 同款)。
+   *  v0.6.x 启动恢复 + 标签持久化用——由 workspaceStore.setOpenTabsForActiveWorkspace
+   *  写回 velo-workspaces.json。 */
+  const openFilePaths = computed<string[]>(() => {
+    const out: string[] = []
+    for (const d of documents.value.values()) {
+      if (d.currentFilePath) out.push(d.currentFilePath)
+    }
+    return out
+  })
+
   /** 「干净的空白未命名标签」判断:活动标签无 path + 未编辑 + 内容是空白('' 或 canonical 空文档)。
    *  开文件 / 装载 sample / newDoc 时复用它,避免留一串空标签(典型:启动 init 的空白标签)。
    *  内容必须是真空白(不是 'hello world' 这种有内容的干净未命名文档)—— 否则 newDoc 会吞掉它。 */
@@ -424,8 +437,13 @@ export const useDocumentStore = defineStore('document', () => {
    * 多标签打开入口:已开则切到该标签;未开则新开标签(或复用干净的未命名标签)。
    * 不弹当前活动标签的脏盘确认 —— 新文件走新标签,旧标签原样保留。
    * readTextFile 抛错时弹原生 message,**不**创建空标签。
+   *
+   * `opts.silent=true` 走"启动恢复"语义:readTextFile 抛错时只 console.warn 不弹原生
+   * message —— 启动期连弹几个错误框会让用户以为 app 出问题,而且本次任务的"启动
+   * 恢复持久 openTabs"上下文下,极少数被外部删的文件失败不应阻塞其他标签的装载。
+   * 该参数不会影响其它行为(已开复用 / 新开 / 装载 / 切到该标签)。
    */
-  async function openPathInTab(path: string): Promise<boolean> {
+  async function openPathInTab(path: string, opts: { silent?: boolean } = {}): Promise<boolean> {
     const existing = findTabByPath(path)
     if (existing) {
       switchTab(existing)
@@ -437,8 +455,15 @@ export const useDocumentStore = defineStore('document', () => {
       c = await readTextFile(path)
     }
     catch (e) {
-      console.error('打开文件失败', path, e)
-      await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      if (opts.silent) {
+        // 启动恢复:失踪文件属于可预期的情况(用户上次没正常关 app + 文件被外部删),
+        // console.warn 写明路径 + 错误原因,方便 DevTools 排查。
+        console.warn(`[tabs-restore] skip ${path}: ${formatError(e)}`)
+      }
+      else {
+        console.error('打开文件失败', path, e)
+        await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      }
       return false
     }
     // 复用干净的未命名标签(启动 init 空白),否则新开
@@ -449,6 +474,72 @@ export const useDocumentStore = defineStore('document', () => {
     loadContent(c, path)
     useRecentFilesStore().push(path)
     return true
+  }
+
+  /**
+   * 批量并行打开多个文件到多标签(v0.6.x,启动恢复专用)。两条关键差异 vs
+   * 多次串行 `openPathInTab`:
+   * 1. **IO 并行**:第一阶段 `Promise.all(readTextFile × N)`,N 个文件并发
+   *    读盘 —— 串行读会让 N 个标签肉眼可见地"一个个出现",网络盘 / 慢盘尤甚。
+   * 2. **commit 同步**:第二阶段顺序循环把读到的内容一次性塞进 `documents` Map
+   *    (无 await),所有 reactive 触发都在同一 microtask 内被 Vue 合并成一次
+   *    update,TabBar 也只重渲一次。
+   *
+   * 复用 init 留下的空白未命名标签:`isPristineBlank(activeDoc()) && !consumed`
+   * 只允许第一个 path 复用(后续都新开)—— 与 `openPathInTab` 的"已开复用 / 未开
+   * 新开"语义对齐,只是这里不能依赖串行 await 之间的 active 状态变化,必须显式
+   * 跟踪 consumed 标记。
+   *
+   * `opts.silent=true`:readTextFile 失败 → 仅 `console.warn`,不弹原生 message
+   * (启动期连弹错误框会吓到用户)。失败 path 不进入 `restored` 列表。
+   * `opts.silent=false`(默认):失败顺次 `await message` 弹原生错误框,与单文件
+   * `openPathInTab` 行为一致。
+   *
+   * 返回成功装载的 path 列表(顺序与输入一致),供 caller 决定最终 switchTab 目标。
+   */
+  async function openPathsInTabs(
+    paths: string[],
+    opts: { silent?: boolean } = {},
+  ): Promise<string[]> {
+    if (paths.length === 0) return []
+    // 第一阶段:IO 并行。失败先收集,不抛、不弹窗 —— 留给 commit 阶段按 opts 处理。
+    const reads = await Promise.all(paths.map(async (p) => {
+      try {
+        const c = await readTextFile(p)
+        return { p, c, err: null as unknown }
+      }
+      catch (err) {
+        return { p, c: null as string | null, err }
+      }
+    }))
+    // 第二阶段:同步 commit。循环内无 await,Vue reactive 在同一 microtask 触发,
+    // TabBar 一次性拿到 7 个新 tab 而不是 7 次增量更新。
+    const restored: string[] = []
+    let pristineConsumed = false
+    for (const { p, c, err } of reads) {
+      if (c === null) {
+        if (opts.silent) {
+          console.warn(`[tabs-restore] skip ${p}: ${formatError(err)}`)
+        }
+        else {
+          console.error('打开文件失败', p, err)
+          await message(`无法打开 ${p}:${formatError(err)}`, { title: '打开失败', kind: 'error' })
+        }
+        continue
+      }
+      const canReusePristine = isPristineBlank(activeDoc()) && !pristineConsumed
+      if (canReusePristine) {
+        pristineConsumed = true
+      }
+      else {
+        const id = createTab()
+        switchTab(id)
+      }
+      loadContent(c, p)
+      useRecentFilesStore().push(p)
+      restored.push(p)
+    }
+    return restored
   }
 
   /**
@@ -1030,6 +1121,7 @@ export const useDocumentStore = defineStore('document', () => {
     activeId,
     tabSwitchToken,
     tabs,
+    openFilePaths,
     content,
     currentFilePath,
     dirty,
@@ -1053,6 +1145,7 @@ export const useDocumentStore = defineStore('document', () => {
     open,
     openPath,
     openPathInTab,
+    openPathsInTabs,
     openPathInNewTab,
     openSampleTab,
     save,
