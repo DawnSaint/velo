@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { X, Plus } from '@lucide/vue'
 import { useDocumentStore } from '@/stores/document'
 
@@ -6,6 +7,99 @@ const documentStore = useDocumentStore()
 
 async function onClose(id: string) {
   await documentStore.closeTab(id)
+}
+
+// ===== 拖拽重排(v0.6.x) =====
+// HTML5 native draggable,与 FileTree 内部 move 同款范式(dragDropEnabled:false)。
+// dataTransfer 仅承载 tab id(MIME 同名);实际重排用本地 draggingId 判定,
+// 避免读不到自定义 MIME 时被外部拖拽误识别(同 webview 内的 drag 事件只有自家来源)。
+//
+// dropTarget 设计:不指向「鼠标所在 tab」,而是指向「该落点的伪元素归属 tab +
+// 哪一侧伪元素」。这样 drop 指示器和 divider 永远落在同一个伪元素上 ——
+// 激活 drop 时 divider 自然被同位覆盖,**物理上不可能出现两条线**。
+//   - side='before' → 目标 tab 的 ::before(divider 位置)
+//   - side='after'  → 目标 tab 的 ::after(末尾 divider 位置,仅最后一个 tab)
+
+const draggingId = ref<string | null>(null)
+const dropTarget = ref<{ tabId: string, side: 'before' | 'after' } | null>(null)
+
+function onDragStart(event: DragEvent, id: string) {
+  if (!event.dataTransfer) return
+  event.dataTransfer.setData('application/x-velo-tab-id', id)
+  event.dataTransfer.effectAllowed = 'move'
+  draggingId.value = id
+}
+
+/** 鼠标在 tab 上 → 重映射到「divider 落点」(下一个 tab 的 ::before / 当前 tab 的 ::after / 当前 tab 的 ::before)。
+ *  关键:drop 指示器始终落在「已经有 divider 的伪元素」上 — divider 与 drop 互斥,同一伪元素同时刻只一种状态。 */
+function onDragOver(event: DragEvent, tabId: string) {
+  if (draggingId.value === null) return
+  if (draggingId.value === tabId) {
+    // 拖到自己头上 → 清掉 drop 指示(不与自身重排)
+    dropTarget.value = null
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const isAfter = event.clientX - rect.left > rect.width / 2
+  if (isAfter) {
+    // 「after X」→ 重映射到下一个 tab 的 ::before(那里是 divider);X 是最后一个时落到 X 自己的 ::after
+    const idx = documentStore.tabs.findIndex(t => t.id === tabId)
+    const nextTab = documentStore.tabs[idx + 1]
+    if (nextTab) {
+      dropTarget.value = { tabId: nextTab.id, side: 'before' }
+    }
+    else {
+      dropTarget.value = { tabId, side: 'after' }
+    }
+  }
+  else {
+    // 「before X」→ 直接用 X 自己的 ::before
+    dropTarget.value = { tabId, side: 'before' }
+  }
+}
+
+function onDragLeave(_tabId: string) {
+  // 不可信:子元素冒泡也会触发 → 用 dragend 全局兜底清
+}
+
+function onTabDrop(event: DragEvent) {
+  event.preventDefault()
+  const fromId = draggingId.value
+  const target = dropTarget.value
+  if (fromId && target) {
+    documentStore.reorderTabs(fromId, target.tabId, target.side)
+  }
+  resetDragState()
+}
+
+function onDragOverNewTab(event: DragEvent) {
+  if (draggingId.value === null) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  // + 按钮 = 「after last tab」= 最后一个 tab 的 ::after(那里有 tab-divider-right)
+  const tabs = documentStore.tabs
+  const last = tabs[tabs.length - 1]
+  if (last && last.id !== draggingId.value) {
+    dropTarget.value = { tabId: last.id, side: 'after' }
+  }
+}
+
+function onDropToEnd(event: DragEvent) {
+  event.preventDefault()
+  // 共用 onTabDrop 的逻辑:dropTarget 已经被 onDragOverNewTab 设好
+  onTabDrop(event)
+}
+
+function onDragEnd() {
+  resetDragState()
+}
+
+function resetDragState() {
+  draggingId.value = null
+  dropTarget.value = null
 }
 </script>
 
@@ -20,14 +114,23 @@ async function onClose(id: string) {
           'tab-active': tab.active,
           'tab-divider': i > 0 && !tab.active && !documentStore.tabs[i - 1].active,
           'tab-divider-right': i === documentStore.tabs.length - 1 && !tab.active,
+          'tab-dragging': draggingId === tab.id,
+          'tab-drop-before': dropTarget?.tabId === tab.id && dropTarget.side === 'before',
+          'tab-drop-after': dropTarget?.tabId === tab.id && dropTarget.side === 'after',
         }"
         role="tab"
         :aria-selected="tab.active"
         :title="tab.fileName + (tab.dirty ? ' •' : '')"
         tabindex="0"
+        draggable="true"
         @click="documentStore.switchTab(tab.id)"
         @auxclick.middle.prevent="onClose(tab.id)"
         @keydown.enter="documentStore.switchTab(tab.id)"
+        @dragstart="onDragStart($event, tab.id)"
+        @dragover="onDragOver($event, tab.id)"
+        @dragleave="onDragLeave(tab.id)"
+        @drop="onTabDrop($event)"
+        @dragend="onDragEnd"
       >
         <div class="tab-content flex w-full items-center gap-1">
           <span class="tab-dot" :class="{ 'tab-dot-on': tab.dirty }" />
@@ -48,6 +151,8 @@ async function onClose(id: string) {
         class="tab-new"
         title="新标签 (Ctrl+N)"
         @click="documentStore.newDoc()"
+        @dragover="onDragOverNewTab"
+        @drop="onDropToEnd"
       >
         <Plus :size="15" />
       </button>
@@ -86,20 +191,28 @@ async function onClose(id: string) {
 
   /* 竖线分隔(短竖线 h-5 / w-px,垂直居中,不与栏底 border 相接):
    * 左 ::before — 相邻两个非活动标签之间;
-   * 右 ::after  — 末尾非活动标签与 + 按钮之间 */
-  &.tab-divider::before,
-  &.tab-divider-right::after {
+   * 右 ::after  — 末尾非活动标签与 + 按钮之间。
+   *
+   * ::before / ::after 改常驻(默认透明),divider / drop indicator 复用同一对
+   * 锚点 — 单一 indicator、不进 flex 流、不撑开布局、X 不漂移。 */
+  &::before,
+  &::after {
     content: '';
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
     width: 1px;
     height: calc(var(--spacing) * 5);    /* h-5 */
-    background: rgb(229 231 235);      /* gray-200 */
+    border-radius: 1px;
+    background: transparent;
     pointer-events: none;
   }
-  &.tab-divider::before { left: 0; }
-  &.tab-divider-right::after { right: 0; }
+  &::before { left: 0; }
+  &::after { right: 0; }
+  &.tab-divider::before,
+  &.tab-divider-right::after {
+    background: rgb(229 231 235);      /* gray-200 */
+  }
 
   /* 活动标签:bg 铺满 .tab(含 padding)到底,覆盖容器 border-b 与编辑器连成一片 */
   &.tab-active {
@@ -110,6 +223,28 @@ async function onClose(id: string) {
     border-top-right-radius: 8px;
     border-bottom-color: #fff;       /* 覆盖容器 border-b,与编辑器衔接 */
     transition: none;
+  }
+
+  /* 拖拽源:半透明(原生 dragstart ghost 已自管,这里标的是「起点 tab」本体) */
+  &.tab-dragging {
+    opacity: 0.5;
+  }
+
+  /* 拖入位置指示器:复用 divider 同一对 ::before / ::after,蓝 2px 覆盖在 divider 位置。
+   * 定义顺序在 .tab-divider 之后 → 同 specificity 时定义晚的胜出,divider 与 drop 同存时
+   * drop 优先(实际不会同存,drop 触发的 tab 同一时刻只有一个 before / after)。 */
+  &.tab-drop-before::before,
+  &.tab-drop-after::after {
+    background: rgb(59 130 246);     /* blue-500 */
+    width: 2px;
+  }
+
+  /* draggable 元素:grab cursor;拖拽中变 grabbing */
+  &[draggable="true"] {
+    cursor: grab;
+  }
+  &.tab-dragging {
+    cursor: grabbing;
   }
 }
 
@@ -183,7 +318,7 @@ async function onClose(id: string) {
 }
 
 /* 暗色:非活动 tab 透明显 #111 标题栏底;活动 tab 铺 #1e1e1e 与编辑器衔接。
- * ⚠️ 必须 .dark .xxx,不能 :global(.dark) .xxx — scoped 下 :global(.dark) .tab 会编译成
+ * 必须 .dark .xxx,不能 :global(.dark) .xxx — scoped 下 :global(.dark) .tab 会编译成
  * 裸 .dark{}(后代 .tab 被吞),规则落到根 div 上完全不命中;改用 .dark .tab 后只末位 .tab
  * 加 [data-v],.dark 保持全局命中根 div 的 .dark 类。 */
 .dark .tab {
@@ -195,6 +330,11 @@ async function onClose(id: string) {
   &.tab-divider::before,
   &.tab-divider-right::after {
     background: rgb(55 65 81);         /* gray-700 */
+  }
+  /* 暗色 drop 指示:更亮的 blue-400 在 #1e1e1e 上对比足够 */
+  &.tab-drop-before::before,
+  &.tab-drop-after::after {
+    background: rgb(96 165 250);       /* blue-400 */
   }
   &.tab-active {
     background: #1e1e1e;            /* 编辑器暗底,与编辑器衔接 */

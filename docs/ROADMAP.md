@@ -37,6 +37,8 @@
 - [x] 编辑器多标签：单窗口内同时打开多个 .md，标签条横排，关闭脏盘弹 confirm；标签状态走 `documentStore` 多实例化（`documents: Map<id, DocState>` + `activeId`，`currentFilePath` / `content` / `lastSavedContent` 等下沉到 DocState）
 - [ ] 标签持久化到 `velo-workspaces.json` 的 per-workspace `openTabs: string[]`，恢复工作区时重开上次的标签集
 - [x] 文件树↔标签联动：点击树节点优先复用已开标签，不重复打开；中键点击 = 新标签打开
+- [x] 标签拖拽重排
+- [ ] 标签右键菜单（关闭其他 / 关闭右侧 / 复制路径等）
 
 ### 视觉与个性化
 

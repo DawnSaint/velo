@@ -685,6 +685,36 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  /** 拖拽重排:把 fromId 标签移到 toId 标签的 before / after 位置。
+   *  保插入序、DocState 引用不动(编辑器缓存不重建)。
+   *  重排后把 activeId 切到 fromId(用户期望拖完继续编辑刚拖的文档)。
+   *  fromId === toId / 任一 id 不存在 → no-op。 */
+  function reorderTabs(fromId: string, toId: string, position: 'before' | 'after') {
+    if (fromId === toId) return
+    const docs = documents.value
+    if (!docs.has(fromId) || !docs.has(toId)) return
+    const source = docs.get(fromId)!
+    // 取除源外的所有 entry(保持当前顺序)
+    const entries: [string, DocState][] = []
+    for (const [id, d] of docs) {
+      if (id !== fromId) entries.push([id, d])
+    }
+    const targetIdx = entries.findIndex(([id]) => id === toId)
+    if (targetIdx === -1) return
+    const insertIdx = position === 'before' ? targetIdx : targetIdx + 1
+    entries.splice(insertIdx, 0, [fromId, source])
+    // 重构 Map 触发 Vue 响应式(ref<Map> 对 .clear + .set 链能感知)
+    docs.clear()
+    for (const [id, d] of entries) docs.set(id, d)
+    // 拖完激活被拖的 tab:用户期望继续编辑刚拖的文档,
+    // 且 activeId 改变会触发 tabSwitchToken → EditorInner 恢复缓存的 PM/CM state
+    if (activeId.value !== fromId) {
+      activeId.value = fromId
+      tabSwitchToken.value++
+      void syncTitle()
+    }
+  }
+
   /** 重命名 / 移动后,把所有打开标签里命中 srcPath(文件)或其前缀(目录)的路径
    *  换成 newPath,**不动 content / lastSavedContent**(保留 dirty 状态)。
    *  loadContent 会重置基线 → 改名时丢失 dirty,故这里单独走「只换 path + 重启 watch」。 */
@@ -959,6 +989,7 @@ export const useDocumentStore = defineStore('document', () => {
     switchTab,
     closeTab,
     closeTabsUnderPath,
+    reorderTabs,
     renameOpenPaths,
     countOpenTabsUnder,
     countDirtyTabsUnder,

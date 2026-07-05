@@ -608,6 +608,84 @@ describe('document store', () => {
     })
   })
 
+  // 7. reorderTabs 拖拽重排(v0.6.x)
+  // 纯 in-memory 保插入序;DocState 引用不动 → 编辑器缓存(pmState/cmState/scrollTop)
+  // 不会随重排失效;activeId 也不动。
+  describe('reorderTabs 拖拽重排', () => {
+    /** 起三个标签 a / b / c(全 mock readTextFile 让 openPathInTab 走装载路径) */
+    async function setupThreeTabs() {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInTab('/a.md')
+      const a = store.activeId
+      await store.openPathInTab('/b.md')
+      const b = store.activeId
+      await store.openPathInTab('/c.md')
+      const c = store.activeId
+      return { store, ids: { a, b, c } }
+    }
+
+    it('把 fromId 标签移到 toId 标签 before 位置', async () => {
+      const { store, ids } = await setupThreeTabs()
+      store.reorderTabs(ids.c, ids.a, 'before')
+      expect(store.tabs.map(t => t.id)).toEqual([ids.c, ids.a, ids.b])
+    })
+
+    it('把 fromId 标签移到 toId 标签 after 位置', async () => {
+      const { store, ids } = await setupThreeTabs()
+      store.reorderTabs(ids.a, ids.c, 'after')
+      expect(store.tabs.map(t => t.id)).toEqual([ids.b, ids.c, ids.a])
+    })
+
+    it('fromId === toId → no-op,顺序不变', async () => {
+      const { store, ids } = await setupThreeTabs()
+      const before = store.tabs.map(t => t.id)
+      store.reorderTabs(ids.b, ids.b, 'before')
+      expect(store.tabs.map(t => t.id)).toEqual(before)
+    })
+
+    it('重排后 activeId 切到被拖的 fromId(用户期望拖完继续编辑刚拖的文档)', async () => {
+      const { store, ids } = await setupThreeTabs()
+      store.switchTab(ids.b)
+      expect(store.activeId).toBe(ids.b)
+      store.reorderTabs(ids.b, ids.a, 'before')
+      // 拖完 → 激活变成 fromId
+      expect(store.activeId).toBe(ids.b)
+      // tabs 顺序反映重排
+      expect(store.tabs.map(t => t.id)).toEqual([ids.b, ids.a, ids.c])
+    })
+
+    it('拖动一个非活动 tab 后,该 tab 变成活动', async () => {
+      const { store, ids } = await setupThreeTabs()
+      // 当前 active = c(最后一次 openPathInTab 激活的)
+      expect(store.activeId).toBe(ids.c)
+      store.reorderTabs(ids.a, ids.c, 'before')
+      // a 被拖动 → 变成活动
+      expect(store.activeId).toBe(ids.a)
+      // a 从 0 移到 c(原本 idx=2)之前 → 顺序 [b, a, c]
+      expect(store.tabs.map(t => t.id)).toEqual([ids.b, ids.a, ids.c])
+    })
+
+    it('保 DocState 引用(同一个 Map value 不被替换,编辑器缓存不丢)', async () => {
+      const { store, ids } = await setupThreeTabs()
+      const aDocBefore = store.documents.get(ids.a)
+      store.reorderTabs(ids.c, ids.a, 'before')
+      const aDocAfter = store.documents.get(ids.a)
+      expect(aDocAfter).toBe(aDocBefore) // 同一引用
+    })
+
+    it('未知 id → no-op,不抛错', async () => {
+      const { store, ids } = await setupThreeTabs()
+      const before = store.tabs.map(t => t.id)
+      // 任一 id 不存在
+      store.reorderTabs('nope', ids.a, 'before')
+      store.reorderTabs(ids.a, 'nope', 'after')
+      store.reorderTabs('nope', 'also-nope', 'before')
+      expect(store.tabs.map(t => t.id)).toEqual(before)
+    })
+  })
+
   // 7. dirty 是 computed
   describe('dirty 是 computed', () => {
     it('setContent 改变后立刻反映;改回 baseline 后清零', () => {
