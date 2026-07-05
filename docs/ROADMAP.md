@@ -39,6 +39,9 @@
 - [x] 文件树↔标签联动：点击树节点优先复用已开标签，不重复打开；中键点击 = 新标签打开
 - [x] 标签拖拽重排
 - [x] 标签右键菜单（关闭其他 / 关闭右侧 / 复制路径等）
+- [x] 「文件」命令入口上移顶栏：原侧栏 FileActionsPanel 命令列表、原顶栏 RecentFilesButton、开发模式欢迎按钮统一合并到顶栏 Logo 右侧下拉按钮（图标 + 主菜单 + 最近文件右侧子菜单，视觉对齐右键菜单），ActivityBar 去掉「文件」tab
+- [x] App shell 重构：移除 Velo logo；ActivityBar 接顶；「文件」入口移到 ActivityBar 第一个位置 ~~调整：本次回滚为下方「顶栏布局回滚」条目，logo 段恢复，顶栏恢复全局形态，ActivityBar / 侧栏回到顶栏下方一格~~
+- [x] 顶栏布局回滚到 v0.6.0 形态：全局 header 横跨整个窗口顶部（Velo logo 段 + TabBar + 右侧 dev 欢迎 + 窗口控制），logo 段固定 48px 不与侧栏宽度联动 —— 标签条起点位置稳定不随工作区 / 侧栏状态抖动；ActivityBar / 左侧功能区改回顶栏下方中间一格（与 v0.6.0 多标签引入时形态一致）；FileMenuButton 仍由 ActivityBar 第一个按钮触发（`#trigger` slot 必须 `:ref="registerRef"` 否则菜单不渲染，见 ActivityBar.vue:87 / ActivityBar.test.ts 用例注释）
 
 ### 视觉与个性化
 

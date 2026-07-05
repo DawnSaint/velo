@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [Unreleased]
+
+### Changed
+- **顶栏布局调整**：顶栏恢复全局横跨整个窗口顶部的形态（Velo logo 重新出现在最左 + 标签条中段 + 右侧开发模式欢迎按钮 / 窗口控制）。logo 段固定为 48px 不与侧栏宽度联动 —— 用户拖侧栏不会让标签条起点左右抖动；ActivityBar / 左侧功能区从原本「接顶到状态栏上方」改回顶栏下方中间一格（v0.6.0 多标签引入时的形态）。顶栏左起的渲染顺序为：`[logo 48px] [TabBar] [(isDev) 欢迎] [WindowControls]`。
+- **顶栏「文件」下拉按钮**：原左侧「文件」操作面板的命令（新建文件 / 新窗口 / 打开文件 / 打开文件夹 / 保存 / 另存为 / 导出）以及原顶栏的「最近文件」菜单和开发模式欢迎按钮，统一合并到「文件」下拉面板（由 ActivityBar 第一个按钮触发）；「最近文件」条目右侧带箭头，点击展开右侧子菜单展示最近文件列表。下拉菜单与子菜单的视觉与标签 / 文件树右键菜单一致。
+
+### Removed
+- 「示例文档」入口不再从「文件」菜单中提供（如需浏览示例文档可通过欢迎对话框进入）。
+- 顶栏的「最近文件」与开发模式「欢迎」按钮已合并进「文件」下拉。
+
 ## [0.5.12] — 2026-07-04
 
 ### Added

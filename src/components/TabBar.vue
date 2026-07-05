@@ -382,7 +382,6 @@ onBeforeUnmount(() => {
   flex: 0 1 auto;
   width: 200px;
   min-width: 80px;
-  margin-bottom: -1px;
   border: 1px solid transparent;
   background: transparent;
   color: rgb(107 114 128);

@@ -66,7 +66,6 @@ function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): Comman
     'edit.find': 'find',
     'edit.replace': 'replace',
     'editor.toggleSource': 'source',
-    'view.fileActions': 'file-actions',
     'settings.open': 'settings',
     'workspace.openFolder': 'open-folder',
     'workspace.quickOpen': 'quick-open',

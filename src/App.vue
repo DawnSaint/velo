@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide, computed } from 'vue'
-import { MessageSquare } from '@lucide/vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
@@ -16,13 +15,11 @@ import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import EditorSettings from '@/components/EditorSettings.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
-import FileActionsPanel from '@/components/FileActionsPanel.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
-import RecentFilesButton from '@/components/RecentFilesButton.vue'
 import TabBar from '@/components/TabBar.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
@@ -134,7 +131,7 @@ void initSettings()
     mark('code-block-ready')
   })
 
-type LeftPanelView = 'fileActions' | 'sidebar' | 'settings' | null
+type LeftPanelView = 'sidebar' | 'settings' | null
 const leftPanelView = ref<LeftPanelView>(null)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
@@ -603,21 +600,10 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
 
 const activeActivity = computed<ActivityBarItem | null>(() => {
   if (workspaceSearchOpen.value) return 'search'
-  if (leftPanelView.value === 'fileActions') return 'fileActions'
   if (leftPanelView.value === 'settings') return 'settings'
   if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
   return null
 })
-
-function showFileActionsPanel() {
-  workspaceSearchOpen.value = false
-  leftPanelView.value = 'fileActions'
-}
-
-function toggleFileActionsPanel() {
-  workspaceSearchOpen.value = false
-  leftPanelView.value = leftPanelView.value === 'fileActions' ? null : 'fileActions'
-}
 
 function showSidebarTab(tab: 'files' | 'outline') {
   workspaceSearchOpen.value = false
@@ -771,14 +757,6 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       group: 'app',
       keywords: ['source mode', 'wysiwyg', 'markdown source'],
       run: () => documentStore.toggleSourceMode(),
-    },
-    {
-      id: 'view.fileActions',
-      title: '显示文件操作',
-      subtitle: '打开左侧的新建、打开、保存、导出入口',
-      group: 'app',
-      keywords: ['file actions', 'sidebar'],
-      run: () => showFileActionsPanel(),
     },
     {
       id: 'settings.open',
@@ -1340,46 +1318,55 @@ watch(editorRef, (v) => {
     :style="{ '--md-primary-color': store.primaryColor }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
-    <!-- 顶栏:分 logo 段(宽 = ActivityBar 48 + displaySidebarWidth,标签起始随 splitter 联动)
-         + 标签段(TabBar,活动标签底部无 border 与编辑器衔接) + 右侧控件 -->
+    <!-- 全局顶栏(v0.6.x 回滚到 v0.6.0 多标签引入的形态,本次重排):
+         - 顶栏横跨整个窗口宽度,固定在 y=0 接顶。
+         - 内容:[logo 段 (固定 48px,不绑 sidebarWidth → 拖侧栏不影响 tab 起点)] [TabBar (flex-1)] [右侧 (dev 欢迎 + WindowControls)]。
+         - logo 段宽度恒为 48px(同 ActivityBar 宽),与侧栏 displaySidebarWidth 完全解耦;早期版本这里写 `48 + displaySidebarWidth`,
+           让 tab 起点跟侧栏同步,体感是拖侧栏时整个 tab 行左右抖。本次回滚按用户要求固定。
+         - TabBar 内部 `<span data-tauri-drag-region />` 自管拖拽热区,不需要 App.vue 再贴。
+         - ActivityBar / 左侧功能区 / 编辑器回到 header 下方一格(不再接顶),与 v0.6.0 几何一致。 -->
     <header class="flex h-9 shrink-0 items-stretch bg-white text-gray-700 dark:bg-[#111] dark:text-gray-300">
-      <div class="flex shrink-0 items-center gap-2 pl-3 border-b border-gray-200 dark:border-gray-800" :style="{ width: `${48 + displaySidebarWidth}px` }">
+      <!-- logo 段:固定 48px(只占 ActivityBar 那列宽)。veloLogo 同样用于
+           loadSample 时替换 sample.md 里的 Velo.png 占位(?raw 字符串不被 Vite 重写)。 -->
+      <div class="flex shrink-0 items-center gap-2 pl-3 border-b border-gray-200 dark:border-gray-800" style="width: 48px">
         <img :src="veloLogo" alt="Velo" class="h-6 w-6">
-        <span data-tauri-drag-region class="h-full flex-1" />
       </div>
 
+      <!-- 顶栏标签栏(v0.6.0 多标签):TabBar 自己根 div 含 pl-3 + border-b -->
       <TabBar @reveal-in-tree="revealFileInTree" />
 
-      <div class="flex shrink-0 items-center gap-1 pr-1 border-b border-gray-200 dark:border-gray-800">
-        <!-- 最近文件 -->
-        <RecentFilesButton
-          :entries="recentFilesStore.entries"
-          @open-recent="openRecentFile"
-        />
-        <!-- 开发模式：手动打开欢迎对话框 -->
-        <button
-          v-if="isDev"
-          type="button"
-          class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          title="打开欢迎对话框"
-          @click="welcomeVisible = true"
-        >
-          <MessageSquare :size="16" />
-        </button>
-        <span class="mx-2 h-5 w-px bg-gray-200 dark:bg-gray-700" />
+      <!-- 右侧段:仅窗口控制(`WindowControls` 自带 pr-1 + border-b,布局不抖)。
+           v0.6.x 早期曾放过 dev 模式欢迎入口(MessageSquare) + 与 WindowControls 之间的
+           1px 竖线,本次按用户偏好移除 —— dev 用户现在通过 Ctrl+Shift+P 命令面板
+           或首次启动触发入口即可重看欢迎对话框,不需要常驻 chrome。 -->
+      <div class="ml-auto flex shrink-0 items-center gap-1 pr-1 border-b border-gray-200 dark:border-gray-800">
         <WindowControls v-if="tauri" />
       </div>
     </header>
 
-    <!-- 主体 -->
+    <!-- 主体(v0.6.0 形态,本次回滚):三列 flex-row —— ActivityBar / 侧栏 / 编辑器。
+         header 在外层 flex-col 第一行,所以 ActivityBar / 侧栏从 y=36 起;不再"接顶"。
+         视觉上是「顶栏 → 中间一格工作区 → 底部 StatusBar」的三段式,与 v0.6.0 一致。 -->
     <div class="flex flex-1 overflow-hidden">
       <ActivityBar
         :active="activeActivity"
-        @select-file-actions="toggleFileActionsPanel"
+        :is-tauri="tauri"
+        :exporting="exportStore.exporting"
+        :recent-entries="recentFilesStore.entries"
+        :welcome-enabled="isDev"
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
         @select-settings="toggleSettingsPanel"
+        @new-doc="documentStore.newDoc()"
+        @new-window="createNewAppWindow()"
+        @open-file="documentStore.open()"
+        @open-folder="openFolderAsWorkspace()"
+        @save="documentStore.save()"
+        @save-as="documentStore.saveAs()"
+        @export="exportStore.exportDocument()"
+        @open-recent="openRecentFile"
+        @open-welcome="welcomeVisible = true"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
@@ -1400,20 +1387,6 @@ watch(editorRef, (v) => {
               :file-path="documentStore.currentFilePath"
             />
           </KeepAlive>
-          <FileActionsPanel
-            v-if="leftPanelView === 'fileActions'"
-            :is-tauri="tauri"
-            :exporting="exportStore.exporting"
-            :samples-available="samplesAvailable"
-            @new-doc="documentStore.newDoc()"
-            @new-window="createNewAppWindow()"
-            @open-file="documentStore.open()"
-            @open-folder="openFolderAsWorkspace()"
-            @save="documentStore.save()"
-            @save-as="documentStore.saveAs()"
-            @export="exportStore.exportDocument()"
-            @open-sample="(name) => openSample(name)"
-          />
           <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>
       </aside>
@@ -1432,63 +1405,65 @@ watch(editorRef, (v) => {
         @dblclick="sidebarSplitter.onSplitterDoubleClick"
       />
 
-      <!-- 编辑器区域 -->
-      <!--
-        v-if="codeBlockReady" 守门:**shiki highlighter 装好用户主题**后才
-        mount ProseMirrorEditor。PM mount 时 plugin state.highlighter 立即
-        ready → `decorations(state)` 第一次跑就写正确 token inline style
-        → 首屏零闪烁。单纯守 settingsReady(只等 store hydrate)不够 —— PM
-        mount 早于 `await getHighlighter()` resolve,plugin 第一次跑
-        decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
-        setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。
-      -->
-      <template v-if="codeBlockReady && documentStore.activeId">
-        <ProseMirrorEditor
-          v-if="!documentStore.sourceMode"
-          ref="editorRef"
-          v-model:find-open="findOpen"
-          :model-value="documentStore.content"
-          :font-family="store.fontFamily"
-          :font-size="store.fontSize"
-          :primary-color="store.primaryColor"
-          :is-mac-code-block="store.isMacCodeBlock"
-          :dark-mode="store.darkMode"
-          :read-only="documentStore.readOnly"
-          @update:model-value="documentStore.setContent"
-          @cursor-position-change="updateCursorPosition"
-        />
-        <SourceModeEditor
-          v-else
-          ref="srcRef"
-          v-model:find-open="findOpen"
-          :model-value="documentStore.content"
-          :dark-mode="store.darkMode"
-          :read-only="documentStore.readOnly"
-          @update:model-value="documentStore.setContent"
-          @cursor-position-change="updateCursorPosition"
-        />
-      </template>
-      <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->
-      <div
-        v-else-if="codeBlockReady && !documentStore.activeId"
-        class="flex flex-1 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
-      >
-        <span class="text-sm">没有打开的文档</span>
-        <div class="flex gap-2">
-          <button
-            type="button"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-            @click="documentStore.newDoc()"
+      <!-- 编辑器区域 + 空态(v0.6.0 形态)。
+           v-if="codeBlockReady" 守门:**shiki highlighter 装好用户主题**后才
+           mount ProseMirrorEditor。PM mount 时 plugin state.highlighter 立即
+           ready → `decorations(state)` 第一次跑就写正确 token inline style
+           → 首屏零闪烁。单纯守 settingsReady(只等 store hydrate)不够 —— PM
+           mount 早于 `await getHighlighter()` resolve,plugin 第一次跑
+           decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
+           setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
+      <div class="flex flex-1 flex-col min-w-0">
+        <div class="flex flex-1 overflow-hidden">
+          <template v-if="codeBlockReady && documentStore.activeId">
+            <ProseMirrorEditor
+              v-if="!documentStore.sourceMode"
+              ref="editorRef"
+              v-model:find-open="findOpen"
+              :model-value="documentStore.content"
+              :font-family="store.fontFamily"
+              :font-size="store.fontSize"
+              :primary-color="store.primaryColor"
+              :is-mac-code-block="store.isMacCodeBlock"
+              :dark-mode="store.darkMode"
+              :read-only="documentStore.readOnly"
+              @update:model-value="documentStore.setContent"
+              @cursor-position-change="updateCursorPosition"
+            />
+            <SourceModeEditor
+              v-else
+              ref="srcRef"
+              v-model:find-open="findOpen"
+              :model-value="documentStore.content"
+              :dark-mode="store.darkMode"
+              :read-only="documentStore.readOnly"
+              @update:model-value="documentStore.setContent"
+              @cursor-position-change="updateCursorPosition"
+            />
+          </template>
+          <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->
+          <div
+            v-else-if="codeBlockReady && !documentStore.activeId"
+            class="flex flex-1 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
           >
-            新建
-          </button>
-          <button
-            type="button"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-            @click="documentStore.open()"
-          >
-            打开…
-          </button>
+            <span class="text-sm">没有打开的文档</span>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                @click="documentStore.newDoc()"
+              >
+                新建
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                @click="documentStore.open()"
+              >
+                打开…
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

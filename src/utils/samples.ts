@@ -1,4 +1,4 @@
-// 示例文档的唯一数据源 —— WelcomeDialog / FileActionsPanel / CommandPalette
+// 示例文档的唯一数据源 —— WelcomeDialog / FileMenuButton / CommandPalette
 // 共用同一个 SAMPLE 对象,避免 key / label / fileName 在三处散落字面量。
 //
 // 读盘走 `stores/persistence.ts:readSampleContent(key)` —— Vite 动态 import

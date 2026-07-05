@@ -49,17 +49,17 @@ src/components/icons/
 
 | 语义 | 组件 | 出现位置 |
 |------|------|---------|
-| 文件 | `File` | ActivityBar, FileTree, QuickOpenPanel, CommandPalette |
-| 文件+加号(新建) | `FilePlusCorner` | FileActionsPanel, CommandPalette |
+| 文件 | `File` | ActivityBar(v0.6.x 文件入口), FileTree, QuickOpenPanel, CommandPalette |
+| 文件+加号(新建) | `FilePlusCorner` | CommandPalette |
 | 文件+放大镜(快速打开) | `FileSearch` | CommandPalette |
-| 文件+向上箭头(打开) | `FileUp` | FileActionsPanel, CommandPalette |
+| 文件+向上箭头(打开) | `FileUp` | CommandPalette |
 | 文件夹 | `Folder` | FileTree |
-| 文件夹打开 | `FolderOpen` | FileActionsPanel, CommandPalette |
+| 文件夹打开 | `FolderOpen` | CommandPalette |
 | 图片 | `Image` | FileTree |
-| 新窗口(Mac 风格) | `AppWindowMac` | FileActionsPanel, CommandPalette |
-| 保存 | `Save` | FileActionsPanel, CommandPalette |
-| 另存为 | `Upload` | FileActionsPanel, CommandPalette |
-| 导出 | `Download` | FileActionsPanel, CommandPalette |
+| 新窗口(Mac 风格) | `AppWindowMac` | CommandPalette |
+| 保存 | `Save` | CommandPalette |
+| 另存为 | `Upload` | CommandPalette |
+| 导出 | `Download` | CommandPalette |
 | 搜索/查找 | `Search` | App, ActivityBar, FindReplace, CommandPalette |
 | 替换 | `Replace` | CommandPalette |
 | 设置 | `Settings` | ActivityBar, CommandPalette |
@@ -69,7 +69,7 @@ src/components/icons/
 | 上一个 | `ChevronUp` | FindReplace |
 | 下一个 | `ChevronDown` | FindReplace, CommandPalette(展开替换栏) |
 | 展开/折叠(右箭头) | `ChevronRight` | FileTree, EditorOutline, FindReplace(收起替换栏) |
-| 最近文件(时钟) | `History` | RecentFilesButton, CommandPalette |
+| 最近文件(时钟) | `History` | CommandPalette |
 | 大纲 | `List` | ActivityBar, CommandPalette |
 | 工作区文件(多文件夹) | `Folders` | ActivityBar, CommandPalette |
 | 关闭工作区(文件夹+叉) | `FolderX` | CommandPalette |
