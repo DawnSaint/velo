@@ -444,4 +444,57 @@ describe('workspace store', () => {
     expect(patch.workspaces['/proj'].openTabs).toEqual(['/proj/a.md', '/proj/b.md'])
     expect(patch.workspaces['/proj'].activeTab).toBe('/proj/b.md')
   })
+
+  // ========== openTabs dedupe + cap(v0.6.x 修复)==========
+  //
+  // 现象:历史 v4 velo-workspaces.json 的 openTabs 含同 path 重复项(中键狂点 / 旧版
+  // 不 dedupe),启动时 openPathsInTabs 把每条都 createTab → 主线程被 TabBar 渲染拖死。
+  // 修法:setOpenTabsForActiveWorkspace 写盘前 dedupe + cap;normalize 加载时也走兜底。
+
+  it('setOpenTabsForActiveWorkspace:dedupe 同 path 重复项(保插入序),不再落盘污染 velo-workspaces.json', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    store.setOpenTabsForActiveWorkspace(
+      ['/proj/a.md', '/proj/b.md', '/proj/a.md', '/proj/c.md', '/proj/a.md'],
+      '/proj/b.md',
+    )
+    expect(store.activeWorkspace.openTabs).toEqual(['/proj/a.md', '/proj/b.md', '/proj/c.md'])
+  })
+
+  it('setOpenTabsForActiveWorkspace:cap 兜底,极端 case 不会让 openTabs 无界增长', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/proj')
+    const many: string[] = []
+    for (let i = 0; i < 200; i++) many.push(`/proj/file-${i}.md`)
+    store.setOpenTabsForActiveWorkspace(many, '/proj/file-0.md')
+    const tabs = store.activeWorkspace.openTabs ?? []
+    expect(tabs.length).toBe(50)
+    expect(tabs[0]).toBe('/proj/file-0.md')
+    expect(tabs[49]).toBe('/proj/file-49.md')
+  })
+
+  it('normalize:脏数据(v.openTabs 含重复项)→ 加载后自动 dedupe + cap,保护启动恢复', () => {
+    const store = useWorkspaceStore()
+    const dirty: string[] = []
+    for (let i = 0; i < 80; i++) dirty.push('/old/x.md')  // 同 path 重复 80 次
+    store.loadFrom({
+      version: 4,
+      active: '/old',
+      workspaces: { '/old': { expandedDirs: [], sidebarTab: 'outline', openTabs: dirty, activeTab: '/old/x.md' } },
+    })
+    expect(store.activeWorkspace.openTabs).toEqual(['/old/x.md'])  // dedupe 后只剩 1 条
+    const restoredTabs = store.activeWorkspace.openTabs ?? []
+    expect(restoredTabs.length).toBeLessThanOrEqual(50)
+  })
+
+  it('setOpenTabsForActiveWorkspace:跨 root dedupe 同时过滤 —— 不属于 active root 的 path 直接被丢', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/new')
+    store.setOpenTabsForActiveWorkspace(
+      ['/old/a.md', '/new/x.md', '/old/a.md', '/new/x.md', '/new/y.md'],
+      '/new/x.md',
+    )
+    expect(store.activeWorkspace.openTabs).toEqual(['/new/x.md', '/new/y.md'])
+    expect(store.activeWorkspace.activeTab).toBe('/new/x.md')
+  })
 })

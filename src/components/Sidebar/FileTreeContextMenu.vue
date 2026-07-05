@@ -27,6 +27,8 @@ const emit = defineEmits<{
   (e: 'open-in-editor'): void
   /** 目录:在新窗口中把该目录作为工作区根打开(顶部新增项) */
   (e: 'open-as-workspace'): void
+  /** 目录:在该目录子树里打开工作区搜索(把该目录设为 scope)。仅非根目录显示 */
+  (e: 'search-in-folder'): void
   (e: 'new-file'): void
   (e: 'new-dir'): void
   /** 复制当前节点(文件 / 目录都可) —— 仅非根节点显示 */
@@ -45,6 +47,7 @@ const canPaste = computed(() => !!props.canPaste)
 /** .md 文件才显示"在编辑器中打开" —— 图片 row 不挂(图片打开语义模糊,留给"拖入"路径). */
 const showOpenInEditor = computed(() => !props.rootContext && !props.node.isDir && MD_EXT_RE.test(props.node.name))
 const showOpenAsWorkspace = computed(() => !props.rootContext && props.node.isDir)
+const showSearchInFolder = computed(() => !props.rootContext && props.node.isDir)
 const showRenameAndDelete = computed(() => !props.rootContext)
 const showReveal = computed(() => !props.rootContext)
 
@@ -79,6 +82,14 @@ defineExpose({ rootEl })
           @click="emit('open-as-workspace')"
         >
           在新窗口中打开
+        </button>
+        <button
+          v-if="showSearchInFolder"
+          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          data-testid="ctx-search-in-folder"
+          @click="emit('search-in-folder')"
+        >
+          在此文件夹中搜索
         </button>
         <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
       </template>

@@ -726,6 +726,19 @@ function openAsWorkspace(node: TreeNode) {
   }
 }
 
+// emit「search-in-folder」给 App.vue(v0.6.0 工作区搜索 scope)——
+// App.vue 切到 search tab 并把该目录设为 scope。FileTree 不持有搜索状态,
+// 避免两处状态镜像;App.vue 的 workspaceSearchScopeDir 是单一来源。
+const emit = defineEmits<{
+  (e: 'search-in-folder', dirPath: string): void
+}>()
+
+function onSearchInFolder(node: TreeNode) {
+  closeContextMenu()
+  if (!node.isDir) return
+  emit('search-in-folder', node.fullPath)
+}
+
 /** 把节点记入剪贴板(不立刻读数据,粘贴时再读)。 */
 function copyNode(node: TreeNode) {
   closeContextMenu()
@@ -1040,6 +1053,7 @@ function displayName(node: TreeNode): string {
     :can-paste="clipboard !== null"
     @open-in-editor="openInEditor(contextMenu.node)"
     @open-as-workspace="openAsWorkspace(contextMenu.node)"
+    @search-in-folder="onSearchInFolder(contextMenu.node)"
     @new-file="openInlineNew(targetDirForNew(contextMenu.node), 'newFile')"
     @new-dir="openInlineNew(targetDirForNew(contextMenu.node), 'newDir')"
     @copy="copyNode(contextMenu.node)"

@@ -1451,5 +1451,81 @@ describe('document store', () => {
       // commit 后 tabs = init(1) + /b.md、/c.md createTab(2) = 3
       expect(store.tabs.length).toBe(3)
     })
+
+    // v0.6.x 修复:启动恢复 dedupe 兜底。
+    // 历史 velo-workspaces.json 的 openTabs 可能含同 path 重复项(旧版 setOpenTabs
+    // 不 dedupe + 中键狂点单一文件),openPathsInTabs 拿到这种数据会把同一文件
+    // createTab N 次 → TabBar 渲染 N 个相同 tab → WebView2 主线程被拖死,
+    // 表现为 dev 进入卡死什么也点不了、devtools 打不开。
+    // 修复后输入去重保插入序:first 胜出,顺序与输入一致。
+    it('输入含同 path 重复项 → dedupe 保插入序,first 胜出', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('content')
+
+      const restored = await store.openPathsInTabs(['/a.md', '/b.md', '/a.md', '/c.md', '/a.md'])
+
+      expect(restored).toEqual(['/a.md', '/b.md', '/c.md'])
+      expect(store.openFilePaths).toEqual(['/a.md', '/b.md', '/c.md'])
+      expect(store.tabs.length).toBe(3)
+      // readTextFile 只对 dedupe 后的 3 个 path 调用了 1 次
+      expect(readTextFile).toHaveBeenCalledTimes(3)
+    })
+
+    it('输入完全重复(同一 path × N)→ 只 createTab 1 次,restore = 1 项', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('content')
+
+      const restored = await store.openPathsInTabs(['/a.md', '/a.md', '/a.md'])
+
+      expect(restored).toEqual(['/a.md'])
+      // init 空白复用 1 次,后续重复都丢掉 → 只有 1 个标签
+      expect(store.tabs.length).toBe(1)
+      expect(store.openFilePaths).toEqual(['/a.md'])
+    })
+
+    it('非字符串项(脏数据)→ 静默跳过,不进 store', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('content')
+
+      // 模拟 velo-workspaces.json 被人手改坏 —— 含 null / undefined / 空串
+      const restored = await store.openPathsInTabs([
+        '/a.md',
+        null as unknown as string,
+        undefined as unknown as string,
+        '',
+        '/b.md',
+      ])
+
+      expect(restored).toEqual(['/a.md', '/b.md'])
+      expect(store.tabs.length).toBe(2)
+    })
+
+    // 启动恢复期二次保险:startupMode='last-file' 段会先调 openPathInTab(lastFile)
+    // 把 lastFile 装到 init 空白,随后 openPathsInTabs(persistedOpenTabs) 又跑一次。
+    // 修复前:openPathsInTabs 看到 active 不是空白 → createTab + loadContent → 同
+    // path 双 tab,表现为"关掉再开变两个一样的"。
+    // 修复后:openPathsInTabs 内部对每个 path 先 findTabByPath,命中就 skip,不再
+    // 重复装载,与 openPathInTab "已开则切换"语义对齐。
+    it('启动恢复期:path 已在 documents 里(openPathInTab 先装的)→ 不重复装载', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      // 模拟 startupMode='last-file' 段已经先调 openPathInTab('面试.md'):
+      // active 此时是装着 面试.md 的 tab(不是空白)
+      await store.openPathInTab('/interview.md')
+      expect(store.tabs.length).toBe(1)
+      expect(store.openFilePaths).toEqual(['/interview.md'])
+
+      vi.mocked(readTextFile).mockResolvedValue('content')
+      // 紧接着 openPathsInTabs 恢复持久化的 openTabs,包含同样的 /interview.md
+      const restored = await store.openPathsInTabs(['/interview.md', '/other.md'])
+
+      // /interview.md 已开 → skip;只新开 /other.md;共 2 个标签,各 path 唯一
+      expect(restored).toEqual(['/interview.md', '/other.md'])
+      expect(store.tabs.length).toBe(2)
+      expect(store.openFilePaths).toEqual(['/interview.md', '/other.md'])
+    })
   })
 })

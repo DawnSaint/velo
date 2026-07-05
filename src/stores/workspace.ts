@@ -180,10 +180,43 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    *  openFilePaths,store 内部按 activeRoot 裁剪。
    *  启动恢复(openPathInTab)走这套;空数组写回空数组,启动时
    *  不会误以为 openTabs 存在 vs 缺失。 */
+  /** 持久化 openTabs 容量上限。
+   *  openFilePaths 含重复项(`openPathInNewTab` 中键强制新开,UI 允许同 path 多 tab),
+   *  但持久化层面需要 dedupe + cap 防止:
+   *    1) 历史 velo-workspaces.json 已被污染(同一 path 出现 N 次)时,启动恢复
+   *       `openPathsInTabs` 会把每条都 createTab → 桌面同时挂 N 个 tab → 主线程
+   *       被渲染拖死;
+   *    2) 用户中键狂点单个文件时,openTabs 持续 append 同一 path,落盘文件无界增长
+   *       (虽然 setOpenTabsForActiveWorkspace 是 replace,但 dedupe 前每一份
+   *       含重复项的 openFilePaths 落盘后会污染 velo-workspaces.json,
+   *       下次启动被 openPathsInTabs 读取时再次爆炸)。
+   *  50 = VSCode 同档体感,够实际用又不会失控。 */
+  const OPEN_TABS_PERSIST_CAP = 50
+
+  /** 数组去重保插入序(基础工具)。Set 写法在 V8 上对小数组够用,
+   *  不为这条单独引入 lodash。 */
+  function dedupePreserveOrder(arr: string[]): string[] {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const item of arr) {
+      if (typeof item !== 'string' || seen.has(item)) continue
+      seen.add(item)
+      out.push(item)
+    }
+    return out
+  }
+
   function setOpenTabsForActiveWorkspace(openTabs: string[], activeTabPath: string | null) {
     if (!activeRoot.value) return
     const root = activeRoot.value
-    const filteredTabs = (openTabs ?? []).filter(p => typeof p === 'string' && isPathInRoot(p, root))
+    // 跨 root 过滤 → dedupe 保插入序(防中键狂点同一文件把同一 path
+    // 重复落盘)→ cap 兜底(防 velo-workspaces.json 被污染后下次启动爆炸)。
+    // 注意:openFilePaths 本身允许同 path 多 tab(openPathInNewTab 强制新开是显式语义),
+    // 持久化层面丢重复项是**有意为之**——持久化只用于"重开工作区时恢复上次的标签集",
+    // 重开不期望看到 5 个相同 .md 各占一个 tab,VSCode 重开也是按 path 去重。
+    const filteredTabs = dedupePreserveOrder(
+      (openTabs ?? []).filter(p => typeof p === 'string' && isPathInRoot(p, root)),
+    ).slice(0, OPEN_TABS_PERSIST_CAP)
     const filteredActive = activeTabPath && isPathInRoot(activeTabPath, root) ? activeTabPath : null
     const ws = ensureWorkspace(root)
     ws.openTabs = filteredTabs
@@ -278,7 +311,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
       // v3 JSON 无 openTabs 时给空数组;无 activeTab 时给 null。openTabs 与
       // expandedDirs / recentFiles 同款"以数组形式持久化"。
-      openTabs: Array.isArray(v.openTabs) ? v.openTabs.slice() : [],
+      // 启动恢复阶段也走 dedupe + cap(via setOpenTabsForActiveWorkspace 的兜底):
+      // 历史 v4 JSON 已被污染(同 path 出现 N 次)时,normalize 直接清洗,避免
+      // openPathsInTabs 拿到脏数据后批量 createTab 把主线程拖死。
+      openTabs: Array.isArray(v.openTabs) ? dedupePreserveOrder(v.openTabs).slice(0, OPEN_TABS_PERSIST_CAP) : [],
       activeTab: typeof v.activeTab === 'string' ? v.activeTab : null,
     }
   }

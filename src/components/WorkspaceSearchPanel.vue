@@ -6,7 +6,12 @@
 // EditorOutline 互斥渲染 —— 关闭走 sidebar tab 切换,不再靠"点外部区域
 // 关闭"。搜索逻辑在 utils/workspaceSearch.ts,本组件只负责输入 / 进度 /
 // 结果分组 / 键盘导航。
+//
+// v0.6.0 增强:① 顶栏加折叠的替换行(chevron 触发),复用 FindReplace 的
+// replaceInText;② 接 scopeDir prop,把搜索范围从工作区根收窄到子目录,
+// scope chip 显示当前 scope + ✕ 清除。替换 IO + scope 重置走 emit 给 App.vue。
 
+import { ChevronDown, ChevronRight, Folder, X } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { buildPattern, type FindOptions } from '@/components/ProseMirrorEditor/findreplace/findMatches'
 import {
@@ -22,19 +27,32 @@ import {
 const props = defineProps<{
   root: string | null
   initialQuery?: string
+  /** 搜索 scope:从文件树右键「在此文件夹中搜索」带过来,为 null 表示整个工作区根 */
+  scopeDir?: string | null
+  /** 替换完成后的一次性状态文案(App.vue 写入,显示后由 panel 自己的 status 接管) */
+  replaceStatus?: string
+  /** 替换 / scope 变化等"需要重跑搜索"信号 —— 每次自增触发 scheduleSearch */
+  rerunToken?: number
 }>()
 const emit = defineEmits<{
   'update:open': [boolean]
   'open-result': [WorkspaceSearchHit]
+  /** 用户点替换 / 全部替换按钮:携带当前结果 + replacement + scope,IO 由 App.vue 处理 */
+  'apply-replace': [{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]
+  /** 用户点 scope chip 的 × 清除按钮 */
+  'clear-scope': []
 }>()
 
 const query = ref('')
 const caseSensitive = ref(false)
 const wholeWord = ref(false)
 const regex = ref(false)
+const showReplace = ref(false)
+const replacement = ref('')
 const groups = ref<WorkspaceSearchGroup[]>([])
 const progress = ref<WorkspaceSearchProgress>(initialWorkspaceSearchProgress())
 const inputRef = ref<HTMLInputElement | null>(null)
+const replacementInputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 const selectedFlatIndex = ref(0)
 // 鼠标 hover 位置与键盘选中位置独立 —— 上一轮把 hover 合并进 selectedFlatIndex
@@ -45,7 +63,7 @@ const selectedFlatIndex = ref(0)
 // class,所以 selected + hover 同条时显示主色(selected 优先,符合"hover 是
 // 预览、selected 是确认"的视觉语义)。Click 也改 selectedFlatIndex,因为
 // v0.6.x 面板不自动关闭:连续点多个结果时需要保留"最后一次点的是哪条"的视觉
-// 锚点,以及让紧随其后的 Enter 仍打开这条。
+// 锚点,以及让紧随其后的 Enter 仍能打开这条。
 const hoveredFlatIndex = ref<number | null>(null)
 
 interface HighlightSegment {
@@ -84,18 +102,47 @@ const invalidRegex = computed(() => {
   const q = query.value.trim()
   return Boolean(q && regex.value && !buildPattern(q, options.value))
 })
+const hasResults = computed(() => flatRows.value.length > 0)
+// scope chip 的显示名:scopeDir 是工作区根或 null → 显示"工作区"(不带 ✕);
+// 否则显示相对工作区根的路径,带 ✕ 清除。
+const scopeLabel = computed(() => {
+  if (!props.scopeDir || !props.root) return null
+  if (props.scopeDir === props.root) return null
+  const sep = props.scopeDir.includes('\\') && !props.scopeDir.includes('/') ? '\\' : '/'
+  let rel = props.scopeDir.startsWith(props.root)
+    ? props.scopeDir.slice(props.root.length)
+    : props.scopeDir
+  if (rel.startsWith(sep)) rel = rel.slice(1)
+  return rel || props.scopeDir
+})
+// 「替换」按钮:必须选中某条命中 + 有 replacement + 正则合法
+const canReplaceOne = computed(() =>
+  hasResults.value
+  && replacement.value.length > 0
+  && !invalidRegex.value,
+)
+// 「全部替换」按钮:只需有命中 + 正则合法(replacement 可空,空串 = 删)
+const canReplaceAll = computed(() =>
+  hasResults.value
+  && !invalidRegex.value,
+)
 const statusText = computed(() => {
   const p = progress.value
   if (!props.root) return '请先打开一个工作区'
   if (!query.value.trim()) return ''
   if (invalidRegex.value) return '正则表达式无效'
-  if (p.phase === 'scanning') return `正在扫描工作区… 已发现 ${p.filesFound} 个 .md`
+  if (p.phase === 'scanning') return `正在扫描${scopeLabel.value ? `「${scopeLabel.value}」` : '工作区'}… 已发现 ${p.filesFound} 个 .md`
   if (p.phase === 'searching') return `正在搜索 ${p.filesSearched} / ${p.filesFound}… ${p.hits} 个结果`
   if (p.phase === 'canceled') return `已停止，显示当前 ${p.hits} 个结果`
   if (p.phase === 'error') return p.error ?? '搜索失败'
   if (p.phase === 'done') return p.hits ? `${p.hits} 个结果` : '无匹配项'
   return ''
 })
+// 替换反馈文案(v0.6.0):App.vue 调完 applyWorkspaceReplace 写入 replaceStatus,
+// 在面板底部 status 区显示一次;下一次重跑搜索(rerunToken)时由 statusText
+// 自然接管。设计取舍:不显示 3 秒后自动消失 —— 用户复制 / 阅读一次性文案
+// 不该被定时器抢走;清空由"用户继续编辑"或"再次替换"自然触发。
+const showReplaceStatus = computed(() => Boolean(props.replaceStatus))
 
 function buildSegments(text: string, from: number, to: number): HighlightSegment[] {
   if (from < 0 || to <= from || from >= text.length) return [{ text, match: false }]
@@ -163,7 +210,7 @@ async function runSearch(q: string) {
       groups.value = nextGroups
       clampSelection()
     },
-  })
+  }, props.scopeDir ?? null)
 
   if (id === runId && activeController === controller) activeController = null
 }
@@ -187,7 +234,13 @@ function clampSelection() {
 }
 
 watch(flatRows, clampSelection)
-watch([query, caseSensitive, wholeWord, regex, () => props.root], scheduleSearch)
+// scopeDir 变化 → 重新跑搜索(用户在文件树右键切 scope 时立即生效)
+// rerunToken 变化 → App.vue 完成替换后主动触发重跑(不依赖 query / scope 变更)
+watch([query, caseSensitive, wholeWord, regex, () => props.root, () => props.scopeDir], scheduleSearch)
+watch(() => props.rerunToken, () => {
+  // scheduleSearch 会先 cancel 旧的 run + 清结果,与 runSearch 一致
+  scheduleSearch()
+})
 
 // 每次 initialQuery 变化(首次挂载 immediate + 后续 Ctrl+Shift+F 改写)→
 // 重置选项 + 应用新 query + 重新搜索 + focus + select 输入框。
@@ -254,6 +307,47 @@ function onInputKeydown(e: KeyboardEvent) {
   else if (e.key === 'Enter') { e.preventDefault(); openSelected() }
   else if (e.key === 'Escape') { e.preventDefault(); close() }
 }
+
+// ========== 替换(v0.6.0) ==========
+//
+// 「替换」= 替换当前选中条目所在文件的所有命中(语义对齐编辑器内 Ctrl+H 的"Replace";
+// 用户预期是"把这条命中所在行 / 文件改掉",不是只改一个字符)。
+// 「全部替换」= 替换当前所有结果命中文件中的全部匹配。
+//
+// IO 不在本组件:emit apply-replace 把 hits + replacement + scope 交给 App.vue,
+// App.vue 拿 dirtyPaths snapshot 调 applyWorkspaceReplace,处理 tab 同步,
+// 然后通过 prop watcher 触发本组件重跑搜索,刷新结果。
+function toggleReplace() {
+  showReplace.value = !showReplace.value
+  if (showReplace.value) {
+    // 展开时 focus 替换输入框,方便用户立刻键入
+    nextTick(() => replacementInputRef.value?.focus())
+  }
+}
+
+function applyReplace(scope: 'one' | 'all') {
+  if (scope === 'one' && !canReplaceOne.value) return
+  if (scope === 'all' && !canReplaceAll.value) return
+  // 'one' 只取当前选中所在文件;但该文件可能有多个命中(hit 列表按行排),
+  // 我们的 replace 语义是"全文替换"—— 一并把该文件的所有命中也换掉。
+  // 这与编辑器内"Replace 单条 = 替换当前选中处但不影响同文件其他命中"不同,
+  // 是工作区搜索的简化:用户既然点了这条,大概率想清理整个文件。
+  let hits: WorkspaceSearchHit[]
+  if (scope === 'one') {
+    const row = flatRows.value[selectedFlatIndex.value]
+    if (!row) return
+    const filePath = row.hit.fullPath
+    hits = flatRows.value.filter(r => r.hit.fullPath === filePath).map(r => r.hit)
+  }
+  else {
+    hits = flatRows.value.map(r => r.hit)
+  }
+  emit('apply-replace', { hits, replacement: replacement.value, scope })
+}
+
+function clearScope() {
+  emit('clear-scope')
+}
 </script>
 
 <template>
@@ -272,6 +366,10 @@ function onInputKeydown(e: KeyboardEvent) {
     selected 是确认")。Click 同时把 selectedFlatIndex 推到被点击条目,
     是因为 v0.6.x 面板不自动关闭:用户连续点多个结果时,需要保留"最后一次
     点的是哪条"的视觉锚点,以及让紧随其后的 Enter 仍打开这条。
+    v0.6.0 替换行:chevron 切换可见性;展开后第二行放替换输入框 +
+    「替换」/「全部替换」按钮,disabled 由 canReplaceOne/canReplaceAll 控制。
+    scope chip:仅在 scopeDir 是工作区根的子目录时显示,显示相对路径 +
+    × 按钮 → emit clear-scope;App.vue 把 scopeDir 重置为 null。
   -->
   <div
     class="velo-workspace-search flex h-full min-w-0 flex-col overflow-hidden p-2 pt-4 pr-0"
@@ -291,6 +389,16 @@ function onInputKeydown(e: KeyboardEvent) {
           @keydown="onInputKeydown"
         />
         <div class="flex items-center gap-0.5">
+          <button
+            class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+            :style="showReplace ? { color: 'var(--md-primary-color, #1F71D9)' } : undefined"
+            :title="showReplace ? '收起替换' : '展开替换'"
+            data-testid="workspace-search-toggle-replace"
+            @click="toggleReplace"
+          >
+            <ChevronDown v-if="showReplace" class="size-3" :stroke-width="2.5" />
+            <ChevronRight v-else class="size-3" :stroke-width="2.5" />
+          </button>
           <button
             class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
             :style="caseSensitive ? { color: 'var(--md-primary-color, #1F71D9)' } : undefined"
@@ -328,8 +436,67 @@ function onInputKeydown(e: KeyboardEvent) {
           停止
         </button>
       </div>
+      <!-- 替换行(v0.6.0):默认折叠,展开时与搜索框同宽度节奏 -->
       <div
-        v-if="query.trim() || progress.phase === 'error'"
+        v-if="showReplace"
+        class="mx-2 mt-2 flex items-center gap-2 rounded-xl border border-gray-200 bg-white pl-3 pr-2 py-1 dark:border-gray-700 dark:bg-gray-900"
+      >
+        <input
+          ref="replacementInputRef"
+          v-model="replacement"
+          type="text"
+          spellcheck="false"
+          placeholder="替换为"
+          data-testid="workspace-search-replacement"
+          class="min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
+          @keydown.enter.prevent="applyReplace(canReplaceOne ? 'one' : 'all')"
+        />
+        <button
+          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+          :disabled="!canReplaceOne"
+          title="替换当前选中条目所在文件的所有命中"
+          data-testid="workspace-search-replace-one"
+          @click="applyReplace('one')"
+        >
+          替换
+        </button>
+        <button
+          class="shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+          :disabled="!canReplaceAll"
+          title="替换当前所有结果"
+          data-testid="workspace-search-replace-all"
+          @click="applyReplace('all')"
+        >
+          全部替换
+        </button>
+      </div>
+      <!-- scope chip:仅当 scopeDir 是工作区根的子目录时显示 -->
+      <div
+        v-if="scopeLabel"
+        class="mx-2 mt-2 inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+        data-testid="workspace-search-scope-chip"
+      >
+        <Folder class="size-3 shrink-0" :stroke-width="2" />
+        <span class="min-w-0 truncate" :title="props.scopeDir ?? ''">{{ scopeLabel }}</span>
+        <button
+          class="ml-0.5 inline-flex items-center justify-center rounded-full p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700"
+          title="清除 scope,回到工作区根"
+          data-testid="workspace-search-scope-clear"
+          @click="clearScope"
+        >
+          <X class="size-3" :stroke-width="2.5" />
+        </button>
+      </div>
+      <div
+        v-if="showReplaceStatus"
+        class="mt-1 pr-1 text-[11px]"
+        :class="progress.phase === 'error' || invalidRegex ? 'text-red-500' : 'text-gray-400'"
+        data-testid="workspace-search-replace-status"
+      >
+        {{ props.replaceStatus }}
+      </div>
+      <div
+        v-else-if="query.trim() || progress.phase === 'error'"
         class="mt-1 pr-1 text-[11px]"
         :class="progress.phase === 'error' || invalidRegex ? 'text-red-500' : 'text-gray-400'"
         data-testid="workspace-search-status"

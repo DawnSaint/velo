@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import WorkspaceSearchPanel from '../WorkspaceSearchPanel.vue'
-import { searchWorkspaceMarkdown, type WorkspaceSearchGroup, type WorkspaceSearchProgress } from '@/utils/workspaceSearch'
+import { searchWorkspaceMarkdown, type WorkspaceSearchGroup, type WorkspaceSearchHit, type WorkspaceSearchProgress } from '@/utils/workspaceSearch'
 
 vi.mock('@/utils/workspaceSearch', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/workspaceSearch')>()
@@ -48,7 +48,7 @@ async function flushTimers() {
   await nextTick()
 }
 
-function mountPanel(props: { root: string | null, initialQuery?: string }) {
+function mountPanel(props: { root: string | null, initialQuery?: string, scopeDir?: string | null, replaceStatus?: string, rerunToken?: number }) {
   return mount(WorkspaceSearchPanel, {
     props,
     attachTo: document.body,
@@ -155,7 +155,7 @@ describe('WorkspaceSearchPanel', () => {
     const input = wrapper.find('[data-testid="workspace-search-input"]')
     await input.setValue('old')
     await flushTimers()
-    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'old', expect.anything(), expect.anything(), expect.anything())
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'old', expect.anything(), expect.anything(), expect.anything(), null)
 
     // 模拟 Ctrl+Shift+F 触发:App.vue 改写 initialQuery 透传过来
     await wrapper.setProps({ initialQuery: 'fromSelection' })
@@ -164,7 +164,7 @@ describe('WorkspaceSearchPanel', () => {
     const updatedInput = wrapper.find('[data-testid="workspace-search-input"]')
     expect((updatedInput.element as HTMLInputElement).value).toBe('fromSelection')
     // 搜索用新 query 重新跑
-    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'fromSelection', expect.anything(), expect.anything(), expect.anything())
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'fromSelection', expect.anything(), expect.anything(), expect.anything(), null)
   })
 
   it('mouseenter/mouseleave 切 hoveredFlatIndex,不影响 selectedFlatIndex', async () => {
@@ -261,5 +261,148 @@ describe('WorkspaceSearchPanel', () => {
 
     expect(wrapper.text()).toContain('hello needle world')
     expect(wrapper.text()).toContain('已停止')
+  })
+
+  // ============ v0.6.0 替换 + scope ============
+
+  it('chevron 切换显示替换行', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await nextTick()
+
+    // 默认折叠
+    expect(wrapper.find('[data-testid="workspace-search-replacement"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-search-replacement"]').exists()).toBe(true)
+
+    // 再点收起
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-search-replacement"]').exists()).toBe(false)
+  })
+
+  it('「替换」按钮 emit apply-replace scope=one,带当前选中条目所在文件的所有 hit', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+    // 展开替换行
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    await wrapper.find('[data-testid="workspace-search-replacement"]').setValue('knife')
+
+    await wrapper.find('[data-testid="workspace-search-replace-one"]').trigger('click')
+
+    const emitted = wrapper.emitted('apply-replace') as Array<[{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]>
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({
+      replacement: 'knife',
+      scope: 'one',
+    })
+    // scope=one 只携带当前选中所在 file 的所有 hit(本例两 hit 同文件 → 都带上)
+    expect(emitted![0][0].hits).toHaveLength(2)
+  })
+
+  it('「全部替换」按钮 emit apply-replace scope=all,带所有 hit', async () => {
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(groups)
+      callbacks?.onProgress?.(baseProgress)
+      return { groups, progress: baseProgress }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    await wrapper.find('[data-testid="workspace-search-replacement"]').setValue('knife')
+
+    await wrapper.find('[data-testid="workspace-search-replace-all"]').trigger('click')
+
+    const emitted = wrapper.emitted('apply-replace') as Array<[{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]>
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({ replacement: 'knife', scope: 'all' })
+    expect(emitted![0][0].hits).toHaveLength(1)
+  })
+
+  it('替换按钮在无结果 / 空 replacement / invalid regex 时 disabled', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await nextTick()
+    // 默认折叠,先展开替换行才能拿到按钮
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    await nextTick()
+
+    // 无结果时:替换 / 全部替换 都应 disabled
+    expect((wrapper.find('[data-testid="workspace-search-replace-one"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.find('[data-testid="workspace-search-replace-all"]').element as HTMLButtonElement).disabled).toBe(true)
+
+    // 输入查询得到结果
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    // 空 replacement:替换 disabled(需要 replacement 非空),全部替换 enabled(replacement 可空)
+    expect((wrapper.find('[data-testid="workspace-search-replace-one"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.find('[data-testid="workspace-search-replace-all"]').element as HTMLButtonElement).disabled).toBe(false)
+
+    // 填 replacement:替换 enabled
+    await wrapper.find('[data-testid="workspace-search-replacement"]').setValue('knife')
+    expect((wrapper.find('[data-testid="workspace-search-replace-one"]').element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('scopeDir prop 非 null 时显示 chip + 清除按钮 emit clear-scope', async () => {
+    wrapper = mountPanel({ root: '/ws', scopeDir: '/ws/docs' })
+    await nextTick()
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    expect(wrapper.find('[data-testid="workspace-search-scope-chip"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('docs')
+
+    await wrapper.find('[data-testid="workspace-search-scope-clear"]').trigger('click')
+    expect(wrapper.emitted('clear-scope')).toHaveLength(1)
+  })
+
+  it('scopeDir prop 变化时重新触发 searchWorkspaceMarkdown', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'needle', expect.anything(), expect.anything(), expect.anything(), null)
+
+    await wrapper.setProps({ scopeDir: '/ws/docs' })
+    await flushTimers()
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'needle', expect.anything(), expect.anything(), expect.anything(), '/ws/docs')
+  })
+
+  it('replaceStatus prop 显示一次性文案,优先于 statusText', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    await wrapper.setProps({ replaceStatus: '已替换 5 处，2 个文件因有未保存修改被跳过' })
+    expect(wrapper.find('[data-testid="workspace-search-replace-status"]').text()).toContain('已替换 5 处')
+    expect(wrapper.find('[data-testid="workspace-search-replace-status"]').text()).toContain('跳过')
+
+    // 清掉 replaceStatus 后回到常规 statusText
+    await wrapper.setProps({ replaceStatus: '' })
+    expect(wrapper.find('[data-testid="workspace-search-replace-status"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="workspace-search-status"]').exists()).toBe(true)
+  })
+
+  it('rerunToken prop 变化触发 scheduleSearch 重跑', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+    const before = vi.mocked(searchWorkspaceMarkdown).mock.calls.length
+
+    await wrapper.setProps({ rerunToken: 1 })
+    await flushTimers()
+    expect(vi.mocked(searchWorkspaceMarkdown).mock.calls.length).toBeGreaterThan(before)
   })
 })

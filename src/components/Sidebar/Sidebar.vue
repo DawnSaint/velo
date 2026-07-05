@@ -21,10 +21,20 @@ defineProps<{
   filePath: string | null
   /** 每次切到 search tab 时由 App.vue 提供的初始 query(从选区带入) */
   workspaceSearchInitialQuery?: string
+  /** 工作区搜索 scope(子目录);null 表示工作区根 */
+  workspaceSearchScopeDir?: string | null
+  /** 替换完成后的一次性状态文案(App.vue 写入,显示后由 panel 自己的 status 接管) */
+  workspaceSearchReplaceStatus?: string
+  /** 替换 / scope 变化等"需要重跑搜索"信号 —— 每次自增触发 panel scheduleSearch */
+  workspaceSearchRerunToken?: number
 }>()
 const emit = defineEmits<{
   'workspace-search-close': []
   'workspace-search-open-result': [WorkspaceSearchHit]
+  'workspace-search-clear-scope': []
+  'workspace-search-apply-replace': [{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]
+  /** 文件树右键菜单「在此文件夹中搜索」透传给 App.vue */
+  'search-in-folder': [string]
 }>()
 
 const workspace = useWorkspaceStore()
@@ -53,6 +63,18 @@ function onSearchClose() {
 function onSearchOpenResult(hit: WorkspaceSearchHit) {
   emit('workspace-search-open-result', hit)
 }
+
+function onSearchClearScope() {
+  emit('workspace-search-clear-scope')
+}
+
+function onSearchApplyReplace(payload: { hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }) {
+  emit('workspace-search-apply-replace', payload)
+}
+
+function onFileTreeSearchInFolder(dirPath: string) {
+  emit('search-in-folder', dirPath)
+}
 </script>
 
 <template>
@@ -65,6 +87,7 @@ function onSearchOpenResult(hit: WorkspaceSearchHit) {
       <FileTree
         v-if="workspace.sidebarTab === 'files'"
         ref="fileTreeRef"
+        @search-in-folder="onFileTreeSearchInFolder"
       />
       <EditorOutline
         v-else-if="workspace.sidebarTab === 'outline'"
@@ -75,8 +98,13 @@ function onSearchOpenResult(hit: WorkspaceSearchHit) {
         v-else
         :root="workspace.activeRoot"
         :initial-query="workspaceSearchInitialQuery"
+        :scope-dir="workspaceSearchScopeDir"
+        :replace-status="workspaceSearchReplaceStatus"
+        :rerun-token="workspaceSearchRerunToken"
         @update:open="onSearchClose"
         @open-result="onSearchOpenResult"
+        @clear-scope="onSearchClearScope"
+        @apply-replace="onSearchApplyReplace"
       />
     </div>
 

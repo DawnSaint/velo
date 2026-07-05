@@ -300,19 +300,21 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  it('右键目录行 → 菜单出现,7 个菜单项(含"在新窗口中打开"和"复制",删除可用)', async () => {
+  it('右键目录行 → 菜单出现,8 个菜单项(含"在新窗口中打开"/"在此文件夹中搜索"和"复制",删除可用)', async () => {
     // 工作区根不进 flatItems 视图(模板注释:不显示根节点本身);
     // 子目录右键应能"在新窗口中打开" + 删除可用(disabled 属性已移除)。
+    // v0.6.0 在"在新窗口中打开"之后追加了"在此文件夹中搜索",菜单项 7 → 8。
     const wrapper = await mountWithEntries([entry('sub', true)])
     const menu = await openContextMenuOnRow(wrapper, 'sub')
     const items = menu.querySelectorAll('button')
-    expect(items.length).toBe(7)
+    expect(items.length).toBe(8)
     expect(items[0].textContent).toContain('在新窗口中打开')
-    expect(items[1].textContent).toContain('新建文件')
-    expect(items[2].textContent).toContain('新建文件夹')
-    expect(items[3].textContent).toContain('复制')
-    expect(items[4].textContent).toContain('重命名')
-    const deleteBtn = items[5] as HTMLButtonElement
+    expect(items[1].textContent).toContain('在此文件夹中搜索')
+    expect(items[2].textContent).toContain('新建文件')
+    expect(items[3].textContent).toContain('新建文件夹')
+    expect(items[4].textContent).toContain('复制')
+    expect(items[5].textContent).toContain('重命名')
+    const deleteBtn = items[6] as HTMLButtonElement
     expect(deleteBtn.disabled).toBe(false)
     wrapper.unmount()
   })

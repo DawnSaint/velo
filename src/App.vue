@@ -29,7 +29,9 @@ import type { CommandPaletteItem } from '@/utils/commandPalette'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import {
   revealWorkspaceSearchMatch,
+  applyWorkspaceReplace,
   type WorkspaceSearchHit,
+  type ReplacePlan,
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/composables/useResizeSplitter'
@@ -532,6 +534,15 @@ const commandPaletteOpen = ref(false)
 // 初始 query"语义,挂载 / 卸载由 workspaceStore.sidebarTab === 'search'
 // 走 Sidebar 的 v-if 控制。
 const workspaceSearchInitialQuery = ref('')
+// 文件夹搜索 scope(v0.6.0):文件树右键菜单「在此文件夹中搜索」会把目录
+// 路径写进这里,Sidebar 透传给 WorkspaceSearchPanel 作为 BFS 起点。
+// 不持久化 —— 用户重开面板想"重新看全工作区",保留旧 scope 反直觉。
+// 切工作区时不需要显式清:WorkspaceSearchPanel 的 prop 默认 null,
+  // 工作区根变 → App.vue 重新渲染 → panel prop 自然更新。
+const workspaceSearchScopeDir = ref<string | null>(null)
+// 替换反馈(v0.6.0):applyWorkspaceReplace 完成后写一次面板底部 status,
+// 由 prop watcher 显示一次性文案,然后用户后续搜索/输入清掉。
+const workspaceSearchReplaceStatus = ref<string>('')
 
 function openWorkspaceSearch() {
   if (!workspaceStore.activeRoot) return
@@ -616,6 +627,86 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
   // v0.6.x:侧栏内嵌模式下**不**自动关闭面板 —— 用户可以连续点多个结果;
   // 关闭走 X / Esc / 再次点 ActivityBar 搜索图标。
+}
+
+// 文件树右键菜单「在此文件夹中搜索」:写 scope + 切到 search tab。
+// 不带 initialQuery —— 保留用户已输入的搜索词,只换 scope。
+function onSearchInFolder(dirPath: string) {
+  workspaceSearchScopeDir.value = dirPath
+  showSidebarTab('search')
+}
+
+function onWorkspaceSearchClearScope() {
+  workspaceSearchScopeDir.value = null
+}
+
+// 工作区搜索「替换」/「全部替换」编排(v0.6.0):
+//  - snapshot 当前所有脏盘 tab 的 path(替换开始瞬间,避免 race)
+//  - 调 applyWorkspaceReplace 拿 result(IO 已落盘)
+//  - 同步打开中的 clean tab(用 result.fileContents 免一次 readTextFile)
+//  - 触发 WorkspaceSearchPanel 重跑搜索(把 initialQuery 写回同样值,panel
+//    的 watcher 看到 initialQuery 不变不会触发 → 改用 prop 传"重跑"信号)
+// 简化做法:直接 emit 'workspace-search-rerun' 给 Sidebar 转发给 panel,
+//    panel 监听该 prop 触发 scheduleSearch。但 Vue 3 没有"emit 事件" prop
+//    模式 → 改用 ref 计数器:replace 一次 ++,panel watch 该 ref 变化就
+//    scheduleSearch。计数器是整数,递增总是触发 watch,无关值。
+const workspaceSearchRerunToken = ref(0)
+
+async function onWorkspaceSearchApplyReplace(payload: {
+  hits: WorkspaceSearchHit[]
+  replacement: string
+  scope: 'one' | 'all'
+}) {
+  // snapshot 替换开始瞬间的 dirty tab 集合 —— 遍历过程不再重读,避免
+  // race("开始前是 clean、跑到一半用户敲了键变成 dirty")。从 documents Map
+  // 直接读:tabs computed 只返轻量摘要,没有 currentFilePath / content 字段。
+  // dirty 是 derived(content !== lastSavedContent),在 store 内是 computed,
+  // 在 DocState 数据结构上等价于此表达式。
+  const dirtyPaths = new Set(
+    [...documentStore.documents.values()]
+      .filter(d => d.content !== d.lastSavedContent && d.currentFilePath)
+      .map(d => d.currentFilePath as string),
+  )
+  // 替换的 query / options 从第一条 hit 拿 —— panel 在同一次搜索结果内点替换,
+  // 所有 hit 共享 query / options(由 panel 的 runSearch 一致传入 searchWorkspaceMarkdown)。
+  const first = payload.hits[0]
+  if (!first) return
+  const plan: ReplacePlan = {
+    query: first.query,
+    options: first.options,
+    replacement: payload.replacement,
+  }
+  const result = await applyWorkspaceReplace(payload.hits, plan, dirtyPaths)
+
+  // 同步打开中的 clean tab:写盘已完成,这里把 lastSavedContent + content 同步,
+  // 让编辑器(PM/CM6)看到新内容。重置 dirty 基线,draft 也跟着清掉。
+  for (const fullPath of result.changedFiles) {
+    const newContent = result.fileContents.get(fullPath)
+    if (!newContent) continue
+    // 同 path 可能有多个 tab(中键 / openPathInNewTab),content 相同,
+    // 只对第一个执行 loadContentInto 即可:loadContentInto 同步 content +
+    // lastSavedContent + 重建 watch —— 其他 tab 重新激活时通过
+    // documentStore 的 readTextOf fallback 拿到 disk 新内容。
+    const d = [...documentStore.documents.values()].find(x => x.currentFilePath === fullPath)
+    if (d) documentStore.loadContentInto(d, newContent, fullPath, false)
+  }
+
+  // 状态文案 + 触发 panel 重跑搜索
+  workspaceSearchReplaceStatus.value = formatReplaceStatus(result)
+  workspaceSearchRerunToken.value++
+
+  // 失败明细:进度回调里塞"读了/写了什么文件失败"信息(已经入 result,这里 console 留痕)
+  if (result.failedFiles.length) {
+    console.warn('[WorkspaceSearch] 替换部分失败:', result.failedFiles)
+  }
+}
+
+function formatReplaceStatus(result: { replacedCount: number, skippedFiles: string[], failedFiles: { fullPath: string }[] }): string {
+  const parts: string[] = []
+  if (result.replacedCount) parts.push(`已替换 ${result.replacedCount} 处`)
+  if (result.skippedFiles.length) parts.push(`${result.skippedFiles.length} 个文件因有未保存修改被跳过`)
+  if (result.failedFiles.length) parts.push(`${result.failedFiles.length} 个文件读写失败`)
+  return parts.length ? parts.join('，') : '替换完成'
 }
 
 const activeActivity = computed<ActivityBarItem | null>(() => {
@@ -1458,8 +1549,14 @@ watch(editorRef, (v) => {
               :model-value="documentStore.content"
               :file-path="documentStore.currentFilePath"
               :workspace-search-initial-query="workspaceSearchInitialQuery"
+              :workspace-search-scope-dir="workspaceSearchScopeDir"
+              :workspace-search-replace-status="workspaceSearchReplaceStatus"
+              :workspace-search-rerun-token="workspaceSearchRerunToken"
               @workspace-search-close="onWorkspaceSearchClose"
               @workspace-search-open-result="openWorkspaceSearchResult"
+              @workspace-search-clear-scope="onWorkspaceSearchClearScope"
+              @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
+              @search-in-folder="onSearchInFolder"
             />
           </KeepAlive>
           <EditorSettings v-if="leftPanelView === 'settings'" />

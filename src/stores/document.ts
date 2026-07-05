@@ -502,8 +502,21 @@ export const useDocumentStore = defineStore('document', () => {
     opts: { silent?: boolean } = {},
   ): Promise<string[]> {
     if (paths.length === 0) return []
+    // 启动恢复期 dedupe 兜底:持久化的 openTabs 历史版本可能含重复项(同 path 多 tab),
+    // 批量恢复时不去重会把同一文件 createTab 多次 → 主线程被 TabBar 渲染拖死,
+    // 表现为"dev 进入卡死什么也点不了 + devtools 打不开"。
+    // 这里走最朴素的按字符串去重(保插入序),不动 workspaceStore 的 dedupe 逻辑
+    // —— workspace 落盘层已经处理,这里是最后一道保险。重复项的 first 胜出,
+    // 顺序与输入一致。
+    const seen = new Set<string>()
+    const dedupedPaths: string[] = []
+    for (const p of paths) {
+      if (typeof p !== 'string' || !p || seen.has(p)) continue
+      seen.add(p)
+      dedupedPaths.push(p)
+    }
     // 第一阶段:IO 并行。失败先收集,不抛、不弹窗 —— 留给 commit 阶段按 opts 处理。
-    const reads = await Promise.all(paths.map(async (p) => {
+    const reads = await Promise.all(dedupedPaths.map(async (p) => {
       try {
         const c = await readTextFile(p)
         return { p, c, err: null as unknown }
@@ -513,7 +526,7 @@ export const useDocumentStore = defineStore('document', () => {
       }
     }))
     // 第二阶段:同步 commit。循环内无 await,Vue reactive 在同一 microtask 触发,
-    // TabBar 一次性拿到 7 个新 tab 而不是 7 次增量更新。
+    // TabBar 一次性拿到 N 个新 tab 而不是 N 次增量更新。
     const restored: string[] = []
     let pristineConsumed = false
     for (const { p, c, err } of reads) {
@@ -525,6 +538,17 @@ export const useDocumentStore = defineStore('document', () => {
           console.error('打开文件失败', p, err)
           await message(`无法打开 ${p}:${formatError(err)}`, { title: '打开失败', kind: 'error' })
         }
+        continue
+      }
+      // 启动恢复期二次保险:即使 dedupedPaths 已去重,startupMode='last-file' 段
+      // 也会先调一次 openPathInTab(lastPath) 把 lastFile 装到 init 空白 tab 上,
+      // 随后 openPathsInTabs(persistedOpenTabs) 又跑这一遍 —— 此时 active 已经不是
+      // 空白(已挂载 lastFile),canReusePristine=false 会 createTab + loadContent,
+      // 结果同一个 path 出现 2 个 tab,与"openPathInTab 已开则复用"的语义不符。
+      // 这里先 findTabByPath 命中就 skip(已开就不重复装载),保持与 openPathInTab
+      // "已开则切换"语义一致。
+      if (findTabByPath(p)) {
+        restored.push(p)
         continue
       }
       const canReusePristine = isPristineBlank(activeDoc()) && !pristineConsumed
