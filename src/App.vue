@@ -650,6 +650,15 @@ function toggleWorkspaceSearchFromActivity() {
   else openWorkspaceSearch()
 }
 
+/** TabBar 标签右键菜单「在文件树中显示」:切到 files tab + 展开到该文件 +
+ * 短暂蓝高亮。TabBar 不持有 sidebarRef,emit 上来由 App.vue 拼装。 */
+function revealFileInTree(filePath: string) {
+  if (!filePath) return
+  workspaceStore.setSidebarTab('files')
+  leftPanelView.value = 'sidebar'
+  void sidebarRef.value?.revealFile(filePath)
+}
+
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
  *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
  *  上提到顶栏后,FileTree 顶部"更换工作区"按钮移除(v0.5.1,避免与本按钮重复)。 */
@@ -1339,7 +1348,7 @@ watch(editorRef, (v) => {
         <span data-tauri-drag-region class="h-full flex-1" />
       </div>
 
-      <TabBar />
+      <TabBar @reveal-in-tree="revealFileInTree" />
 
       <div class="flex shrink-0 items-center gap-1 pr-1 border-b border-gray-200 dark:border-gray-800">
         <!-- 最近文件 -->

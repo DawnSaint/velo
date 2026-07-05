@@ -78,6 +78,8 @@ velo/
 │       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
 │       ├── CommandPalettePanel.vue 全局命令面板:Ctrl+Shift+P,聚合 App shell 命令 / 工作区动作 / 全局最近文件,复用 fuzzy 评分
 │       ├── RecentFilesButton.vue   顶栏最近文件菜单:读取全局 recentFiles,点击后由 App.vue 统一打开
+│       ├── TabBar.vue             顶栏标签条(v0.6.0 多标签):横排 + 中键关闭 + 拖拽重排;右键菜单(TabContextMenu.v0.6.x)切到关闭其他 / 关闭已保存 / 全部关闭 / 复制路径等
+│       ├── TabContextMenu.vue   标签条右键菜单(v0.6.x):纯展示 + 事件转发,与 FileTreeContextMenu 同款 Teleport + rootEl expose 范式;App.vue 通过 emit 'reveal-in-tree' 拿到 path 后切 sidebar tab + sidebarRef.revealFile()
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── DraftRecoveryDialog.vue
 │       └── ProseMirrorEditor/

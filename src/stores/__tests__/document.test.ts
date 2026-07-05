@@ -686,6 +686,157 @@ describe('document store', () => {
     })
   })
 
+  // 8. 批量关闭(标签右键菜单 v0.6.x):
+  //  - closeOtherTabs / closeTabsToRight / closeSavedTabs / closeAllTabs / saveTabById
+  //  - dirty 标签逐个 confirm;任一取消 → return false,后续标签原样保留
+  //  - 活动标签切换语义对齐 closeTab(关掉自身才切相邻,否则不动 activeId)
+  describe('批量关闭(标签右键菜单)', () => {
+    /** 起三个标签 a / b / c;把 a 和 b 设成 dirty(模拟编辑未保存) */
+    async function setupThreeTabsWithDirty() {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInTab('/a.md')
+      const a = store.activeId
+      store.setContent('hello edited') // a dirty
+      await store.openPathInTab('/b.md')
+      const b = store.activeId
+      store.setContent('hello edited b') // b dirty
+      await store.openPathInTab('/c.md')
+      const c = store.activeId
+      return { store, ids: { a, b, c } }
+    }
+
+    it('closeOtherTabs:关掉除指定外的全部,dirty 逐个 confirm', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      vi.mocked(confirm).mockResolvedValue(true) // 用户同意丢脏
+
+      await store.closeOtherTabs(ids.b)
+
+      expect(store.tabs.length).toBe(1)
+      expect(store.activeId).toBe(ids.b)
+    })
+
+    it('closeOtherTabs:用户中途取消 dirty → 停在该 dirty 标签,后续不再弹', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      // a 是第一个被 closeOtherTabs 关的 dirty 标签(顺序按 Map 插入序 a / b / c)
+      vi.mocked(confirm).mockResolvedValueOnce(false)
+
+      const ok = await store.closeOtherTabs(ids.b)
+      expect(ok).toBe(false)
+      // a 还留着(用户没同意关),b / c 未弹 confirm(因为循环停在 a)
+      expect(store.tabs.length).toBe(3)
+      // closeOtherTabs 在 abort 后没机会把 active 切到 b → 活动仍是 a 或 c(openPathInTab 最后激活的)
+      expect([ids.a, ids.c]).toContain(store.activeId)
+    })
+
+    it('closeTabsToRight:关掉指定 tab 右侧的全部(不含自身)', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      vi.mocked(confirm).mockResolvedValue(true)
+
+      await store.closeTabsToRight(ids.a)
+
+      expect(store.tabs.map(t => t.id)).toEqual([ids.a])
+      expect(store.activeId).toBe(ids.a)
+    })
+
+    it('closeTabsToRight:指定 tab 是最右 → no-op', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      vi.mocked(confirm).mockClear()
+
+      const ok = await store.closeTabsToRight(ids.c)
+      expect(ok).toBe(true)
+      expect(vi.mocked(confirm)).not.toHaveBeenCalled()
+      expect(store.tabs.length).toBe(3)
+    })
+
+    it('closeSavedTabs:同步关掉所有非 dirty,保留 dirty', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      store.closeSavedTabs()
+      // a / b dirty → 保留;c clean → 关掉
+      expect(store.tabs.map(t => t.id).sort()).toEqual([ids.a, ids.b].sort())
+      // c 是 active 且被关 → 切到剩余首个(a,Map 保插入序)
+      expect(store.activeId).toBe(ids.a)
+    })
+
+    it('closeSavedTabs:活动标签是 clean 且被关 → 切到剩余首个', () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      // 两个 clean 标签 + 活动是第一个
+      const a = store.createTab()
+      store.switchTab(a)
+      const b = store.createTab()
+      // b 改成 dirty
+      const bDoc = store.documents.get(b)!
+      bDoc.content = 'dirty'
+
+      store.closeSavedTabs()
+      // a 是 clean → 关;只剩 b
+      expect(store.tabs.map(t => t.id)).toEqual([b])
+      // activeId 原本是已删的 a → 切到剩余首个 b
+      expect(store.activeId).toBe(b)
+    })
+
+    it('closeAllTabs:逐个 confirm;用户同意 → 全关,activeId 变空', async () => {
+      const { store } = await setupThreeTabsWithDirty()
+      vi.mocked(confirm).mockResolvedValue(true)
+
+      const ok = await store.closeAllTabs()
+      expect(ok).toBe(true)
+      expect(store.tabs.length).toBe(0)
+      expect(store.activeId).toBe('')
+    })
+
+    it('closeAllTabs:用户中途取消 → 保留后续未弹 confirm 的', async () => {
+      const { store, ids } = await setupThreeTabsWithDirty()
+      vi.mocked(confirm).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      // a dirty 确认关,b dirty 确认弹但取消,c 不再弹(循环停在 b)
+      const ok = await store.closeAllTabs()
+      expect(ok).toBe(false)
+      // a 已关,b / c 留下
+      expect(store.tabs.length).toBe(2)
+      expect(store.tabs.map(t => t.id).sort()).toEqual([ids.b, ids.c].sort())
+    })
+
+    it('saveTabById:有 path → 走 saveDoc;dirty 时写盘并清基线', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      vi.mocked(readTextFile).mockResolvedValue('hello\n')
+      await store.openPathInTab('/a.md')
+      store.setContent('hello world')
+      expect(store.dirty).toBe(true)
+      vi.mocked(writeTextFile).mockResolvedValueOnce()
+
+      const ok = await store.saveTabById(store.activeId)
+      expect(ok).toBe(true)
+      expect(store.dirty).toBe(false)
+      expect(vi.mocked(writeTextFile)).toHaveBeenCalledWith('/a.md', 'hello world')
+    })
+
+    it('saveTabById:无 path → 走 saveAsDoc(saveDialog)', async () => {
+      const store = useDocumentStore()
+      store.init('untitled content') // 未命名,无 path
+      vi.mocked(saveDialog).mockResolvedValueOnce('/saved.md')
+      vi.mocked(writeTextFile).mockResolvedValueOnce()
+
+      const ok = await store.saveTabById(store.activeId)
+      expect(ok).toBe(true)
+      expect(store.currentFilePath).toBe('/saved.md')
+    })
+
+    it('saveTabById:只读标签 → false,不写盘', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.openSampleTab('sample content', '示例.md')
+      vi.mocked(writeTextFile).mockClear()
+
+      const ok = await store.saveTabById(store.activeId)
+      expect(ok).toBe(false)
+      expect(vi.mocked(writeTextFile)).not.toHaveBeenCalled()
+    })
+  })
+
   // 7. dirty 是 computed
   describe('dirty 是 computed', () => {
     it('setContent 改变后立刻反映;改回 baseline 后清零', () => {

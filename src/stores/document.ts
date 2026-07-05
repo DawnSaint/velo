@@ -685,6 +685,86 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  // ========== 批量关闭(标签右键菜单)==========
+  //
+  // 每个都把"要关的 id 列表"按用户当前插入序遍历,逐个走 closeTab 复用脏盘
+  // 确认语义。closeTab 自己处理 confirm + 自身 active 切换;批次内若用户在
+  // 某一弹窗点取消,直接 return false,后续标签原样保留。
+  // 关键不变量:任一函数返回 false 时,要么全部关完(true),要么已确认的关掉、
+  // 未弹 confirm 的仍开着(中途 abort)——不会留下半完成的"看似关了其实没关"。
+
+  /** 关闭除 id 外的所有标签。dirty 的逐个 confirm;最终激活 id(若 id 非活动)。
+   *  id 不存在 / 集合里只有 id → no-op 返回 true。 */
+  async function closeOtherTabs(id: string): Promise<boolean> {
+    if (!documents.value.has(id)) return true
+    const ids = [...documents.value.keys()]
+    for (const tid of ids) {
+      if (tid === id) continue
+      const ok = await closeTab(tid)
+      if (!ok) return false
+    }
+    // 兜底:迭代过程中 id 可能仍非活动(开始时 active 就是别的),切到 id
+    if (activeId.value !== id) switchTab(id)
+    return true
+  }
+
+  /** 关闭 id 右侧的所有标签(不含 id)。id 不存在 / 已是最右 → no-op。 */
+  async function closeTabsToRight(id: string): Promise<boolean> {
+    const keys = [...documents.value.keys()]
+    const idx = keys.indexOf(id)
+    if (idx === -1 || idx === keys.length - 1) return true
+    const toClose = keys.slice(idx + 1)
+    for (const tid of toClose) {
+      const ok = await closeTab(tid)
+      if (!ok) return false
+    }
+    return true
+  }
+
+  /** 关闭所有"非脏"标签(同步;无脏盘确认)。全 dirty / 无标签 → no-op。
+   *  若活动标签被关,切到剩余首个;全空则 activeId='' 走空态。 */
+  function closeSavedTabs(): void {
+    const toClose = [...documents.value.values()].filter(d => d.content === d.lastSavedContent)
+    if (toClose.length === 0) return
+    let activeWillClose = false
+    for (const d of toClose) {
+      if (d.id === activeId.value) activeWillClose = true
+      void stopWatch(d)
+      void clearDraftForDoc(d)
+      documents.value.delete(d.id)
+    }
+    if (activeWillClose) {
+      const remaining = [...documents.value.keys()]
+      const next = remaining[0] ?? ''
+      activeId.value = next
+      if (next) tabSwitchToken.value++
+      void syncTitle()
+    }
+  }
+
+  /** 关闭全部标签。dirty 逐个 confirm;任一取消即停(已确认的关掉,后续保留)。
+   *  全关完后 activeId='' 走空态。 */
+  async function closeAllTabs(): Promise<boolean> {
+    const ids = [...documents.value.keys()]
+    for (const tid of ids) {
+      const ok = await closeTab(tid)
+      if (!ok) return false
+    }
+    return true
+  }
+
+  /** 保存指定标签(无需切换激活);复用 saveDoc / saveAsDoc。无 id / 只读 → false。 */
+  async function saveTabById(id: string): Promise<boolean> {
+    const d = documents.value.get(id)
+    if (!d) return false
+    if (d.userReadOnly || d.readOnlyLocked) {
+      void message('示例文档为只读，请使用"另存为"保存到工作区后再编辑。', { title: '只读文档', kind: 'info' })
+      return false
+    }
+    if (!d.currentFilePath) return saveAsDoc(d)
+    return saveDoc(d)
+  }
+
   /** 拖拽重排:把 fromId 标签移到 toId 标签的 before / after 位置。
    *  保插入序、DocState 引用不动(编辑器缓存不重建)。
    *  重排后把 activeId 切到 fromId(用户期望拖完继续编辑刚拖的文档)。
@@ -989,6 +1069,11 @@ export const useDocumentStore = defineStore('document', () => {
     switchTab,
     closeTab,
     closeTabsUnderPath,
+    closeOtherTabs,
+    closeTabsToRight,
+    closeSavedTabs,
+    closeAllTabs,
+    saveTabById,
     reorderTabs,
     renameOpenPaths,
     countOpenTabsUnder,

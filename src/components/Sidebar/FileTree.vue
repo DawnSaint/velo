@@ -107,7 +107,7 @@ async function onRowAuxClick(node: TreeNode) {
   workspace.setLastFile(node.fullPath)
 }
 
-defineExpose({ refreshDir, rebuildFromRoot })
+defineExpose({ refreshDir, rebuildFromRoot, revealFile })
 
 const activeFile = computed(() => documentStore.currentFilePath)
 
@@ -649,6 +649,58 @@ async function revealInExplorer(node: TreeNode) {
   finally { closeContextMenu() }
 }
 
+// ========== 外部 reveal:在文件树中高亮某文件(v0.6.x 标签菜单用)==========
+//
+// 入口:App.vue 收 TabBar 的 reveal-in-tree emit → workspaceStore.setSidebarTab('files')
+// + sidebarRef.revealFile(path)。这里逐级 setDirExpanded + loadDirChildren(必要时)
+// 把父目录全部打开,等到 nextTick 后用 [title="<fullPath>"] 精确定位 row,
+// scrollIntoView + 短暂 .reveal-flash 蓝高亮。
+//
+// 边界:
+//  - path 不在工作区根下 → 直接 return(外部应在 TabContextMenu 已过滤,但兜底)
+//  - path === root → 滚动到根 row
+//  - 任意父目录 loadDirChildren 抛错 → 静默继续(高亮仍可能在已加载的祖先上生效)
+//  - DOM 未找到 → 静默 no-op(罕见:用户已经把这文件从树里删了)
+
+const treeRootRef = ref<HTMLDivElement | null>(null)
+
+/** 把 path 在文件树中高亮定位。已展开 / 已加载的子树无副作用。 */
+async function revealFile(filePath: string): Promise<void> {
+  const root = workspace.activeRoot
+  if (!root) return
+  if (filePath !== root && !filePath.startsWith(root + '/') && !filePath.startsWith(root + '\\')) return
+
+  // root 自身作为 flatItems depth=0 的一行:它不依赖 expandedDirs,只在 rootCollapsed
+  // 被折叠时不可见。直接展开根再定位即可(根永远在 DOM 里)。
+  if (rootCollapsed.value) rootCollapsed.value = false
+
+  const rel = filePath.slice(root.length).replace(/^[\\/]+/, '')
+  if (rel) {
+    const segments = rel.split(/[\\/]+/)
+    let cur = root
+    // 倒数第二段之前的每个目录 = 文件的某层祖先,逐级 setDirExpanded + 必要时 loadDirChildren
+    for (let i = 0; i < segments.length - 1; i++) {
+      cur = `${cur}/${segments[i]}`
+      workspace.setDirExpanded(cur, true)
+      const parent = dirIndex.get(cur)
+      if (parent && parent.children === undefined) {
+        try { await loadDirChildren(parent) }
+        catch { /* 单层失败不影响其它层级 */ }
+      }
+    }
+  }
+
+  await nextTick()
+  // 再补一次 nextTick:某些情况下 children 的渲染在 flatItems 上还要再 flush 一次
+  await nextTick()
+
+  const row = treeRootRef.value?.querySelector(`[title="${CSS.escape(filePath)}"]`) as HTMLElement | null
+  if (!row) return
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  row.classList.add('reveal-flash')
+  window.setTimeout(() => row.classList.remove('reveal-flash'), 1500)
+}
+
 // ========== 右键菜单新增:在编辑器中打开 / 作为工作区打开(v0.5.1)==========
 
 /** .md 文件 → 在编辑器中打开。与 onFileClick 共用同一条路径(脏盘确认 + openPath + setLastFile)。 */
@@ -843,7 +895,7 @@ function displayName(node: TreeNode): string {
 <template>
   <!-- min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px。行内 truncate 由
        各 row 自己处理。overflow-hidden 防窄态溢出。 -->
-  <div class="velo-file-tree flex h-full min-w-0 flex-col overflow-hidden">
+  <div ref="treeRootRef" class="velo-file-tree flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 空态:没选工作区(根名已下沉成 flatItems 第一行,v0.5.1) -->
     <div v-if="!workspace.activeRoot" class="flex flex-1 items-center justify-center px-4">
       <button
@@ -997,3 +1049,18 @@ function displayName(node: TreeNode): string {
     @reveal="revealInExplorer(contextMenu.node)"
   />
 </template>
+
+<style scoped lang="scss">
+/* revealFile 加的临时高亮 class —— 1500ms 后由 revealFile 内部移除。
+ * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 bg-gray-200 更亮)。 */
+.reveal-flash {
+  background-color: rgb(219 234 254);   /* blue-100 */
+  outline: 2px solid rgb(59 130 246);  /* blue-500 */
+  outline-offset: -2px;
+  transition: background-color 600ms ease-out, outline-color 600ms ease-out;
+}
+.dark .reveal-flash {
+  background-color: rgb(30 58 138 / 0.4);   /* blue-900 @ 40% */
+  outline-color: rgb(96 165 250);          /* blue-400 */
+}
+</style>
