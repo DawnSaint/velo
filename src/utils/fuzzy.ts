@@ -1,11 +1,8 @@
-// 通用 fzf 风格 fuzzy 评分(v0.5.2,Ctrl+P 查找文件用):
+// 通用 fzf 风格 fuzzy 评分(v0.5.2,Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板用):
 //
-// 与 `outlineFilter.ts:fuzzyMatchIndices` 的子序列匹配 + 大小写不敏感同构,
-// 但多返回评分(便于 Ctrl+P 面板按相关性排序)。两套工具分文件落:
-//   - outlineFilter:大纲过滤 / 高亮,只要 boolean / indices,**无**评分需求
-//   - fuzzy        :Ctrl+P 评分,排序选 top 几项
-// 后者扩成评分版后没去复用前者,是为了让两边各自演化(大纲后续可能加正则 /
-// 词边界开关,Ctrl+P 后续可能调评分权重),职责单一更容易演进。
+// 做子序列匹配 + 大小写不敏感 + 返回 score / indices。CommandPalette 的
+// title / keywords / subtitle 跨字段匹配复用同一函数,只是 `text` 拼成
+// `${title} ${subtitle}` 这类合成串。
 //
 // 评分模型(简化版 fzf):
 //   - 命中字符的"连续段"长度平方累加(连续命中权重最高,fzf 同款思路)

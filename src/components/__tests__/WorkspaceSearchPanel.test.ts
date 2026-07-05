@@ -48,11 +48,10 @@ async function flushTimers() {
   await nextTick()
 }
 
-function mountPanel(props: { open: boolean, root: string | null, initialQuery?: string }) {
+function mountPanel(props: { root: string | null, initialQuery?: string }) {
   return mount(WorkspaceSearchPanel, {
     props,
     attachTo: document.body,
-    global: { stubs: { Teleport: true } },
   })
 }
 
@@ -77,23 +76,31 @@ describe('WorkspaceSearchPanel', () => {
     vi.useRealTimers()
   })
 
-  it('打开后 focus 输入框', async () => {
-    wrapper = mountPanel({ open: true, root: '/ws' })
+  it('挂载后 focus 输入框', async () => {
+    wrapper = mountPanel({ root: '/ws' })
     await nextTick()
 
     expect(document.activeElement).toBe(wrapper.find('[data-testid="workspace-search-input"]').element)
   })
 
   it('空 query 不触发搜索', async () => {
-    wrapper = mountPanel({ open: true, root: '/ws' })
+    wrapper = mountPanel({ root: '/ws' })
     await flushTimers()
 
     expect(searchWorkspaceMarkdown).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('输入关键词搜索工作区 .md')
+    // 空 query 走"不渲染空态文字"语义(v0.6.x):面板只露输入框,无引导文案
+    expect(wrapper.text()).not.toContain('输入关键词搜索工作区 .md')
+  })
+
+  it('无工作区时显示"请先打开一个工作区"', async () => {
+    wrapper = mountPanel({ root: null })
+    await nextTick()
+
+    expect(wrapper.text()).toContain('请先打开一个工作区')
   })
 
   it('debounce 后渲染按文件分组的命中行', async () => {
-    wrapper = mountPanel({ open: true, root: '/ws' })
+    wrapper = mountPanel({ root: '/ws' })
     await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
     await flushTimers()
 
@@ -101,7 +108,9 @@ describe('WorkspaceSearchPanel', () => {
     expect(wrapper.text()).toContain('a.md')
     expect(wrapper.text()).toContain('hello needle world')
     expect(wrapper.text()).not.toContain('line before')
-    expect(wrapper.find('mark').text()).toBe('needle')
+    // 行内命中段改用 .velo-find-match(与 FindReplace 高亮同款样式),
+    // 不再渲染行号与 <mark> 元素
+    expect(wrapper.find('.velo-find-match').text()).toBe('needle')
   })
 
   it('ArrowDown/Enter 选中并 emit open-result', async () => {
@@ -117,7 +126,7 @@ describe('WorkspaceSearchPanel', () => {
       callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
       return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
     })
-    wrapper = mountPanel({ open: true, root: '/ws' })
+    wrapper = mountPanel({ root: '/ws' })
     const input = wrapper.find('[data-testid="workspace-search-input"]')
     await input.setValue('needle')
     await flushTimers()
@@ -130,12 +139,112 @@ describe('WorkspaceSearchPanel', () => {
     expect(emitted![0][0]).toMatchObject({ id: 'second' })
   })
 
-  it('Esc 关闭并取消当前搜索', async () => {
-    wrapper = mountPanel({ open: true, root: '/ws' })
+  it('Esc emit update:open=false 让父级收起侧栏', async () => {
+    wrapper = mountPanel({ root: '/ws' })
 
     await wrapper.find('[data-testid="workspace-search-input"]').trigger('keydown', { key: 'Escape' })
 
     expect(wrapper.emitted('update:open')?.[0]).toEqual([false])
+  })
+
+  it('initialQuery 变化时(Ctrl+Shift+F 改写)把内容写进搜索框并触发搜索', async () => {
+    wrapper = mountPanel({ root: '/ws' })
+    await nextTick()
+
+    // 用户先在编辑器选区外随便输入一个词
+    const input = wrapper.find('[data-testid="workspace-search-input"]')
+    await input.setValue('old')
+    await flushTimers()
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'old', expect.anything(), expect.anything(), expect.anything())
+
+    // 模拟 Ctrl+Shift+F 触发:App.vue 改写 initialQuery 透传过来
+    await wrapper.setProps({ initialQuery: 'fromSelection' })
+    await flushTimers()
+
+    const updatedInput = wrapper.find('[data-testid="workspace-search-input"]')
+    expect((updatedInput.element as HTMLInputElement).value).toBe('fromSelection')
+    // 搜索用新 query 重新跑
+    expect(searchWorkspaceMarkdown).toHaveBeenLastCalledWith('/ws', 'fromSelection', expect.anything(), expect.anything(), expect.anything())
+  })
+
+  it('mouseenter/mouseleave 切 hoveredFlatIndex,不影响 selectedFlatIndex', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    // 默认 selectedFlatIndex = 0 → 第一条 inline style 主色底
+    const firstHit = wrapper.find('[data-testid="workspace-search-hit-0-0"]')
+    const secondHit = wrapper.find('[data-testid="workspace-search-hit-0-1"]')
+    expect(firstHit.classes()).not.toContain('velo-ws-hovered')
+    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+
+    // hover 第二条:selectedFlatIndex 不变(仍 0),hoveredFlatIndex = 1
+    await secondHit.trigger('mouseenter')
+    expect(firstHit.classes()).not.toContain('velo-ws-hovered')
+    expect(secondHit.classes()).toContain('velo-ws-hovered')
+    // 第一条仍 selected 主色底 → inline style 保留
+    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+    // 第二条没被 selected → 无 inline style,hover 走 .velo-ws-hovered class
+    expect(secondHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+
+    // mouseleave 第二条:hoveredFlatIndex = null,class 移除
+    await secondHit.trigger('mouseleave')
+    expect(secondHit.classes()).not.toContain('velo-ws-hovered')
+    // 第一条 selected 仍保留
+    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+  })
+
+  it('click 把 selectedFlatIndex 推到被点击条目,并 emit open-result', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    const firstHit = wrapper.find('[data-testid="workspace-search-hit-0-0"]')
+    const secondHit = wrapper.find('[data-testid="workspace-search-hit-0-1"]')
+
+    // 默认 selectedFlatIndex = 0 → 第一条主色底
+    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+    expect(secondHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+
+    // 点击第二条:emit open-result,selectedFlatIndex 推到 1
+    await secondHit.trigger('click')
+    const emitted = wrapper.emitted('open-result')
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({ id: 'second' })
+
+    // selected 主色底移到第二条;第一条失去 selected
+    expect(secondHit.attributes('style') ?? '').toContain('--md-primary-color')
+    expect(firstHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+
+    // 后续 Enter 仍打开被点击的条目(selectedFlatIndex = 1 保留)
+    const input = wrapper.find('[data-testid="workspace-search-input"]')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('open-result')).toHaveLength(2)
+    expect(wrapper.emitted('open-result')![1][0]).toMatchObject({ id: 'second' })
   })
 
   it('Stop 取消但保留已有结果', async () => {
@@ -144,7 +253,7 @@ describe('WorkspaceSearchPanel', () => {
       callbacks?.onGroups?.(groups)
       return { groups, progress: { phase: 'canceled', dirsScanned: 1, filesFound: 2, filesSearched: 1, hits: 1 } }
     })
-    wrapper = mountPanel({ open: true, root: '/ws' })
+    wrapper = mountPanel({ root: '/ws' })
     await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
     await flushTimers()
 

@@ -12,7 +12,17 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '../Sidebar/Sidebar.vue'
+import WorkspaceSearchPanel from '../WorkspaceSearchPanel.vue'
 import { readDir } from '@tauri-apps/plugin-fs'
+import * as workspaceSearch from '@/utils/workspaceSearch'
+
+vi.mock('@/utils/workspaceSearch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/workspaceSearch')>()
+  return {
+    ...actual,
+    searchWorkspaceMarkdown: vi.fn(),
+  }
+})
 
 describe('Sidebar', () => {
   beforeEach(() => {
@@ -20,6 +30,10 @@ describe('Sidebar', () => {
     vi.resetAllMocks()
     // 默认让 readDir 返回空,FileTree 挂载不抛错
     vi.mocked(readDir).mockResolvedValue([])
+    vi.mocked(workspaceSearch.searchWorkspaceMarkdown).mockResolvedValue({
+      groups: [],
+      progress: workspaceSearch.initialWorkspaceSearchProgress(),
+    })
   })
 
   afterEach(() => {
@@ -48,6 +62,24 @@ describe('Sidebar', () => {
 
     expect(wrapper.findComponent({ name: 'FileTree' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'EditorOutline' }).exists()).toBe(true)
+  })
+
+  it('切到 search 渲染 WorkspaceSearchPanel(v0.6.x 新增的第三个 tab)', async () => {
+    const workspace = useWorkspaceStore()
+    workspace.setActiveRoot('/test/ws')
+
+    const wrapper = mount(Sidebar, {
+      props: { modelValue: '', filePath: null },
+    })
+
+    expect(wrapper.findComponent(WorkspaceSearchPanel).exists()).toBe(false)
+
+    workspace.setSidebarTab('search')
+    await nextTick()
+
+    expect(wrapper.findComponent(WorkspaceSearchPanel).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'FileTree' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'EditorOutline' }).exists()).toBe(false)
   })
 
   it('file tab 活时 refreshDir 对外暴露且不抛错', async () => {

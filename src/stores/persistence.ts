@@ -346,7 +346,7 @@ const WORKSPACES_FILE = 'velo-workspaces.json'
 // v3(v0.5.6):active 降级为 main 冷启动 hint;多窗口保存走 patch merge。
 const WORKSPACES_VERSION = 3
 
-export type SidebarTab = 'outline' | 'files'
+export type SidebarTab = 'outline' | 'files' | 'search'
 
 export interface WorkspaceState {
   /** 该工作区下处于展开态的目录绝对路径 */

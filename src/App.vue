@@ -5,6 +5,7 @@ import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
+import type { SidebarTab } from '@/stores/persistence'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useFoldStore } from '@/stores/folding'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
@@ -19,7 +20,6 @@ import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
 import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
-import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import TabBar from '@/components/TabBar.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
@@ -528,29 +528,36 @@ function openReplace() {
 // 无工作区时 onKeydown 直接 return(对齐 ROADMAP 问答约定的"静默无反应"语义)。
 const quickOpenOpen = ref(false)
 const commandPaletteOpen = ref(false)
-const workspaceSearchOpen = ref(false)
+// 工作区全文搜索(v0.6.x):改为侧栏内嵌 tab,本 ref 仅保留"从选区带入的
+// 初始 query"语义,挂载 / 卸载由 workspaceStore.sidebarTab === 'search'
+// 走 Sidebar 的 v-if 控制。
 const workspaceSearchInitialQuery = ref('')
 
 function openWorkspaceSearch() {
+  if (!workspaceStore.activeRoot) return
+  // Ctrl+Shift+F 行为(v0.6.x 侧栏内嵌后):
+  //   - 始终打开 search tab,不 toggle 关闭 —— 用户重复按也保持可见
+  //   - 仅当编辑器有选区时,把内容写进 workspaceSearchInitialQuery 触发
+  //     WorkspaceSearchPanel 的 watch 把内容写进搜索框;空选区不动
+  //     initialQuery,保留用户已输入的搜索词
   const sel = currentSelectionText()
-  workspaceSearchInitialQuery.value = sel
-  quickOpenOpen.value = false
+  if (sel) workspaceSearchInitialQuery.value = sel
   commandPaletteOpen.value = false
   findOpen.value = false
-  workspaceSearchOpen.value = true
+  if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'search') {
+    showSidebarTab('search')
+  }
 }
 
 function openQuickOpen() {
   if (!workspaceStore.activeRoot) return
   commandPaletteOpen.value = false
-  workspaceSearchOpen.value = false
   findOpen.value = false
   quickOpenOpen.value = true
 }
 
 function openCommandPalette() {
   quickOpenOpen.value = false
-  workspaceSearchOpen.value = false
   findOpen.value = false
   commandPaletteOpen.value = true
 }
@@ -578,9 +585,21 @@ async function selectWorkspaceSearchHit(hit: WorkspaceSearchHit): Promise<boolea
     return false
   }
 
+  // WYSIWYG: 直接信任 pmMatches[hit.matchOrdinal],不再校验
+  // pmMatches.length === hit.fileMatchCount。raw scan 走 per-line 全串正则,
+  // 命中包含 code_block / image / mermaid 等非 text 节点的源码内容;
+  // PM findMatchesInDoc 只扫 text 节点,跳过这些节点;两边计数规则天然不一致,
+  // 等式几乎永远不成立 —— 旧校验等价于"文件不能含任何特殊节点",导致含图 /
+  // mermaid / 代码块的笔记 100% 报"结果已过期"。
+  // raw ordinal 与 PM pmMatches 在 prose 节点(paragraph / heading / list)上
+  // 对齐(text node 一次 exec 不跨节点,同段 N 个 match ordinal 0..N-1);raw 命中
+  // 若落在 code_block / image / mermaid 节点里,PM pmMatches[ordinal] undefined
+  // → 静默放弃,文件已 openPathInTab 打开,用户至少能浏览到目标行附近。
+  // 不自动切 source mode:与 workspace-search 架构决策一致,避免劫持用户当前
+  // 编辑模式;App.vue 的跨模式光标 / 滚动同步 watch 只服务主动 Ctrl+` 入口。
   const pmMatches = be.findMatches(hit.query, hit.options)
   const pmMatch = pmMatches[hit.matchOrdinal]
-  if (pmMatches.length === hit.fileMatchCount && pmMatch) {
+  if (pmMatch) {
     selectAndRevealWorkspaceSearchMatch(be, pmMatch.from, pmMatch.to)
     return true
   }
@@ -595,24 +614,22 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   await nextTick()
   const selected = await selectWorkspaceSearchHit(hit)
   if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
-  workspaceSearchOpen.value = false
+  // v0.6.x:侧栏内嵌模式下**不**自动关闭面板 —— 用户可以连续点多个结果;
+  // 关闭走 X / Esc / 再次点 ActivityBar 搜索图标。
 }
 
 const activeActivity = computed<ActivityBarItem | null>(() => {
-  if (workspaceSearchOpen.value) return 'search'
   if (leftPanelView.value === 'settings') return 'settings'
   if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
   return null
 })
 
-function showSidebarTab(tab: 'files' | 'outline') {
-  workspaceSearchOpen.value = false
+function showSidebarTab(tab: SidebarTab) {
   workspaceStore.setSidebarTab(tab)
   leftPanelView.value = 'sidebar'
 }
 
-function toggleSidebarTab(tab: 'files' | 'outline') {
-  workspaceSearchOpen.value = false
+function toggleSidebarTab(tab: SidebarTab) {
   if (leftPanelView.value === 'sidebar' && workspaceStore.sidebarTab === tab) {
     leftPanelView.value = null
     return
@@ -622,18 +639,21 @@ function toggleSidebarTab(tab: 'files' | 'outline') {
 }
 
 function showSettingsPanel() {
-  workspaceSearchOpen.value = false
   leftPanelView.value = 'settings'
 }
 
 function toggleSettingsPanel() {
-  workspaceSearchOpen.value = false
   leftPanelView.value = leftPanelView.value === 'settings' ? null : 'settings'
 }
 
 function toggleWorkspaceSearchFromActivity() {
-  if (workspaceSearchOpen.value) workspaceSearchOpen.value = false
-  else openWorkspaceSearch()
+  toggleSidebarTab('search')
+}
+
+/** Sidebar 内 WorkspaceSearchPanel emit('update:open', false):收起侧栏,
+ *  与用户点 ActivityBar 已激活的搜索图标等价(X / Esc 走同一路径)。 */
+function onWorkspaceSearchClose() {
+  leftPanelView.value = null
 }
 
 /** TabBar 标签右键菜单「在文件树中显示」:切到 files tab + 展开到该文件 +
@@ -862,8 +882,11 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
 function onKeydown(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey)) return
   const target = e.target as HTMLElement | null
-  // 焦点在 FindReplace / 工作区搜索 / 命令面板里 → 让面板自己处理(避免双触发)
-  if (target?.closest('[data-fr-panel], [data-workspace-search-panel], [data-command-palette-panel]')) return
+  // 焦点在 FindReplace / 命令面板里 → 让面板自己处理(避免双触发)。
+  // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,
+  // 不抢 Ctrl+F / Ctrl+Shift+F 等全局快捷键 —— 焦点在搜索框内仍允许触发
+  // 文档级查找、再次激活搜索等动作。
+  if (target?.closest('[data-fr-panel], [data-command-palette-panel]')) return
   const k = e.key.toLowerCase()
   if (k === 's' && e.shiftKey) {
     e.preventDefault()
@@ -892,12 +915,12 @@ function onKeydown(e: KeyboardEvent) {
     void documentStore.open()
   }
   else if (k === 'f' && e.shiftKey) {
-    // Ctrl+Shift+F 工作区全文搜索(v0.5.2):无工作区静默,对齐 Ctrl+P。
+    // Ctrl+Shift+F 工作区全文搜索(v0.5.2,v0.6.x 改为侧栏 tab):无工作区静默。
+    // 不 toggle —— 已在 search tab 时也不关闭;有选区时把内容塞进搜索框。
     if (!workspaceStore.activeRoot) return
     e.preventDefault()
     e.stopPropagation()
-    if (workspaceSearchOpen.value) workspaceSearchOpen.value = false
-    else openWorkspaceSearch()
+    openWorkspaceSearch()
   }
   else if (k === 'f') {
     e.preventDefault()
@@ -1318,13 +1341,6 @@ watch(editorRef, (v) => {
     :style="{ '--md-primary-color': store.primaryColor }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
-    <!-- 全局顶栏(v0.6.x 回滚到 v0.6.0 多标签引入的形态,本次重排):
-         - 顶栏横跨整个窗口宽度,固定在 y=0 接顶。
-         - 内容:[logo 段 (固定 48px,不绑 sidebarWidth → 拖侧栏不影响 tab 起点)] [TabBar (flex-1)] [右侧 (dev 欢迎 + WindowControls)]。
-         - logo 段宽度恒为 48px(同 ActivityBar 宽),与侧栏 displaySidebarWidth 完全解耦;早期版本这里写 `48 + displaySidebarWidth`,
-           让 tab 起点跟侧栏同步,体感是拖侧栏时整个 tab 行左右抖。本次回滚按用户要求固定。
-         - TabBar 内部 `<span data-tauri-drag-region />` 自管拖拽热区,不需要 App.vue 再贴。
-         - ActivityBar / 左侧功能区 / 编辑器回到 header 下方一格(不再接顶),与 v0.6.0 几何一致。 -->
     <header class="flex h-9 shrink-0 items-stretch bg-white text-gray-700 dark:bg-[#111] dark:text-gray-300">
       <!-- logo 段:固定 48px(只占 ActivityBar 那列宽)。veloLogo 同样用于
            loadSample 时替换 sample.md 里的 Velo.png 占位(?raw 字符串不被 Vite 重写)。 -->
@@ -1385,6 +1401,9 @@ watch(editorRef, (v) => {
               ref="sidebarRef"
               :model-value="documentStore.content"
               :file-path="documentStore.currentFilePath"
+              :workspace-search-initial-query="workspaceSearchInitialQuery"
+              @workspace-search-close="onWorkspaceSearchClose"
+              @workspace-search-open-result="openWorkspaceSearchResult"
             />
           </KeepAlive>
           <EditorSettings v-if="leftPanelView === 'settings'" />
@@ -1516,16 +1535,6 @@ watch(editorRef, (v) => {
       :open="commandPaletteOpen"
       :items="commandPaletteItems"
       @update:open="(v) => commandPaletteOpen = v"
-    />
-
-    <!-- Ctrl+Shift+F 全文搜索浮层(v0.5.2):实时 JS 扫描工作区 .md,点击结果由 App.vue 统一打开并选区。 -->
-    <WorkspaceSearchPanel
-      v-if="workspaceSearchOpen"
-      :open="workspaceSearchOpen"
-      :root="workspaceStore.activeRoot"
-      :initial-query="workspaceSearchInitialQuery"
-      @update:open="(v) => workspaceSearchOpen = v"
-      @open-result="openWorkspaceSearchResult"
     />
   </div>
 </template>

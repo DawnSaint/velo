@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue'
-import { ChevronRight, X } from '@lucide/vue'
+import { ChevronRight } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
-import { filterHeadings } from '@/utils/outlineFilter'
 
 const props = defineProps<{
   modelValue: string
@@ -13,10 +12,6 @@ const props = defineProps<{
 const outlineStore = useOutlineStore()
 
 // ========== 类型 ==========
-interface HighlightSegment {
-  text: string
-  match: boolean
-}
 interface FlatItem {
   level: number
   text: string
@@ -25,54 +20,12 @@ interface FlatItem {
   indent: number
   hasChildren: boolean
   expanded: boolean
-  // 预渲染的高亮段(filter 模式下非空,普通模式下整段为单段非匹配)
-  segments: HighlightSegment[]
 }
 
 const tree = ref<HeadingItem[]>(parseHeadings(props.modelValue))
 
 // ========== 折叠状态：使用 Set 追踪被折叠的 key ==========
 const collapsedKeys = ref<Set<string>>(new Set())
-
-// ========== 搜索过滤(v0.5.2) ==========
-// query 走本地 ref —— 切 tab (v-if 互斥) 触发 unmount,query 自然清空;
-// 模型值(modelValue)变化不重置,允许"搜索中编辑"的工作流。
-const query = ref('')
-const trimmedQuery = computed(() => query.value.trim())
-const isFilterActive = computed(() => trimmedQuery.value.length > 0)
-
-const filterResult = computed(() =>
-  isFilterActive.value
-    ? filterHeadings(tree.value, trimmedQuery.value)
-    : { matchKeys: new Set<string>(), matchIndices: new Map<string, number[]>() },
-)
-
-// 把 displayText 按命中索引切成"匹配/非匹配"段,供模板渲染主题色高亮。
-// 普通模式下整段是单段非匹配 → 无视觉变化。
-function buildSegments(displayText: string, indices: number[] | null | undefined): HighlightSegment[] {
-  if (!indices || indices.length === 0) return [{ text: displayText, match: false }]
-  const matchSet = new Set(indices)
-  const segments: HighlightSegment[] = []
-  let buf = ''
-  let bufMatch = false
-  for (let i = 0; i < displayText.length; i++) {
-    const isMatch = matchSet.has(i)
-    if (buf.length === 0) {
-      buf = displayText[i]
-      bufMatch = isMatch
-    }
-    else if (isMatch === bufMatch) {
-      buf += displayText[i]
-    }
-    else {
-      segments.push({ text: buf, match: bufMatch })
-      buf = displayText[i]
-      bufMatch = isMatch
-    }
-  }
-  if (buf) segments.push({ text: buf, match: bufMatch })
-  return segments
-}
 
 // 文件路径变化:从 store 读该文件的折叠状态,避免切换文件时折叠状态串台
 // (原来的实现下,两份文档里恰好同名/同级的标题会共用同一 key,折叠会"穿越")
@@ -125,17 +78,9 @@ watch(() => props.modelValue, (v) => {
 const flatList = computed<FlatItem[]>(() => {
   const result: FlatItem[] = []
   const collapsed = collapsedKeys.value
-  const { matchKeys, matchIndices } = filterResult.value
 
   function walk(items: HeadingItem[], depth: number) {
     for (const item of items) {
-      const isMatch = matchKeys.has(item.key)
-      // filter 激活时:非命中项不入列(用户决定"仅展示命中条目"),
-      // 但仍递归走完子树以防深层命中被漏掉。
-      if (isFilterActive.value && !isMatch) {
-        walk(item.children, depth + 1)
-        continue
-      }
       const expanded = !collapsed.has(item.key)
       result.push({
         level: item.level,
@@ -143,14 +88,10 @@ const flatList = computed<FlatItem[]>(() => {
         displayText: item.displayText,
         key: item.key,
         indent: depth,
-        // filter 模式下隐藏 chevron —— 命中条目是扁平列表,没有展开折叠的需要
-        hasChildren: !isFilterActive.value && item.children.length > 0,
+        hasChildren: item.children.length > 0,
         expanded,
-        segments: buildSegments(item.displayText, matchIndices.get(item.key)),
       })
-      // filter 模式无视折叠态递归(找出所有命中);普通模式按 expanded 控制
-      const recurse = isFilterActive.value || (expanded && item.children.length)
-      if (recurse) walk(item.children, depth + 1)
+      if (expanded && item.children.length) walk(item.children, depth + 1)
     }
   }
   walk(tree.value, 0)
@@ -179,8 +120,6 @@ const headingIndex = computed<Map<string, HeadingIndexEntry>>(() => {
   walk(tree.value, [])
   return map
 })
-
-const isEmpty = computed(() => flatList.value.length === 0)
 
 // ========== 滚动到标题 ==========
 function scrollToHeading(item: FlatItem) {
@@ -339,39 +278,9 @@ onUnmounted(detachScrollListener)
        防止窄态时子元素溢出。p-2 pt-2 pr-0 保留 —— pr-2 由内层 pr-2 补回。
   -->
   <div class="velo-outline flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
-    <!-- 搜索框(v0.5.2):仅在文档有标题时显示;空文档没东西可搜。
-         焦点边色走主题色 --md-primary-color(在 scoped style 内定义),与大纲
-         高亮色统一。 -->
-    <div v-if="!isDocEmpty" class="relative mb-2 shrink-0 pr-2">
-      <input
-        v-model="query"
-        type="text"
-        data-testid="outline-search-input"
-        placeholder="搜索标题..."
-        class="velo-outline-search w-full rounded-lg border border-gray-200 bg-white px-2 py-1 pr-6 text-xs text-gray-700 outline-none transition-colors placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:placeholder:text-gray-500"
-        @keydown.escape="query = ''"
-      >
-      <!-- 清除按钮:仅在有输入时显示 -->
-      <button
-        v-if="query"
-        type="button"
-        data-testid="outline-search-clear"
-        class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        title="清除"
-        @click="query = ''"
-      >
-        <X class="size-3" :stroke-width="2.5" />
-      </button>
-    </div>
-
     <!-- 文档完全无标题 -->
     <div v-if="isDocEmpty" class="py-8 text-center text-xs text-gray-400">
       暂无标题
-    </div>
-
-    <!-- 搜索无结果(文档有标题但 filter 全过滤掉了) -->
-    <div v-else-if="isEmpty" class="py-8 text-center text-xs text-gray-400">
-      无匹配标题
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto pr-2">
@@ -396,8 +305,7 @@ onUnmounted(detachScrollListener)
           />
         </button>
 
-        <!-- 标题文本;matched 字符段渲染为 primary 色 span(无背景,避免抖动)。
-             currentKey 样式(粗体 + 12% primary 背景)与高亮叠加,两者不互斥。 -->
+        <!-- 标题文本;currentKey 样式(粗体 + 12% primary 背景)。 -->
         <button
           :class="[
             'truncate text-left text-sm transition-colors rounded px-1 py-1',
@@ -415,13 +323,7 @@ onUnmounted(detachScrollListener)
           :title="item.displayText"
           @click="scrollToHeading(item)"
         >
-          <template v-for="(seg, i) in item.segments" :key="i">
-            <span
-              v-if="seg.match"
-              class="font-bold"
-            >{{ seg.text }}</span>
-            <template v-else>{{ seg.text }}</template>
-          </template>
+          {{ item.displayText }}
         </button>
       </div>
     </div>
@@ -435,12 +337,5 @@ onUnmounted(detachScrollListener)
 @keyframes outline-flash {
   0%  { background-color: var(--md-primary-color, #1F71D9); color: #fff; border-radius: 4px; }
   100% { background-color: transparent; color: inherit; }
-}
-
-/* 搜索框 focus 边色走主题色 —— 与大纲内 currentKey / 命中段同一色源,
-   不用 Tailwind 任意值语法(CSS 变量在 Tailwind arbitrary 内嵌套
-   需要 v3.3+,本项目锁 v3.4 也能用,但 scoped CSS 更直观且无版本顾虑)。 */
-.velo-outline-search:focus {
-  border-color: var(--md-primary-color, #1F71D9);
 }
 </style>
