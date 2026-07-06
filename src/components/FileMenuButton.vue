@@ -22,11 +22,11 @@
 //    批 handler。
 
 import { computed, nextTick, onBeforeUnmount, ref, type ComponentPublicInstance } from 'vue'
-import { File, ChevronRight } from '@lucide/vue'
+import { File, ChevronRight, Check } from '@lucide/vue'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import type { RecentFileEntry } from '@/stores/persistence'
 
-type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export'
+type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top'
 
 interface FileActionRow {
   key: string
@@ -34,6 +34,8 @@ interface FileActionRow {
   shortcut: string
   event: FileActionEvent
   disabled?: boolean
+  /** 勾选态(toggle 项):true 时右侧显示 Check 图标代替 shortcut badge */
+  checked?: boolean
 }
 
 const SUBMENU_GAP = 4
@@ -46,6 +48,8 @@ const props = defineProps<{
   recentEntries: RecentFileEntry[]
   /** true 时显示「欢迎」入口 —— 仅开发模式需要(用于重看欢迎对话框) */
   welcomeEnabled: boolean
+  /** 窗口置顶态(toggle 项勾选指示) */
+  alwaysOnTop: boolean
 }>()
 
 const emit = defineEmits<{
@@ -58,6 +62,7 @@ const emit = defineEmits<{
   'export': []
   'open-recent': [path: string]
   'open-welcome': []
+  'toggle-always-on-top': []
 }>()
 
 const open = ref(false)
@@ -103,6 +108,14 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
         { key: 'export', label: props.exporting ? '导出中…' : '导出', shortcut: 'Ctrl+Shift+E', event: 'export', disabled: props.exporting },
       ],
     },
+    // 窗口级 toggle 项:勾选态由 props.alwaysOnTop 驱动,右侧显示 Check 代替 shortcut
+    ...(props.isTauri
+      ? [{
+          rows: [
+            { key: 'always-on-top', label: '保持窗口最前', shortcut: '', event: 'toggle-always-on-top' as FileActionEvent, checked: props.alwaysOnTop },
+          ],
+        }]
+      : []),
     ...(props.welcomeEnabled
       ? [{
           rows: [
@@ -199,6 +212,7 @@ function emitAction(row: FileActionRow) {
   else if (row.event === 'save') emit('save')
   else if (row.event === 'save-as') emit('save-as')
   else if (row.event === 'export') emit('export')
+  else if (row.event === 'toggle-always-on-top') emit('toggle-always-on-top')
   closeAll()
 }
 
@@ -292,6 +306,12 @@ onBeforeUnmount(() => {
               v-if="row.key === 'recent'"
               :size="12"
               class="shrink-0 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
+            <Check
+              v-else-if="row.checked"
+              :size="14"
+              class="shrink-0 text-gray-500 dark:text-gray-400"
               aria-hidden="true"
             />
             <span

@@ -13,6 +13,7 @@ const baseProps = {
   exporting: false,
   recentEntries: [] as Array<{ path: string, openedAt: number }>,
   welcomeEnabled: false,
+  alwaysOnTop: false,
 }
 
 // ActivityBar v0.6.1 起读 editorStore(排序 / 隐藏态),mount 必须装 pinia。

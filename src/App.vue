@@ -432,6 +432,16 @@ const editorRef = ref<InstanceType<typeof ProseMirrorEditor> | null>(null)
 // 源代码模式编辑器 ref —— 跨模式光标/滚动同步要读 CM6 view(见 watch(sourceMode))
 const srcRef = ref<InstanceType<typeof SourceModeEditor> | null>(null)
 const findOpen = ref(false)
+
+// ========== 全屏模式(F11) ==========
+// OS 级全屏,窗口填满整个屏幕。F11 切换,命令面板也提供入口。
+// isFullscreen 是 UI 层镜像,onResized 时同步(用户可能用 OS 手段退出全屏)。
+const isFullscreen = ref(false)
+
+// ========== 窗口最前 ==========
+// OS 级 always-on-top,窗口浮在所有普通窗口之上。文件菜单 toggle,命令面板也提供入口。
+// isAlwaysOnTop 是 UI 层镜像,与全屏一样不做持久化(运行时态,重启回到默认 false)。
+const isAlwaysOnTop = ref(false)
 // 查找替换的"用户意图" —— 上提到 App.vue 并 provide,两份 FindReplace(PM / CM6)
 // inject 共享。切模式时 PM 份卸载、CM6 份新挂,意图在这里存活 → query 不丢。
 // matches / currentIndex 不上提(模式相关,新挂载时重算)。
@@ -791,6 +801,32 @@ async function createNewAppWindow(payload?: Partial<CliArgsPayload>) {
   }
 }
 
+async function toggleFullscreen() {
+  if (!tauri) return
+  try {
+    const win = getCurrentWindow()
+    const next = !await win.isFullscreen()
+    await win.setFullscreen(next)
+    isFullscreen.value = next
+  }
+  catch (e) {
+    console.error('切换全屏失败', e)
+  }
+}
+
+async function toggleAlwaysOnTop() {
+  if (!tauri) return
+  try {
+    const win = getCurrentWindow()
+    const next = !await win.isAlwaysOnTop()
+    await win.setAlwaysOnTop(next)
+    isAlwaysOnTop.value = next
+  }
+  catch (e) {
+    console.error('切换窗口最前失败', e)
+  }
+}
+
 function openFolderAsWorkspace() {
   void workspaceStore.pickWorkspace()
 }
@@ -825,6 +861,23 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       group: 'app' as const,
       keywords: ['new window'],
       run: () => createNewAppWindow(),
+    }] : []),
+    ...(tauri ? [{
+      id: 'window.fullscreen',
+      title: isFullscreen.value ? '退出全屏' : '全屏模式',
+      subtitle: '切换窗口全屏',
+      shortcut: 'F11',
+      group: 'app' as const,
+      keywords: ['fullscreen', '全屏'],
+      run: () => toggleFullscreen(),
+    }] : []),
+    ...(tauri ? [{
+      id: 'window.alwaysOnTop',
+      title: isAlwaysOnTop.value ? '取消窗口最前' : '保持窗口最前',
+      subtitle: '窗口浮在所有普通窗口之上',
+      group: 'app' as const,
+      keywords: ['always on top', 'pin', '置顶', '最前'],
+      run: () => toggleAlwaysOnTop(),
     }] : []),
     {
       id: 'file.open',
@@ -1228,15 +1281,35 @@ onMounted(async () => {
   //   + preventDefault 是另一道保险,见 onKeydown 注释。
   window.addEventListener('keydown', onKeydown, { capture: true })
 
-  // F12 打开 WebView DevTools —— Cargo.toml 开了 `devtools` feature,release 包也能用。
+  // F11 切全屏 + F12 打开 WebView DevTools —— Cargo.toml 开了 `devtools` feature,release 包也能用。
   // tauri command `open_devtools` 在 src-tauri/src/lib.rs 注册。dev 环境 Vite/浏览器
   // 自带 F12,这里 invoke 会失败,catch 掉就行。
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'F11' && tauri) {
+      e.preventDefault()
+      void toggleFullscreen()
+      return
+    }
     if (e.key === 'F12' && tauri) {
       e.preventDefault()
       void invoke('open_devtools').catch(() => { /* dev 环境无此 command,忽略 */ })
     }
   })
+
+  // 全屏状态初始化 + resize 同步:用户可能用 OS 手段退出全屏(Esc / 鼠标手势),
+  // onResized 时重新查 isFullscreen 保持 UI 镜像与实际一致。
+  if (tauri) {
+    const fullscreenWin = getCurrentWindow()
+    try { isFullscreen.value = await fullscreenWin.isFullscreen() }
+    catch { /* 权限异常时保持 false */ }
+    try { isAlwaysOnTop.value = await fullscreenWin.isAlwaysOnTop() }
+    catch { /* 权限异常时保持 false */ }
+    void fullscreenWin.onResized(() => {
+      void fullscreenWin.isFullscreen()
+        .then(v => { isFullscreen.value = v })
+        .catch(() => {})
+    })
+  }
 
   // 0) 加载大纲折叠状态 —— 必须早于 CLI 打开文件,
   //    否则 CLI 打开文件时,EditorOutline 的 filePath watch 读到的 store 是空的,
@@ -1547,6 +1620,7 @@ watch(editorRef, (v) => {
         :exporting="exportStore.exporting"
         :recent-entries="recentFilesStore.entries"
         :welcome-enabled="isDev"
+        :always-on-top="isAlwaysOnTop"
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
@@ -1560,6 +1634,7 @@ watch(editorRef, (v) => {
         @export="exportStore.exportDocument()"
         @open-recent="openRecentFile"
         @open-welcome="welcomeVisible = true"
+        @toggle-always-on-top="toggleAlwaysOnTop()"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。

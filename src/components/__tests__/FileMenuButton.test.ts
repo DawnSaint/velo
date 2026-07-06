@@ -11,6 +11,7 @@ function mountMenu(props: Partial<{
   exporting: boolean
   recentEntries: RecentFileEntry[]
   welcomeEnabled: boolean
+  alwaysOnTop: boolean
 }> = {}) {
   return mount(FileMenuButton, {
     props: {
@@ -18,6 +19,7 @@ function mountMenu(props: Partial<{
       exporting: false,
       recentEntries: [],
       welcomeEnabled: false,
+      alwaysOnTop: false,
       ...props,
     },
     global: {
@@ -52,7 +54,7 @@ describe('FileMenuButton', () => {
 
     await openMenu(wrapper)
 
-    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出']) {
+    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出', '保持窗口最前']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true)
     }
     for (const shortcut of ['Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+Shift+E']) {
@@ -76,6 +78,8 @@ describe('FileMenuButton', () => {
 
     expect(wrapper.find('[aria-label="新窗口"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="新建文件"]').exists()).toBe(true)
+    // 非 Tauri 环境也不显示窗口最前 toggle
+    expect(wrapper.find('[aria-label="保持窗口最前"]').exists()).toBe(false)
   })
 
   it('导出中时禁用「导出」', async () => {
@@ -106,6 +110,16 @@ describe('FileMenuButton', () => {
     await wrapper.get('[aria-label="欢迎对话框"]').trigger('click')
 
     expect(wrapper.emitted('open-welcome')).toHaveLength(1)
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+  })
+
+  it('点击「保持窗口最前」emit toggle-always-on-top 并关闭', async () => {
+    const wrapper = mountMenu({ alwaysOnTop: false })
+
+    await openMenu(wrapper)
+    await wrapper.get('[aria-label="保持窗口最前"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-always-on-top')).toHaveLength(1)
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })
 

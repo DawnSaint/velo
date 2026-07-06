@@ -37,6 +37,7 @@ defineProps<{
   exporting: boolean
   recentEntries: RecentFileEntry[]
   welcomeEnabled: boolean
+  alwaysOnTop: boolean
 }>()
 const emit = defineEmits<{
   'select-files': []
@@ -53,6 +54,7 @@ const emit = defineEmits<{
   'export': []
   'open-recent': [path: string]
   'open-welcome': []
+  'toggle-always-on-top': []
 }>()
 
 const editorStore = useEditorStore()
@@ -217,6 +219,7 @@ onBeforeUnmount(() => {
         :exporting="exporting"
         :recent-entries="recentEntries"
         :welcome-enabled="welcomeEnabled"
+        :always-on-top="alwaysOnTop"
         @new-doc="emit('new-doc')"
         @new-window="emit('new-window')"
         @open-file="emit('open-file')"
@@ -226,6 +229,7 @@ onBeforeUnmount(() => {
         @export="emit('export')"
         @open-recent="(p) => emit('open-recent', p)"
         @open-welcome="emit('open-welcome')"
+        @toggle-always-on-top="emit('toggle-always-on-top')"
       >
         <!-- FileMenuButton 用 `#trigger` slot 暴露 `open / toggle / registerRef`:
              `registerRef` 必须在自定义 button 上 `:ref` 调一次把元素喂回去,否则
