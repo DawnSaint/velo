@@ -27,6 +27,7 @@
 - [x] 全屏模式（F11）
 - [x] 专注模式：当前段落外内容降透明度（独立开关，可与全屏叠加）
 - [x] 阅读模式：无法编辑
+- [ ] Breadcrumbs 面包屑：编辑器顶部常驻「文件名 > 一级标题 > 二级标题」面包屑，点任一段跳转；常驻迷你大纲，比侧栏大纲更快、比命令面板 @ 模式少一次按键（需监听光标所在 heading）
 
 ### 窗口与全局体验
 
@@ -56,16 +57,16 @@
 - [x] 全局搜索文件可展开折叠
 - [ ] 功能更新弹窗（版本升级后首启展示 CHANGELOG 摘要）
 - [ ] Git 集成（侧栏显示 git status / commit / diff）
+  - [ ] 最近编辑位置时间线（JetBrains Ctrl+Shift+E 风格）：跨文件记光标位置而非文件，与 Git 集成一同实现
 - [ ] 导出更多格式（DOCX / EPUB）
 - [ ] 资产面板（侧边栏第 3 个 tab）：扫描当前文档所有 `image` / `link` 节点，列出本地路径 + 外链分组；点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）；引用计数为 0 的本地资产标灰（孤儿候选）
 - [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
 - [ ] 书签
 - [ ] 导出 PDF 分页预览
-- [ ] 命令面板按照 VSCode “多模式输入框”升级
+- [x] 命令面板按照 VSCode “多模式输入框”升级
   - `>` 是命令模式
   - 无前缀是文件模式
   - @ 是符号
-  - ~~`#` 是 workspace symbol~~ → v0.6.2 暂缓,后续版本接入
   - : 是行号
 
 ### 双链
@@ -78,6 +79,8 @@
 - [ ] 工作区索引：`workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新（依赖 v0.5.0 的工作区根 watch）
 - [ ] 损坏链接检测：索引时标记指向不存在文件的 `[[link]]`，编辑器内 decoration 标红 + 提示
 - [ ] 反向链接：当前文档被工作区内哪些 .md 引用，分组展示 + 上下文片段
+- [ ] Go to Definition：在 `[[wikilink]]` / markdown 链接上 Ctrl+Click / F12 跳目标文件
+- [ ] Find References：Shift+F12 列出当前文件被工作区内哪些 .md 引用（反向链接的单点入口）
 
 **test**
 

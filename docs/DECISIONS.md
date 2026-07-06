@@ -192,3 +192,13 @@
 - **Context**: Chrome 风格"单窗口多 .md 标签"需要同时打开 N 份文档，每份独立 undo / 滚动 / 光标 / dirty / lastSavedContent。A 单例 ref + 切换丢状态；B `documents: Map<id, DocState>` 多实例化（per-doc echo / autosave / view lifecycle）；C 历史栈（forward/back）只能串行浏览，并排多文件不达标。0.5.6 ADR-004 选多窗口方案时曾因"B 单窗口多标签范围远超需求"暂搁，0.6.0 重新打开。
 - **Decision**: 选 B。`documentStore` 改为 `documents: Map<id, DocState>` + `activeId`，文件路径 / 内容 / lastSavedContent / lastSelfEmitted / 各种 dirty 标志全部下沉到 DocState。`currentFilePath` / `content` 等顶层 ref 改成从 activeId 取值的 getter 镜像，保外部 API 形状稳定。
 - **Consequences**: 外部 component 仍按"当前文档"语义访问，顶层 getter 屏蔽多实例切换；per-doc 哨兵 / autosave / view lifecycle 实现细节沉淀到对应 architecture 模块；为后续"每窗口独立 documentStore"（与 0.5.6 ADR-004 多窗口叠加）铺路；新 API（`openPathInTab` / `openPathInNewTab` / `switchTab` / `closeTab`）取代单文档时代的"开 / 关文件"。
+
+---
+
+## v0.6.2 — 统一命令面板
+
+### ADR-20260706-002: Ctrl+P / Ctrl+Shift+P 合并为前缀分发单一面板
+
+- **Context**: v0.5.7 起 Ctrl+P（查文件）与 Ctrl+Shift+P（命令）是两个独立浮层。VSCode / Sublime / Obsidian 都用一个输入框 + 首字符前缀分发模式。A 保持两个独立面板 vs B 合并为前缀分发单一面板 vs C 单一面板但用顶部 tab 按钮切模式。
+- **Decision**: 选 B。一个输入框，首字符决定模式（无前缀=文件、`>`=命令、`@`=符号、`:`=行号），剥前缀后喂给各模式自己的过滤函数；Ctrl+P / Ctrl+Shift+P 打开同一面板，仅预填前缀不同。
+- **Consequences**: 新模式只需加一个前缀字符 + 一条分发分支，无需新浮层；`@` / `:` 等新模式靠前缀介绍行天然可发现。代价是首字符被前缀占用（文件名以 `>` / `@` / `:` 开头极少，可接受）；`#` workspace-symbol 同架构接入，本版暂缓。
