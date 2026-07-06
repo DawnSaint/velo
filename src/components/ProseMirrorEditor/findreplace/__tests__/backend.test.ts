@@ -127,6 +127,43 @@ describe('PM 后端', () => {
     view.destroy()
   })
 
+  // replacement 为空 = "删 match"。早期实现走 schema.text('') 直接抛
+  // RangeError('Empty text nodes are not allowed'),PM 不允许构造空 text 节点;
+  // 修法是 replaceRange 对空 newText 改走 tr.delete。覆盖三种调用形态:
+  //   ① 单条空 replacement(replaceCurrent 的最常见形态)
+  //   ② 多次连续空 replacement(模拟 replaceAll 在大段文本上的循环)
+  //   ③ 跨 mark 边界的空 replacement(text 节点边界与 match 范围不完全重合
+  //      时仍要正确删除 —— schema.text 的边界对齐问题被 delete 绕开)
+  it('replaceRange:replacement 为空时正确删除 match(不抛 schema.text 空串错)', () => {
+    const view = makePmView('Hello world hello.')
+    const be = createPmBackend(view)
+    // caseSensitive=true → 只命中小写 'hello',避开 'Hello' 也算命中的歧义,
+    // 让断言能精准判断"只删了被替换的那条"。
+    const matches = be.findMatches('hello', opt({ caseSensitive: true }))
+    expect(matches).toHaveLength(1)
+    // ① 单条空替换
+    const cursor = be.replaceRange(matches[0].from, matches[0].to, '')
+    expect(cursor).toBe(matches[0].from)
+    expect(view.state.doc.textContent).toBe('Hello world .')
+    // ② 剩余无 match
+    expect(be.findMatches('hello', opt({ caseSensitive: true }))).toHaveLength(0)
+    view.destroy()
+  })
+
+  // 替换范围跨越 PM 文本节点边界(同一段 prose 被 marks 切成多个 text node):
+  // 用户在加粗的"world"里搜 world → match 范围是 doc 坐标,replaceWith 单节点会
+  // 失败或丢 mark;空 replacement 走 tr.delete 同样要正确处理跨节点。
+  it('replaceRange:replacement 为空时跨文本节点边界删除', () => {
+    const view = makePmView('**Hello** *world* here')
+    const be = createPmBackend(view)
+    const matches = be.findMatches('world', opt())
+    expect(matches).toHaveLength(1)
+    // 不应抛
+    be.replaceRange(matches[0].from, matches[0].to, '')
+    expect(view.state.doc.textContent).not.toContain('world')
+    view.destroy()
+  })
+
   it('setSelection:命中隐藏 mermaid 源码时先展开且不抢查找框焦点', async () => {
     const view = makePmView('intro\n\n```mermaid\ngraph TD\n  A-->B\n```', [mermaidDecoration, findHighlight])
     const input = document.createElement('input')
@@ -291,6 +328,20 @@ describe('CM6 后端', () => {
     expect(cursor).toBe(mdWorld + 'earth'.length)
     expect(view.state.doc.toString()).toContain('earth')
     expect(view.state.doc.toString()).not.toContain('world')
+    view.destroy()
+  })
+
+  // CM6 路径本身对空 insert 不限制(对照 PM 的 schema.text 抛错):
+  // 锁定"未来若把 PM 改回同一写法,空 replacement 在 CM6 上仍然能跑通",
+  // 避免两边契约分叉。
+  it('replaceRange:replacement 为空时正确删除 match(CM6 不限空 insert)', () => {
+    const view = makeCmView('Hello world hello.')
+    const be = createCmBackend(view)
+    const matches = be.findMatches('hello', opt({ caseSensitive: true }))
+    expect(matches).toHaveLength(1)
+    const cursor = be.replaceRange(matches[0].from, matches[0].to, '')
+    expect(cursor).toBe(matches[0].from)
+    expect(view.state.doc.toString()).toBe('Hello world .')
     view.destroy()
   })
 

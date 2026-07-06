@@ -27,6 +27,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
+  /** 焦点在面板内按 Ctrl+Shift+F → 切到全局搜索。App.vue 关闭本面板 +
+   *  打开 WorkspaceSearchPanel,FindReplace 自己不直接碰全局状态 */
+  'open-global-search': []
 }>()
 
 // 用户意图来自 App.vue(跨模式保留)。App 始终 provide;独立挂载(如测试)无 provide
@@ -238,7 +241,26 @@ function clearQuery() {
 }
 
 function onFindKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+  const mod = e.ctrlKey || e.metaKey
+  const k = e.key.toLowerCase()
+  if (mod && e.shiftKey && k === 'f') {
+    // 切到全局搜索:App.vue 的 onKeydown 在 capture 阶段看到 closest
+    // data-fr-panel 就 return(把控制权让给本面板),本面板自己不处理就
+    // 静默吞掉。emit 给父级,父级关本面板 + 打开 WorkspaceSearchPanel。
+    e.preventDefault()
+    e.stopPropagation()
+    emit('open-global-search')
+    return
+  }
+  if (mod && !e.shiftKey && k === 'h') {
+    // 展开替换行(类似编辑器内 Ctrl+H 语义),已展开则重新聚焦 replace 输入
+    e.preventDefault()
+    e.stopPropagation()
+    showReplace.value = true
+    nextTick(() => replaceInputRef.value?.focus())
+    return
+  }
+  if (mod && k === 'f') {
     // panel 已经开着 → 重新聚焦 find 输入,而不是创建新实例
     e.preventDefault()
     findInputRef.value?.focus()
@@ -257,6 +279,22 @@ function onFindKeydown(e: KeyboardEvent) {
 }
 
 function onReplaceKeydown(e: KeyboardEvent) {
+  const mod = e.ctrlKey || e.metaKey
+  const k = e.key.toLowerCase()
+  if (mod && e.shiftKey && k === 'f') {
+    e.preventDefault()
+    e.stopPropagation()
+    emit('open-global-search')
+    return
+  }
+  if (mod && !e.shiftKey && k === 'h') {
+    // 替换行已展开 → 重新聚焦 replace 输入
+    e.preventDefault()
+    e.stopPropagation()
+    showReplace.value = true
+    nextTick(() => replaceInputRef.value?.focus())
+    return
+  }
   if (e.key === 'Enter') {
     e.preventDefault()
     replaceCurrent()
@@ -279,32 +317,37 @@ function onReplaceKeydown(e: KeyboardEvent) {
   <div
     v-if="open"
     data-fr-panel
-    class="velo-find-replace absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-gray-200 bg-white/80 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-[#252525]/85"
+    class="velo-find-replace absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-gray-200 bg-white shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-[#252525]/85"
     @keydown.stop
     @click.stop
   >
     <!-- Find row -->
-    <div class="flex items-center gap-1 px-3 py-2">
+    <div class="flex items-center px-2.5 py-1 gap-0.5">
       <div class="relative min-w-0 flex-1">
+        <button
+          type="button"
+          class="absolute left-0.5 top-1/2 -translate-y-1/2 flex w-6 h-6 shrink-0 items-center justify-center rounded text-gray-500 transition-colors dark:text-gray-400"
+          :title="showReplace ? '隐藏替换' : '显示替换'"
+          @click="toggleReplace"
+        >
+          <ChevronDown v-if="showReplace" :size="12" />
+          <ChevronRight v-else :size="12" />
+        </button>
         <input
           ref="findInputRef"
           v-model="query"
           type="text"
           data-fr-input="find"
           placeholder="查找"
-          class="w-full rounded-lg border border-gray-200 bg-white py-1 pl-2 pr-7 text-xs text-gray-900/80 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+          class="w-full rounded-xl border border-gray-200 bg-white py-1 pl-6 pr-7 text-xs text-gray-900/80 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
           :class="{ 'border-red-400 focus:border-red-400 focus:ring-red-400/25 dark:border-red-500': hasError }"
           @keydown="onFindKeydown"
-        >
-        <!--
-          清空按钮:有内容时才显示,absolute 浮在 input 右内侧。
-          pr-7 始终给按钮留位,避免出现 / 消失时输入框宽度跳一下。
-        -->
+        />
         <button
           v-if="query"
           type="button"
           data-fr-input="find-clear"
-          class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           title="清空"
           @click="clearQuery"
         >
@@ -324,7 +367,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         title="上一个 (Shift+Enter)"
         @click="findPrev"
       >
-        <ChevronUp :size="14" />
+        <ChevronUp :size="12" />
       </button>
       <button
         type="button"
@@ -333,7 +376,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         title="下一个 (Enter)"
         @click="findNext"
       >
-        <ChevronDown :size="14" />
+        <ChevronDown :size="12" />
       </button>
       <button
         type="button"
@@ -365,25 +408,16 @@ function onReplaceKeydown(e: KeyboardEvent) {
       <button
         type="button"
         class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        :title="showReplace ? '隐藏替换' : '显示替换'"
-        @click="toggleReplace"
-      >
-        <ChevronDown v-if="showReplace" :size="14" />
-        <ChevronRight v-else :size="14" />
-      </button>
-      <button
-        type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
         title="关闭 (Esc)"
         @click="close"
       >
-        <X :size="14" />
+        <X :size="12" />
       </button>
     </div>
     <!-- Replace row -->
     <div
       v-if="showReplace"
-      class="flex items-center gap-1 border-t border-gray-100 px-3 py-2 dark:border-gray-800"
+      class="flex items-center gap-1 px-2.5 pb-1"
     >
       <input
         ref="replaceInputRef"
@@ -391,7 +425,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
         type="text"
         data-fr-input="replace"
         placeholder="替换为"
-        class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-900/80 outline-none transition-colors focus:outline-none focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+        class="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-2 py-1 text-xs text-gray-900/80 outline-none transition-colors focus:outline-none focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
         @keydown="onReplaceKeydown"
       >
       <button
@@ -415,3 +449,18 @@ function onReplaceKeydown(e: KeyboardEvent) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/*
+ * 补 button 的鼠标光标。Tailwind preflight 不重置 button 的 cursor,UA 默认
+ * 是 default(箭头),整个项目都缺,这里给本组件内的 button 补齐 —— 根
+ * div 有 velo-find-replace class,后代选择器只命中本组件内的按钮,不污染
+ * 外层 dialog / 表单等。disabled 态原来只降透明度,顺带把不可点语义也补上。
+ */
+.velo-find-replace button {
+  cursor: pointer;
+}
+.velo-find-replace button:disabled {
+  cursor: not-allowed;
+}
+</style>

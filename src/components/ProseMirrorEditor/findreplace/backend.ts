@@ -122,7 +122,14 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
     },
     replaceRange(from, to, newText) {
       const tr = view.state.tr
-      tr.replaceWith(from, to, view.state.schema.text(newText))
+      // 新内容为空 → 走 tr.delete。
+      // schema.text('') 会抛 RangeError('Empty text nodes are not allowed'):
+      // ProseMirror 不允许构造空 text 节点(无论是否带 mark),replaceCurrent /
+      // replaceAll 在 replacement='' 的"删 match"场景会撞这层。delete 是
+      // 同一意图的等价路径 —— 删除区间 + 光标停在 from,replacement.length
+      // 仍 0,后续 findNext 的 cursorPos = from + 0 也对得上。
+      if (newText.length === 0) tr.delete(from, to)
+      else tr.replaceWith(from, to, view.state.schema.text(newText))
       view.dispatch(tr)
       return from + newText.length
     },

@@ -560,6 +560,13 @@ function openWorkspaceSearch() {
   }
 }
 
+// FindReplace 内的 Ctrl+Shift+F / Ctrl+H 不走 App.vue 的 onKeydown(capture 阶段
+// closest data-fr-panel 直接 return,把控制权让给面板),由面板 emit 出来后再走。
+// 关闭本面板 + 打开全局搜索,与外部按 Ctrl+Shift:F 行为一致。
+function openGlobalSearchFromFind() {
+  openWorkspaceSearch()
+}
+
 function openQuickOpen() {
   if (!workspaceStore.activeRoot) return
   commandPaletteOpen.value = false
@@ -972,13 +979,19 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
 // stopPropagation 防止冒泡到其他 window/document 上的扩展 / 第三方脚本再开一次。
 function onKeydown(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey)) return
+  const k = e.key.toLowerCase()
+  // Ctrl+F(capture 阶段)无条件 preventDefault —— 必须先压过 webview 内置的
+  // "find in page" 搜索框,再决定行为分发:焦点在 FindReplace 内 → 让面板处理
+  // (closest 命中,return);否则 → 走下面的 openFind。不能在 closest 检查之后
+  // 再 preventDefault,否则焦点在面板内时 return 时 default action 还没被
+  // 拦,WebView2 仍会弹内置搜索框。
+  if (k === 'f' && !e.shiftKey) e.preventDefault()
   const target = e.target as HTMLElement | null
   // 焦点在 FindReplace / 命令面板里 → 让面板自己处理(避免双触发)。
   // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,
   // 不抢 Ctrl+F / Ctrl+Shift+F 等全局快捷键 —— 焦点在搜索框内仍允许触发
   // 文档级查找、再次激活搜索等动作。
   if (target?.closest('[data-fr-panel], [data-command-palette-panel]')) return
-  const k = e.key.toLowerCase()
   if (k === 's' && e.shiftKey) {
     e.preventDefault()
     e.stopPropagation()
@@ -1139,7 +1152,7 @@ async function startWorkspaceWatch(root: string) {
 
 async function stopWorkspaceWatch() {
   if (!workspaceUnwatch) return
-  try { await workspaceUnwatch() }
+  try { workspaceUnwatch() }
   catch (e) { console.warn('工作区 watch 停止失败', e) }
   workspaceUnwatch = null
 }
@@ -1601,6 +1614,7 @@ watch(editorRef, (v) => {
               :read-only="documentStore.readOnly"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
+              @open-global-search="openGlobalSearchFromFind"
             />
             <SourceModeEditor
               v-else
@@ -1611,6 +1625,7 @@ watch(editorRef, (v) => {
               :read-only="documentStore.readOnly"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
+              @open-global-search="openGlobalSearchFromFind"
             />
           </template>
           <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->

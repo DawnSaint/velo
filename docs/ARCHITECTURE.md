@@ -57,7 +57,7 @@ velo/
 │   ├── ARCHITECTURE.md          架构入口、技术栈、目录结构与数据流基础
 │   └── architecture/            架构模块文档（含 testing.md 测试规约）
 ├── src/
-│   ├── App.vue                    外层 flex-col:全局顶栏(横跨整个窗口顶部,logo 48px + TabBar + dev 欢迎 + WindowControls;logo 段固定 48px 不绑 sidebarWidth → 标签条起点位置稳定)+ 主体 flex-row(ActivityBar + 侧栏 + 编辑器) + 底部 StatusBar(v0.6.x 回滚后期:`logo` 段独立,ActivityBar / 侧栏回到顶栏下方一格;`文件` 入口仍由 ActivityBar 第一个 FileMenuButton 下拉面板触发)
+│   ├── App.vue                    外层 flex-col:全局顶栏(横跨整个窗口顶部,logo 48px + TabBar + dev 欢迎 + WindowControls;logo 段固定 48px 不绑 sidebarWidth → 标签条起点位置稳定)+ 主体 flex-row(ActivityBar + 侧栏 + 编辑器) + 底部 StatusBar
 │   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / 块级折叠(folding) / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
 │   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
 │   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
@@ -73,11 +73,11 @@ velo/
 │       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
 │       ├── composables/            shell 层通用 composable(v0.5.5 起)
 │       │   └── useResizeSplitter.ts  侧栏分隔条:拖拽 / 双击收起 / 窗口过窄自动收起,跑 mousedown + window listener 不走 HTML5 draggable
-│       ├── ActivityBar.vue          左贴边功能栏(v0.6.x,位于顶栏下方一格):文件(下拉面板,FileMenuButton 提供触发器,触发器按钮必须 `:ref="registerRef"` 不能漏,见 ActivityBar.vue:87 注释) / 工作区(Folders) / 大纲 / 全局搜索 / 设置
-│       ├── FileMenuButton.vue       「文件」下拉面板(v0.6.x):原 FileActionsPanel 命令入口 + RecentFilesButton + 开发模式欢迎按钮三合一;`#trigger` 插槽由调用方提供视觉,FileMenuButton 自管面板状态 / 定位 / 子菜单(最近文件右侧子面板,ChevronRight 提示);纯展示 + 事件转发
+│       ├── ActivityBar.vue          左贴边功能栏:文件(下拉面板,FileMenuButton 提供触发器,触发器按钮必须 `:ref="registerRef"` 不能漏,见 ActivityBar.vue:87 注释) / 工作区(Folders) / 大纲 / 全局搜索 / 设置
+│       ├── FileMenuButton.vue       「文件」下拉面板:原 FileActionsPanel 命令入口 + RecentFilesButton + 开发模式欢迎按钮三合一;`#trigger` 插槽由调用方提供视觉,FileMenuButton 自管面板状态 / 定位 / 子菜单(最近文件右侧子面板,ChevronRight 提示);纯展示 + 事件转发
 │       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
 │       ├── CommandPalettePanel.vue 全局命令面板:Ctrl+Shift+P,聚合 App shell 命令 / 工作区动作 / 全局最近文件,复用 fuzzy 评分
-│       ├── TabBar.vue             顶栏标签条(v0.6.0 多标签):横排 + 中键关闭 + 拖拽重排;右键菜单(TabContextMenu.v0.6.x)切到关闭其他 / 关闭已保存 / 全部关闭 / 复制路径等
+│       ├── TabBar.vue             顶栏标签条(v0.6.0 多标签):横排 + 中键关闭 + 拖拽重排;右键菜单切到关闭其他 / 关闭已保存 / 全部关闭 / 复制路径等
 │       ├── TabContextMenu.vue   标签条右键菜单(v0.6.0):纯展示 + 事件转发,与 FileTreeContextMenu 同款 Teleport + rootEl expose 范式;App.vue 通过 emit 'reveal-in-tree' 拿到 path 后切 sidebar tab + sidebarRef.revealFile()
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
 │       ├── DraftRecoveryDialog.vue

@@ -113,7 +113,7 @@ describe('WorkspaceSearchPanel', () => {
     expect(wrapper.find('.velo-find-match').text()).toBe('needle')
   })
 
-  it('ArrowDown/Enter 选中并 emit open-result', async () => {
+  it('初始不自动选中条目;ArrowDown 从 null 落到第一条,再 ArrowDown 到第二条,Enter 打开', async () => {
     const moreGroups: WorkspaceSearchGroup[] = [{
       ...groups[0],
       hits: [
@@ -131,7 +131,49 @@ describe('WorkspaceSearchPanel', () => {
     await input.setValue('needle')
     await flushTimers()
 
+    // 初始:没有任何条目被 selected(无主色底)
+    const firstHit = wrapper.find('[data-testid="workspace-search-hit-0-0"]')
+    const secondHit = wrapper.find('[data-testid="workspace-search-hit-0-1"]')
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+    expect((secondHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+
+    // ArrowDown 从 null 落到第一条 → 第一条变 selected
     await input.trigger('keydown', { key: 'ArrowDown' })
+    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+    expect((secondHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+
+    // 再 ArrowDown → 跳到第二条
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+    expect(secondHit.attributes('style') ?? '').toContain('--md-primary-color')
+
+    // Enter 打开当前选中(第二条)
+    await input.trigger('keydown', { key: 'Enter' })
+    const emitted = wrapper.emitted('open-result')
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({ id: 'second' })
+  })
+
+  it('ArrowUp 从 null 落到最后一条', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    const input = wrapper.find('[data-testid="workspace-search-input"]')
+    await input.setValue('needle')
+    await flushTimers()
+
+    // ArrowUp 从 null 应落到最后一条(第二条),而不是模 n 落到第一条
+    await input.trigger('keydown', { key: 'ArrowUp' })
     await input.trigger('keydown', { key: 'Enter' })
 
     const emitted = wrapper.emitted('open-result')
@@ -184,26 +226,25 @@ describe('WorkspaceSearchPanel', () => {
     await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
     await flushTimers()
 
-    // 默认 selectedFlatIndex = 0 → 第一条 inline style 主色底
+    // v0.6.x:默认无选中 —— 没有 hit 有主色底
     const firstHit = wrapper.find('[data-testid="workspace-search-hit-0-0"]')
     const secondHit = wrapper.find('[data-testid="workspace-search-hit-0-1"]')
     expect(firstHit.classes()).not.toContain('velo-ws-hovered')
-    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+    expect((secondHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
 
-    // hover 第二条:selectedFlatIndex 不变(仍 0),hoveredFlatIndex = 1
+    // hover 第二条:selectedFlatIndex 不变(仍 null),hoveredFlatIndex = 1
     await secondHit.trigger('mouseenter')
     expect(firstHit.classes()).not.toContain('velo-ws-hovered')
     expect(secondHit.classes()).toContain('velo-ws-hovered')
-    // 第一条仍 selected 主色底 → inline style 保留
-    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
-    // 第二条没被 selected → 无 inline style,hover 走 .velo-ws-hovered class
-    expect(secondHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+    // 两条都没被 selected(用户没按 ArrowDown/Click) → 无 inline style
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+    expect((secondHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
 
     // mouseleave 第二条:hoveredFlatIndex = null,class 移除
     await secondHit.trigger('mouseleave')
     expect(secondHit.classes()).not.toContain('velo-ws-hovered')
-    // 第一条 selected 仍保留
-    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
   })
 
   it('click 把 selectedFlatIndex 推到被点击条目,并 emit open-result', async () => {
@@ -226,9 +267,9 @@ describe('WorkspaceSearchPanel', () => {
     const firstHit = wrapper.find('[data-testid="workspace-search-hit-0-0"]')
     const secondHit = wrapper.find('[data-testid="workspace-search-hit-0-1"]')
 
-    // 默认 selectedFlatIndex = 0 → 第一条主色底
-    expect(firstHit.attributes('style') ?? '').toContain('--md-primary-color')
-    expect(secondHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+    // v0.6.x:默认无选中 —— 两条 hit 都无主色底
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
+    expect((secondHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
 
     // 点击第二条:emit open-result,selectedFlatIndex 推到 1
     await secondHit.trigger('click')
@@ -238,7 +279,7 @@ describe('WorkspaceSearchPanel', () => {
 
     // selected 主色底移到第二条;第一条失去 selected
     expect(secondHit.attributes('style') ?? '').toContain('--md-primary-color')
-    expect(firstHit.attributes('style') ?? '').not.toContain('--md-primary-color')
+    expect((firstHit.attributes('style') ?? '')).not.toContain('--md-primary-color')
 
     // 后续 Enter 仍打开被点击的条目(selectedFlatIndex = 1 保留)
     const input = wrapper.find('[data-testid="workspace-search-input"]')
@@ -296,6 +337,8 @@ describe('WorkspaceSearchPanel', () => {
     wrapper = mountPanel({ root: '/ws' })
     await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
     await flushTimers()
+    // v0.6.x:无默认选中 —— 先 ArrowDown 选中一条 hit,scope='one' 才有目标
+    await wrapper.find('[data-testid="workspace-search-input"]').trigger('keydown', { key: 'ArrowDown' })
     // 展开替换行
     await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
     await wrapper.find('[data-testid="workspace-search-replacement"]').setValue('knife')
@@ -404,5 +447,127 @@ describe('WorkspaceSearchPanel', () => {
     await wrapper.setProps({ rerunToken: 1 })
     await flushTimers()
     expect(vi.mocked(searchWorkspaceMarkdown).mock.calls.length).toBeGreaterThan(before)
+  })
+
+  // ============ v0.6.x 文件分组折叠 ============
+
+  it('点文件分组 header 折叠/展开,命中行随之隐藏/恢复', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    // 初始两条 hit 都在
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-1"]').exists()).toBe(true)
+
+    // 点 group header 折叠
+    const header = wrapper.find('[data-testid="workspace-search-group-0"]')
+    expect(header.exists()).toBe(true)
+    expect(header.attributes('aria-expanded')).toBe('true')
+    await header.trigger('click')
+
+    // 折叠后 hit 行全部消失,header 保留 + aria-expanded=false
+    expect(wrapper.find('[data-testid="workspace-search-group-0"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-search-group-0"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-1"]').exists()).toBe(false)
+
+    // 再点展开,hit 行回来
+    await wrapper.find('[data-testid="workspace-search-group-0"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-search-group-0"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-1"]').exists()).toBe(true)
+  })
+
+  it('ArrowDown 跳过折叠中的文件分组的命中', async () => {
+    // 两个文件分组,各 1 个 hit
+    const twoGroups: WorkspaceSearchGroup[] = [
+      { ...groups[0] },
+      {
+        file: { fullPath: '/ws/b.md', name: 'b.md', relPath: 'b.md' },
+        hits: [{ ...groups[0].hits[0], id: '/ws/b.md:2:6:0', fullPath: '/ws/b.md', fileName: 'b.md', relPath: 'b.md' }],
+      },
+    ]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(twoGroups)
+      callbacks?.onProgress?.({ ...baseProgress, filesFound: 2, hits: 2 })
+      return { groups: twoGroups, progress: { ...baseProgress, filesFound: 2, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    // 初始两条 hit 都在
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-search-hit-1-0"]').exists()).toBe(true)
+
+    // 折叠第一个文件分组(a.md),b.md 的 hit 仍可见
+    await wrapper.find('[data-testid="workspace-search-group-0"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="workspace-search-hit-1-0"]').exists()).toBe(true)
+
+    // 默认 selectedFlatIndex = 0,但 flatRows 折叠后只剩 1 条 → clamp 到 0 (b.md 的 hit)
+    // ArrowDown + Enter 应打开 b.md 的 hit,不是已经被隐藏的 a.md
+    const input = wrapper.find('[data-testid="workspace-search-input"]')
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await input.trigger('keydown', { key: 'Enter' })
+
+    const emitted = wrapper.emitted('open-result')
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({ fullPath: '/ws/b.md' })
+
+    // 展开 a.md,现在 flatRows 是 [a.md hit, b.md hit](原始 groups 顺序),
+    // 再 ArrowDown 进入 b.md 的 hit(扁平索引 1)
+    await wrapper.find('[data-testid="workspace-search-group-0"]').trigger('click')
+    await input.trigger('keydown', { key: 'ArrowDown' })
+    await input.trigger('keydown', { key: 'Enter' })
+
+    expect(wrapper.emitted('open-result')).toHaveLength(2)
+    expect(wrapper.emitted('open-result')![1][0]).toMatchObject({ fullPath: '/ws/b.md' })
+  })
+
+  it('折叠状态下替换仍按 file 聚合所有命中(scope=one 走 fullPath 过滤,不被折叠影响)', async () => {
+    const moreGroups: WorkspaceSearchGroup[] = [{
+      ...groups[0],
+      hits: [
+        groups[0].hits[0],
+        { ...groups[0].hits[0], id: 'second', lineNumber: 3, lineText: 'second needle', rawFrom: 20, rawTo: 26, matchOrdinal: 1, fileMatchCount: 2 },
+      ],
+    }]
+    vi.mocked(searchWorkspaceMarkdown).mockImplementation(async (_root, _query, _options, _controller, callbacks) => {
+      callbacks?.onGroups?.(moreGroups)
+      callbacks?.onProgress?.({ ...baseProgress, hits: 2 })
+      return { groups: moreGroups, progress: { ...baseProgress, hits: 2 } }
+    })
+    wrapper = mountPanel({ root: '/ws' })
+    await wrapper.find('[data-testid="workspace-search-input"]').setValue('needle')
+    await flushTimers()
+
+    // 折叠该分组,所有 hit 行被隐藏
+    await wrapper.find('[data-testid="workspace-search-group-0"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-search-hit-0-0"]').exists()).toBe(false)
+
+    // 展开替换行 + 输入 replacement + 点"全部替换"
+    await wrapper.find('[data-testid="workspace-search-toggle-replace"]').trigger('click')
+    await wrapper.find('[data-testid="workspace-search-replacement"]').setValue('knife')
+    await wrapper.find('[data-testid="workspace-search-replace-all"]').trigger('click')
+
+    // 全部替换仍按文件聚合所有 hit,折叠态不影响 IO 语义
+    const emitted = wrapper.emitted('apply-replace') as Array<[{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]>
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0][0]).toMatchObject({ replacement: 'knife', scope: 'all' })
+    expect(emitted![0][0].hits).toHaveLength(2)
   })
 })

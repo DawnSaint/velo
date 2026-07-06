@@ -34,6 +34,8 @@ const emit = defineEmits<{
    *  把父级的 findOpen 翻成 false —— 唯一的回流路径。 */
   'update:findOpen': [open: boolean]
   'cursor-position-change': [position: CursorPosition]
+  /** FindReplace 内按 Ctrl+Shift:F → 切全局搜索,App.vue 关本面板 + 开侧栏 search tab */
+  'open-global-search': []
 }>()
 
 // CSS 自定义属性,响应式注入到容器上
@@ -126,6 +128,7 @@ defineExpose({ getEditorView })
       :open="props.findOpen"
       :backend-getter="() => { const v = getEditorView(); return v ? createPmBackend(v) : null }"
       @close="onFindClose"
+      @open-global-search="emit('open-global-search')"
     />
     <CodeBlockLanguagePicker ref="pickerRef" :view="getEditorView()" />
   </div>

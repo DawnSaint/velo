@@ -54,6 +54,8 @@ const emit = defineEmits<{
   /** v-model:find-open 的 update 端。FindReplace 关闭时触发,父级翻成 false。 */
   'update:findOpen': [open: boolean]
   'cursor-position-change': [position: CursorPosition]
+  /** FindReplace 内按 Ctrl+Shift:F → 切全局搜索,App.vue 关本面板 + 开侧栏 search tab */
+  'open-global-search': []
 }>()
 
 const documentStore = useDocumentStore()
@@ -395,6 +397,7 @@ defineExpose({
       :open="props.findOpen"
       :backend-getter="() => viewRef ? createCmBackend(viewRef) : null"
       @close="emit('update:findOpen', false)"
+      @open-global-search="emit('open-global-search')"
     />
   </div>
 </template>
