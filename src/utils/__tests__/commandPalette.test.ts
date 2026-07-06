@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildCommandPaletteSections, normalizeCommandPaletteQuery, type CommandPaletteItem } from '@/utils/commandPalette'
+import { buildCommandPaletteSections, type CommandPaletteItem } from '@/utils/commandPalette'
 
 function item(partial: Partial<CommandPaletteItem> & Pick<CommandPaletteItem, 'id' | 'title' | 'group'>): CommandPaletteItem {
   return {
@@ -16,11 +16,6 @@ const items: CommandPaletteItem[] = [
 ]
 
 describe('commandPalette', () => {
-  it('归一化 query 时忽略前导 >', () => {
-    expect(normalizeCommandPaletteQuery('  > save  ')).toBe('save')
-    expect(normalizeCommandPaletteQuery('打开')).toBe('打开')
-  })
-
   it('空 query 保持分组顺序和组内源顺序', () => {
     const sections = buildCommandPaletteSections(items, '')
 

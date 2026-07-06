@@ -59,10 +59,6 @@ const GROUP_LABELS: Record<CommandPaletteGroup, string> = {
 
 const GROUP_ORDER: CommandPaletteGroup[] = ['app', 'workspace', 'recent']
 
-export function normalizeCommandPaletteQuery(query: string): string {
-  return query.trim().replace(/^>\s*/, '').trim()
-}
-
 export function buildCommandPaletteSegments(text: string, indices: number[] | undefined): HighlightSegment[] {
   if (!indices || indices.length === 0) return [{ text, match: false }]
   const set = new Set(indices)
@@ -111,8 +107,7 @@ function scoreItem(item: CommandPaletteItem, query: string, sourceIndex: number)
   return best ? { item, score: best.score, titleIndices: best.titleIndices, sourceIndex } : null
 }
 
-export function buildCommandPaletteSections(items: readonly CommandPaletteItem[], rawQuery: string): CommandPaletteSection[] {
-  const query = normalizeCommandPaletteQuery(rawQuery)
+export function buildCommandPaletteSections(items: readonly CommandPaletteItem[], query: string): CommandPaletteSection[] {
   const byGroup = new Map<CommandPaletteGroup, CommandPaletteRow[]>()
 
   if (!query) {

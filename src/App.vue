@@ -18,8 +18,7 @@ import EditorSettings from '@/components/EditorSettings.vue'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
-import QuickOpenPanel from '@/components/QuickOpenPanel.vue'
-import CommandPalettePanel from '@/components/CommandPalettePanel.vue'
+import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
 import TabBar from '@/components/TabBar.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
@@ -560,11 +559,16 @@ function openReplace() {
   }
 }
 
-// ========== Ctrl+P 查找文件(v0.5.2)==========
-// 工作区维度的快速打开面板,与 FindReplace 视觉档次对齐但独立浮层。
-// 无工作区时 onKeydown 直接 return(对齐 ROADMAP 问答约定的"静默无反应"语义)。
-const quickOpenOpen = ref(false)
-const commandPaletteOpen = ref(false)
+// ========== 统一命令面板(v0.6.2)==========
+// 合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板:单一浮层,首字符分发模式
+// ('' = file,'>' = command;后续 @ / # / : 各自提交接入)。无工作区时 Ctrl+P
+// 仍静默(对齐原 ROADMAP 问答约定),Ctrl+Shift+P 命令面板在无工作区时仍可开
+// (workspace 类命令 disabled 保留可见)。
+const quickCommandOpen = ref(false)
+const quickCommandInitialQuery = ref('')
+// 模式切换用 mount key:面板已开时再按 Ctrl+P / Ctrl+Shift+P 切到另一模式,
+// 靠 bump key 强制 remount 让新 initialQuery 生效(open watcher 只在 false→true 触发)。
+const quickCommandMountKey = ref(0)
 // 工作区全文搜索(v0.6.x):改为侧栏内嵌 tab,本 ref 仅保留"从选区带入的
 // 初始 query"语义,挂载 / 卸载由 workspaceStore.sidebarTab === 'search'
 // 走 Sidebar 的 v-if 控制。
@@ -588,7 +592,7 @@ function openWorkspaceSearch() {
   //     initialQuery,保留用户已输入的搜索词
   const sel = currentSelectionText()
   if (sel) workspaceSearchInitialQuery.value = sel
-  commandPaletteOpen.value = false
+  quickCommandOpen.value = false
   findOpen.value = false
   if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'search') {
     showSidebarTab('search')
@@ -602,17 +606,21 @@ function openGlobalSearchFromFind() {
   openWorkspaceSearch()
 }
 
+function showQuickCommand(prefix: string) {
+  quickCommandInitialQuery.value = prefix
+  quickCommandMountKey.value++
+  quickCommandOpen.value = true
+}
+
 function openQuickOpen() {
   if (!workspaceStore.activeRoot) return
-  commandPaletteOpen.value = false
   findOpen.value = false
-  quickOpenOpen.value = true
+  showQuickCommand('')
 }
 
 function openCommandPalette() {
-  quickOpenOpen.value = false
   findOpen.value = false
-  commandPaletteOpen.value = true
+  showQuickCommand('>')
 }
 
 function selectAndRevealWorkspaceSearchMatch(be: ReturnType<typeof activeBackend>, from: number, to: number) {
@@ -1097,7 +1105,7 @@ function onKeydown(e: KeyboardEvent) {
   // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,
   // 不抢 Ctrl+F / Ctrl+Shift+F 等全局快捷键 —— 焦点在搜索框内仍允许触发
   // 文档级查找、再次激活搜索等动作。
-  if (target?.closest('[data-fr-panel], [data-command-palette-panel]')) return
+  if (target?.closest('[data-fr-panel], [data-quick-command-panel]')) return
   if (k === 's' && e.shiftKey) {
     e.preventDefault()
     e.stopPropagation()
@@ -1154,18 +1162,19 @@ function onKeydown(e: KeyboardEvent) {
     void exportStore.exportDocument()
   }
   else if (k === 'p' && e.shiftKey) {
+    // Ctrl+Shift+P 命令模式(v0.6.2):已开在同模式 → 关,否则切到 '>' 命令模式
     e.preventDefault()
     e.stopPropagation()
-    if (commandPaletteOpen.value) commandPaletteOpen.value = false
+    if (quickCommandOpen.value && quickCommandInitialQuery.value === '>') quickCommandOpen.value = false
     else openCommandPalette()
   }
   else if (k === 'p' && !e.shiftKey) {
-    // Ctrl+P 查找文件(v0.5.2):无工作区静默 —— 用户从顶栏 / 文件树空态自行进入。
-    // toggle 语义:已开 → 关,未开 → 开。
+    // Ctrl+P 查找文件(v0.6.2):无工作区静默;已开在同模式 → 关,否则切到 '' 文件模式
     if (!workspaceStore.activeRoot) return
     e.preventDefault()
     e.stopPropagation()
-    quickOpenOpen.value = !quickOpenOpen.value
+    if (quickCommandOpen.value && quickCommandInitialQuery.value === '') quickCommandOpen.value = false
+    else openQuickOpen()
   }
   else if (k === 'r' && e.shiftKey) {
     // 阅读模式 toggle(Ctrl/Cmd+Shift+R):复用 Ctrl+Shift+R 这个本属浏览器硬刷新
@@ -1837,20 +1846,16 @@ watch(editorRef, (v) => {
       @dismiss="documentStore.dismissRecoveryDialog()"
     />
 
-    <!-- Ctrl+P 查找文件浮层(v0.5.2):工作区维度,与 FindReplace 独立。
-         v-if 控制实例存活 —— 关闭即销毁,下次打开重新拉索引(配合 quickOpenIndex 缓存). -->
-    <QuickOpenPanel
-      v-if="quickOpenOpen"
-      :open="quickOpenOpen"
-      @update:open="(v) => quickOpenOpen = v"
-    />
-
-    <!-- Ctrl+Shift+P 命令面板(v0.5.7):全局操作入口,复用 QuickOpen 的顶部浮层体验。 -->
-    <CommandPalettePanel
-      v-if="commandPaletteOpen"
-      :open="commandPaletteOpen"
+    <!-- 统一命令面板(v0.6.2):合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板。
+         单一浮层,首字符分发模式('' = file / '>' = command;@ / # / : 后续接入)。
+         :key 强制 remount 以支持面板已开时按 Ctrl+P / Ctrl+Shift+P 切换模式。 -->
+    <QuickCommandPanel
+      v-if="quickCommandOpen"
+      :key="quickCommandMountKey"
+      :open="quickCommandOpen"
       :items="commandPaletteItems"
-      @update:open="(v) => commandPaletteOpen = v"
+      :initial-query="quickCommandInitialQuery"
+      @update:open="(v) => quickCommandOpen = v"
     />
   </div>
 </template>

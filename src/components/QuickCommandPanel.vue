@@ -1,0 +1,516 @@
+<script setup lang="ts">
+// 统一命令面板(v0.6.2):合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板。
+//
+// 顶部居中浮层,贴顶 8vh(VSCode 风格)。一个输入框,首字符决定模式:
+//   ''  → file      工作区 .md 模糊查找(原 QuickOpenPanel 双分区:最近打开 / 其他)
+//   '>' → command   App shell 命令聚合(原 CommandPalettePanel:命令 / 工作区 / 最近文件)
+//
+// 模式由 parseQuickCommand(raw) 解析;前缀字符保留在 raw query 里(与旧
+// CommandPalettePanel 的 '>' 行为一致),剥成 { mode, text } 后 text 喂给各
+// 模式自己的过滤函数。输入框前不挂模式徽标 —— 命令模式的 '>' 本就在输入框里,
+// 文件模式无前缀,模式靠首字符自然区分。
+//
+// 两套行视图统一成 UnifiedRow + UnifiedSection,共用一套 flatRows / selection /
+// ArrowUp/Down/Enter/Esc 键盘导航(沿用两个旧面板的跨段线性切换)。
+// file 行:文件名命中加粗 + 灰色相对路径右对齐副标(原 QuickOpenPanel 视觉)。
+// command 行:图标盒 + 标题命中加粗 + 副标 + 快捷键(原 CommandPalettePanel 视觉)。
+
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
+import {
+  AppWindowMac, Code2, Download, File, FilePlusCorner, FileSearch, FileUp,
+  FolderOpen, Folders, FolderX, History, List, Replace, Save, Search, Settings, Upload,
+} from '@lucide/vue'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { useDocumentStore } from '@/stores/document'
+import { fuzzyScore } from '@/utils/fuzzy'
+import { ensureIndex, type QuickOpenEntry } from '@/utils/quickOpenIndex'
+import {
+  buildCommandPaletteSections,
+  buildCommandPaletteSegments,
+  type CommandPaletteIcon,
+  type CommandPaletteItem,
+  type CommandPaletteRow,
+  type CommandPaletteSection,
+  type HighlightSegment,
+} from '@/utils/commandPalette'
+import { parseQuickCommand } from '@/utils/quickCommand'
+
+const props = defineProps<{
+  open: boolean
+  items: readonly CommandPaletteItem[]
+  /** 打开时预填的 raw query(含前缀);Ctrl+Shift+P 传 '>',Ctrl+P 传 '' */
+  initialQuery?: string
+}>()
+const emit = defineEmits<{ 'update:open': [boolean] }>()
+
+const workspace = useWorkspaceStore()
+const documentStore = useDocumentStore()
+
+const query = ref('')
+const parsed = computed(() => parseQuickCommand(query.value))
+const mode = computed(() => parsed.value.mode)
+const search = computed(() => parsed.value.text)
+
+const inputRef = ref<HTMLInputElement | null>(null)
+const listRef = ref<HTMLElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+
+const MAX_PER_SECTION = 50
+
+// ========== file 模式:工作区 .md 索引 ==========
+const allEntries = ref<QuickOpenEntry[]>([])
+const loading = ref(false)
+
+async function refreshIndex() {
+  const root = workspace.activeRoot
+  if (!root) { allEntries.value = []; return }
+  loading.value = true
+  try {
+    allEntries.value = await ensureIndex(root)
+  }
+  catch (e) {
+    console.warn('[QuickCommand] 索引构建失败', e)
+    allEntries.value = []
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+function splitRel(rel: string): { name: string, dir: string } {
+  const i = rel.lastIndexOf('/')
+  if (i === -1) return { name: rel, dir: '' }
+  return { name: rel.slice(i + 1), dir: rel.slice(0, i + 1) }
+}
+
+interface FileRow {
+  entry: QuickOpenEntry
+  nameSegments: HighlightSegment[]
+  dirPath: string
+}
+
+function makeFileRow(entry: QuickOpenEntry, indices?: number[]): FileRow {
+  const { dir } = splitRel(entry.relPath)
+  return {
+    entry,
+    nameSegments: buildCommandPaletteSegments(entry.name, indices),
+    dirPath: dir,
+  }
+}
+
+const entriesByPath = computed<Map<string, QuickOpenEntry>>(() => {
+  const m = new Map<string, QuickOpenEntry>()
+  for (const e of allEntries.value) m.set(e.fullPath, e)
+  return m
+})
+
+const recentFileRows = computed<FileRow[]>(() => {
+  const recent = workspace.activeWorkspace.recentFiles ?? []
+  if (recent.length === 0) return []
+  const q = search.value.trim()
+  const out: FileRow[] = []
+  for (const path of recent) {
+    const entry = entriesByPath.value.get(path)
+    if (!entry) continue
+    if (!q) out.push(makeFileRow(entry))
+    else {
+      const hit = fuzzyScore(entry.name, q)
+      if (!hit) continue
+      out.push(makeFileRow(entry, hit.indices))
+    }
+    if (out.length >= MAX_PER_SECTION) break
+  }
+  return out
+})
+
+const otherFileRows = computed<FileRow[]>(() => {
+  const recent = new Set(workspace.activeWorkspace.recentFiles ?? [])
+  const q = search.value.trim()
+  if (!q) {
+    const out: FileRow[] = []
+    for (const e of allEntries.value) {
+      if (recent.has(e.fullPath)) continue
+      out.push(makeFileRow(e))
+    }
+    out.sort((a, b) => a.entry.name.localeCompare(b.entry.name, 'zh-Hans-CN'))
+    return out.slice(0, MAX_PER_SECTION)
+  }
+  type Scored = { row: FileRow, score: number }
+  const scored: Scored[] = []
+  for (const e of allEntries.value) {
+    if (recent.has(e.fullPath)) continue
+    const hit = fuzzyScore(e.name, q)
+    if (!hit) continue
+    scored.push({ row: makeFileRow(e, hit.indices), score: hit.score })
+  }
+  scored.sort((a, b) => b.score - a.score || a.row.entry.name.localeCompare(b.row.entry.name, 'zh-Hans-CN'))
+  return scored.slice(0, MAX_PER_SECTION).map(s => s.row)
+})
+
+// ========== command 模式:图标映射(原 CommandPalettePanel) ==========
+const iconComponents: Record<CommandPaletteIcon, Component> = {
+  'new-doc': FilePlusCorner,
+  'new-window': AppWindowMac,
+  'open-file': FileUp,
+  'open-folder': FolderOpen,
+  save: Save,
+  'save-as': Upload,
+  export: Download,
+  find: Search,
+  replace: Replace,
+  source: Code2,
+  'file-actions': File,
+  settings: Settings,
+  'quick-open': FileSearch,
+  'workspace-search': Search,
+  'workspace-files': Folders,
+  outline: List,
+  'workspace-close': FolderX,
+  'workspace-switch': FolderOpen,
+  'recent-file': History,
+}
+
+function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): CommandPaletteIcon {
+  if (row.item.icon) return row.item.icon
+  if (row.item.id.startsWith('workspace.switch:')) return 'workspace-switch'
+  if (row.item.id.startsWith('recent:')) return 'recent-file'
+
+  const byId: Record<string, CommandPaletteIcon> = {
+    'file.new': 'new-doc',
+    'window.new': 'new-window',
+    'file.open': 'open-file',
+    'file.save': 'save',
+    'file.saveAs': 'save-as',
+    'file.export': 'export',
+    'edit.find': 'find',
+    'edit.replace': 'replace',
+    'editor.toggleSource': 'source',
+    'settings.open': 'settings',
+    'workspace.openFolder': 'open-folder',
+    'workspace.quickOpen': 'quick-open',
+    'workspace.search': 'workspace-search',
+    'workspace.files': 'workspace-files',
+    'workspace.outline': 'outline',
+    'workspace.close': 'workspace-close',
+  }
+  const icon = byId[row.item.id]
+  if (icon) return icon
+  if (section.key === 'recent') return 'recent-file'
+  if (section.key === 'workspace') return 'workspace-files'
+  return 'file-actions'
+}
+
+// ========== 统一行视图 ==========
+interface UnifiedRow {
+  key: string
+  primarySegments: HighlightSegment[]
+  subtitle?: string
+  icon?: Component
+  shortcut?: string
+  disabled?: boolean
+  disabledReason?: string
+  run: () => void | Promise<void>
+}
+interface UnifiedSection {
+  key: string
+  label: string
+  rows: UnifiedRow[]
+}
+
+const sections = computed<UnifiedSection[]>(() => {
+  if (mode.value === 'command') {
+    const cmdSections = buildCommandPaletteSections(props.items, search.value)
+    return cmdSections.map(s => ({
+      key: s.key,
+      label: s.label,
+      rows: s.rows.map(r => ({
+        key: r.item.id,
+        primarySegments: r.titleSegments,
+        subtitle: r.item.subtitle,
+        icon: iconComponents[iconFor(r, s)],
+        shortcut: r.item.shortcut,
+        disabled: r.item.disabled,
+        disabledReason: r.item.disabledReason,
+        run: () => runCommand(r),
+      })),
+    }))
+  }
+  const out: UnifiedSection[] = []
+  if (recentFileRows.value.length) {
+    out.push({
+      key: 'recent',
+      label: '最近打开',
+      rows: recentFileRows.value.map(r => ({
+        key: r.entry.fullPath,
+        primarySegments: r.nameSegments,
+        subtitle: r.dirPath,
+        icon: File,
+        run: () => openFileRow(r.entry),
+      })),
+    })
+  }
+  if (otherFileRows.value.length) {
+    out.push({
+      key: 'other',
+      label: '其他',
+      rows: otherFileRows.value.map(r => ({
+        key: r.entry.fullPath,
+        primarySegments: r.nameSegments,
+        subtitle: r.dirPath,
+        icon: File,
+        run: () => openFileRow(r.entry),
+      })),
+    })
+  }
+  return out
+})
+
+interface FlatRow {
+  row: UnifiedRow
+  sectionIndex: number
+  rowIndex: number
+}
+const flatRows = computed<FlatRow[]>(() => {
+  const out: FlatRow[] = []
+  sections.value.forEach((section, sectionIndex) => {
+    section.rows.forEach((row, rowIndex) => out.push({ row, sectionIndex, rowIndex }))
+  })
+  return out
+})
+const totalRows = computed(() => flatRows.value.length)
+const isEmpty = computed(() => totalRows.value === 0)
+
+const emptyMessage = computed(() => {
+  if (mode.value === 'command') return '无匹配命令'
+  if (loading.value) return '正在扫描工作区...'
+  return allEntries.value.length === 0 ? '工作区内没有 .md 文件' : '无匹配项'
+})
+
+interface SelectionCursor {
+  section: number
+  index: number
+}
+const selection = ref<SelectionCursor>({ section: 0, index: 0 })
+
+const selectedFlatIndex = computed(() => {
+  const idx = flatRows.value.findIndex(r => r.sectionIndex === selection.value.section && r.rowIndex === selection.value.index)
+  return idx === -1 ? 0 : idx
+})
+
+function resetSelectionToFirst() {
+  const first = flatRows.value[0]
+  selection.value = first
+    ? { section: first.sectionIndex, index: first.rowIndex }
+    : { section: 0, index: 0 }
+}
+
+watch(flatRows, () => {
+  if (!totalRows.value) {
+    selection.value = { section: 0, index: 0 }
+    return
+  }
+  const exists = flatRows.value.some(r => r.sectionIndex === selection.value.section && r.rowIndex === selection.value.index)
+  if (!exists) resetSelectionToFirst()
+})
+
+// 文本 / 模式变化 → 选中跳到第一行(模式切换时即便 text 相同也要重置,因为两套 sections 不同)
+watch([mode, search], resetSelectionToFirst)
+
+watch(() => props.open, async (isOpen) => {
+  if (!isOpen) return
+  query.value = props.initialQuery ?? ''
+  resetSelectionToFirst()
+  if (mode.value === 'file') void refreshIndex()
+  await nextTick()
+  inputRef.value?.focus()
+  const len = query.value.length
+  inputRef.value?.setSelectionRange(len, len)
+}, { immediate: true })
+
+// 切进 file 模式时补一次索引(从 '>' 命令模式删前缀回到 file 的情况)
+watch(mode, (m) => {
+  if (m === 'file' && props.open) void refreshIndex()
+})
+
+function close() {
+  emit('update:open', false)
+}
+
+async function runCommand(row: CommandPaletteRow) {
+  if (row.item.disabled) return
+  close()
+  try {
+    await row.item.run()
+  }
+  catch (e) {
+    console.error('[QuickCommand] 命令执行失败', e)
+  }
+}
+
+async function openFileRow(entry: QuickOpenEntry) {
+  const ok = await documentStore.openPathInTab(entry.fullPath)
+  if (!ok) return
+  workspace.setLastFile(entry.fullPath)
+  close()
+}
+
+function activateSelected() {
+  const r = flatRows.value[selectedFlatIndex.value]
+  if (r) void r.row.run()
+}
+
+function moveSelection(delta: number) {
+  const n = totalRows.value
+  if (!n) return
+  const next = (selectedFlatIndex.value + delta + n) % n
+  const r = flatRows.value[next]
+  selection.value = { section: r.sectionIndex, index: r.rowIndex }
+  nextTick(() => {
+    const el = listRef.value?.querySelector<HTMLElement>(`[data-flat-idx="${next}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function selectRow(section: number, index: number) {
+  selection.value = { section, index }
+}
+
+function onInputKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1) }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1) }
+  else if (e.key === 'Enter') {
+    e.preventDefault()
+    activateSelected()
+  }
+  else if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+  }
+}
+
+function onGlobalPointerDown(e: PointerEvent) {
+  if (!props.open) return
+  const target = e.target as Node | null
+  if (!target) return
+  const panel = panelRef.value
+  if (panel && (panel === target || panel.contains(target))) return
+  close()
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (!props.open || e.key !== 'Escape') return
+  e.preventDefault()
+  close()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onGlobalPointerDown, true)
+  window.addEventListener('keydown', onGlobalKeydown, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
+  window.removeEventListener('keydown', onGlobalKeydown, true)
+})
+</script>
+
+<template>
+  <Teleport to="body">
+    <div
+      class="velo-quick-command-overlay fixed inset-0 z-[120] flex justify-center bg-black/15 dark:bg-black/40"
+      style="pointer-events: auto;"
+    >
+      <div
+        ref="panelRef"
+        class="velo-quick-command-panel mt-[8vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
+        data-quick-command-panel
+        data-testid="quick-command-panel"
+      >
+        <div class="shrink-0 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
+          <input
+            ref="inputRef"
+            v-model="query"
+            type="text"
+            spellcheck="false"
+            :placeholder="mode === 'command' ? '输入命令...' : '按文件名模糊查找...'"
+            data-testid="quick-command-input"
+            class="w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
+            @keydown="onInputKeydown"
+          >
+        </div>
+
+        <div
+          ref="listRef"
+          class="min-h-0 flex-1 overflow-y-auto py-1"
+        >
+          <div v-if="isEmpty" class="px-3 py-4 text-center text-xs text-gray-400">
+            {{ emptyMessage }}
+          </div>
+          <template v-else>
+            <template v-for="(section, sectionIdx) in sections" :key="section.key">
+              <div class="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                {{ section.label }}
+              </div>
+              <button
+                v-for="(row, rowIdx) in section.rows"
+                :key="row.key"
+                type="button"
+                :data-flat-idx="flatRows.findIndex(r => r.sectionIndex === sectionIdx && r.rowIndex === rowIdx)"
+                :data-testid="`quick-command-row-${row.key}`"
+                class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                :class="[
+                  row.disabled ? 'cursor-default opacity-50' : 'cursor-pointer',
+                  selection.section === sectionIdx && selection.index === rowIdx
+                    ? ''
+                    : row.disabled ? '' : 'hover:bg-gray-100 dark:hover:bg-gray-800/60',
+                ]"
+                :style="selection.section === sectionIdx && selection.index === rowIdx ? {
+                  backgroundColor: 'color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent)',
+                } : undefined"
+                :aria-disabled="row.disabled ? 'true' : undefined"
+                @click="row.run()"
+                @mousemove="selectRow(sectionIdx, rowIdx)"
+              >
+                <!-- file 行:文件图标 + 文件名命中加粗 + 右对齐相对路径 -->
+                <template v-if="mode === 'file'">
+                  <component :is="row.icon" class="size-3.5 shrink-0 text-gray-400" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-200">
+                    <template v-for="(seg, i) in row.primarySegments" :key="i">
+                      <span v-if="seg.match" class="font-bold">{{ seg.text }}</span>
+                      <template v-else>{{ seg.text }}</template>
+                    </template>
+                  </span>
+                  <span v-if="row.subtitle" class="ml-auto shrink-0 truncate pl-3 text-[10px] text-gray-400">
+                    {{ row.subtitle }}
+                  </span>
+                </template>
+                <!-- command 行:图标盒 + 标题命中加粗 + 副标 + 快捷键 -->
+                <template v-else>
+                  <span class="flex size-5 shrink-0 items-center justify-center rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300" aria-hidden="true">
+                    <component :is="row.icon" :size="14" />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-gray-800 dark:text-gray-200">
+                      <template v-for="(seg, i) in row.primarySegments" :key="i">
+                        <span v-if="seg.match" class="font-bold">{{ seg.text }}</span>
+                        <template v-else>{{ seg.text }}</template>
+                      </template>
+                    </span>
+                    <span v-if="row.subtitle || row.disabledReason" class="block truncate text-[10px] text-gray-400">
+                      {{ row.disabled ? (row.disabledReason || row.subtitle) : row.subtitle }}
+                    </span>
+                  </span>
+                  <span
+                    v-if="row.shortcut"
+                    class="ml-auto shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                  >
+                    {{ row.shortcut }}
+                  </span>
+                </template>
+              </button>
+            </template>
+          </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+</template>
