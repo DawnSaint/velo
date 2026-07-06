@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-w-0 flex-1 items-stretch pl-3 border-b border-gray-200 dark:border-gray-800">
+  <div class="flex h-full min-w-0 flex-1 items-stretch pl-1 border-b border-gray-200 dark:border-gray-800">
     <div class="tab-bar flex min-w-0 items-end">
       <div
         v-for="(tab, i) in documentStore.tabs"
@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
   position: relative;
   display: inline-flex;
   height: 32px;
-  padding: 1px 4px 4px 4px;
+  padding: 2px 4px;
   flex: 0 1 auto;
   width: 200px;
   min-width: 80px;

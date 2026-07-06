@@ -304,6 +304,9 @@ async function initSettings() {
     if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
     if (typeof e.showCodeLineNumbers === 'boolean') store.showCodeLineNumbers = e.showCodeLineNumbers
+    // ActivityBar 自定义(v0.6.1):normalize 防御(未知项过滤 / 缺失项补默认)后灌入 store。
+    // 两字段缺失时 normalize 回退默认,与其它字段的 typeof 守门等价。
+    store.hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
   }
   const d = loaded.document
   if (d) {
@@ -325,6 +328,8 @@ function snapshotSettings(): PersistedSettings {
       codeDarkTheme: store.codeDarkTheme,
       startupMode: store.startupMode,
       showCodeLineNumbers: store.showCodeLineNumbers,
+      activityBarOrder: store.activityBarOrder,
+      activityBarHidden: store.activityBarHidden,
     },
     document: {
       autoSaveEnabled: documentStore.autoSaveEnabled,
@@ -720,6 +725,16 @@ const activeActivity = computed<ActivityBarItem | null>(() => {
   if (leftPanelView.value === 'settings') return 'settings'
   if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
   return null
+})
+
+// 隐藏当前 active 入口时收起侧栏(v0.6.1):避免「面板还开着但无 active 按钮」的悬空态。
+// 例:用户正看大纲,右键菜单勾掉大纲 → 大纲按钮消失,面板也该同步收起。
+// watch 布尔源:仅在「active 项是否被隐藏」状态翻转时 fire,避免数组 deep watch 的多余触发。
+watch(() => {
+  const a = activeActivity.value
+  return a ? store.isActivityBarItemHidden(a) : false
+}, (hidden) => {
+  if (hidden) leftPanelView.value = null
 })
 
 function showSidebarTab(tab: SidebarTab) {
@@ -1346,6 +1361,8 @@ onMounted(async () => {
       () => store.showCodeLineNumbers,
       () => documentStore.autoSaveEnabled,
       () => documentStore.autoSaveOnBlur,
+      () => store.activityBarOrder,
+      () => store.activityBarHidden,
     ],
     () => { debouncedSettingsSave() },
   )

@@ -10,6 +10,7 @@ import {
   tauriOnly,
 } from '@/tauri/fs'
 import { findSample } from '@/utils/samples'
+import type { ActivityBarItem } from './editor'
 
 // Sample 文档走 Vite 动态 `import('?raw')` —— 每个 sample 被拆成独立 chunk,
 // 用户打开示例才下载,不打开就不下载(避免白付 10-20KB 体积)。字符串编译进
@@ -41,6 +42,11 @@ export interface PersistedSettings {
     startupMode?: 'last-file' | 'new-doc'
     /** WYSIWYG 代码块行号(可选,默认 false)。v0.5.11 加。 */
     showCodeLineNumbers?: boolean
+    /** ActivityBar 视图入口顺序(可选,v0.6.1)。仅含 files/outline/search 3 项;
+     *  'settings' 固定底部不在内。缺失项由 normalizeActivityBarConfig 按默认序补齐。 */
+    activityBarOrder?: ActivityBarItem[]
+    /** ActivityBar 被隐藏的入口(可选,v0.6.1)。可含 settings。 */
+    activityBarHidden?: ActivityBarItem[]
   }
   document: {
     autoSaveEnabled: boolean

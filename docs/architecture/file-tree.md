@@ -48,6 +48,7 @@
 ## 设计要点
 
 - **工作区根 fs.watch 走单 recursive 句柄 + 脏目录集 debounce**: `activeRoot` 变化时先 stop 后 start(沿用 documentStore 同款 race 容忍策略),回调把 `dirnameOf(event.paths)` 入 `dirtyDirs` Set,前端 120ms `setTimeout` 二次 debounce flush → 对每个脏目录调 `FileTree.refreshDir(dir)` 重拉那棵子树。`readDir` 一次 < 5ms,**不做 path diff**,简单可靠。当前文件 watch 与工作区根 watch 共存:当前文件也落在根树下会收到两份事件,documentStore 内 `disk === lastSavedContent` 短路 + `externalCheckInFlight` 重入保护已足够去重,不需要协调。**已知限制**:notify-rs 对网络盘 / OneDrive 漏报在目录级比文件级更严重,window-focus 兜底只覆盖当前文件,工作区根侧暂无等价兜底(代价高),见 DECISIONS ADR-20260623-001
+- **ActivityBar 自定义持久化粒度(v0.6.1)**: 工作区/大纲/全局搜索 3 个视图入口可拖拽重排(HTML5 `draggable`,对齐 TabBar;纵向列表 → 用 `clientY` 判 before/after,但落点统一规范化为「before 下一个」(仅末尾项退回 after),避免相邻图标缝隙出现两条 divider 扫过时抖动 —— 同 TabBar 范式)+ 3 项可隐藏(settings 固定不可隐藏;右键功能栏弹 `ActivityBarContextMenu` toggle + 重置默认)。布局是**全局 UI 偏好**,走 `editorStore` → `velo-settings.json`,**不**随工作区持久化 —— 与 `sidebarWidth` / `sidebarTab` 的 per-workspace 语义对照:功能栏布局跨工作区一致,不应每个工作区各存一份。`「文件」`(FileMenuButton)固定顶部、`「设置」`固定底部均不参与排序(`「文件」`拖拽会与 `#trigger` slot-ref 注册链冲突;`「设置」`沿用 VSCode「齿轮固定底部」约定);两者亦均不可隐藏(`「文件」`隐藏会孤立文件命令,`「设置」`固定显示)。隐藏当前 active 入口时 App.vue watcher 把 `leftPanelView` 置 null(避免「面板还开着但无 active 按钮」悬空态)。`ActivityBarContextMenu` 是第三份上下文菜单(TabContextMenu / FileTreeContextMenu 之后),仍不抽通用 ContextMenu —— 3 项勾选 toggle + 重置的纯展示与右键动作菜单的「条件可见项」逻辑不重合,合并会把判断散到调用方
 
 
 

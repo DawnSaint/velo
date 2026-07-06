@@ -12,12 +12,24 @@
 //    不再走 active prop —— 下拉面板是组件自管的瞬时态,不适合混进 ActivityBar
 //    的「当前面板」长态。其它按钮(active = files/outline/search/settings)
 //    继续由 App.vue 通过 active prop 控制。
+//
+// v0.6.1 自定义(排序 / 隐藏):
+//  - 3 个视图入口(工作区 / 大纲 / 全局搜索)可拖拽重排 + 可隐藏;顺序 / 隐藏态
+//    持久化在 editorStore(全局 UI 偏好,见 docs/architecture/file-tree.md)。
+//  - 「设置」固定底部(不可拖拽),可隐藏。
+//  - 「文件」固定顶部,不参与排序 / 隐藏。
+//  - 右键功能栏任意位置 → 上下文菜单(4 项勾选 toggle + 重置默认),恢复隐藏入口。
+//  - 拖拽范式对齐 TabBar(HTML5 draggable + dropTarget={key,side});差异:
+//    纵向列表 → 用 clientY 判 before/after(TabBar 横向用 clientX)。
 
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Folders, List, Search, Settings, File } from '@lucide/vue'
 import FileMenuButton from './FileMenuButton.vue'
+import ActivityBarContextMenu from './ActivityBarContextMenu.vue'
+import { useEditorStore, type ActivityBarItem } from '@/stores/editor'
 import type { RecentFileEntry } from '@/stores/persistence'
 
-export type ActivityBarItem = 'files' | 'outline' | 'search' | 'settings'
+export type { ActivityBarItem }
 
 defineProps<{
   active: ActivityBarItem | null
@@ -26,7 +38,6 @@ defineProps<{
   recentEntries: RecentFileEntry[]
   welcomeEnabled: boolean
 }>()
-
 const emit = defineEmits<{
   'select-files': []
   'select-outline': []
@@ -44,31 +55,163 @@ const emit = defineEmits<{
   'open-welcome': []
 }>()
 
-const navItems = [
-  { key: 'files', label: '工作区', event: 'select-files' },
-  { key: 'outline', label: '大纲', event: 'select-outline' },
-  { key: 'search', label: '全局搜索', event: 'select-search' },
-] as const
+const editorStore = useEditorStore()
 
-const settingsItem = { key: 'settings', label: '设置', event: 'select-settings' } as const
+// 入口元数据:key → label / 图标 / select 事件。展示顺序由 editorStore 决定
+// (visibleActivityBarItems 已按用户排序 + 过滤隐藏);这里只提供静态映射。
+const ITEM_LABELS: Record<ActivityBarItem, string> = {
+  files: '工作区',
+  outline: '大纲',
+  search: '全局搜索',
+  settings: '设置',
+}
+const ITEM_ICONS = {
+  files: Folders,
+  outline: List,
+  search: Search,
+  settings: Settings,
+}
 
-type NavEvent = typeof navItems[number]['event'] | typeof settingsItem['event']
-
-function select(event: NavEvent) {
-  if (event === 'select-files') emit('select-files')
-  else if (event === 'select-outline') emit('select-outline')
-  else if (event === 'select-search') emit('select-search')
+function selectItem(key: ActivityBarItem) {
+  if (key === 'files') emit('select-files')
+  else if (key === 'outline') emit('select-outline')
+  else if (key === 'search') emit('select-search')
   else emit('select-settings')
 }
+
+// ===== 拖拽重排(v0.6.1,对齐 TabBar 范式) =====
+const draggingKey = ref<ActivityBarItem | null>(null)
+const dropTarget = ref<{ key: ActivityBarItem, side: 'before' | 'after' } | null>(null)
+
+function onDragStart(event: DragEvent, key: ActivityBarItem) {
+  if (!event.dataTransfer) return
+  // 拖拽源关掉可能挂着的右键菜单 —— 否则拖拽中途菜单残留。
+  closeContextMenu()
+  event.dataTransfer.setData('application/x-velo-activity-key', key)
+  event.dataTransfer.effectAllowed = 'move'
+  draggingKey.value = key
+}
+
+function onDragOver(event: DragEvent, key: ActivityBarItem) {
+  if (draggingKey.value === null) return
+  if (draggingKey.value === key) {
+    dropTarget.value = null
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const isAfter = event.clientY - rect.top > rect.height / 2
+  // 落点规范化(对齐 TabBar):任意两个相邻图标之间的缝隙统一表示为
+  // 「before 下一个」,而非「after 上一个」——否则上半扫下半时分处两条
+  // 位置(before 在下图标顶、after 在上图标底),divider 会跳动。仅末尾
+  // 项没有「下一个」可借,才退回 after 表示尾部。
+  if (isAfter) {
+    const items = editorStore.visibleActivityBarItems
+    const next = items[items.indexOf(key) + 1]
+    dropTarget.value = next ? { key: next, side: 'before' } : { key, side: 'after' }
+  } else {
+    dropTarget.value = { key, side: 'before' }
+  }
+}
+
+function onDrop(event: DragEvent) {
+  event.preventDefault()
+  const fromKey = draggingKey.value
+  const target = dropTarget.value
+  if (fromKey && target) {
+    editorStore.reorderActivityBar(fromKey, target.key, target.side)
+  }
+  resetDragState()
+}
+
+function onDragEnd() {
+  resetDragState()
+}
+
+function resetDragState() {
+  draggingKey.value = null
+  dropTarget.value = null
+}
+
+// ===== 右键菜单(v0.6.1,对齐 TabContextMenu 范式) =====
+//
+// 本地 ref 记坐标,Teleport 到 body,全局 pointerdown / Escape handler 关闭。
+// 菜单元件 (ActivityBarContextMenu.vue) 只展示 + emit,父级统一管「点外部关闭」,
+// 与 FileTreeContextMenu / TabContextMenu 同款 —— 不在组件内自己挂全局 listener。
+const contextMenu = ref<{ x: number, y: number } | null>(null)
+const contextMenuRef = ref<InstanceType<typeof ActivityBarContextMenu> | null>(null)
+
+/** 菜单条目:固定展示序(不随用户自定义顺序变),每项带当前显隐态。
+ *  仅列可隐藏的 3 个视图入口;'settings' 固定显示,不进勾选列表。 */
+const contextMenuItems = computed(() => {
+  const hideable: ActivityBarItem[] = ['files', 'outline', 'search']
+  return hideable.map(key => ({
+    key,
+    label: ITEM_LABELS[key],
+    visible: !editorStore.isActivityBarItemHidden(key),
+  }))
+})
+
+function onActivityContextMenu(event: MouseEvent) {
+  event.preventDefault()
+  // 视口约束:菜单宽 ~176 / 高 ~210(4 行:3 勾选 + 重置);贴边留 8px 安全距
+  const MENU_W = 176
+  const MENU_H = 210
+  const x = Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_W - 8))
+  const y = Math.max(8, Math.min(event.clientY, window.innerHeight - MENU_H - 8))
+  contextMenu.value = { x, y }
+}
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function onToggleItem(key: ActivityBarItem) {
+  // 不关菜单:用户通常连续调多项
+  editorStore.toggleActivityBarHidden(key)
+}
+
+function onResetActivityBar() {
+  editorStore.resetActivityBar()
+  closeContextMenu()
+}
+
+// —— 全局 listener:点外部关闭 + Escape 关闭 ——
+function onGlobalPointerDown(event: PointerEvent) {
+  if (!contextMenu.value) return
+  const target = event.target as Node | null
+  if (!target) return
+  const menuEl = contextMenuRef.value?.rootEl ?? null
+  if (menuEl && (menuEl === target || menuEl.contains(target))) return
+  closeContextMenu()
+}
+
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (contextMenu.value) closeContextMenu()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onGlobalPointerDown, true)
+  document.addEventListener('keydown', onGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
+  document.removeEventListener('keydown', onGlobalKeydown)
+})
 </script>
 
 <template>
   <nav
     class="activity-bar flex w-12 shrink-0 flex-col items-center justify-between py-2 border-r border-gray-200 text-gray-900 dark:border-gray-800 dark:bg-[#1a1a1a] dark:text-gray-100"
     aria-label="功能栏"
+    @contextmenu.prevent="onActivityContextMenu"
   >
     <div class="flex flex-col items-center gap-1">
-      <!-- 文件(下拉面板,FileMenuButton 提供) -->
+      <!-- 文件(下拉面板,FileMenuButton 提供)—— 固定顶部,不参与排序/隐藏 -->
       <FileMenuButton
         :is-tauri="isTauri"
         :exporting="exporting"
@@ -107,33 +250,52 @@ function select(event: NavEvent) {
       </FileMenuButton>
 
       <button
-        v-for="item in navItems"
-        :key="item.key"
+        v-for="item in editorStore.visibleActivityBarItems"
+        :key="item"
         class="activity-bar__button"
-        :class="{ 'activity-bar__button--active': active === item.key }"
-        :title="item.label"
-        :aria-label="item.label"
-        :aria-pressed="active === item.key"
-        @click="select(item.event)"
+        :class="{
+          'activity-bar__button--active': active === item,
+          'activity-bar__button--dragging': draggingKey === item,
+          'activity-bar__button--drop-before': dropTarget?.key === item && dropTarget?.side === 'before',
+          'activity-bar__button--drop-after': dropTarget?.key === item && dropTarget?.side === 'after',
+        }"
+        :title="ITEM_LABELS[item]"
+        :aria-label="ITEM_LABELS[item]"
+        :aria-pressed="active === item"
+        draggable="true"
+        @click="selectItem(item)"
+        @dragstart="onDragStart($event, item)"
+        @dragover="onDragOver($event, item)"
+        @drop="onDrop($event)"
+        @dragend="onDragEnd"
       >
-        <Folders v-if="item.key === 'files'" :size="20" aria-hidden="true" />
-        <List v-else-if="item.key === 'outline'" :size="20" aria-hidden="true" />
-        <Search v-else :size="20" aria-hidden="true" />
+        <component :is="ITEM_ICONS[item]" :size="20" aria-hidden="true" />
       </button>
     </div>
 
     <button
       class="activity-bar__button"
-      :class="{ 'activity-bar__button--active': active === settingsItem.key }"
-      :title="settingsItem.label"
-      :aria-label="settingsItem.label"
-      :aria-pressed="active === settingsItem.key"
-      @click="select(settingsItem.event)"
+      :class="{ 'activity-bar__button--active': active === 'settings' }"
+      title="设置"
+      aria-label="设置"
+      :aria-pressed="active === 'settings'"
+      @click="selectItem('settings')"
     >
       <span class="activity-bar__accent" aria-hidden="true" />
       <Settings :size="20" aria-hidden="true" />
     </button>
   </nav>
+
+  <!-- 右键菜单(Teleport 在子组件内,作为 nav 兄弟根避免干扰 justify-between)。 -->
+  <ActivityBarContextMenu
+    v-if="contextMenu"
+    ref="contextMenuRef"
+    :x="contextMenu.x"
+    :y="contextMenu.y"
+    :items="contextMenuItems"
+    @toggle="onToggleItem"
+    @reset="onResetActivityBar"
+  />
 </template>
 
 <style scoped>
@@ -174,5 +336,32 @@ function select(event: NavEvent) {
 
 .activity-bar__button--active:hover {
   color: var(--md-primary-color, #1F71D9);
+}
+
+/* 拖拽重排视觉(v0.6.1):被拖项半透明;落点上下 2px 主色横线。
+ * 纵向列表 → before 走 ::before(顶),after 走 ::after(底)。 */
+.activity-bar__button--dragging {
+  opacity: 0.5;
+}
+
+.activity-bar__button--drop-before::before,
+.activity-bar__button--drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--md-primary-color, #1F71D9);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.activity-bar__button--drop-before::before {
+  top: -2px;
+}
+
+.activity-bar__button--drop-after::after {
+  bottom: -2px;
 }
 </style>

@@ -22,7 +22,7 @@
 | 打开/保存、外部变更同步、echo 哨兵、草稿、持久化 | [`architecture/document-io.md`](./architecture/document-io.md) |
 | ProseMirror 插件链、schema、markdownIO、syntax、NodeView/Decoration、mermaid、shiki、源码模式、跨模式同步 | [`architecture/editor.md`](./architecture/editor.md) |
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
-| Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse | [`architecture/file-tree.md`](./architecture/file-tree.md) |
+| Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse、ActivityBar 排序/隐藏持久化 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
 | Ctrl+P 快速打开、Ctrl+Shift+P 命令面板、Ctrl+Shift+F 全文搜索、fuzzy、最近文件 | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
 | HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
@@ -73,7 +73,7 @@ velo/
 │       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
 │       ├── composables/            shell 层通用 composable(v0.5.5 起)
 │       │   └── useResizeSplitter.ts  侧栏分隔条:拖拽 / 双击收起 / 窗口过窄自动收起,跑 mousedown + window listener 不走 HTML5 draggable
-│       ├── ActivityBar.vue          左贴边功能栏:文件(下拉面板,FileMenuButton 提供触发器,触发器按钮必须 `:ref="registerRef"` 不能漏,见 ActivityBar.vue:87 注释) / 工作区(Folders) / 大纲 / 全局搜索 / 设置
+│       ├── ActivityBar.vue          左贴边功能栏:文件(下拉面板,FileMenuButton 提供触发器,触发器按钮必须 `:ref="registerRef"` 不能漏,见 ActivityBar.vue:87 注释) / 工作区(Folders) / 大纲 / 全局搜索 / 设置。v0.6.1 起工作区/大纲/全局搜索 3 项可拖拽重排 + 3 项可隐藏(右键菜单 toggle;settings 固定底部不可隐藏),持久化到 velo-settings.json(全局 UI 偏好,非 per-workspace)
 │       ├── FileMenuButton.vue       「文件」下拉面板:原 FileActionsPanel 命令入口 + RecentFilesButton + 开发模式欢迎按钮三合一;`#trigger` 插槽由调用方提供视觉,FileMenuButton 自管面板状态 / 定位 / 子菜单(最近文件右侧子面板,ChevronRight 提示);纯展示 + 事件转发
 │       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
 │       ├── CommandPalettePanel.vue 全局命令面板:Ctrl+Shift+P,聚合 App shell 命令 / 工作区动作 / 全局最近文件,复用 fuzzy 评分
