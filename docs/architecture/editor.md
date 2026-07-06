@@ -54,6 +54,7 @@
 | foldDecoration | 块级折叠(heading / list_item):toggle chevron + placeholder + fold 区段 display:none,stable key 持久化 |
 | findHighlight | 查找替换高亮 |
 | focusModePlugin | 专注模式:光标所在顶层块挂 `.velo-focus-active` class,CSS 层降其余块透明度 |
+| typewriterModePlugin | 打字机模式:光标锁视口中线,`handleScrollToSelection` 抑制 PM 最小滚动 + rAF 居中(见设计要点) |
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册 |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
@@ -102,6 +103,10 @@
 - **阅读模式(readOnly)禁用"展开源码"交互 + 隐藏编辑类按钮**: `view.editable=false` 只挡用户输入,不挡 `appendTransaction` / `handleClick` / NodeView 事件。"光标进入/点击 → 显示源码字符"的交互(mark 源码编辑 / 链接单击 / 图片按钮 / 行内与块级公式编辑态 / mermaid toggle)在每个触发点读 `view.editable` 守卫;编辑类按钮(code 语言切换 / mermaid delete+toggle / TOC delete / task checkbox)用 CSS `.ProseMirror[contenteditable="false"]` 隐藏或禁点击,走 contenteditable 属性动态生效(无需 rebuild decorations / NodeView)。**坑**:`markSourceEditPlugin.appendTransaction` 无 view 参数,用模块级 `editorView` 引用(plugin spec `view()` 设、`destroy` 清)读 editable。保留:链接 Ctrl/Cmd 跳转、`ensureMermaidSourceVisibleAt`(查找替换)、复制按钮、TOC item link、footnote backref(导航 / 非编辑类)。脚注无 source/display 切换(label 是 text content),不纳入
 
 - **专注模式 CSS 驱动 + plugin 只标记当前块**: `focusModePlugin` 开启时用 `Decoration.node` 给光标所在的**顶层块**(depth-1 祖先,blockquote 内段落高亮整个 blockquote)挂 `.velo-focus-active` class,降透明度由 CSS `.velo-editor.focus-mode .ProseMirror > *` → `opacity:.25` + `.velo-focus-active` → `opacity:1` 接管。plugin 不自己 dim 非活跃块(避免在每次光标移动时重建大量 Decoration),只管标记当前块一个 node decoration。容器 class(`.focus-mode`)由 `ProseMirrorEditor/index.vue` 的 prop 驱动,与 plugin 的 enabled state 经 `setMeta(focusModeKey)` 同步。源码模式(CM6)镜像同设计:`cmFocusModeField` StateField 跟踪当前段落(空行分隔),用两条 `Decoration.mark`(段前 + 段后)降透明度,O(1) decoration 量
+
+- **打字机模式居中 defer 到 `requestAnimationFrame`,同步 scrollBy 会被覆盖**: `typewriterModePlugin` 开启时把光标所在行滚到滚动容器(`findScrollAncestor`)垂直中线。**关键坑**:不能在 plugin `view.update()` 里**同步** `scrollBy` —— `updatePluginViews()`(行 5527,plugin `view.update()` 在此跑)先于 PM 的 scroll 分支(行 5530-5538:`scrollToSelection` / `resetScrollPos`),也先于浏览器原生 `overflow-anchor`(布局期);同步 scrollBy 落在所有这些之前,会被带 `scrollIntoView` 标记的 tr(Enter / paste / find 命中 / TOC·大纲跳转 / crossModeSync placeCursor)的"最小滚入视口"或浏览器 scroll-anchoring 覆盖,光标被顶出视口 → "光标消失"。解法:居中走 `requestAnimationFrame`,在 PM 整个 `updateState` 返回之后、paint 之前跑,scrollBy 是最终结果(无抖动);同帧多次 update 只排一个 rAF,回调里读最新 state。**仍需 `props.handleScrollToSelection` 开启时返 `true`**:PM 的 `scrollToSelection` 不只滚编辑器容器,可能滚 window / 外层祖先(`scrollRectIntoView` 沿链向上),rAF 只居中编辑器容器撤不掉 window 滚动,故先抑制 PM 自身滚动(行 5546 `someProp` 命中即跳过)再 rAF 居中;关闭返 `false` 零回归。**不用 `scrollThreshold: Infinity`**:静态值无法随 enabled 翻转,`view.setProps` 又触发重挂。居中触发条件:`view.update()` 里 enabled 且 sel/doc 变化或 just-enabled(toggle-on 立即居中,defer 一帧),meta-only tr(find 高亮 / fold toggle)跳过。居中算法取选区垂直中点(collapse 选区取 head 行中线;NodeSelection 走 `nodeDOM` 真矩形 —— 见下条;范围选取 `from.top`→`to.bottom` 中点),祖先 `scrollBy(delta)`,阈值 4px 防亚像素抖动。**边界(有意接受)**:切文件后 `resetScrollToTop()` 覆盖居中(光标落顶,下次交互再居中),切标签 `restoreScrollTop()` 同理 —— 与"打开文件不抢视口"取舍一致。源码模式(CM6)镜像同坑同解:`EditorView.updateListener` 里**不**同步 `view.scrollDOM.scrollBy`(会被 CM6 自身 scrollIntoView 覆盖),改 `scheduleCenterCm` defer 到 rAF;enabled 用组件级 `let` 而非 StateField(typewriter 无 decoration),`onBeforeUnmount` 取消 pending rAF
+
+- **打字机居中 NodeSelection 用 `nodeDOM` 真矩形,不能用 coordsAtPos(from/to) —— 修点击图片顶 ~1/4 视口**: 点击图片产生 NodeSelection。Velo 图片是 inline-atom,但 NodeView 的 wrapper 是 `display:block` 撑满行(模型 inline、渲染 block);`coordsAtPos(from)` 落在图片**上方**文本行、`coordsAtPos(to)` 落在图片**下方**文本行,二者中点偏向上下文本行而非图片本体 → 居中把图片往上顶约 1/4 视口。改用 `view.nodeDOM(sel.from).getBoundingClientRect()` 拿图片 wrapper 真实矩形取中点。collapse 文本选区 from===to 退化 head 行中线,范围选取 from.top→to.bottom 中点,行为不变
 
 ---
 

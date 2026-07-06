@@ -452,6 +452,16 @@ const focusMode = ref(false)
 function toggleFocusMode() {
   focusMode.value = !focusMode.value
 }
+
+// ========== 打字机模式(F9) ==========
+// 编辑器级行为模式:光标锁定在视口垂直中线,键入 / 移动时文档在光标下滚动。
+// 独立于专注模式(可叠加),不持久化(运行时态,重启回到默认 false)。
+// 文件菜单 toggle + F9 快捷键 + 命令面板入口。镜像 focusMode 的运行时态范式。
+const typewriterMode = ref(false)
+
+function toggleTypewriterMode() {
+  typewriterMode.value = !typewriterMode.value
+}
 // 查找替换的"用户意图" —— 上提到 App.vue 并 provide,两份 FindReplace(PM / CM6)
 // inject 共享。切模式时 PM 份卸载、CM6 份新挂,意图在这里存活 → query 不丢。
 // matches / currentIndex 不上提(模式相关,新挂载时重算)。
@@ -899,6 +909,15 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       run: () => toggleFocusMode(),
     },
     {
+      id: 'editor.typewriterMode',
+      title: typewriterMode.value ? '退出打字机模式' : '打字机模式',
+      subtitle: '光标锁定在视口中线',
+      shortcut: 'F9',
+      group: 'app',
+      keywords: ['typewriter mode', '打字机', 'typewriter', '锁屏'],
+      run: () => toggleTypewriterMode(),
+    },
+    {
       id: 'file.open',
       title: '打开文件',
       subtitle: '从磁盘选择一个 Markdown 文件',
@@ -1314,6 +1333,11 @@ onMounted(async () => {
       toggleFocusMode()
       return
     }
+    if (e.key === 'F9') {
+      e.preventDefault()
+      toggleTypewriterMode()
+      return
+    }
     if (e.key === 'F12' && tauri) {
       e.preventDefault()
       void invoke('open_devtools').catch(() => { /* dev 环境无此 command,忽略 */ })
@@ -1646,6 +1670,7 @@ watch(editorRef, (v) => {
         :welcome-enabled="isDev"
         :always-on-top="isAlwaysOnTop"
         :focus-mode="focusMode"
+        :typewriter-mode="typewriterMode"
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
@@ -1661,6 +1686,7 @@ watch(editorRef, (v) => {
         @open-welcome="welcomeVisible = true"
         @toggle-always-on-top="toggleAlwaysOnTop()"
         @toggle-focus-mode="toggleFocusMode()"
+        @toggle-typewriter-mode="toggleTypewriterMode()"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
@@ -1731,6 +1757,7 @@ watch(editorRef, (v) => {
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
               :focus-mode="focusMode"
+              :typewriter-mode="typewriterMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
               @open-global-search="openGlobalSearchFromFind"
@@ -1743,6 +1770,7 @@ watch(editorRef, (v) => {
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
               :focus-mode="focusMode"
+              :typewriter-mode="typewriterMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
               @open-global-search="openGlobalSearchFromFind"

@@ -44,12 +44,15 @@ const props = withDefaults(defineProps<{
   readOnly?: boolean
   /** 专注模式：当前段落外内容降透明度。 */
   focusMode?: boolean
+  /** 打字机模式：光标锁定在视口中线（文档在光标下滚动）。 */
+  typewriterMode?: boolean
 }>(), {
   modelValue: '',
   darkMode: false,
   findOpen: false,
   readOnly: false,
   focusMode: false,
+  typewriterMode: false,
 })
 
 const emit = defineEmits<{
@@ -89,12 +92,45 @@ let lastSelfEmitted = ''
 // 历史被一次全量 tr 污染(undo 会跨标签回退)。
 let pendingTabRestore = false
 
+// 打字机模式开关镜像(组件级,不进 CM6 state —— typewriter 无 decoration,
+// updateListener 闭包读这个布尔即可,无需 focusMode 那种 StateField)。
+// v-if 重挂时从 props 初值起;运行时翻转走下方 watch。
+let cmTypewriterEnabled = props.typewriterMode
+
 function emitCursorPosition(view: EditorView) {
   const head = view.state.selection.main.head
   const line = view.state.doc.lineAt(head)
   emit('cursor-position-change', {
     line: line.number,
     column: head - line.from + 1,
+  })
+}
+
+/** 把光标所在行滚到 scrollDOM(cm-scroller)垂直中线 —— 镜像 PM 侧
+ *  typewriterMode.centerCursor 的数学。直接 scrollBy 不 dispatch → 无重入循环。
+ *
+ *  **不在 updateListener 里同步调**:CM6 的 updateListener 跑在 CM6 更新周期内,
+ *  CM6 自身对带 scrollIntoView 的 transaction 的滚动处理在此之后跑,会覆盖我们的
+ *  scrollBy → 光标被顶到边缘 / 消失。同 PM 侧,defer 到 requestAnimationFrame:
+ *  在 CM6 整个 update 之后、paint 之前跑,scrollBy 是最终结果。 */
+function centerCursorCm(view: EditorView): void {
+  const scroller = view.scrollDOM
+  const coords = view.coordsAtPos(view.state.selection.main.head)
+  if (!coords) return
+  const scrollerRect = scroller.getBoundingClientRect()
+  const cursorCenter = (coords.top + coords.bottom) / 2
+  const containerCenter = scrollerRect.top + scroller.clientHeight / 2
+  const delta = cursorCenter - containerCenter
+  if (Math.abs(delta) > 4) scroller.scrollBy({ top: delta })
+}
+
+// 同帧多次更新只排一个 rAF;回调里读最新 view + flag 一次性居中。null = 无 pending。
+let cmRafId: number | null = null
+function scheduleCenterCm(view: EditorView): void {
+  if (cmRafId !== null) return
+  cmRafId = requestAnimationFrame(() => {
+    cmRafId = null
+    if (cmTypewriterEnabled) centerCursorCm(view)
   })
 }
 
@@ -336,6 +372,11 @@ function createView(): EditorView {
           const scroller = u.view.scrollDOM
           documentStore.captureActiveCmState(u.view.state, scroller.scrollTop)
         }
+        // 打字机模式:选区 / 文档变化后把光标拉回视口中线。defer 到 rAF 跑在
+        // CM6 更新之后(见 centerCursorCm 注释),同步调会被 CM6 自身 scrollIntoView 覆盖。
+        if (cmTypewriterEnabled && (u.docChanged || u.selectionSet)) {
+          scheduleCenterCm(u.view)
+        }
       }),
     ],
   })
@@ -443,6 +484,21 @@ watch(
 )
 
 // ============================================================
+//  打字机模式切换 → 同步组件级 flag + 开启时立即居中
+//  (CM6 无 plugin justEnabled 路径,watch 显式补居中;后续跟随由 updateListener 接管)
+// ============================================================
+watch(
+  () => props.typewriterMode,
+  (enabled) => {
+    cmTypewriterEnabled = enabled
+    const view = viewRef.value
+    if (!view) return
+    // 开启时居中也走 rAF(同 updateListener 路径),保证在 CM6 当前更新之后跑。
+    if (enabled) scheduleCenterCm(view)
+  },
+)
+
+// ============================================================
 //  挂载 / 销毁
 // ============================================================
 onMounted(async () => {
@@ -467,6 +523,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (cmRafId !== null) {
+    cancelAnimationFrame(cmRafId)
+    cmRafId = null
+  }
   viewRef.value?.destroy()
   viewRef.value = null
 })

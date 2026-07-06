@@ -17,12 +17,14 @@ describe('decideOpenFocus', () => {
     expect(policy.selection.head).toBeGreaterThan(0)
   })
 
-  it('以空段落结尾(标题 + 空段,需 ≥ 2 个尾换行)→ focus + 选区 atEnd', () => {
+  it('非空内容 + 尾空段(标题 + 空段,需 ≥ 2 个尾换行)→ 不抢焦点 + 选区 atStart', () => {
+    // 早期规则"最后一节点是空段落 → focus atEnd"会把这种 doc 也判为应 focus,
+    // 与打字机模式叠加会开屏跳到末行 —— 现收紧为只有整个文档唯一空段才 focus。
     // remark-parse 吞掉单次尾换行;'\n\n\n' 才保留 1 个 trailing empty paragraph
     const doc = docFromMd('# Title\n\n\n')
     const policy = decideOpenFocus(doc)
-    expect(policy.shouldFocus).toBe(true)
-    expect(policy.selection.head).toBe(TextSelection.atEnd(doc).head)
+    expect(policy.shouldFocus).toBe(false)
+    expect(policy.selection.head).toBe(TextSelection.atStart(doc).head)
   })
 
   it('标题后只有 1 个尾换行 → remark 吞掉,doc 无空段 → 不主动 focus + 选区 atStart', () => {

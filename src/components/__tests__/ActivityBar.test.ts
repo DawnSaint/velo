@@ -15,6 +15,7 @@ const baseProps = {
   welcomeEnabled: false,
   alwaysOnTop: false,
   focusMode: false,
+  typewriterMode: false,
 }
 
 // ActivityBar v0.6.1 起读 editorStore(排序 / 隐藏态),mount 必须装 pinia。

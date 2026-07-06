@@ -39,6 +39,7 @@ defineProps<{
   welcomeEnabled: boolean
   alwaysOnTop: boolean
   focusMode: boolean
+  typewriterMode: boolean
 }>()
 const emit = defineEmits<{
   'select-files': []
@@ -57,6 +58,7 @@ const emit = defineEmits<{
   'open-welcome': []
   'toggle-always-on-top': []
   'toggle-focus-mode': []
+  'toggle-typewriter-mode': []
 }>()
 
 const editorStore = useEditorStore()
@@ -223,6 +225,7 @@ onBeforeUnmount(() => {
         :welcome-enabled="welcomeEnabled"
         :always-on-top="alwaysOnTop"
         :focus-mode="focusMode"
+        :typewriter-mode="typewriterMode"
         @new-doc="emit('new-doc')"
         @new-window="emit('new-window')"
         @open-file="emit('open-file')"
@@ -234,6 +237,7 @@ onBeforeUnmount(() => {
         @open-welcome="emit('open-welcome')"
         @toggle-always-on-top="emit('toggle-always-on-top')"
         @toggle-focus-mode="emit('toggle-focus-mode')"
+        @toggle-typewriter-mode="emit('toggle-typewriter-mode')"
       >
         <!-- FileMenuButton 用 `#trigger` slot 暴露 `open / toggle / registerRef`:
              `registerRef` 必须在自定义 button 上 `:ref` 调一次把元素喂回去,否则

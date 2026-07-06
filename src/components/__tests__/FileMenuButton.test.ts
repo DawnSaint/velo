@@ -13,6 +13,7 @@ function mountMenu(props: Partial<{
   welcomeEnabled: boolean
   alwaysOnTop: boolean
   focusMode: boolean
+  typewriterMode: boolean
 }> = {}) {
   return mount(FileMenuButton, {
     props: {
@@ -22,6 +23,7 @@ function mountMenu(props: Partial<{
       welcomeEnabled: false,
       alwaysOnTop: false,
       focusMode: false,
+      typewriterMode: false,
       ...props,
     },
     global: {

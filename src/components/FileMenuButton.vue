@@ -26,7 +26,7 @@ import { File, ChevronRight, Check } from '@lucide/vue'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import type { RecentFileEntry } from '@/stores/persistence'
 
-type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top' | 'toggle-focus-mode'
+type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top' | 'toggle-focus-mode' | 'toggle-typewriter-mode'
 
 interface FileActionRow {
   key: string
@@ -52,6 +52,8 @@ const props = defineProps<{
   alwaysOnTop: boolean
   /** 专注模式态(toggle 项勾选指示) */
   focusMode: boolean
+  /** 打字机模式态(toggle 项勾选指示) */
+  typewriterMode: boolean
 }>()
 
 const emit = defineEmits<{
@@ -66,6 +68,7 @@ const emit = defineEmits<{
   'open-welcome': []
   'toggle-always-on-top': []
   'toggle-focus-mode': []
+  'toggle-typewriter-mode': []
 }>()
 
 const open = ref(false)
@@ -115,6 +118,7 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
     {
       rows: [
         { key: 'focus-mode', label: '专注模式', shortcut: 'F8', event: 'toggle-focus-mode', checked: props.focusMode },
+        { key: 'typewriter-mode', label: '打字机模式', shortcut: 'F9', event: 'toggle-typewriter-mode', checked: props.typewriterMode },
         ...(props.isTauri
           ? [{ key: 'always-on-top', label: '保持窗口最前', shortcut: '', event: 'toggle-always-on-top' as FileActionEvent, checked: props.alwaysOnTop }]
           : []),
@@ -218,6 +222,7 @@ function emitAction(row: FileActionRow) {
   else if (row.event === 'export') emit('export')
   else if (row.event === 'toggle-always-on-top') emit('toggle-always-on-top')
   else if (row.event === 'toggle-focus-mode') emit('toggle-focus-mode')
+  else if (row.event === 'toggle-typewriter-mode') emit('toggle-typewriter-mode')
   closeAll()
 }
 

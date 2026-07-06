@@ -20,6 +20,8 @@ const props = withDefaults(defineProps<{
   readOnly?: boolean
   /** 专注模式：当前段落外内容降透明度。 */
   focusMode?: boolean
+  /** 打字机模式：光标锁定在视口中线（文档在光标下滚动）。 */
+  typewriterMode?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '16px',
@@ -29,6 +31,7 @@ const props = withDefaults(defineProps<{
   findOpen: false,
   readOnly: false,
   focusMode: false,
+  typewriterMode: false,
 })
 
 const emit = defineEmits<{
@@ -124,6 +127,7 @@ defineExpose({ getEditorView })
           :model-value="modelValue"
           :read-only="readOnly"
           :focus-mode="focusMode"
+          :typewriter-mode="typewriterMode"
           @update:model-value="emit('update:modelValue', $event)"
           @cursor-position-change="emit('cursor-position-change', $event)"
         />

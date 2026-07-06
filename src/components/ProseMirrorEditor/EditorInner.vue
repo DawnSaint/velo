@@ -41,6 +41,7 @@ import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { foldDecoration, foldKey, collectFoldableKeys } from './nodes/FoldDecoration'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
+import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { hrEnterCommand } from './syntax/block/hr'
@@ -311,6 +312,7 @@ const basePlugins: Plugin[] = [
   foldDecoration,
   findHighlight,
   focusModePlugin,
+  typewriterModePlugin,
 ]
 
 // 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
@@ -335,9 +337,12 @@ const props = withDefaults(defineProps<{
   readOnly?: boolean
   /** 专注模式：当前段落外内容降透明度。 */
   focusMode?: boolean
+  /** 打字机模式：光标锁定在视口中线（文档在光标下滚动）。 */
+  typewriterMode?: boolean
 }>(), {
   readOnly: false,
   focusMode: false,
+  typewriterMode: false,
 })
 
 const emit = defineEmits<{
@@ -439,8 +444,9 @@ watch(() => props.modelValue, async (newVal) => {
   await nextTick()
   // 打开文件:按 doc 形态决定是否抢焦点。
   // 决策见 editor/openFocus.ts —— 默认不抢焦点,避免屏幕顶部高亮(TOC / 首段)
-  // 抢占用户注意力;唯一例外是文档以空段落结尾(典型:新建空白文档),
+  // 抢占用户注意力;唯一例外是整个文档只有一个空段落(典型:新建空白文档),
   // 这种情况下把 selection 移到末尾并 focus,免去用户点一下编辑器再打字的步骤。
+  // (非空内容 + 尾空段不在此列 —— atEnd 会被打字机居中、视口跳末行)
   if (mounted && openFocus.shouldFocus) {
     try { view.focus() } catch { /* 销毁期忽略 */ }
   }
@@ -521,6 +527,16 @@ watch(() => props.focusMode, (enabled) => {
   const view = getView()
   if (!view || view.isDestroyed) return
   view.dispatch(view.state.tr.setMeta(focusModeKey, { enabled }))
+})
+
+// 打字机模式 toggle → 同 focusMode 同款范式(模块级镜像 + setMeta)。
+// 居中由 plugin 的 view.update() 在 justEnabled / sel/doc 变化时做,watch 不显式调。
+setTypewriterModeEnabled(props.typewriterMode)
+watch(() => props.typewriterMode, (enabled) => {
+  setTypewriterModeEnabled(enabled)
+  const view = getView()
+  if (!view || view.isDestroyed) return
+  view.dispatch(view.state.tr.setMeta(typewriterModeKey, { enabled }))
 })
 
 function focusEditor() {
