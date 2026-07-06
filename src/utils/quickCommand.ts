@@ -3,7 +3,7 @@
 // 一个输入框,五种模式(对齐 VSCode 多模式 quick box):
 //   ''  → file          工作区 .md 模糊查找(原 Ctrl+P)
 //   '>' → command       App shell 命令聚合(原 Ctrl+Shift+P)
-//   '@' → symbol        当前文档标题(v0.6.2 后续)
+//   '@' → symbol        当前文档标题(跳转到标题)
 //   '#' → workspace-symbol 工作区标题扫描(v0.6.2 后续)
 //   ':' → line          跳源码行号(v0.6.2 后续)
 //
@@ -12,7 +12,7 @@
 // 前缀后跟一个可选空格也剥掉('>@save' 与 '> save' 等价),沿用旧
 // normalizeCommandPaletteQuery 的语义并泛化到所有前缀。
 
-export type QuickCommandMode = 'file' | 'command'
+export type QuickCommandMode = 'file' | 'command' | 'symbol'
 
 export interface ParsedQuickCommand {
   mode: QuickCommandMode
@@ -25,6 +25,7 @@ export interface ParsedQuickCommand {
 /** 前缀 → 模式映射;增量加模式只在此扩展 + 联合类型加分支。 */
 const PREFIX_MODES: Record<string, QuickCommandMode> = {
   '>': 'command',
+  '@': 'symbol',
 }
 
 /**

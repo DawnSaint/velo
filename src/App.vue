@@ -25,6 +25,7 @@ import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
 import type { CommandPaletteItem } from '@/utils/commandPalette'
+import { revealHeadingInDom, findHeadingRawOffset } from '@/utils/revealHeading'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import {
   revealWorkspaceSearchMatch,
@@ -677,6 +678,24 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
   // v0.6.x:侧栏内嵌模式下**不**自动关闭面板 —— 用户可以连续点多个结果;
   // 关闭走 X / Esc / 再次点 ActivityBar 搜索图标。
+}
+
+// 统一命令面板 @ 符号模式:跳转到当前文档指定标题。
+// WYSIWYG 走 DOM(与 EditorOutline 同款 revealHeadingInDom),source 走 raw markdown
+// 行定位 → CM6 doc offset(源码文档即原始 markdown,offset == pos)→ backend 跳转。
+function onRevealHeading({ level, displayText }: { level: number, displayText: string }) {
+  if (documentStore.sourceMode) {
+    const offset = findHeadingRawOffset(documentStore.content, level, displayText)
+    if (offset < 0) return
+    const be = activeBackend()
+    if (!be) return
+    be.setSelection(offset, offset)
+    be.scrollMatchIntoView(offset)
+    be.focus()
+    return
+  }
+  revealHeadingInDom(level, displayText)
+  editorRef.value?.getEditorView()?.focus()
 }
 
 // 文件树右键菜单「在此文件夹中搜索」:写 scope + 切到 search tab。
@@ -1856,6 +1875,7 @@ watch(editorRef, (v) => {
       :items="commandPaletteItems"
       :initial-query="quickCommandInitialQuery"
       @update:open="(v) => quickCommandOpen = v"
+      @reveal-heading="onRevealHeading"
     />
   </div>
 </template>

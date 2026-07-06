@@ -34,6 +34,7 @@ import {
   type HighlightSegment,
 } from '@/utils/commandPalette'
 import { parseQuickCommand } from '@/utils/quickCommand'
+import { parseHeadings, type HeadingItem } from '@/utils/outline'
 
 const props = defineProps<{
   open: boolean
@@ -41,7 +42,10 @@ const props = defineProps<{
   /** 打开时预填的 raw query(含前缀);Ctrl+Shift+P 传 '>',Ctrl+P 传 '' */
   initialQuery?: string
 }>()
-const emit = defineEmits<{ 'update:open': [boolean] }>()
+const emit = defineEmits<{
+  'update:open': [boolean]
+  'reveal-heading': [{ level: number, displayText: string }]
+}>()
 
 const workspace = useWorkspaceStore()
 const documentStore = useDocumentStore()
@@ -200,6 +204,34 @@ function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): Comman
   return 'file-actions'
 }
 
+// ========== @ symbol 模式:当前文档标题 ==========
+const headingsTree = computed<HeadingItem[]>(() => parseHeadings(documentStore.content))
+
+interface SymbolRow {
+  key: string
+  level: number
+  displayText: string
+  segments: HighlightSegment[]
+}
+const symbolRows = computed<SymbolRow[]>(() => {
+  const q = search.value.trim()
+  const out: SymbolRow[] = []
+  function walk(items: HeadingItem[]) {
+    for (const it of items) {
+      if (!q) {
+        out.push({ key: it.key, level: it.level, displayText: it.displayText, segments: buildCommandPaletteSegments(it.displayText, undefined) })
+      }
+      else {
+        const hit = fuzzyScore(it.displayText, q)
+        if (hit) out.push({ key: it.key, level: it.level, displayText: it.displayText, segments: buildCommandPaletteSegments(it.displayText, hit.indices) })
+      }
+      walk(it.children)
+    }
+  }
+  walk(headingsTree.value)
+  return out
+})
+
 // ========== 统一行视图 ==========
 interface UnifiedRow {
   key: string
@@ -209,6 +241,8 @@ interface UnifiedRow {
   shortcut?: string
   disabled?: boolean
   disabledReason?: string
+  /** symbol 模式标题层级(1-6),用于行缩进 */
+  level?: number
   run: () => void | Promise<void>
 }
 interface UnifiedSection {
@@ -234,6 +268,18 @@ const sections = computed<UnifiedSection[]>(() => {
         run: () => runCommand(r),
       })),
     }))
+  }
+  if (mode.value === 'symbol') {
+    return [{
+      key: 'symbols',
+      label: '',
+      rows: symbolRows.value.map(r => ({
+        key: r.key,
+        primarySegments: r.segments,
+        level: r.level,
+        run: () => activateHeading(r),
+      })),
+    }]
   }
   const out: UnifiedSection[] = []
   if (recentFileRows.value.length) {
@@ -282,6 +328,9 @@ const isEmpty = computed(() => totalRows.value === 0)
 
 const emptyMessage = computed(() => {
   if (mode.value === 'command') return '无匹配命令'
+  if (mode.value === 'symbol') {
+    return headingsTree.value.length === 0 ? '当前文档没有标题' : '无匹配项'
+  }
   if (loading.value) return '正在扫描工作区...'
   return allEntries.value.length === 0 ? '工作区内没有 .md 文件' : '无匹配项'
 })
@@ -334,6 +383,11 @@ watch(mode, (m) => {
 
 function close() {
   emit('update:open', false)
+}
+
+function activateHeading(h: { level: number, displayText: string }) {
+  emit('reveal-heading', { level: h.level, displayText: h.displayText })
+  close()
 }
 
 async function runCommand(row: CommandPaletteRow) {
@@ -447,7 +501,7 @@ onBeforeUnmount(() => {
           </div>
           <template v-else>
             <template v-for="(section, sectionIdx) in sections" :key="section.key">
-              <div class="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              <div v-if="section.label" class="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                 {{ section.label }}
               </div>
               <button
@@ -481,6 +535,15 @@ onBeforeUnmount(() => {
                   </span>
                   <span v-if="row.subtitle" class="ml-auto shrink-0 truncate pl-3 text-[10px] text-gray-400">
                     {{ row.subtitle }}
+                  </span>
+                </template>
+                <!-- symbol 行:按标题层级缩进 + 标题命中加粗 -->
+                <template v-else-if="mode === 'symbol'">
+                  <span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-200" :style="{ paddingLeft: `${Math.max((row.level ?? 1) - 1, 0)}rem` }">
+                    <template v-for="(seg, i) in row.primarySegments" :key="i">
+                      <span v-if="seg.match" class="font-bold">{{ seg.text }}</span>
+                      <template v-else>{{ seg.text }}</template>
+                    </template>
                   </span>
                 </template>
                 <!-- command 行:图标盒 + 标题命中加粗 + 副标 + 快捷键 -->

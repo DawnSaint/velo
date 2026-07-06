@@ -4,6 +4,7 @@ import { nextTick } from 'vue'
 import { createPinia, getActivePinia, setActivePinia, type Pinia } from 'pinia'
 import QuickCommandPanel from '../QuickCommandPanel.vue'
 import type { CommandPaletteItem } from '@/utils/commandPalette'
+import { useDocumentStore } from '@/stores/document'
 
 function makeItems(): CommandPaletteItem[] {
   return [
@@ -131,5 +132,46 @@ describe('QuickCommandPanel', () => {
     await wrapper.find('[data-testid="quick-command-input"]').setValue('>')
     expect(wrapper.text()).toContain('保存')
     expect(wrapper.text()).not.toContain('工作区内没有 .md 文件')
+  })
+
+  it('@ 符号模式列出当前文档标题', async () => {
+    useDocumentStore().content = '# 引言\n## 背景\n### 细节\n正文'
+    wrapper = mountPanel({ initialQuery: '@' })
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('引言')
+    expect(text).toContain('背景')
+    expect(text).toContain('细节')
+  })
+
+  it('@ 符号模式按 text 过滤标题', async () => {
+    useDocumentStore().content = '# 引言\n## 背景\n### 细节'
+    wrapper = mountPanel({ initialQuery: '@' })
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('@背景')
+
+    expect(wrapper.text()).toContain('背景')
+    expect(wrapper.text()).not.toContain('引言')
+  })
+
+  it('@ 符号模式 Enter emit reveal-heading 并关闭', async () => {
+    useDocumentStore().content = '# 引言\n## 背景'
+    wrapper = mountPanel({ initialQuery: '@' })
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').trigger('keydown', { key: 'Enter' })
+
+    expect(wrapper.emitted('reveal-heading')?.[0]).toEqual([{ level: 1, displayText: '引言' }])
+    expect(wrapper.emitted('update:open')?.[0]).toEqual([false])
+  })
+
+  it('@ 符号模式无标题时显示空态', async () => {
+    useDocumentStore().content = '只有正文没有标题'
+    wrapper = mountPanel({ initialQuery: '@' })
+    await nextTick()
+
+    expect(wrapper.text()).toContain('当前文档没有标题')
   })
 })

@@ -3,6 +3,7 @@ import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated,
 import { ChevronRight } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
+import { revealHeadingInDom } from '@/utils/revealHeading'
 
 const props = defineProps<{
   modelValue: string
@@ -122,19 +123,9 @@ const headingIndex = computed<Map<string, HeadingIndexEntry>>(() => {
 })
 
 // ========== 滚动到标题 ==========
+// 走共享 util(与统一命令面板 @ 符号模式同款 DOM 跳转 + outline-highlight 闪烁)。
 function scrollToHeading(item: FlatItem) {
-  const editor = document.querySelector('.ProseMirror') as HTMLElement | null
-  if (!editor) return
-  const tag = `h${item.level}`
-  const els = editor.querySelectorAll(tag)
-  for (const el of els) {
-    if (el.textContent?.trim() === item.displayText) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      el.classList.add('outline-highlight')
-      setTimeout(() => el.classList.remove('outline-highlight'), 1500)
-      return
-    }
-  }
+  revealHeadingInDom(item.level, item.displayText)
 }
 
 // ========== 缩进 ==========
