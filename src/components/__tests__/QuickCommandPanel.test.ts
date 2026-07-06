@@ -5,6 +5,14 @@ import { createPinia, getActivePinia, setActivePinia, type Pinia } from 'pinia'
 import QuickCommandPanel from '../QuickCommandPanel.vue'
 import type { CommandPaletteItem } from '@/utils/commandPalette'
 import { useDocumentStore } from '@/stores/document'
+import { useWorkspaceStore } from '@/stores/workspace'
+
+// 控制 file 模式索引(allEntries),无需真 fs:默认返回空(无匹配 → 触发新建行)
+const { ensureIndexMock } = vi.hoisted(() => ({ ensureIndexMock: vi.fn() }))
+vi.mock('@/utils/quickOpenIndex', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/quickOpenIndex')>()
+  return { ...actual, ensureIndex: ensureIndexMock }
+})
 
 function makeItems(): CommandPaletteItem[] {
   return [
@@ -35,6 +43,7 @@ describe('QuickCommandPanel', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    ensureIndexMock.mockResolvedValue([])
   })
   afterEach(() => {
     wrapper?.unmount()
@@ -239,5 +248,159 @@ describe('QuickCommandPanel', () => {
 
     expect(wrapper.find('[data-testid="quick-command-line-hint"]').text()).toContain('从 1 到 3')
     expect(wrapper.find('[data-testid="quick-command-row-line"]').exists()).toBe(false)
+  })
+
+  // ===== file 模式「没找到 → 新建文件」(create-if-not-found) =====
+  it('file 模式无匹配 + 有工作区:显示「新建文件: <name>.md」', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('nonexistent')
+    await nextTick()
+
+    const row = wrapper.find('[data-testid="quick-command-row-create"]')
+    expect(row.exists()).toBe(true)
+    expect(row.text()).toContain('新建文件: nonexistent.md')
+  })
+
+  it('file 模式 query 已含 .md:剥尾不重复拼成 .md.md', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('foo.md')
+    await nextTick()
+
+    const row = wrapper.find('[data-testid="quick-command-row-create"]')
+    expect(row.exists()).toBe(true)
+    expect(row.text()).toContain('新建文件: foo.md')
+    expect(row.text()).not.toContain('foo.md.md')
+  })
+
+  it('file 模式空 query:不显示新建行', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-create"]').exists()).toBe(false)
+  })
+
+  it('file 模式 query 含非法字符(/):不显示新建行', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('foo/bar')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-create"]').exists()).toBe(false)
+  })
+
+  it('file 模式无 activeRoot:不显示新建行', async () => {
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('nonexistent')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-create"]').exists()).toBe(false)
+  })
+
+  it('file 模式有匹配(foo.md 存在):不显示新建行,列出既有文件', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('foo')
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-create"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('foo.md')
+  })
+
+  // ===== file 模式顶部前缀介绍行(@/:/>) =====
+  it('空 query + 有文件:顶部显示 @/:/> 三行介绍', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await nextTick()
+
+    const cmd = wrapper.find('[data-testid="quick-command-row-help-command"]')
+    const sym = wrapper.find('[data-testid="quick-command-row-help-symbol"]')
+    const line = wrapper.find('[data-testid="quick-command-row-help-line"]')
+    expect(cmd.exists() && sym.exists() && line.exists()).toBe(true)
+    expect(cmd.text()).toContain('命令模式')
+    expect(cmd.text()).toContain('Ctrl+Shift+P')
+    expect(sym.text()).toContain('标题跳转')
+    expect(line.text()).toContain('行号跳转')
+    // 介绍行在最顶部(foo.md 之前)
+    expect(wrapper.find('[data-testid="quick-command-row-help-command"]').element.nextElementSibling?.textContent).toContain('标题跳转')
+  })
+
+  it('介绍行不抢默认选中:Enter 打开第一个文件而非切模式', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+    const doc = useDocumentStore()
+    const openSpy = vi.spyOn(doc, 'openPathInTab').mockResolvedValue(true)
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').trigger('keydown', { key: 'Enter' })
+
+    expect(openSpy).toHaveBeenCalledWith('/test/root/foo.md')
+    const input = wrapper.find('[data-testid="quick-command-input"]').element as HTMLInputElement
+    expect(input.value).toBe('')  // 未切到 command 模式
+    openSpy.mockRestore()
+  })
+
+  it('点击 > 介绍行:自动填入 > 前缀并切到命令模式', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-row-help-command"]').trigger('click')
+    await nextTick()
+
+    const input = wrapper.find('[data-testid="quick-command-input"]').element as HTMLInputElement
+    expect(input.value).toBe('>')
+    // 切到命令模式后渲染命令列表
+    expect(wrapper.text()).toContain('保存')
+  })
+
+  it('非空 query:介绍行隐藏', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue('foo')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-help-command"]').exists()).toBe(false)
+  })
+
+  it('无 .md 文件:不显示介绍行,显示空态', async () => {
+    useWorkspaceStore().activeRoot = '/test/root'
+    ensureIndexMock.mockResolvedValue([])
+    wrapper = mountPanel({ initialQuery: '' })
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-row-help-command"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('工作区内没有 .md 文件')
   })
 })

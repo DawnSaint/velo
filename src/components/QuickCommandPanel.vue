@@ -17,8 +17,8 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import {
-  AppWindowMac, Code2, Download, File, FilePlusCorner, FileSearch, FileUp,
-  FolderOpen, Folders, FolderX, History, List, Replace, Save, Search, Settings, Upload,
+  AppWindowMac, AtSign, Code2, Download, File, FilePlusCorner, FileSearch, FileUp,
+  FolderOpen, Folders, FolderX, History, List, ListOrdered, Replace, Save, Search, Settings, Terminal, Upload,
 } from '@lucide/vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
@@ -36,6 +36,9 @@ import {
 import { parseQuickCommand } from '@/utils/quickCommand'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { getLineText, getLineCount } from '@/utils/revealHeading'
+import { join } from '@/tauri/path'
+import { exists, writeTextFile } from '@/tauri/fs'
+import { finalName, validateName } from '@/components/Sidebar/treeUtils'
 
 const props = defineProps<{
   open: boolean
@@ -249,6 +252,8 @@ interface UnifiedRow {
   disabledReason?: string
   /** symbol 模式标题层级(1-6),用于行缩进 */
   level?: number
+  /** 前缀介绍行(@/:/>):不抢默认选中,resetSelectionToFirst 跳过 */
+  isHelp?: boolean
   run: () => void | Promise<void>
 }
 interface UnifiedSection {
@@ -292,6 +297,17 @@ const sections = computed<UnifiedSection[]>(() => {
     return []
   }
   const out: UnifiedSection[] = []
+  // 顶部前缀介绍行(@/:/>,VSCode ? help 风格):仅空 query + 有文件时显示,
+  // 选中即自动填入对应前缀切模式。isHelp 标记让 resetSelectionToFirst 跳过,不抢文件行的默认选中。
+  if (!search.value.trim() && allEntries.value.length > 0) {
+    out.push({ key: 'help', label: '', rows: buildHelpRows() })
+  }
+  // 「没找到 → 新建」行(Obsidian / Sublime 风格):无任何模糊命中时插到列表顶部,
+  // Enter 即建盘 + 打开。resetSelectionToFirst 会把选中重置到首行 = 新建行。
+  const createRow = buildCreateRow()
+  if (createRow) {
+    out.push({ key: 'create', label: '', rows: [createRow] })
+  }
   if (recentFileRows.value.length) {
     out.push({
       key: 'recent',
@@ -360,7 +376,8 @@ const selectedFlatIndex = computed(() => {
 })
 
 function resetSelectionToFirst() {
-  const first = flatRows.value[0]
+  // 跳过 isHelp 行:前缀介绍行在顶部但不抢默认选中 —— Enter 仍打开第一个文件, ArrowUp 才到介绍行
+  const first = flatRows.value.find(r => !r.row.isHelp) ?? flatRows.value[0]
   selection.value = first
     ? { section: first.sectionIndex, index: first.rowIndex }
     : { section: 0, index: 0 }
@@ -371,8 +388,9 @@ watch(flatRows, () => {
     selection.value = { section: 0, index: 0 }
     return
   }
-  const exists = flatRows.value.some(r => r.sectionIndex === selection.value.section && r.rowIndex === selection.value.index)
-  if (!exists) resetSelectionToFirst()
+  const cur = flatRows.value.find(r => r.sectionIndex === selection.value.section && r.rowIndex === selection.value.index)
+  // 选中行消失,或停在 isHelp 介绍行上(异步索引加载后 {0,0} 可能命中介绍行)→ 重置到第一个非介绍行
+  if (!cur || cur.row.isHelp) resetSelectionToFirst()
 })
 
 // 文本 / 模式变化 → 选中跳到第一行(模式切换时即便 text 相同也要重置,因为两套 sections 不同)
@@ -447,6 +465,102 @@ async function openFileRow(entry: QuickOpenEntry) {
   if (!ok) return
   workspace.setLastFile(entry.fullPath)
   close()
+}
+
+/**
+ * file 模式顶部前缀介绍行(VSCode `?` help 风格):介绍 @ / : / > 三种前缀的用途 + 快捷键,
+ * 选中即把对应前缀填入输入框并切模式(`parseQuickCommand` 自然分发)。isHelp 标记使其不抢默认选中。
+ */
+function buildHelpRows(): UnifiedRow[] {
+  // 图标(Terminal/AtSign/ListOrdered)即前缀视觉,文本不再重复写 > / @ / : 字符
+  return [
+    {
+      key: 'help-command',
+      primarySegments: [{ text: '命令模式', match: false }],
+      subtitle: '运行命令 · Ctrl+Shift+P',
+      icon: Terminal,
+      isHelp: true,
+      run: () => switchToPrefix('>'),
+    },
+    {
+      key: 'help-symbol',
+      primarySegments: [{ text: '标题跳转', match: false }],
+      subtitle: '跳转到当前文档标题',
+      icon: AtSign,
+      isHelp: true,
+      run: () => switchToPrefix('@'),
+    },
+    {
+      key: 'help-line',
+      primarySegments: [{ text: '行号跳转', match: false }],
+      subtitle: '跳转到行号',
+      icon: ListOrdered,
+      isHelp: true,
+      run: () => switchToPrefix(':'),
+    },
+  ]
+}
+
+function switchToPrefix(prefix: string) {
+  query.value = prefix
+  nextTick(() => {
+    inputRef.value?.focus()
+    const len = query.value.length
+    inputRef.value?.setSelectionRange(len, len)
+  })
+}
+
+/**
+ * file 模式「没找到 → 新建」行:query 非空、无任何模糊命中、有 activeRoot 且名称合法时,
+ * 返回「新建文件: <name>.md」行。Enter 走 createAndOpen。
+ *
+ * 不复用 file.new 命令 —— 它只开未命名临时 tab,不写盘也不接受文件名;此处的建盘半段
+ * 复用 FileTree 的 writeTextFile(''),打开半段与 openFileRow 完全一致(openPathInTab + setLastFile)。
+ */
+function buildCreateRow(): UnifiedRow | null {
+  const q = search.value.trim()
+  if (!q) return null
+  // 有命中(最近 / 其他)时不显示——只做"没找到"兜底,避免与模糊结果抢默认选中
+  if (recentFileRows.value.length || otherFileRows.value.length) return null
+  const root = workspace.activeRoot
+  if (!root) return null
+  // 用户可能已敲 .md(如 "foo.md"),剥掉再由 finalName 统一补,避免 "foo.md.md"
+  const stem = q.replace(/\.md$/i, '')
+  if (!stem) return null
+  const fullName = finalName(stem, { kind: 'newFile' })
+  if (validateName(fullName, null, null)) return null
+  return {
+    key: 'create',
+    primarySegments: [
+      { text: '新建文件: ', match: false },
+      { text: fullName, match: true },
+    ],
+    icon: FilePlusCorner,
+    run: () => createAndOpen(q),
+  }
+}
+
+async function createAndOpen(rawName: string) {
+  const root = workspace.activeRoot
+  if (!root) return
+  const name = rawName.trim()
+  if (!name) return
+  const stem = name.replace(/\.md$/i, '')
+  if (!stem) return
+  const fullName = finalName(stem, { kind: 'newFile' })
+  if (validateName(fullName, null, null)) return
+  try {
+    const targetPath = await join(root, fullName)
+    // exists 守门:已存在(大小写不敏感 FS / 竞态)直接打开,绝不覆写丢数据
+    if (!(await exists(targetPath))) await writeTextFile(targetPath, '')
+    const ok = await documentStore.openPathInTab(targetPath)
+    if (!ok) return
+    workspace.setLastFile(targetPath)
+    close()
+  }
+  catch (e) {
+    console.warn('[QuickCommand] 新建文件失败', e)
+  }
 }
 
 function activateSelected() {
