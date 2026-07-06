@@ -442,6 +442,16 @@ const isFullscreen = ref(false)
 // OS 级 always-on-top,窗口浮在所有普通窗口之上。文件菜单 toggle,命令面板也提供入口。
 // isAlwaysOnTop 是 UI 层镜像,与全屏一样不做持久化(运行时态,重启回到默认 false)。
 const isAlwaysOnTop = ref(false)
+
+// ========== 专注模式(F8) ==========
+// 编辑器级视觉模式:当前段落外内容降透明度,帮助聚焦当前段落。
+// 独立于全屏(可叠加),不持久化(运行时态,重启回到默认 false)。
+// 文件菜单 toggle + F8 快捷键 + 命令面板入口。
+const focusMode = ref(false)
+
+function toggleFocusMode() {
+  focusMode.value = !focusMode.value
+}
 // 查找替换的"用户意图" —— 上提到 App.vue 并 provide,两份 FindReplace(PM / CM6)
 // inject 共享。切模式时 PM 份卸载、CM6 份新挂,意图在这里存活 → query 不丢。
 // matches / currentIndex 不上提(模式相关,新挂载时重算)。
@@ -880,6 +890,15 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       run: () => toggleAlwaysOnTop(),
     }] : []),
     {
+      id: 'editor.focusMode',
+      title: focusMode.value ? '退出专注模式' : '专注模式',
+      subtitle: '当前段落外内容降透明度',
+      shortcut: 'F8',
+      group: 'app',
+      keywords: ['focus mode', '专注', 'focus'],
+      run: () => toggleFocusMode(),
+    },
+    {
       id: 'file.open',
       title: '打开文件',
       subtitle: '从磁盘选择一个 Markdown 文件',
@@ -1290,6 +1309,11 @@ onMounted(async () => {
       void toggleFullscreen()
       return
     }
+    if (e.key === 'F8') {
+      e.preventDefault()
+      toggleFocusMode()
+      return
+    }
     if (e.key === 'F12' && tauri) {
       e.preventDefault()
       void invoke('open_devtools').catch(() => { /* dev 环境无此 command,忽略 */ })
@@ -1621,6 +1645,7 @@ watch(editorRef, (v) => {
         :recent-entries="recentFilesStore.entries"
         :welcome-enabled="isDev"
         :always-on-top="isAlwaysOnTop"
+        :focus-mode="focusMode"
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
@@ -1635,6 +1660,7 @@ watch(editorRef, (v) => {
         @open-recent="openRecentFile"
         @open-welcome="welcomeVisible = true"
         @toggle-always-on-top="toggleAlwaysOnTop()"
+        @toggle-focus-mode="toggleFocusMode()"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
@@ -1704,6 +1730,7 @@ watch(editorRef, (v) => {
               :is-mac-code-block="store.isMacCodeBlock"
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
+              :focus-mode="focusMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
               @open-global-search="openGlobalSearchFromFind"
@@ -1715,6 +1742,7 @@ watch(editorRef, (v) => {
               :model-value="documentStore.content"
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
+              :focus-mode="focusMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
               @open-global-search="openGlobalSearchFromFind"

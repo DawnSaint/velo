@@ -40,6 +40,7 @@ import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { foldDecoration, foldKey, collectFoldableKeys } from './nodes/FoldDecoration'
+import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { hrEnterCommand } from './syntax/block/hr'
@@ -309,6 +310,7 @@ const basePlugins: Plugin[] = [
   tocDecoration,
   foldDecoration,
   findHighlight,
+  focusModePlugin,
 ]
 
 // 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
@@ -331,8 +333,11 @@ const props = withDefaults(defineProps<{
   modelValue: string
   /** 只读模式：禁用编辑器输入，用于示例文档等不允许直接修改的场景。 */
   readOnly?: boolean
+  /** 专注模式：当前段落外内容降透明度。 */
+  focusMode?: boolean
 }>(), {
   readOnly: false,
+  focusMode: false,
 })
 
 const emit = defineEmits<{
@@ -505,6 +510,17 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
 // 内部 view 为 null 自动 no-op,无需判 unmounted。
 watch(() => props.readOnly, (readOnly) => {
   setReadOnly(readOnly)
+})
+
+// 专注模式 toggle → 同步模块级镜像(切文件重建 state 时 init 读它)+ dispatch setMeta
+// 让当前 view 立即生效。首挂时模块级镜像已在 setup 顶层设过(props 初值),
+// state.init 读它拿到正确初值;本 watch 只管"用户后续改"。
+setFocusModeEnabled(props.focusMode)
+watch(() => props.focusMode, (enabled) => {
+  setFocusModeEnabled(enabled)
+  const view = getView()
+  if (!view || view.isDestroyed) return
+  view.dispatch(view.state.tr.setMeta(focusModeKey, { enabled }))
 })
 
 function focusEditor() {

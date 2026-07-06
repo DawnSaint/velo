@@ -12,6 +12,7 @@ function mountMenu(props: Partial<{
   recentEntries: RecentFileEntry[]
   welcomeEnabled: boolean
   alwaysOnTop: boolean
+  focusMode: boolean
 }> = {}) {
   return mount(FileMenuButton, {
     props: {
@@ -20,6 +21,7 @@ function mountMenu(props: Partial<{
       recentEntries: [],
       welcomeEnabled: false,
       alwaysOnTop: false,
+      focusMode: false,
       ...props,
     },
     global: {
@@ -54,7 +56,7 @@ describe('FileMenuButton', () => {
 
     await openMenu(wrapper)
 
-    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出', '保持窗口最前']) {
+    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出', '专注模式', '保持窗口最前']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true)
     }
     for (const shortcut of ['Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+Shift+E']) {
@@ -78,8 +80,9 @@ describe('FileMenuButton', () => {
 
     expect(wrapper.find('[aria-label="新窗口"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="新建文件"]').exists()).toBe(true)
-    // 非 Tauri 环境也不显示窗口最前 toggle
+    // 非 Tauri 环境不显示窗口最前 toggle,但专注模式仍可用
     expect(wrapper.find('[aria-label="保持窗口最前"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="专注模式"]').exists()).toBe(true)
   })
 
   it('导出中时禁用「导出」', async () => {
@@ -121,6 +124,27 @@ describe('FileMenuButton', () => {
 
     expect(wrapper.emitted('toggle-always-on-top')).toHaveLength(1)
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+  })
+
+  it('点击「专注模式」emit toggle-focus-mode 并关闭', async () => {
+    const wrapper = mountMenu({ focusMode: false })
+
+    await openMenu(wrapper)
+    await wrapper.get('[aria-label="专注模式"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-focus-mode')).toHaveLength(1)
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+  })
+
+  it('专注模式开启时菜单项显示勾选标记', async () => {
+    const wrapper = mountMenu({ focusMode: true })
+
+    await openMenu(wrapper)
+    const item = wrapper.get('[aria-label="专注模式"]')
+    // checked=true 时右侧显示 Check 图标(svg)代替 shortcut badge
+    expect(item.find('svg').exists()).toBe(true)
+    // 不再显示 F8 shortcut badge(checked 优先于 shortcut)
+    expect(item.text()).not.toContain('F8')
   })
 
   it('「最近文件」条目右侧带 ChevronRight 子菜单提示', async () => {

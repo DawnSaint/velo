@@ -26,7 +26,7 @@ import { File, ChevronRight, Check } from '@lucide/vue'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import type { RecentFileEntry } from '@/stores/persistence'
 
-type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top'
+type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top' | 'toggle-focus-mode'
 
 interface FileActionRow {
   key: string
@@ -50,6 +50,8 @@ const props = defineProps<{
   welcomeEnabled: boolean
   /** 窗口置顶态(toggle 项勾选指示) */
   alwaysOnTop: boolean
+  /** 专注模式态(toggle 项勾选指示) */
+  focusMode: boolean
 }>()
 
 const emit = defineEmits<{
@@ -63,6 +65,7 @@ const emit = defineEmits<{
   'open-recent': [path: string]
   'open-welcome': []
   'toggle-always-on-top': []
+  'toggle-focus-mode': []
 }>()
 
 const open = ref(false)
@@ -108,14 +111,15 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
         { key: 'export', label: props.exporting ? '导出中…' : '导出', shortcut: 'Ctrl+Shift+E', event: 'export', disabled: props.exporting },
       ],
     },
-    // 窗口级 toggle 项:勾选态由 props.alwaysOnTop 驱动,右侧显示 Check 代替 shortcut
-    ...(props.isTauri
-      ? [{
-          rows: [
-            { key: 'always-on-top', label: '保持窗口最前', shortcut: '', event: 'toggle-always-on-top' as FileActionEvent, checked: props.alwaysOnTop },
-          ],
-        }]
-      : []),
+    // 窗口级 toggle 项:勾选态由 props 驱动,右侧显示 Check 代替 shortcut
+    {
+      rows: [
+        { key: 'focus-mode', label: '专注模式', shortcut: 'F8', event: 'toggle-focus-mode', checked: props.focusMode },
+        ...(props.isTauri
+          ? [{ key: 'always-on-top', label: '保持窗口最前', shortcut: '', event: 'toggle-always-on-top' as FileActionEvent, checked: props.alwaysOnTop }]
+          : []),
+      ],
+    },
     ...(props.welcomeEnabled
       ? [{
           rows: [
@@ -213,6 +217,7 @@ function emitAction(row: FileActionRow) {
   else if (row.event === 'save-as') emit('save-as')
   else if (row.event === 'export') emit('export')
   else if (row.event === 'toggle-always-on-top') emit('toggle-always-on-top')
+  else if (row.event === 'toggle-focus-mode') emit('toggle-focus-mode')
   closeAll()
 }
 

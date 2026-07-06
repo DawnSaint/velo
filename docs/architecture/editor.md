@@ -53,6 +53,7 @@
 | tocDecoration | `[TOC]` 目录 Decoration.widget (嵌套标题列表 + 点击跳转) |
 | foldDecoration | 块级折叠(heading / list_item):toggle chevron + placeholder + fold 区段 display:none,stable key 持久化 |
 | findHighlight | 查找替换高亮 |
+| focusModePlugin | 专注模式:光标所在顶层块挂 `.velo-focus-active` class,CSS 层降其余块透明度 |
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册 |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
@@ -99,6 +100,8 @@
 - **块级折叠(v0.5.12 heading / list_item)**: 折叠 = 视觉层做的事,**不动 doc**——折叠点(heading/list_item 的 contentStart)写入 Plugin state 的 `Set<number>`,plugin `props.decorations` 在 fold 区段内每个 block 挂 `Decoration.node(p, p+nodeSize, { class: 'velo-folded' })`,SCSS `.velo-folded { display:none }` 接管隐。**markdownO 完全无感**(fold区段只是被 class 隐藏,toMarkdown 照常输出)。**plugin apply 阶段同步 module-level Set**(含 `foldedCodeBlockPosSet` + `foldedMermaidPosSet`):PM 渲染顺序是 reducer chain → `plugin.decorations(state)` → DOM → `view.update(view)`,`codeLineNumberPlugin.decorations` / `MermaidDecoration.buildDecorations` 必须在同一帧看到最新 set——`codeLineNumber` 的 gutter 是 `position:absolute` 浮在 `<pre>` 外,pre 被 `display:none` 时 gutter 会飞向 (0,0)或残留,只有 apply 阶段(早于 decorations 跑)清空才能让折/展开帧 gutter 跟着走。同理 mermaid 的 SVG widget 是 pre 的 side:-1 sibling,不继承 `display:none`,必须在 decorators 里显式 skip 创建(`isMermaidFolded(pos)`),否则 mermaid SVG 会孤零零浮在 fold 区段外。**折叠区段只挂完全在 range 内的 block**:`doc.nodesBetween(from,to)` 会访问跨 range 的 ancestor(折叠 list_item 内段落,nodesBetween 把外层的 bullet_list / list_item 也算进回调),一旦外层容器被挂 `velo-folded` → 整个 list 消失。改为自写 walk,只处理 `childStart >= from && childEnd <= to` 的 block。**toggle widget key 不含折叠状态**(只含 pos:stableKey),所以 collapsed↔expanded 切换时 PM 复用旧 button DOM,factory 不重跑、chevron 不旋转——placeholder 展开路径必须手 find `data-fold-key` 元素并 `setAttribute('data-fold-state')`,让 CSS transition 察觉到变化触发 0↔-90deg 旋转。`list_item` 折叠要求 childCount>1(首段之后有 block 子项),单条叶节点不加 toggle
 
 - **阅读模式(readOnly)禁用"展开源码"交互 + 隐藏编辑类按钮**: `view.editable=false` 只挡用户输入,不挡 `appendTransaction` / `handleClick` / NodeView 事件。"光标进入/点击 → 显示源码字符"的交互(mark 源码编辑 / 链接单击 / 图片按钮 / 行内与块级公式编辑态 / mermaid toggle)在每个触发点读 `view.editable` 守卫;编辑类按钮(code 语言切换 / mermaid delete+toggle / TOC delete / task checkbox)用 CSS `.ProseMirror[contenteditable="false"]` 隐藏或禁点击,走 contenteditable 属性动态生效(无需 rebuild decorations / NodeView)。**坑**:`markSourceEditPlugin.appendTransaction` 无 view 参数,用模块级 `editorView` 引用(plugin spec `view()` 设、`destroy` 清)读 editable。保留:链接 Ctrl/Cmd 跳转、`ensureMermaidSourceVisibleAt`(查找替换)、复制按钮、TOC item link、footnote backref(导航 / 非编辑类)。脚注无 source/display 切换(label 是 text content),不纳入
+
+- **专注模式 CSS 驱动 + plugin 只标记当前块**: `focusModePlugin` 开启时用 `Decoration.node` 给光标所在的**顶层块**(depth-1 祖先,blockquote 内段落高亮整个 blockquote)挂 `.velo-focus-active` class,降透明度由 CSS `.velo-editor.focus-mode .ProseMirror > *` → `opacity:.25` + `.velo-focus-active` → `opacity:1` 接管。plugin 不自己 dim 非活跃块(避免在每次光标移动时重建大量 Decoration),只管标记当前块一个 node decoration。容器 class(`.focus-mode`)由 `ProseMirrorEditor/index.vue` 的 prop 驱动,与 plugin 的 enabled state 经 `setMeta(focusModeKey)` 同步。源码模式(CM6)镜像同设计:`cmFocusModeField` StateField 跟踪当前段落(空行分隔),用两条 `Decoration.mark`(段前 + 段后)降透明度,O(1) decoration 量
 
 ---
 

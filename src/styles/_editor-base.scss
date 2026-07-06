@@ -74,3 +74,23 @@
     cursor: default;
   }
 }
+
+// 专注模式(focusMode → .velo-editor.focus-mode):
+// 当前段落(focusModePlugin 用 Decoration.node 挂 .velo-focus-active)保持全不透明,
+// 其余顶层块降透明度。CSS 层接管视觉,plugin 只管标记当前块 —— 与
+// codeLineNumberPlugin 同范式(setMeta 翻 enabled,decorations 读 state)。
+.velo-editor.focus-mode .ProseMirror > * {
+  opacity: 0.25;
+  transition: opacity 200ms ease;
+}
+.velo-editor.focus-mode .ProseMirror > .velo-focus-active {
+  opacity: 1;
+}
+
+// 源代码模式专注模式(focusMode → .velo-cm-source.focus-mode):
+// CM6 StateField(cmFocusModeField)用 Decoration.mark 给当前段落外的文本
+// 挂 .velo-cm-focus-dim,与 PM 侧同视觉。
+.velo-cm-source.focus-mode .velo-cm-focus-dim {
+  opacity: 0.25;
+  transition: opacity 200ms ease;
+}

@@ -18,6 +18,8 @@ const props = withDefaults(defineProps<{
   findOpen?: boolean
   /** 只读模式：禁用编辑器输入。 */
   readOnly?: boolean
+  /** 专注模式：当前段落外内容降透明度。 */
+  focusMode?: boolean
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '16px',
@@ -26,6 +28,7 @@ const props = withDefaults(defineProps<{
   darkMode: false,
   findOpen: false,
   readOnly: false,
+  focusMode: false,
 })
 
 const emit = defineEmits<{
@@ -107,6 +110,7 @@ defineExpose({ getEditorView })
         :class="{
           'mac-code-block': props.isMacCodeBlock,
           'dark': props.darkMode,
+          'focus-mode': props.focusMode,
         }"
         class="velo-editor h-full w-full max-w-[64vw]"
       >
@@ -119,6 +123,7 @@ defineExpose({ getEditorView })
           ref="innerRef"
           :model-value="modelValue"
           :read-only="readOnly"
+          :focus-mode="focusMode"
           @update:model-value="emit('update:modelValue', $event)"
           @cursor-position-change="emit('cursor-position-change', $event)"
         />

@@ -15,8 +15,8 @@
 import { ref, watch, onMounted, onBeforeUnmount, shallowRef } from 'vue'
 import { useDocumentStore } from '@/stores/document'
 import { useEditorStore } from '@/stores/editor'
-import { EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars } from '@codemirror/view'
-import { Compartment, EditorState, EditorSelection } from '@codemirror/state'
+import { EditorView, keymap, lineNumbers, drawSelection, highlightSpecialChars, Decoration, type DecorationSet } from '@codemirror/view'
+import { Compartment, EditorState, EditorSelection, StateEffect, StateField, type Range } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import {
   ensureTheme,
@@ -42,11 +42,14 @@ const props = withDefaults(defineProps<{
   findOpen?: boolean
   /** 只读模式：禁用编辑器输入。 */
   readOnly?: boolean
+  /** 专注模式：当前段落外内容降透明度。 */
+  focusMode?: boolean
 }>(), {
   modelValue: '',
   darkMode: false,
   findOpen: false,
   readOnly: false,
+  focusMode: false,
 })
 
 const emit = defineEmits<{
@@ -223,6 +226,78 @@ const forbidFileDropPaste = EditorView.domEventHandlers({
 const editableCompartment = new Compartment()
 
 // ============================================================
+//  专注模式 CM6 StateField —— 镜像 PM 侧 focusModePlugin
+//  开启时,光标所在"段落"(空行分隔的连续行块)保持全不透明,前后内容
+//  走 mark decoration 降透明度。enabled 由 setCmFocusMode effect 翻转,
+//  activeFrom/activeTo 随 selection / doc 变化重算。
+// ============================================================
+
+interface CmFocusModeValue {
+  enabled: boolean
+  activeFrom: number
+  activeTo: number
+}
+
+const setCmFocusMode = StateEffect.define<boolean>()
+
+/** 算光标所在段落(空行分隔)范围。 */
+function computeActiveParagraph(state: EditorState): { from: number, to: number } {
+  const doc = state.doc
+  const head = state.selection.main.head
+  const curLine = doc.lineAt(head)
+  let startLine = curLine.number
+  while (startLine > 1) {
+    if (doc.line(startLine - 1).text.trim() === '') break
+    startLine--
+  }
+  let endLine = curLine.number
+  while (endLine < doc.lines) {
+    if (doc.line(endLine + 1).text.trim() === '') break
+    endLine++
+  }
+  return { from: doc.line(startLine).from, to: doc.line(endLine).to }
+}
+
+const cmFocusModeField = StateField.define<CmFocusModeValue>({
+  create(state) {
+    const r = computeActiveParagraph(state)
+    return { enabled: false, activeFrom: r.from, activeTo: r.to }
+  },
+  update(value, tr) {
+    let enabled = value.enabled
+    for (const e of tr.effects) {
+      if (e.is(setCmFocusMode)) enabled = e.value
+    }
+    if (tr.docChanged || tr.selection) {
+      const r = computeActiveParagraph(tr.state)
+      return { enabled, activeFrom: r.from, activeTo: r.to }
+    }
+    if (enabled !== value.enabled) return { ...value, enabled }
+    return value
+  },
+  provide: (f) => EditorView.decorations.from(f, (val): DecorationSet => {
+    if (!val.enabled) return Decoration.none
+    const decos: Range<Decoration>[] = []
+    if (val.activeFrom > 0) {
+      decos.push(Decoration.mark({ class: 'velo-cm-focus-dim' }).range(0, val.activeFrom))
+    }
+    return Decoration.set(decos, true)
+  }),
+})
+
+// 第二段 mark(activeTo→docEnd) 需要 doc.length,provide 的 fn 只有 field value。
+// 用 EditorView.decorations.of 额外补一段 —— CM6 合并多个 decoration source。
+const cmFocusModeTailDeco = EditorView.decorations.of((view): DecorationSet => {
+  const val = view.state.field(cmFocusModeField, false)
+  if (!val?.enabled) return Decoration.none
+  const docLen = view.state.doc.length
+  if (val.activeTo >= docLen) return Decoration.none
+  return Decoration.set([
+    Decoration.mark({ class: 'velo-cm-focus-dim' }).range(val.activeTo, docLen),
+  ], true)
+})
+
+// ============================================================
 //  mount CM6
 // ============================================================
 function createView(): EditorView {
@@ -243,6 +318,9 @@ function createView(): EditorView {
       // CM6 后端 dispatch cmFindHighlightEffect 驱动)。必须装在 state 里,
       // 后端 setHighlight 才有 effect 接收方。
       cmFindHighlightField,
+      // 专注模式:光标所在段落外内容降透明度
+      cmFocusModeField,
+      cmFocusModeTailDeco,
       // 只读 facet:editable=false 时 CM6 内部拦截所有 doc-changing dispatch
       editableCompartment.of(EditorView.editable.of(!props.readOnly)),
       // docChanged → 回写 documentStore.content;doc/selection 变化 → 上报光标位置
@@ -353,6 +431,18 @@ watch(
 )
 
 // ============================================================
+//  专注模式切换 → dispatch setCmFocusMode effect
+// ============================================================
+watch(
+  () => props.focusMode,
+  (enabled) => {
+    const view = viewRef.value
+    if (!view) return
+    view.dispatch({ effects: setCmFocusMode.of(enabled) })
+  },
+)
+
+// ============================================================
 //  挂载 / 销毁
 // ============================================================
 onMounted(async () => {
@@ -361,6 +451,11 @@ onMounted(async () => {
   viewRef.value = view
   view.focus()
   emitCursorPosition(view)
+  // 首挂时若专注模式已开,dispatch effect 让 StateField 翻 enabled
+  // (create() 初值固定 false,watch 只管后续变化)
+  if (props.focusMode) {
+    view.dispatch({ effects: setCmFocusMode.of(true) })
+  }
   // markdown grammar 首次进源码模式才加载(BASELINE_LANGS 不含 markdown)。
   // 首帧 build 时 grammar 可能还没装 → getTokensSync 返回 null → 空 decoration;
   // resolve 后须 dispatch setShikiTheme effect 触发一次 rebuild 才出 token,否则
@@ -387,7 +482,7 @@ defineExpose({
 <template>
   <div
     class="velo-cm-source relative flex-1 bg-white dark:bg-[#1e1e1e]"
-    :class="{ 'dark': props.darkMode }">
+    :class="{ 'dark': props.darkMode, 'focus-mode': props.focusMode }">
 
     <div ref="hostRef" class="velo-cm-host" />
     <!-- 查找替换面板:与 ProseMirrorEditor 共用同一份 FindReplace.vue,
