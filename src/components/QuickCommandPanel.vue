@@ -35,6 +35,7 @@ import {
 } from '@/utils/commandPalette'
 import { parseQuickCommand } from '@/utils/quickCommand'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
+import { getLineText, getLineCount } from '@/utils/revealHeading'
 
 const props = defineProps<{
   open: boolean
@@ -45,6 +46,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [boolean]
   'reveal-heading': [{ level: number, displayText: string }]
+  // : 行号模式生命周期:进入 → 切源码;实时预览 N;Enter 确认(留源码);Esc/离开/关闭 → 取消(恢复)
+  'line-enter': []
+  'line-preview': [number | null]
+  'line-confirm': []
+  'line-cancel': []
 }>()
 
 const workspace = useWorkspaceStore()
@@ -281,6 +287,10 @@ const sections = computed<UnifiedSection[]>(() => {
       })),
     }]
   }
+  if (mode.value === 'line') {
+    // : 行号模式不走行视图:实时滚动 + 行高亮由 App.vue 直接驱动,面板只保留输入框
+    return []
+  }
   const out: UnifiedSection[] = []
   if (recentFileRows.value.length) {
     out.push({
@@ -335,6 +345,9 @@ const emptyMessage = computed(() => {
   return allEntries.value.length === 0 ? '工作区内没有 .md 文件' : '无匹配项'
 })
 
+// : 行号模式输入框右侧 hint(VSCode 风格,显示当前文档总行数)
+const lineHint = computed(() => `输入要跳转的行号(从 1 到 ${getLineCount(documentStore.content)})`)
+
 interface SelectionCursor {
   section: number
   index: number
@@ -366,8 +379,15 @@ watch(flatRows, () => {
 watch([mode, search], resetSelectionToFirst)
 
 watch(() => props.open, async (isOpen) => {
-  if (!isOpen) return
+  if (!isOpen) {
+    // 关闭时仍处 : 行号模式 → 视为取消(Enter/Esc 已先 emit 过的话,App.vue 端 lineSession 已清,no-op)
+    if (mode.value === 'line') emit('line-cancel')
+    return
+  }
   query.value = props.initialQuery ?? ''
+  // 以 ':' 打开时 mode watcher 尚未注册(或 mode 未变化),补发 line-enter;
+  // 运行时敲 ':' 由 mode watcher 发(两路径在 App.vue 端 lineSession 守卫去重)
+  if (mode.value === 'line') emit('line-enter')
   resetSelectionToFirst()
   if (mode.value === 'file') void refreshIndex()
   await nextTick()
@@ -376,9 +396,30 @@ watch(() => props.open, async (isOpen) => {
   inputRef.value?.setSelectionRange(len, len)
 }, { immediate: true })
 
-// 切进 file 模式时补一次索引(从 '>' 命令模式删前缀回到 file 的情况)
-watch(mode, (m) => {
+// 模式切换:file 补索引;: 行号生命周期(进入 → line-enter,离开 → line-cancel)
+watch(mode, (m, prev) => {
   if (m === 'file' && props.open) void refreshIndex()
+  if (m === 'line' && prev !== 'line' && props.open) emit('line-enter')
+  else if (m !== 'line' && prev === 'line' && props.open) emit('line-cancel')
+})
+
+// : 行号模式实时预览:解析行号,有效 + 存在 → emit N(滚动 + 高亮);否则 emit null(清高亮)
+watch(search, (s) => {
+  if (mode.value !== 'line' || !props.open) return
+  const n = parseInt(s.trim(), 10)
+  if (Number.isFinite(n) && n >= 1 && getLineText(documentStore.content, n).exists) {
+    emit('line-preview', n)
+  } else {
+    emit('line-preview', null)
+  }
+})
+
+// : 行号模式切源码时,CM6 挂载会抢焦(SourceModeEditor.onMounted view.focus());
+// 切换后把焦点拉回输入框 —— nextTick 跑在挂载之后,赢过抢焦。
+watch(() => documentStore.sourceMode, () => {
+  if (mode.value === 'line' && props.open) {
+    nextTick(() => inputRef.value?.focus())
+  }
 })
 
 function close() {
@@ -430,6 +471,12 @@ function selectRow(section: number, index: number) {
 }
 
 function onInputKeydown(e: KeyboardEvent) {
+  if (mode.value === 'line') {
+    // : 行号模式:Enter 确认(留源码 + 当前行)、Esc 取消(恢复);无行可选,Arrow 键不响应
+    if (e.key === 'Enter') { e.preventDefault(); emit('line-confirm'); close() }
+    else if (e.key === 'Escape') { e.preventDefault(); emit('line-cancel'); close() }
+    return
+  }
   if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1) }
   else if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1) }
   else if (e.key === 'Enter') {
@@ -470,29 +517,36 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div
-      class="velo-quick-command-overlay fixed inset-0 z-[120] flex justify-center bg-black/15 dark:bg-black/40"
+      class="fixed inset-0 z-[120] flex justify-center"
       style="pointer-events: auto;"
     >
       <div
         ref="panelRef"
-        class="velo-quick-command-panel mt-[8vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
+        class="velo-quick-command-panel mt-[4vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
+        :class="mode === 'line' ? 'self-start' : ''"
         data-quick-command-panel
         data-testid="quick-command-panel"
       >
-        <div class="shrink-0 border-b border-gray-200 px-3 py-2 dark:border-gray-800">
-          <input
-            ref="inputRef"
-            v-model="query"
-            type="text"
-            spellcheck="false"
-            :placeholder="mode === 'command' ? '输入命令...' : '按文件名模糊查找...'"
-            data-testid="quick-command-input"
-            class="w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
-            @keydown="onInputKeydown"
-          >
+        <div class="shrink-0 px-3 py-2" :class="mode === 'line' ? '' : 'border-b border-gray-200 dark:border-gray-800'">
+          <div class="flex items-center gap-2">
+            <input
+              ref="inputRef"
+              v-model="query"
+              type="text"
+              spellcheck="false"
+              :placeholder="mode === 'command' ? '输入命令...' : '按文件名模糊查找...'"
+              data-testid="quick-command-input"
+              class="min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
+              @keydown="onInputKeydown"
+            >
+            <span v-if="mode === 'line'" data-testid="quick-command-line-hint" class="shrink-0 whitespace-nowrap text-[10px] text-gray-400">
+              {{ lineHint }}
+            </span>
+          </div>
         </div>
 
         <div
+          v-if="mode !== 'line'"
           ref="listRef"
           class="min-h-0 flex-1 overflow-y-auto py-1"
         >

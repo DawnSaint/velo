@@ -174,4 +174,70 @@ describe('QuickCommandPanel', () => {
 
     expect(wrapper.text()).toContain('当前文档没有标题')
   })
+
+  it(': 进入行号模式 emit line-enter', async () => {
+    useDocumentStore().content = '第一行\n第二行\n第三行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+
+    expect(wrapper.emitted('line-enter')).toBeTruthy()
+  })
+
+  it(': 输入有效行号 emit line-preview: N', async () => {
+    useDocumentStore().content = '第一行\n第二行\n第三行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').setValue(':3')
+    await nextTick()
+
+    expect(wrapper.emitted('line-preview')?.at(-1)).toEqual([3])
+  })
+
+  it(': 无效 / 越界行号 emit line-preview: null', async () => {
+    useDocumentStore().content = '第一行\n第二行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').setValue(':abc')
+    await nextTick()
+    expect(wrapper.emitted('line-preview')?.at(-1)).toEqual([null])
+
+    await wrapper.find('[data-testid="quick-command-input"]').setValue(':99')
+    await nextTick()
+    expect(wrapper.emitted('line-preview')?.at(-1)).toEqual([null])
+  })
+
+  it(': Enter emit line-confirm 并关闭', async () => {
+    useDocumentStore().content = '第一行\n第二行\n第三行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+    await wrapper.find('[data-testid="quick-command-input"]').setValue(':3')
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').trigger('keydown', { key: 'Enter' })
+
+    expect(wrapper.emitted('line-confirm')).toBeTruthy()
+    expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false])
+  })
+
+  it(': Esc emit line-cancel 并关闭', async () => {
+    useDocumentStore().content = '第一行\n第二行\n第三行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+
+    await wrapper.find('[data-testid="quick-command-input"]').trigger('keydown', { key: 'Escape' })
+
+    expect(wrapper.emitted('line-cancel')).toBeTruthy()
+    expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false])
+  })
+
+  it(': hint 显示文档总行数 + 列表隐藏(无行视图)', async () => {
+    useDocumentStore().content = '第一行\n第二行\n第三行'
+    wrapper = mountPanel({ initialQuery: ':' })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="quick-command-line-hint"]').text()).toContain('从 1 到 3')
+    expect(wrapper.find('[data-testid="quick-command-row-line"]').exists()).toBe(false)
+  })
 })

@@ -31,6 +31,7 @@ import {
 import FindReplace from '@/components/ProseMirrorEditor/findreplace/FindReplace.vue'
 import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
+import { cmLineHighlightField, cmLineHighlightDeco } from '@/components/ProseMirrorEditor/findreplace/cmLineHighlight'
 import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { saveImageAsset } from '@/services/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
@@ -354,6 +355,9 @@ function createView(): EditorView {
       // CM6 后端 dispatch cmFindHighlightEffect 驱动)。必须装在 state 里,
       // 后端 setHighlight 才有 effect 接收方。
       cmFindHighlightField,
+      // : 行号模式行高亮(App.vue dispatch cmLineHighlightEffect 驱动)
+      cmLineHighlightField,
+      cmLineHighlightDeco,
       // 专注模式:光标所在段落外内容降透明度
       cmFocusModeField,
       cmFocusModeTailDeco,

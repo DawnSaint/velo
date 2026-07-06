@@ -412,6 +412,12 @@ html.dark .velo-lang-custom-suggest {
     padding-left: 0.75em;
   }
 
+  // : 行号模式跳行预览的高亮行(金色行底 + 左侧条,与 velo-find-match 同族;深浅主题都可见)
+  .cm-line.velo-cm-line-jump {
+    background-color: rgba(255, 215, 0, 0.18);
+    box-shadow: inset 2px 0 0 rgba(255, 215, 0, 0.85);
+  }
+
   // 文本居中收窄(对齐 WYSIWYG 的 max-w-[64vw] 居中列),且行号 gutter 紧贴
   // 文本列左侧。.cm-scroller 是 flex 行,gutter + content 是其两个 flex 子项:
   // gutter 的 margin-left:auto 吃掉左侧空隙、content 的 margin-right:auto 吃掉
