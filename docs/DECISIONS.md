@@ -182,3 +182,13 @@
 - **Context**: 开发反复撞到 PM 原生复杂度（atom + 内嵌 contentEditable 的 selection 不进 atom、`NodeView` 隔离与异步渲染 stale-check、`text*` inline 节点的 `textBetween` 塌缩、跨模式光标 LCS 对齐）。评估 `Tiptap` / `Lexical` / `EditorJS` 能否消除这些痛点。
 - **Decision**: 留在 PM。`Tiptap` 是 PM 之上的薄包装层，5 类痛点只消化 1 类（schema 写法），且"约定优于配置"会反过来藏住其余 4 类；`Lexical` 是不同文档模型，迁移等价于重写且 Vue 集成弱于 React；`EditorJS` 是块编辑器范式，与"源码可读 WYSIWYG"目标错位。
 - **Consequences**: 继续在 PM 上投入 in-house 抽象层而非换框架；`NodeView` 踩坑经验沉淀为团队资产，不随框架漂移；保留 markdown 双向管线 + 源码模式独立栈的完整控制权；后续协作编辑等强需求出现时再局部评估框架补充（非基础替换）。
+
+---
+
+## v0.6.0 — 编辑器多标签 + 文件菜单合并
+
+### ADR-20260706-001: `documentStore` 从单例改为 `documents: Map<id, DocState>` 多实例化
+
+- **Context**: Chrome 风格"单窗口多 .md 标签"需要同时打开 N 份文档，每份独立 undo / 滚动 / 光标 / dirty / lastSavedContent。A 单例 ref + 切换丢状态；B `documents: Map<id, DocState>` 多实例化（per-doc echo / autosave / view lifecycle）；C 历史栈（forward/back）只能串行浏览，并排多文件不达标。0.5.6 ADR-004 选多窗口方案时曾因"B 单窗口多标签范围远超需求"暂搁，0.6.0 重新打开。
+- **Decision**: 选 B。`documentStore` 改为 `documents: Map<id, DocState>` + `activeId`，文件路径 / 内容 / lastSavedContent / lastSelfEmitted / 各种 dirty 标志全部下沉到 DocState。`currentFilePath` / `content` 等顶层 ref 改成从 activeId 取值的 getter 镜像，保外部 API 形状稳定。
+- **Consequences**: 外部 component 仍按"当前文档"语义访问，顶层 getter 屏蔽多实例切换；per-doc 哨兵 / autosave / view lifecycle 实现细节沉淀到对应 architecture 模块；为后续"每窗口独立 documentStore"（与 0.5.6 ADR-004 多窗口叠加）铺路；新 API（`openPathInTab` / `openPathInNewTab` / `switchTab` / `closeTab`）取代单文档时代的"开 / 关文件"。
