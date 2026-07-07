@@ -17,7 +17,7 @@
 
 import { Plugin } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
-import { saveImageAsset } from '@/services/imageStorage'
+import { saveImageAsset } from '@/utils/imageStorage'
 import { useDocumentStore } from '@/stores/document'
 import { handleTreePathDrop, pickImageFile } from './treeDrop'
 

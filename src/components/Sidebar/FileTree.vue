@@ -26,7 +26,7 @@ import {
 } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { confirm as nativeConfirm, message as nativeMessage } from '@/tauri/dialog'
-import { revealItemInDir } from '@/tauri/opener'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { tauriOnly } from '@/tauri/fs'
 import { newAppWindow } from '@/tauri/window'
 import { useWorkspaceStore } from '@/stores/workspace'

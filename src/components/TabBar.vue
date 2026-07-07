@@ -4,7 +4,8 @@ import { X, Plus } from '@lucide/vue'
 import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { writeClipboardText } from '@/utils/clipboard'
-import { revealItemInDir } from '@/tauri/opener'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { message } from '@/tauri/dialog'
 import { relativePathWithinRoot } from '@/utils/statusPath'
 import { basename } from '@/components/Sidebar/treeUtils'
 import TabContextMenu from './TabContextMenu.vue'
@@ -207,7 +208,6 @@ async function copyToClipboardWithToast(text: string, what: string) {
   const ok = await writeClipboardText(text)
   if (!ok) {
     // 写不进剪贴板时给个原生 message(没 toast 系统);静默吞则用户以为复制了
-    const { message } = await import('@tauri-apps/plugin-dialog')
     await message(`复制${what}失败,请检查剪贴板权限`, { title: '复制失败', kind: 'error' })
   }
   closeContextMenu()
@@ -245,7 +245,6 @@ async function onRevealInExplorer() {
     await revealItemInDir(p)
   }
   catch {
-    const { message } = await import('@tauri-apps/plugin-dialog')
     await message('打开文件管理器失败', { title: '操作失败', kind: 'error' })
   }
 }

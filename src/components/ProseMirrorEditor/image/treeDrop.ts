@@ -17,7 +17,7 @@
 
 import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { saveImageAssetFromPath, type SaveImageAssetResult } from '@/services/imageStorage'
+import { saveImageAssetFromPath, type SaveImageAssetResult } from '@/utils/imageStorage'
 import { isImageExt } from '@/utils/imagePath'
 import { isMarkdownPath } from '@/utils/markdownPath'
 

@@ -33,7 +33,7 @@ import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/back
 import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
 import { cmLineHighlightField, cmLineHighlightDeco } from '@/components/ProseMirrorEditor/findreplace/cmLineHighlight'
 import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl } from '@/components/ProseMirrorEditor/image/treeDrop'
-import { saveImageAsset } from '@/services/imageStorage'
+import { saveImageAsset } from '@/utils/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
 
 const props = withDefaults(defineProps<{

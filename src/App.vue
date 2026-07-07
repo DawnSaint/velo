@@ -9,6 +9,17 @@ import type { SidebarTab } from '@/stores/persistence'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useFoldStore } from '@/stores/folding'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
+import {
+  getHighlighter,
+  ensureTheme,
+  ensureMarkdownGrammar,
+  BASELINE_LANGS,
+  DEFAULT_LIGHT_THEME,
+  DEFAULT_DARK_THEME,
+} from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+import { extractLangsFromDoc } from '@/components/ProseMirrorEditor/editor/markdownIO'
+import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
+import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
@@ -35,7 +46,7 @@ import {
   type ReplacePlan,
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
-import { useResizeSplitter } from '@/composables/useResizeSplitter'
+import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
 import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
 import veloLogo from '@/assets/Velo.png'
@@ -98,12 +109,6 @@ void initSettings()
   .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
-    const { getHighlighter, ensureTheme, ensureMarkdownGrammar, BASELINE_LANGS, DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } = await import(
-      '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
-    )
-    const { extractLangsFromDoc } = await import(
-      '@/components/ProseMirrorEditor/editor/markdownIO'
-    )
     const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
     const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
     // 预扫 doc 用到的 lang + 5 项 BASELINE 兜底(去重)→ createHighlighter
@@ -1666,19 +1671,13 @@ onMounted(async () => {
   // 已经是用户值;plugin view 工厂 attach 后从 store 读 → getHighlighter(
   // light, dark) 一次性装对。**这里 watch 不开 immediate** —— 首次由 view
   // 工厂的 getHighlighter 触发,本 watch 只管"用户后续改"。
-  const { ensureTheme: ensureShikiTheme } = await import(
-    '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
-  )
-  const { codeHighlightKey } = await import(
-    '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
-  )
   watch(
     () => [store.codeLightTheme, store.codeDarkTheme] as const,
     async ([light, dark]) => {
       const view = editorRef.value?.getEditorView()
       if (!view || view.isDestroyed) return
-      const hl = await ensureShikiTheme(light)
-      await ensureShikiTheme(dark)
+      const hl = await ensureTheme(light)
+      await ensureTheme(dark)
       if (view.isDestroyed) return
       view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
         highlighter: hl,
@@ -1694,9 +1693,6 @@ onMounted(async () => {
   // 不开 immediate:plugin state.init 已从 store 同步读初值(见
   // CodeLineNumberWidget.ts 的 makeInitialState),首挂时开关状态已就位。
   // 本 watch 只管"用户后续改"。
-  const { lineNumbersKey } = await import(
-    '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
-  )
   watch(
     () => store.showCodeLineNumbers,
     (enabled) => {
