@@ -44,6 +44,7 @@ import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/fo
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
+import { codeBlockLangSuggestPlugin } from './plugins/codeBlockLangSuggest'
 import { hrEnterCommand } from './syntax/block/hr'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
@@ -243,6 +244,9 @@ const imageInlineViewPlugin = new Plugin({
 // ============================================================
 
 const basePlugins: Plugin[] = [
+  // ``` 语言建议下拉:必须在 keymap 之前,handleKeyDown 需在 Enter 链
+  // (codeBlockEnterCommand) 之前拦截上下键导航和高亮条目的 Enter 提交。
+  codeBlockLangSuggestPlugin,
   // 自定义 Backspace / Delete:
   //   1. codeBlockBackspaceCommand:在 code_block 首位按 Backspace —— 有内容时
   //      吞掉事件(不允许影响外面的行),空代码块转回 paragraph。必须排在

@@ -25,7 +25,7 @@ import { mermaidDecoKey } from '../../nodes/MermaidDecoration'
 
 const CODE_BLOCK_LINE_PATTERN = /^```[ \t]*([^\s`]*)[ \t]*$/
 
-function convertParagraphToCodeBlock(
+export function convertParagraphToCodeBlock(
   tr: Transaction,
   schema: Schema,
   blockStart: number,
