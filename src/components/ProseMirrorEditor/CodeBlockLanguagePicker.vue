@@ -67,11 +67,11 @@ function updatePosition() {
   }
 }
 
-// 工具条 widget 联动:浮层打开时给对应的 widget 加 .velo-lang-picker-open,
-// CSS 让按钮常驻显示(否则鼠标移开 hover 区按钮立刻 opacity 0)。
+// header widget 联动:浮层打开时给对应的 widget 加 .velo-lang-picker-open
+// (header 始终可见,此 class 目前无 CSS 效果,保留以备将来需要)。
 // anchor(trigger 按钮)是 widget 的子节点,closest 一层就能拿到。
 function markWidgetOpen(on: boolean) {
-  const w = anchor.value?.closest('.velo-code-toolbar-widget') as HTMLElement | null
+  const w = anchor.value?.closest('.velo-code-header-widget') as HTMLElement | null
   if (!w) return
   w.classList.toggle('velo-lang-picker-open', on)
 }

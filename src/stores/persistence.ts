@@ -34,7 +34,6 @@ export interface PersistedSettings {
     fontSize: string
     primaryColor: string
     fontFamily: string
-    isMacCodeBlock: boolean
     darkMode: boolean
     codeLightTheme?: string
     codeDarkTheme?: string

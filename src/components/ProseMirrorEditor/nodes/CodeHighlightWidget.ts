@@ -1,13 +1,13 @@
-// 代码块高亮 —— inline decoration(高亮) + widget(工具条)。
+// 代码块高亮 —— inline decoration(高亮) + widget(header 标题栏)。
 //
 // 为什么不走 NodeView:
 //   NodeView 的 outer dom 改 innerHTML 会被 ProseMirror DOMObserver 当外部
 //   突变,触发 view.updateState → NodeView 重建闪烁(详见 mermaid 同样教训)。
 //
 // 走 ProseMirror 标准做法:
-//   1. 工具条:Decoration.widget(pos, toDOM, { side: -1, key })
-//      prosemirror-view v1.41 的 d.ts 没 export WidgetType 类(运行时
-//      是有的,只是类型层面),这里直接传 (view, getPos) => DOMNode 函数。
+//   1. header:Decoration.widget(pos, toDOM, { side: -1, key })
+//      渲染在 `<pre>` 之前(兄弟节点),正常文档流 block 元素,视觉与 pre
+//      连为一体(共享 border / bg,header 上圆角 + pre 下圆角)。
 //   2. 高亮:codeToTokens 拿 ThemedToken[][],逐 token 转
 //      Decoration.inline(from, to, { style: 'color: var(--shiki-xxx)' })。
 //   3. plugin.state 缓存 highlighter 实例 + 当前 light/dark 主题名;
@@ -26,9 +26,15 @@
 // apply → buildDecorations 重新跑。这条路径是 *设置* 触发的,跟 darkMode
 // toggle 的纯 CSS 路径正交。
 //
-// widget key 必须含 lang + 文本 hash —— lang 变化时 ProseMirror 会复用
-// 同 key 的 widget DOM 导致按钮文字不更新;docChange 时 inline decoration
-// 已经走 state 自动 rebuild,但 widget 走的是 toDOM 缓存,所以 key 也得跟。
+// **code_block 折叠**:header 内置折叠 chevron,click → dispatch
+// setMeta(foldKey, { toggle: contentStart })。折叠状态由 FoldDecoration
+// 的 collapsedSet 跟踪;buildDecorations 读 foldKey.getState 判断是否折叠,
+// 折叠态写入 widget key → PM 销毁旧 widget 创建新 widget(chevron 方向 +
+// data-fold-state 正确)。pre 的 display:none 由 FoldDecoration 的
+// Decoration.node({ class: 'velo-folded' }) 接管。
+//
+// widget key 必须含 lang + 文本 hash + 折叠状态 —— lang 变化 / 文本变化 /
+// 折叠切换时 ProseMirror 会复用同 key 的 widget DOM 导致内容不更新。
 
 import { Plugin, PluginKey } from 'prosemirror-state'
 import type { EditorState, Transaction } from 'prosemirror-state'
@@ -49,6 +55,7 @@ import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
 import { checkSvg, chevronDownSvg, copySvg } from '@/components/icons/widgetIcons'
 import { langIconSvg } from './langIcons'
+import { foldKey, isCodeBlockFolded } from './FoldDecoration'
 
 // ============================================================
 //  Plugin state
@@ -85,115 +92,51 @@ function makeInitialState(): CodeHighlightState {
 export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight')
 
 // ============================================================
-//  Toolbar widget factory —— prosemirror-view 接受 (view, getPos) => DOMNode
+//  Header widget factory —— prosemirror-view 接受 (view, getPos) => DOMNode
 // ============================================================
 
-/** 工具条 toDOM 工厂。widget key 由 spec.key 控制,toDOM 不需要做对比。
+/** header toDOM 工厂。widget key 由 spec.key 控制,toDOM 不需要做对比。
  *  - pos:code_block 节点 pos(本 widget 在 pos 之前,side: -1)
  *  - lang:当前语言
  *  - getCode:同步拿 code_block 文本(切 lang 时变 → widget key 变)
- *  - getPreEl:从 view 拿 pos 处 code_block 的 DOM `<pre>` 元素,
- *    用于 widget 绝对定位浮在 pre 内部右上角。
- *    prosemirror widget 永远在 pre 之**外**(side: -1 是 pre 前一个兄弟),
- *    不能嵌进 pre DOM;走 absolute + JS 同步位置浮进去。
+ *  - isFolded:当前折叠状态(chevron 方向 + data-fold-state)
+ *  - toggleFold:click chevron 时调,dispatch setMeta(foldKey, { toggle })
+ *
+ * header 是正常文档流 block 元素(非 absolute),视觉与 pre 连为一体:
+ * header 上圆角 + pre 下圆角,共享 border / bg。折叠时 pre 被
+ * FoldDecoration 的 velo-folded class 隐藏,header 保留显示(含行数摘要)。
  */
-function makeToolbarDom(
+function makeHeaderDom(
   pos: number,
   lang: string,
   getCode: () => string,
-  getPreEl: () => HTMLElement | null,
+  isFolded: boolean,
+  toggleFold: () => void,
 ): HTMLElement {
   const wrap = document.createElement('div')
-  wrap.className = 'velo-code-toolbar-widget text-gray-400'
+  wrap.className = 'velo-code-header-widget'
   wrap.contentEditable = 'false'
   wrap.setAttribute('data-pos', String(pos))
   wrap.setAttribute('data-lang', lang)
-  // widget 自身 absolute 定位(由 syncPosition 同步 top/right 到 pre 内部右上角)
-  wrap.style.position = 'absolute'
-  wrap.style.zIndex = '2'
+  wrap.setAttribute('data-fold-state', isFolded ? 'collapsed' : 'expanded')
 
-  // 同步位置:把 widget 浮到 pre 内部右上角(preRect + offsetParent 换算)
-  function syncPosition() {
-    const preEl = getPreEl()
-    if (!preEl) return
-    const op = wrap.offsetParent as HTMLElement | null
-    if (!op) return
-    const preRect = preEl.getBoundingClientRect()
-    const opRect = op.getBoundingClientRect()
-    // top:pre 顶边 + 6px 留白(在 pre padding 区内)
-    const topInOp = (preRect.top - opRect.top) + op.scrollTop + 6
-    const rightInOp = (opRect.right - preRect.right) + op.scrollLeft + 8
-    wrap.style.top = `${topInOp}px`
-    wrap.style.right = `${rightInOp}px`
-  }
-
-  // rAF 节流:scroll / resize / RO 在同一帧多次触发 → 只算一次。
-  // 没有节流时高速滚动每像素都跑一次 getBoundingClientRect×2 + inline 写,
-  // 浏览器 paint 前排队阻塞,看起来"工具条黏手"。
-  let rafId = 0
-  function scheduleSync() {
-    if (rafId) return
-    rafId = requestAnimationFrame(() => {
-      rafId = 0
-      syncPosition()
-    })
-  }
-
-  // mount 后等一帧同步(等 PM 完成 DOM 挂载)
-  requestAnimationFrame(() => syncPosition())
-  // 监听 window resize / scroll(同步 panel 整体视口位置)
-  window.addEventListener('resize', scheduleSync)
-  window.addEventListener('scroll', scheduleSync, true)
-  // 监听 pre 自身 + pre.offsetParent(PM 编辑区容器)的 resize。
-  // 仅监听 window.resize/scatch 命中不了"设置/大纲面板挤压 PM 编辑区"
-  // 这类内部 layout 变化 —— 大纲开合的瞬间 PM 容器宽度变了,但窗口没
-  // resize、window 没 scroll,工具条 widget 的 inline style 还是旧的,
-  // 看起来"漂到其他地方"。把 offsetParent 也接进 RO,容器一缩工具条跟着压。
-  //
-  // **必须在 RAF 之后再拿 offsetParent**:makeToolbarDom 同步执行时 wrap
-  // 还没挂到 DOM,offsetParent 是 null;RAF 后 PM 把 widget 挂好,offsetParent
-  // 才是真实定位祖先(可能是 .velo-editor / 最近的transformed 容器,看 flex 链)。
-  //
-  // **scroll listener 同样挂到 offsetParent 上**:index.vue 里编辑器外层
-  // 有 `overflow-auto` 滚动容器,容器滚动事件不会冒泡到 window —— 挂在
-  // window 上只靠 capture 兜底,事件延迟 + 1 帧;直接挂 offsetParent 命中
-  // 更直接。
-  let ro: ResizeObserver | null = null
-  let scrollParent: HTMLElement | null = null
-  requestAnimationFrame(() => {
-    if (typeof ResizeObserver === 'undefined') return
-    ro = new ResizeObserver(scheduleSync)
-    const pre = getPreEl()
-    if (pre) ro.observe(pre)
-    const op = wrap.offsetParent as HTMLElement | null
-    if (op && op !== pre) {
-      ro.observe(op)
-      // 滚动容器通常是 offsetParent 的某个祖先(可能不止一层),递归往上找
-      // 第一个 overflow-y: auto/scroll 的祖先,挂 scroll listener 直接命中
-      let sp: HTMLElement | null = op.parentElement
-      while (sp && sp !== document.body) {
-        const cs = getComputedStyle(sp)
-        if (cs.overflowY === 'auto' || cs.overflowY === 'scroll'
-          || cs.overflow === 'auto' || cs.overflow === 'scroll') {
-          scrollParent = sp
-          sp.addEventListener('scroll', scheduleSync, { passive: true })
-          break
-        }
-        sp = sp.parentElement
-      }
-    }
+  // 折叠 chevron —— 始终用 chevron-down,CSS rotate(-90deg) 实现折叠态
+  const foldBtn = document.createElement('button')
+  foldBtn.type = 'button'
+  foldBtn.className = 'velo-code-fold-btn'
+  foldBtn.title = isFolded ? '展开' : '折叠'
+  foldBtn.contentEditable = 'false'
+  foldBtn.innerHTML = chevronDownSvg(14)
+  foldBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
   })
-  // widget 销毁时清监听(用 MutationObserver 跟 widget 自身脱离)
-  const mo = new MutationObserver(() => {
-    if (!wrap.isConnected) {
-      window.removeEventListener('resize', scheduleSync)
-      window.removeEventListener('scroll', scheduleSync, true)
-      scrollParent?.removeEventListener('scroll', scheduleSync)
-      ro?.disconnect()
-      mo.disconnect()
-    }
+  foldBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    toggleFold()
   })
-  mo.observe(document.body, { childList: true, subtree: true })
+  wrap.appendChild(foldBtn)
 
   // 语言按钮(下拉箭头 + lang 名)
   const langBtn = document.createElement('button')
@@ -217,6 +160,13 @@ function makeToolbarDom(
     }))
   })
   wrap.appendChild(langBtn)
+
+  // 折叠态行数摘要(展开态 CSS 隐藏)
+  const lineCount = getCode().split('\n').length
+  const infoSpan = document.createElement('span')
+  infoSpan.className = 'velo-code-fold-info'
+  infoSpan.textContent = `${lineCount} 行`
+  wrap.appendChild(infoSpan)
 
   // 复制按钮 —— widget 内部直接 await,避免跨组件 async 时序问题
   const copyBtn = document.createElement('button')
@@ -373,37 +323,43 @@ function buildDecorations(
   darkTheme: string,
 ): DecorationSet {
   const decos: Decoration[] = []
+  // 读 fold 状态:判断 code_block 是否折叠(chevron 方向 + widget key)
+  const foldState = foldKey.getState(state)
   state.doc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'code_block') return
     const lang = (node.attrs.language as string) || ''
-    // 注意:mermaid 与普通 code_block 共用本 toolbar(语言选择 + 复制)。
+    // 注意:mermaid 与普通 code_block 共用本 header(语言选择 + 复制)。
     // MermaidDecoration 的 widget 锚在 pos + nodeSize + side: 1(pre 之后),
-    // 本 toolbar 锚在 pos + side: -1(pre 之前)→ 两个 widget DOM 位置不冲突,
+    // 本 header 锚在 pos + side: -1(pre 之前)→ 两个 widget DOM 位置不冲突,
     // mermaid 走 MermaidDecoration 的额外 SVG / 切换源码 / 删除按钮 / 关闭按钮。
-    // 工具条 widget —— key 含 lang + 文本 hash,lang 变 / 文本变都强制重挂,
-    // 否则 ProseMirror 复用旧 DOM 按钮文字不更新。
+    // header widget —— key 含 lang + 文本 hash + 折叠状态,lang 变 / 文本变 /
+    // 折叠切换都强制重挂,否则 ProseMirror 复用旧 DOM 内容不更新。
     const blockStart = pos + 1
     const blockEnd = pos + node.nodeSize - 1
     const code = blockStart < blockEnd
       ? state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
       : ''
-    const key = `code-toolbar:${pos}:${lang}:${hashCode(code)}`
+    const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
+    // 祖先(heading / list_item)折叠把本 code_block 隐了:pre 已被
+    // velo-folded display:none,但 header widget 是 pre 的 side:-1 sibling
+    // (不在 pre 内部,velo-folded 影响不到),不跳过会孤零零浮在 fold 区段
+    // 外 → heading 折叠"没收起代码块"。跳过整个 header(连同 token inline
+    // decoration 一起,pre 既隐高亮也无意义),展开帧 isCodeBlockFolded 翻
+    // false → header 重建 → 完整回归(同 CodeLineNumberWidget / MermaidDecoration
+    // 范式)。**自身折叠(isFolded)不跳过**:header 是自身折叠的摘要
+    // (行数 + 语言 + 复制),必须保留。
+    if (!isFolded && isCodeBlockFolded(pos)) return
+    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}`
     decos.push(
-      Decoration.widget(pos, (view, getPos) => {
-        // prosemirror-view 工厂签名:(view, getPos) => DOMNode
-        // getPreEl:从 view 拿 pos 处 code_block 的 DOM <pre>
-        return makeToolbarDom(
+      Decoration.widget(pos, (view, _getPos) => {
+        return makeHeaderDom(
           pos,
           lang,
           () => code,
+          isFolded,
           () => {
-            if (!view || view.isDestroyed) return null
-            try {
-              const node = view.nodeDOM(getPos?.() ?? pos) as HTMLElement | null
-              // nodeDOM 可能是 <pre> 本身(就是它),也可能包一层;pre 标签即 nodeDOM
-              return node?.tagName === 'PRE' ? node : node?.querySelector('pre') ?? null
-            }
-            catch { return null }
+            if (!view || view.isDestroyed) return
+            view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
           },
         )
       }, {
@@ -634,4 +590,4 @@ export function setCodeBlockLanguage(
 //  Helpers(测试可见)
 // ============================================================
 
-export { buildDecorations, makeToolbarDom, writeToClipboard }
+export { buildDecorations, makeHeaderDom, writeToClipboard }

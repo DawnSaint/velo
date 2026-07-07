@@ -304,8 +304,7 @@ async function initSettings() {
     if (typeof e.fontSize === 'string') store.fontSize = e.fontSize
     if (typeof e.primaryColor === 'string') store.primaryColor = e.primaryColor
     if (typeof e.fontFamily === 'string') store.fontFamily = e.fontFamily
-    if (typeof e.isMacCodeBlock === 'boolean') store.isMacCodeBlock = e.isMacCodeBlock
-    if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
+  if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
     if (typeof e.codeLightTheme === 'string') store.codeLightTheme = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
@@ -328,7 +327,6 @@ function snapshotSettings(): PersistedSettings {
       fontSize: store.fontSize,
       primaryColor: store.primaryColor,
       fontFamily: store.fontFamily,
-      isMacCodeBlock: store.isMacCodeBlock,
       darkMode: store.darkMode,
       codeLightTheme: store.codeLightTheme,
       codeDarkTheme: store.codeDarkTheme,
@@ -1617,7 +1615,6 @@ onMounted(async () => {
       () => store.fontSize,
       () => store.primaryColor,
       () => store.fontFamily,
-      () => store.isMacCodeBlock,
       () => store.darkMode,
       () => store.codeLightTheme,
       () => store.codeDarkTheme,
@@ -1887,7 +1884,6 @@ watch(editorRef, (v) => {
               :font-family="store.fontFamily"
               :font-size="store.fontSize"
               :primary-color="store.primaryColor"
-              :is-mac-code-block="store.isMacCodeBlock"
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
               :focus-mode="focusMode"

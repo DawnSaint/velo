@@ -62,7 +62,7 @@
 .velo-editor pre {
   position: relative;
   margin: 1em 0;
-  padding: 1em;
+  padding: 0.25em 1em;
   border-radius: 8px;
   overflow-x: auto;
   background-color: var(--shiki-light-bg);
@@ -72,7 +72,7 @@
   & code {
     background: none;
     padding: 0;
-    font-size: 1em;
+    font-size: 0.9em;
     color: inherit;
     tab-size: 4;
     -moz-tab-size: 4;
@@ -110,29 +110,36 @@ html.dark .velo-editor code {
 }
 
 // ============================================================
-//  工具条 widget(JS 绝对定位浮在 pre 内部右上角,hover 时才显示)
+//  Header 标题栏 widget(正常文档流 block,渲染在 pre 之前,视觉连为一体)
+//
+// 设计要点:
+// - header 始终可见(非 hover-gated),含折叠 chevron + 语言按钮 + 复制按钮
+// - 与 pre 视觉合体:header 上圆角 + pre 下圆角,共享 border / bg
+// - 折叠态:pre 被 velo-folded class 隐藏,header 保留显示(含行数摘要)
+// - dark 翻面:三路命中,跟 .velo-editor pre 的 dark 命中规则同形
 // ============================================================
 
-// ProseMirror widget `side: -1` 永远渲染在 `<pre>` **之前**(兄弟节点,
-// 不能嵌 pre 内部)。要走 absolute + JS 同步 top/right 浮进 pre 内部
-// 右上角:由 CodeHighlightWidget.ts 的 syncPosition() 算 pre 位置写
-// inline style。本 SCSS 只管按钮视觉,定位交给 JS。
-
-.velo-code-toolbar-widget {
+.velo-code-header-widget {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 2px 6px;
+  gap: 4px;
+  padding: 0.5em;
+  margin: 1em 0 0 0;
   pointer-events: auto;
+  background-color: var(--shiki-light-bg);
+  border: 1px solid var(--shiki-light-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+
+  > .velo-code-fold-btn,
   > .velo-code-lang-btn,
   > .velo-code-copy-btn {
     display: inline-flex;
     align-items: center;
     gap: .2em;
     height: 1.6em;
-    padding: 0 .4em;
-    font-size: .9em;
+    padding: 0 .3em;
+    font-size: .85em;
     line-height: 1;
     border: none;
     background: transparent;
@@ -140,50 +147,76 @@ html.dark .velo-editor code {
     cursor: pointer;
     user-select: none;
     vertical-align: middle;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.12s ease, visibility 0.12s ease;
-    &:hover { background: rgba(0, 0, 0, 0.06); }
+    color: inherit;
+    opacity: 0.5;
+    transition: opacity 0.12s ease, background 0.12s ease;
+    &:hover {
+      opacity: 1;
+      background: rgba(0, 0, 0, 0.06);
+    }
+  }
+
+  // fold chevron:CSS rotate 实现折叠态动画
+  > .velo-code-fold-btn {
+    padding: 0;
+    width: 1.6em;
+    justify-content: center;
+    svg { transition: transform 0.15s ease; }
+  }
+  &[data-fold-state="collapsed"] > .velo-code-fold-btn svg {
+    transform: rotate(-90deg);
+  }
+
+  // copy button:推到右侧
+  > .velo-code-copy-btn {
+    margin-left: auto;
+  }
+
+  // 折叠态行数摘要:展开时隐藏
+  > .velo-code-fold-info {
+    font-size: .8em;
+    opacity: 0.4;
+    margin-left: 4px;
+    user-select: none;
+  }
+  &[data-fold-state="expanded"] > .velo-code-fold-info {
+    display: none;
   }
 }
-html.dark .velo-code-toolbar-widget > .velo-code-lang-btn:hover,
-html.dark .velo-code-toolbar-widget > .velo-code-copy-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+
+// dark 翻面
+html.dark .velo-code-header-widget,
+.dark .velo-code-header-widget,
+.velo-editor.dark .velo-code-header-widget {
+  background-color: var(--shiki-dark-bg);
+  border-color: var(--shiki-dark-border);
+  > .velo-code-fold-btn:hover,
+  > .velo-code-lang-btn:hover,
+  > .velo-code-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
 }
 
-// hover 命中三种情况:① widget 自身 ② 紧跟 widget 的 pre(:has 反查,
-// 浏览器支持 Chromium 105+ / Safari 15.4+ / Firefox 121+,Tauri 2 WebView2
-// / WKWebView 都支持) ③ 按钮键盘 focus
-.velo-code-toolbar-widget:hover > .velo-code-lang-btn,
-.velo-code-toolbar-widget:hover > .velo-code-copy-btn {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+// pre 跟在 header 之后:去掉上圆角 + 上边框(与 header 共享),去掉上 margin
+.velo-code-header-widget + pre {
+  margin-top: 0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
 }
 
-.velo-code-toolbar-widget > .velo-code-lang-btn:focus,
-.velo-code-toolbar-widget > .velo-code-copy-btn:focus,
-.velo-code-toolbar-widget > .velo-code-lang-btn:focus-visible,
-.velo-code-toolbar-widget > .velo-code-copy-btn:focus-visible {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+// 折叠态:pre 隐藏,header 变独立卡片(全圆角 + 下边框 + 下 margin)
+.velo-editor pre.velo-folded {
+  display: none;
 }
-
-.velo-code-toolbar-widget:has(+ pre:hover) > .velo-code-lang-btn,
-.velo-code-toolbar-widget:has(+ pre:hover) > .velo-code-copy-btn {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+.velo-code-header-widget:has(+ pre.velo-folded) {
+  border-radius: 8px;
+  border-bottom: 1px solid var(--shiki-light-border);
+  margin-bottom: 1em;
 }
-
-// 让按钮在浮层存活期内常驻显示(否则鼠标移到浮层选项里就脱 hover 区了)。
-.velo-code-toolbar-widget.velo-lang-picker-open > .velo-code-lang-btn,
-.velo-code-toolbar-widget.velo-lang-picker-open > .velo-code-copy-btn {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+html.dark .velo-code-header-widget:has(+ pre.velo-folded),
+.dark .velo-code-header-widget:has(+ pre.velo-folded),
+.velo-editor.dark .velo-code-header-widget:has(+ pre.velo-folded) {
+  border-bottom-color: var(--shiki-dark-border);
 }
 
 .velo-copy-flash-ok {
@@ -253,29 +286,6 @@ html.dark .velo-code-gutter-widget,
 // 覆盖默认 1em。
 .velo-editor pre[data-velo-gutter="true"] {
   padding-left: 3em;
-}
-
-// ============================================================
-//  Mac 代码块:红黄绿圆点装饰(在外层 .mac-code-block.velo-editor 上)
-// ============================================================
-
-.mac-code-block.velo-editor pre {
-  position: relative;
-  padding-top: 2.4em;
-}
-
-.mac-code-block.velo-editor pre::before {
-  content: '';
-  position: absolute;
-  top: 0.9em;
-  left: 1em;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ed6c60;
-  box-shadow:
-    20px 0 0 #f7c151,
-    40px 0 0 #64c856;
 }
 
 // ============================================================

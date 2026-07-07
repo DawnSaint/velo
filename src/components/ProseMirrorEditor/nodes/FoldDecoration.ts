@@ -1,6 +1,11 @@
-// 块级折叠(heading / list_item)—— v0.5.12。
-// 暂不折叠 code_block(mermaid / 普通代码块折叠的视觉放在 `<pre>` 左上角
-// 工具条附近,跟 toolbar 几何冲突难以分清,先 ship 两类再回头补)。
+// 块级折叠(heading / list_item / code_block)—— v0.5.12。
+//
+// code_block 折叠:header 标题栏内置 chevron,click → dispatch
+// setMeta(foldKey, { toggle: contentStart })。折叠态 pre 挂 velo-folded
+// class → display:none,header 保留显示(含行数摘要)。toggle 由
+// CodeHighlightWidget 的 header widget 提供(不需要 FoldDecoration 再挂
+// toggle widget),本 plugin 只负责 Decoration.node 隐藏 pre + stable key
+// 持久化 + cross-plugin set 同步(lineNumber / mermaid 跳过)。
 //
 // 范式:对齐 mermaid / toc / codeLineNumber 走 ProseMirror 标准
 // `Decoration.widget` + `Decoration.node`,不走 NodeView(同 mermaid 教训:
@@ -11,15 +16,17 @@
 //     `display:none`。markdown round-trip 完全不受影响,折叠态不污染
 //     `toMarkdown()` 输出。
 //  2. **plugin state 跟踪 `Set<number>`**(折叠点绝对 pos,即 heading /
-//     list_item 的 contentStart)。`tr.mapping.map(pos, -1)` 跟住 doc 变化
-//     (mermaid 同坑,见 MermaidDecoration.ts apply 注释)。
+//     list_item / code_block 的 contentStart)。`tr.mapping.map(pos, -1)` 跟住
+//     doc 变化(mermaid 同坑,见 MermaidDecoration.ts apply 注释)。
 //  3. **稳定 key 持久化**。doc pos 关闭文件后失效,store 存的是由 block
 //     类型 + 内容指纹派生的字符串(见 makeStableKey)。换文件 / 重开 →
 //     EditorInner 把 store keys → 当前位置,walk doc 翻译回 Set<number>。
-//  4. **toggle 按钮永远渲染**。collapsed / expanded 共用同一个 widget,
-//     切到 expanded 时变 chevron-down,collapsed 时变 chevron-right。
+//  4. **toggle 按钮永远渲染**(heading / list_item)。collapsed / expanded 共用
+//     同一个 widget,切到 expanded 时变 chevron-down,collapsed 时变
+//     chevron-right。code_block 的 toggle 在 CodeHighlightWidget 的 header 内。
 //  5. **placeholder widget** 极简,只是灰色 `...`,挂 fold 区段首部
-//     side:-1 上一可见 block 末尾,点击展开。
+//     side:-1 上一可见 block 末尾,点击展开(仅 heading / list_item 用;
+//     code_block 不需要 placeholder,header 即摘要)。
 //  6. **list_item 仅在含 block 子项时折叠**(`content: 'paragraph block*'`,
 //     折叠 = 首段之后的 block 子项)。无子项 → 不挂 toggle,避免对纯叶子
 //     列表项加冗余按钮。
@@ -29,24 +36,6 @@
 //  8. **auto-expand on search hit**:`ensureFoldExpandedAt(view, pos)` 与
 //     mermaid 的 `ensureMermaidSourceVisibleAt` 同形态,findreplace 命中
 //     隐藏区段时幂等展开。
-//
-// 维护者注意点:
-//  - `selectable: false` 不阻挡 PM 键盘 navigation。ArrowRight / End 等
-//    仍可把光标送进 display:none 区段。这是有意接受:1) 视觉不可见,
-//    用户极少主动进 hidden 文本;2) 修起来要把 fold 区段包成 NodeView
-//    自管 keydown,范围大,v1 不做。
-//  - `tr.mapping.map(pos, -1)` 用 `-1` association:insertText 折叠点
-//    之前时,pos 不会跑到新文本末尾(mermaid 同坑,见 MermaidDecoration
-//    .ts apply 内注释)。
-//  - 折叠区段 `selectable: false` 仅阻止 node 选中 + 鼠标拖蓝;PM 的
-//    `node-resize` / `gapCursor` 仍可落在区段边界,这是合规的(用户
-//    在折叠区段前/后正常操作)。不影响 gapCursor 进出(已实测)。
-//  - 折叠 widget **不** dispatch setMeta 触发自身 rebuild:widget destroy
-//    → create 是 PM 在每次 docChanged / 自身 apply 后自动 rebuild,
-//    不需要 plugin 主动推;mermaid 同范式。
-//  - `state.init` 不读 foldStore。EditorInner.vue 挂载完(以及 file 切换)
-//    主动 dispatch `setMeta(foldKey, { initCollapsed: number[] })` 灌入
-//    当前文件的折叠 pos(由 store 里的 stable key 经 doc walk 翻译得)。
 //
 // 维护者注意点:
 //  - `selectable: false` 不阻挡 PM 键盘 navigation。ArrowRight / End 等
@@ -140,9 +129,17 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
   const nextCode = new Set<number>()
   const nextMermaid = new Set<number>()
   for (const triggerContentStart of collapsedSet) {
-    // triggerContentStart 是 heading/list_item 的 contentStart,需要
-    // 反推 trigger 节点本身(查 doc 找 contentStart 之前的 block)。
     const triggerNode = doc.resolve(triggerContentStart).parent
+    // code_block 折叠自身:直接加入 foldedCodeBlockPosSet
+    if (triggerNode.type.name === 'code_block') {
+      const blockPos = triggerContentStart - 1
+      if (blockPos < 0 || blockPos >= doc.content.size) continue
+      nextCode.add(blockPos)
+      const lang = (triggerNode.attrs.language as string) || ''
+      if (lang === 'mermaid') nextMermaid.add(blockPos)
+      continue
+    }
+    // heading / list_item:查找 fold 范围内的 code_block
     if (
       triggerNode.type.name !== 'heading'
       && triggerNode.type.name !== 'list_item'
@@ -172,6 +169,7 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
 
 const KEY_PREFIX_HEADING = 'h'
 const KEY_PREFIX_LI = 'li'
+const KEY_PREFIX_CB = 'cb'
 const KEY_TEXT_LIMIT = 80
 
 /**
@@ -190,6 +188,9 @@ export function makeStableKey(node: PMNode): string {
       // list_item 首子是 paragraph(必填,见 schema),折叠 key 跟首段挂钩
       return node.firstChild?.textContent || ''
     }
+    if (node.type.name === 'code_block') {
+      return node.textContent || ''
+    }
     return ''
   })().trim().replace(/\s+/g, ' ').slice(0, KEY_TEXT_LIMIT)
 
@@ -198,6 +199,10 @@ export function makeStableKey(node: PMNode): string {
   }
   if (node.type.name === 'list_item') {
     return `${KEY_PREFIX_LI}:${text}`
+  }
+  if (node.type.name === 'code_block') {
+    const lang = (node.attrs.language as string) || ''
+    return `${KEY_PREFIX_CB}:${lang}:${text}`
   }
   return ''
 }
@@ -213,6 +218,7 @@ function makeStableKeyForPos(doc: PMNode, pos: number): string {
   if (
     node.type.name === 'heading'
     || node.type.name === 'list_item'
+    || node.type.name === 'code_block'
   ) {
     return makeStableKey(node)
   }
@@ -466,6 +472,10 @@ function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
       addListItemDecos(state, node, pos, deco, decos)
       return
     }
+    if (node.type.name === 'code_block') {
+      addCodeBlockDecos(node, pos, deco, decos)
+      return
+    }
   })
 
   return DecorationSet.create(state.doc, decos)
@@ -542,6 +552,27 @@ function addListItemDecos(
   const range = computeFoldRange(node, contentStart, state.doc)
   if (!range) return
   applyFoldRange(state, range, contentStart, stableKey, decos)
+}
+
+function addCodeBlockDecos(
+  node: PMNode,
+  pos: number,
+  deco: FoldState,
+  decos: Decoration[],
+) {
+  // code_block 折叠:折叠自身(pre 整块 display:none)。
+  // toggle 由 CodeHighlightWidget 的 header 提供(chevron),不需要本 plugin 挂。
+  // 不需要 placeholder(header 即摘要)。
+  if (node.content.size === 0) return
+  const contentStart = pos + 1
+  const isCollapsed = deco.collapsedSet.has(contentStart)
+  if (!isCollapsed) return
+  // 折叠态:pre 整块挂 velo-folded → display:none
+  decos.push(
+    Decoration.node(pos, pos + node.nodeSize, { class: 'velo-folded' }, {
+      selectable: false,
+    }),
+  )
 }
 
 function applyFoldRange(
@@ -640,6 +671,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
           if (
             node.type.name === 'heading'
             || node.type.name === 'list_item'
+            || node.type.name === 'code_block'
           ) {
             mapped.add(m)
           }
@@ -748,6 +780,7 @@ export function ensureFoldExpandedAt(view: EditorView, pos: number): boolean {
     if (
       node.type.name !== 'heading'
       && node.type.name !== 'list_item'
+      && node.type.name !== 'code_block'
     ) {
       continue
     }
@@ -780,6 +813,11 @@ export function collectFoldableKeys(
     if (node.type.name === 'list_item' && node.childCount > 1 && node.firstChild) {
       const key = makeStableKey(node)
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'list_item' })
+      return
+    }
+    if (node.type.name === 'code_block' && node.content.size > 0) {
+      const key = makeStableKey(node)
+      if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'code_block' })
       return
     }
   })

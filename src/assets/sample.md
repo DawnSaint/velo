@@ -530,8 +530,7 @@ editor:
   fontSize: 15px
   primaryColor: "#0F4C81"
   fontFamily: "Inter, system-ui, sans-serif"
-  isMacCodeBlock: false
-  darkMode: false
+darkMode: false
 document:
   autoSaveEnabled: true
   autoSaveOnBlur: true

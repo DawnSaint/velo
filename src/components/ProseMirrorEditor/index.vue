@@ -12,7 +12,6 @@ const props = withDefaults(defineProps<{
   fontFamily?: string
   fontSize?: string
   primaryColor?: string
-  isMacCodeBlock?: boolean
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
   findOpen?: boolean
@@ -26,7 +25,6 @@ const props = withDefaults(defineProps<{
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '16px',
   primaryColor: '#0F4C81',
-  isMacCodeBlock: true,
   darkMode: false,
   findOpen: false,
   readOnly: false,
@@ -111,7 +109,6 @@ defineExpose({ getEditorView })
     <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">
       <div
         :class="{
-          'mac-code-block': props.isMacCodeBlock,
           'dark': props.darkMode,
           'focus-mode': props.focusMode,
         }"

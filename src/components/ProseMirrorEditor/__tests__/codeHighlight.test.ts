@@ -34,6 +34,7 @@ import {
   __resetHighlighterForTest,
 } from '../nodes/CodeBlockLangs'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
+import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
 
 // ============================================================
 //  工具:起一个最小可工作的 EditorView,只挂 codeHighlightPlugin
@@ -105,7 +106,7 @@ describe('codeHighlightPlugin', () => {
   it('1. 装载 code_block → 工具条 widget 出现', async () => {
     const view = makeView('```js\nconst x = 1\n```')
     await flushHighlighter()
-    const wrap = view.dom.querySelector('.velo-code-toolbar-widget')
+    const wrap = view.dom.querySelector('.velo-code-header-widget')
     expect(wrap).not.toBeNull()
     view.destroy()
   })
@@ -134,7 +135,7 @@ describe('codeHighlightPlugin', () => {
   it('3. language 空 → 没有 inline decoration,只有工具条', async () => {
     const view = makeView('```\nplain text\n```')
     await flushHighlighter()
-    const wrap = view.dom.querySelector('.velo-code-toolbar-widget')
+    const wrap = view.dom.querySelector('.velo-code-header-widget')
     expect(wrap).not.toBeNull()
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBe(0)
@@ -147,7 +148,7 @@ describe('codeHighlightPlugin', () => {
   it('4. language 未注册 → 工具条出现,无 inline decoration', async () => {
     const view = makeView('```xyz-not-registered\nfoo\n```')
     await flushHighlighter()
-    const wrap = view.dom.querySelector('.velo-code-toolbar-widget')
+    const wrap = view.dom.querySelector('.velo-code-header-widget')
     expect(wrap).not.toBeNull()
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBe(0)
@@ -184,7 +185,7 @@ describe('codeHighlightPlugin', () => {
     // 在 block 末尾之前插入一个字符,触发 docChanged
     view.dispatch(view.state.tr.insertText('\n', blockEnd - 1))
     // 不应抛错,工具条 widget 还在
-    const wrap = view.dom.querySelector('.velo-code-toolbar-widget')
+    const wrap = view.dom.querySelector('.velo-code-header-widget')
     expect(wrap).not.toBeNull()
     view.destroy()
   })
@@ -251,7 +252,7 @@ describe('codeHighlightPlugin', () => {
     const md = '```mermaid\ngraph TD\n  A --> B\n```'
     const view = makeView(md)
     await flushHighlighter()
-    const allToolbars = view.dom.querySelectorAll('.velo-code-toolbar-widget')
+    const allToolbars = view.dom.querySelectorAll('.velo-code-header-widget')
     expect(allToolbars.length).toBe(1)
     view.destroy()
   })
@@ -288,26 +289,27 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('11. toolbar 按钮默认 hidden(opacity 0 + visibility hidden)', async () => {
-    // hover 才显示的 v0.4.3 fast-follow:验证默认态下工具条按钮确实隐藏。
-    // jsdom 不解析外部 stylesheet,getComputedStyle().opacity 永远是 '1';
-    // 走 inline style 验证:SCSS `.velo-code-toolbar-widget > .velo-code-*-btn`
-    // 设置 opacity 0,但 jsdom 不读 stylesheet → 改测 widget 元素 inline 没
-    // 显式设 visibility:hidden,只有 hover/focus 才显(读 stylesheet 才能验证)。
-    // 这里改测更稳的"按钮结构正确" + "未触发 hover"两点。
+  it('11. header 始终可见(非 hover-gated),含 fold + lang + copy 三按钮', async () => {
+    // header 取代旧 hover-gated toolbar,始终可见。
+    // 验证按钮结构正确:fold chevron + lang + fold-info + copy。
     const view = makeView('```js\nx\n```')
     await flushHighlighter()
-    const toolbar = view.dom.querySelector('.velo-code-toolbar-widget') as HTMLElement | null
+    const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
+    const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
     const langBtn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
     const copyBtn = view.dom.querySelector('.velo-code-copy-btn') as HTMLElement | null
-    expect(toolbar).not.toBeNull()
+    expect(header).not.toBeNull()
+    expect(foldBtn).not.toBeNull()
     expect(langBtn).not.toBeNull()
     expect(copyBtn).not.toBeNull()
-    // toolbar 内只有 lang + copy 两个按钮,没有别的(防止 hover 态加了其他子节点)
-    expect(toolbar!.children.length).toBe(2)
+    // header 内有 fold + lang + fold-info + copy 四个子节点
+    expect(header!.children.length).toBe(4)
     // 按钮有 type='button'(防止 ProseMirror 把它当 form submit 截走)
+    expect((foldBtn as HTMLButtonElement).type).toBe('button')
     expect((langBtn as HTMLButtonElement).type).toBe('button')
     expect((copyBtn as HTMLButtonElement).type).toBe('button')
+    // data-fold-state 默认 expanded
+    expect(header!.getAttribute('data-fold-state')).toBe('expanded')
     view.destroy()
   })
 
@@ -459,6 +461,82 @@ describe('codeHighlight helpers', () => {
     const ok = setCodeBlockLanguage(view.state, pos, 'python', (tr) => view.dispatch(tr))
     expect(ok).toBe(true)
     expect(view.state.doc.nodeAt(pos)?.attrs.language).toBe('python')
+    view.destroy()
+  })
+
+  it('code_block 折叠:click fold btn → dispatch setMeta(foldKey) → pre 挂 velo-folded', async () => {
+    // code_block 折叠由 CodeHighlightWidget 的 header chevron 触发,
+    // dispatch setMeta(foldKey, { toggle: contentStart }) → FoldDecoration apply
+    // → buildDecorations 给 pre 挂 Decoration.node({ class: 'velo-folded' })。
+    // 需要同时挂 codeHighlightPlugin + foldDecoration 才能测完整链路。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown('```js\nconst x = 1\nconst y = 2\n```', schema),
+      plugins: [codeHighlightPlugin, foldDecoration],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+    // 初始:pre 没有 velo-folded class
+    const pre = view.dom.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.classList.contains('velo-folded')).toBe(false)
+    // 初始:header data-fold-state = expanded
+    const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
+    expect(header?.getAttribute('data-fold-state')).toBe('expanded')
+    // click fold btn
+    const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
+    expect(foldBtn).not.toBeNull()
+    foldBtn!.click()
+    // 折叠后:pre 挂 velo-folded class
+    const preAfter = view.dom.querySelector('pre')
+    expect(preAfter?.classList.contains('velo-folded')).toBe(true)
+    // header data-fold-state = collapsed(新 widget 被创建)
+    const headerAfter = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
+    expect(headerAfter?.getAttribute('data-fold-state')).toBe('collapsed')
+    // 再次 click → 展开
+    const foldBtnAfter = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
+    foldBtnAfter!.click()
+    const preFinal = view.dom.querySelector('pre')
+    expect(preFinal?.classList.contains('velo-folded')).toBe(false)
+    view.destroy()
+  })
+
+  it('heading 折叠含 code_block → header widget 跟着隐(不孤悬 fold 区段外)', async () => {
+    // 回归:heading 折叠时,pre 被 velo-folded 隐,但 header widget 是
+    // pre 的 side:-1 sibling(不在 pre 内部,velo-folded 影响不到),不跳过
+    // 会孤悬在 fold 区段外 → "heading 折叠没收起代码块"。修法:祖先折叠
+    // (!isFolded && isCodeBlockFolded(pos)) 时跳过整个 header(连同 token
+    // inline decoration),展开帧 isCodeBlockFolded 翻 false → header 重建。
+    // 自身折叠(isFolded)不跳过 —— header 是自身折叠的摘要,必须保留
+    // (由上一条测例锁死)。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown('# title\n\n```js\nconst x = 1\n```\n', schema),
+      plugins: [codeHighlightPlugin, foldDecoration],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+    // 初始:header 存在
+    expect(view.dom.querySelector('.velo-code-header-widget')).not.toBeNull()
+    // 找 heading contentStart
+    let hStart = -1
+    view.state.doc.descendants((n, p) => {
+      if (hStart < 0 && n.type.name === 'heading') { hStart = p + 1; return false }
+      return true
+    })
+    expect(hStart).toBeGreaterThanOrEqual(0)
+    // 折叠 heading → header 跟着隐
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hStart }))
+    expect(view.dom.querySelector('.velo-code-header-widget')).toBeNull()
+    // pre 仍被 velo-folded 隐(顺便锁死既有行为)
+    expect(view.dom.querySelector('pre')?.classList.contains('velo-folded')).toBe(true)
+    // 展开 heading → header 回归
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hStart }))
+    expect(view.dom.querySelector('.velo-code-header-widget')).not.toBeNull()
     view.destroy()
   })
 })

@@ -182,15 +182,6 @@ function endDrag(e: PointerEvent) {
       <!-- 开关项:左 label 右 switch,激活色走主题色 -->
       <div class="space-y-3 pt-1">
         <label class="setting-row h-8 cursor-pointer">
-          <span class="setting-label">Mac 代码块圆点</span>
-          <input
-            v-model="store.isMacCodeBlock"
-            type="checkbox"
-            role="switch"
-            class="velo-switch"
-          >
-        </label>
-        <label class="setting-row h-8 cursor-pointer">
           <span class="setting-label">代码块行号</span>
           <input
             v-model="store.showCodeLineNumbers"
