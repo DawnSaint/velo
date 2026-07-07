@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
 > **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
 
+## [Unreleased]
+
+### Added
+- **代码块语言选择器增加语言图标**：语言浮层列表每项左侧、工具栏语言按钮均显示单色语言图标（本地维护的 SVG 图标集，主要是 Nonicons 开源图标库 + 单色定制图标，currentColor 单色风格与 `@lucide/vue` 等其他 UI 图标协调，离线打包无运行时网络请求，所有 32 种语言均有独立图标，无 fallback）；图标以构建期静态 map 形式打包，不引入图标运行时库。
+
 ## [0.6.2] — 2026-07-06
 
 ### Added

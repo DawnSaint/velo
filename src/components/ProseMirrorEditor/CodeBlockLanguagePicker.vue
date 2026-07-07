@@ -13,6 +13,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import type { EditorView } from 'prosemirror-view'
 import { LANG_OPTIONS } from './nodes/CodeBlockLangs'
 import { setCodeBlockLanguage } from './nodes/CodeHighlightWidget'
+import { langIconSvg } from './nodes/langIcons'
 
 const props = defineProps<{
   /** 当前 EditorView(从父级 innerRef.getEditorView() 拿)。 */
@@ -220,7 +221,7 @@ onBeforeUnmount(() => {
             :class="{ active: l === currentLang }"
             @click="pickLang(l)"
           >
-            {{ l || 'plain text' }}
+            <span class="velo-lang-icon" v-html="langIconSvg(l, 14)"></span>{{ l || 'plain text' }}
           </li>
           <li
             v-if="filter.trim() && !hasExactMatch"

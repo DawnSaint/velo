@@ -48,6 +48,7 @@ import {
 import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
 import { checkSvg, chevronDownSvg, copySvg } from '@/components/icons/widgetIcons'
+import { langIconSvg } from './langIcons'
 
 // ============================================================
 //  Plugin state
@@ -200,8 +201,8 @@ function makeToolbarDom(
   langBtn.className = 'velo-code-lang-btn'
   langBtn.title = '选择语言'
   langBtn.contentEditable = 'false'
-  // 按钮内容:lang 名 + chevron 图标
-  langBtn.innerHTML = `${escapeHtml(lang || 'plain text')}${chevronDownSvg(10)}`
+  // 按钮内容:语言图标(品牌色由 devicon body 自带 fill,兜底项走单色) + lang 名 + chevron
+  langBtn.innerHTML = `${langIconSvg(lang, 12)}<span class="velo-lang-label">${escapeHtml(lang || 'plain text')}</span>${chevronDownSvg(10)}`
   langBtn.addEventListener('mousedown', (e) => {
     e.preventDefault()
     e.stopPropagation()

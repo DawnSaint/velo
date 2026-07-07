@@ -335,6 +335,19 @@ html.dark .velo-lang-filter {
   cursor: pointer;
   user-select: none;
   color: inherit;
+  display: flex;
+  align-items: center;
+}
+
+// 语言图标:品牌色由 body 自带 fill,容器仅负责尺寸 / 对齐 / 右侧留白
+.velo-lang-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-right: 6px;
+  line-height: 0;
+  vertical-align: -3px;
 }
 
 .velo-lang-list li:hover {
