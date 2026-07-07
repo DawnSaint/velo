@@ -288,9 +288,17 @@ export const useDocumentStore = defineStore('document', () => {
       }
       // 我们自己写的（save/saveAs 写完会推进 lastSavedContent）
       if (disk === d.lastSavedContent) return
+      // loadContentInto 把磁盘内容过一遍 markdownIO 取 canonical 形式,
+      // lastSavedContent / content 都是 canonical;但磁盘原文可能与 canonical
+      // 不字节相等(多余空行 / whitespace normalize 等)。save() 写的是 canonical,
+      // 写完后 disk === lastSavedContent 走上面的 fast path;但**未保存**时
+      // disk 是 raw 原文,lastSavedContent 是 canonical → 直接比会误判"外部修改"。
+      // 解法:exact match 失败后,把 disk 也 canonicalize 再比一次。
+      const canonicalDisk = toMarkdown(fromMarkdown(disk, pmSchema))
+      if (canonicalDisk === d.lastSavedContent) return
       // 磁盘内容已经和编辑器里的一致（比如别人重写为同样内容）：只刷新基线
-      if (disk === d.content) {
-        d.lastSavedContent = disk
+      if (canonicalDisk === d.content) {
+        d.lastSavedContent = canonicalDisk
         return
       }
       // 真的有外部修改

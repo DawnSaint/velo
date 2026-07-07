@@ -139,9 +139,9 @@ describe('codeHighlightPlugin', () => {
     expect(wrap).not.toBeNull()
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBe(0)
-    // 工具条按钮显示 'plain text'
-    const langBtn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
-    expect(langBtn?.textContent).toBe('plain text')
+    // 语言输入框值为空(plain text)
+    const langInput = view.dom.querySelector('.velo-code-lang-input') as HTMLInputElement | null
+    expect(langInput?.value).toBe('')
     view.destroy()
   })
 
@@ -152,9 +152,9 @@ describe('codeHighlightPlugin', () => {
     expect(wrap).not.toBeNull()
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBe(0)
-    // 工具条按钮显示原 lang 字符串
-    const langBtn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
-    expect(langBtn?.textContent).toBe('xyz-not-registered')
+    // 语言输入框值 = 原 lang 字符串
+    const langInput = view.dom.querySelector('.velo-code-lang-input') as HTMLInputElement | null
+    expect(langInput?.value).toBe('xyz-not-registered')
     view.destroy()
   })
 
@@ -289,41 +289,44 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('11. header 始终可见(非 hover-gated),含 fold + lang + copy 三按钮', async () => {
+  it('11. header 始终可见(非 hover-gated),含 fold + lang input + copy 三部分', async () => {
     // header 取代旧 hover-gated toolbar,始终可见。
-    // 验证按钮结构正确:fold chevron + lang + fold-info + copy。
+    // 验证结构正确:fold chevron + lang input wrap + fold-info + copy。
     const view = makeView('```js\nx\n```')
     await flushHighlighter()
     const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
     const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
-    const langBtn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
+    const langInputWrap = view.dom.querySelector('.velo-code-lang-input-wrap') as HTMLElement | null
     const copyBtn = view.dom.querySelector('.velo-code-copy-btn') as HTMLElement | null
     expect(header).not.toBeNull()
     expect(foldBtn).not.toBeNull()
-    expect(langBtn).not.toBeNull()
+    expect(langInputWrap).not.toBeNull()
     expect(copyBtn).not.toBeNull()
-    // header 内有 fold + lang + fold-info + copy 四个子节点
+    // header 内有 fold + lang-input-wrap + fold-info + copy 四个子节点
     expect(header!.children.length).toBe(4)
     // 按钮有 type='button'(防止 ProseMirror 把它当 form submit 截走)
     expect((foldBtn as HTMLButtonElement).type).toBe('button')
-    expect((langBtn as HTMLButtonElement).type).toBe('button')
     expect((copyBtn as HTMLButtonElement).type).toBe('button')
+    // lang input wrap 内含 icon span + input
+    const langInput = langInputWrap!.querySelector('.velo-code-lang-input') as HTMLInputElement | null
+    expect(langInput).not.toBeNull()
+    expect(langInput!.value).toBe('js')
     // data-fold-state 默认 expanded
     expect(header!.getAttribute('data-fold-state')).toBe('expanded')
     view.destroy()
   })
 
-  it('12. 切 lang → 工具条按钮文字跟着更新(修 widget key bug)', async () => {
+  it('12. 切 lang → 输入框值跟着更新(修 widget key bug)', async () => {
     // v0.4.3 fast-follow:widget key 必须含 lang,否则 ProseMirror 复用旧
-    // DOM 按钮文字不更新。验证切 lang 后 lang-btn 文字 = 新 lang。
+    // DOM 输入框值不更新。验证切 lang 后 input value = 新 lang。
     const view = makeView('```python\nx = 1\n```')
     await flushHighlighter()
-    let btn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
-    expect(btn?.textContent).toContain('python')
+    let input = view.dom.querySelector('.velo-code-lang-input') as HTMLInputElement | null
+    expect(input?.value).toBe('python')
     const pos = findCodeBlockPos(view)
     setCodeBlockLanguage(view.state, pos, 'rust', (tr) => view.dispatch(tr))
-    btn = view.dom.querySelector('.velo-code-lang-btn') as HTMLElement | null
-    expect(btn?.textContent).toContain('rust')
+    input = view.dom.querySelector('.velo-code-lang-input') as HTMLInputElement | null
+    expect(input?.value).toBe('rust')
     view.destroy()
   })
 
@@ -495,6 +498,49 @@ describe('codeHighlight helpers', () => {
     // header data-fold-state = collapsed(新 widget 被创建)
     const headerAfter = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
     expect(headerAfter?.getAttribute('data-fold-state')).toBe('collapsed')
+    // 再次 click → 展开
+    const foldBtnAfter = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
+    foldBtnAfter!.click()
+    const preFinal = view.dom.querySelector('pre')
+    expect(preFinal?.classList.contains('velo-folded')).toBe(false)
+    view.destroy()
+  })
+
+  it('空 code_block 折叠:click fold btn → pre 挂 velo-folded(不因 content.size===0 跳过)', async () => {
+    // 回归:空 code_block 仍可折叠。CodeHighlightWidget 的 header(含 chevron)
+    // 对所有 code_block 都渲染,若 FoldDecoration.addCodeBlockDecos 因
+    // content.size===0 跳过 velo-folded → chevron 转了但 pre 不隐 → 折叠失效。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown('```js\n```', schema),
+      plugins: [codeHighlightPlugin, foldDecoration],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+    // 确认是空 code_block
+    const pos = findCodeBlockPos(view)
+    expect(pos).toBeGreaterThanOrEqual(0)
+    expect(view.state.doc.nodeAt(pos)?.content.size).toBe(0)
+    // 初始:pre 无 velo-folded,header expanded
+    const pre = view.dom.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.classList.contains('velo-folded')).toBe(false)
+    expect(
+      (view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null)
+        ?.getAttribute('data-fold-state'),
+    ).toBe('expanded')
+    // click fold btn → pre 挂 velo-folded
+    const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
+    expect(foldBtn).not.toBeNull()
+    foldBtn!.click()
+    const preAfter = view.dom.querySelector('pre')
+    expect(preAfter?.classList.contains('velo-folded')).toBe(true)
+    expect(
+      (view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null)
+        ?.getAttribute('data-fold-state'),
+    ).toBe('collapsed')
     // 再次 click → 展开
     const foldBtnAfter = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
     foldBtnAfter!.click()

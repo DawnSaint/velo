@@ -61,9 +61,9 @@
 // 隐藏所有"编辑类"交互按钮,保留导航 / 复制类。setReadOnly 翻 contenteditable,
 // CSS 立即响应,动态生效(无需 rebuild decorations / NodeView)。
 .velo-editor .ProseMirror[contenteditable="false"] {
-  .velo-code-lang-btn {
+  .velo-code-lang-input-wrap {
     pointer-events: none;
-    cursor: default;
+    opacity: 0.6;
   }
   .mermaid-btn-delete,
   .mermaid-btn-toggle,

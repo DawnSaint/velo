@@ -36,7 +36,7 @@
 // widget key 必须含 lang + 文本 hash + 折叠状态 —— lang 变化 / 文本变化 /
 // 折叠切换时 ProseMirror 会复用同 key 的 widget DOM 导致内容不更新。
 
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type { EditorState, Transaction } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
@@ -50,6 +50,7 @@ import {
   setDecorationRebuildCallback,
   DEFAULT_LIGHT_THEME,
   DEFAULT_DARK_THEME,
+  LANG_OPTIONS,
 } from './CodeBlockLangs'
 import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
@@ -101,10 +102,15 @@ export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight
  *  - getCode:同步拿 code_block 文本(切 lang 时变 → widget key 变)
  *  - isFolded:当前折叠状态(chevron 方向 + data-fold-state)
  *  - toggleFold:click chevron 时调,dispatch setMeta(foldKey, { toggle })
+ *  - setLang:提交新语言时调,dispatch setNodeAttribute(language)
  *
  * header 是正常文档流 block 元素(非 absolute),视觉与 pre 连为一体:
  * header 上圆角 + pre 下圆角,共享 border / bg。折叠时 pre 被
  * FoldDecoration 的 velo-folded class 隐藏,header 保留显示(含行数摘要)。
+ *
+ * 语言选择器是内嵌 input(非按钮 + 浮层):input 值 = 当前 lang,icon 实时
+ * 跟随输入值变化。focus / 输入时在 body 上挂 fixed 定位下拉,点击候选项
+ * 或 Enter 提交;setLang 触发 widget 重建(key 含 lang),新 input 自动显示新值。
  */
 function makeHeaderDom(
   pos: number,
@@ -112,6 +118,8 @@ function makeHeaderDom(
   getCode: () => string,
   isFolded: boolean,
   toggleFold: () => void,
+  setLang: (lang: string) => void,
+  focusCode: () => void,
 ): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'velo-code-header-widget'
@@ -138,28 +146,217 @@ function makeHeaderDom(
   })
   wrap.appendChild(foldBtn)
 
-  // 语言按钮(下拉箭头 + lang 名)
-  const langBtn = document.createElement('button')
-  langBtn.type = 'button'
-  langBtn.className = 'velo-code-lang-btn'
-  langBtn.title = '选择语言'
-  langBtn.contentEditable = 'false'
-  // 按钮内容:语言图标(品牌色由 devicon body 自带 fill,兜底项走单色) + lang 名 + chevron
-  langBtn.innerHTML = `${langIconSvg(lang, 14)}<span class="ml-1">${escapeHtml(lang || 'plain text')}</span>${chevronDownSvg(10)}`
-  langBtn.addEventListener('mousedown', (e) => {
-    e.preventDefault()
+  // 语言输入框(替代旧按钮 + 浮层方案):input 值 = lang,icon 实时跟随,
+  // focus / 输入时在 body 上挂 fixed 下拉,点击候选项或 Enter 提交。
+  const langWrap = document.createElement('div')
+  langWrap.className = 'velo-code-lang-input-wrap'
+  langWrap.contentEditable = 'false'
+
+  const iconSpan = document.createElement('span')
+  iconSpan.className = 'velo-code-lang-icon'
+  iconSpan.innerHTML = langIconSvg(lang, 14)
+
+  const langInput = document.createElement('input')
+  langInput.type = 'text'
+  langInput.className = 'velo-code-lang-input'
+  langInput.value = lang
+  langInput.placeholder = 'plain text'
+  langInput.spellcheck = false
+  langInput.setAttribute('aria-label', '代码块语言')
+  langInput.contentEditable = 'false'
+
+  let dropdown: HTMLDivElement | null = null
+  let committed = false
+  // 键盘高亮索引(-1 = 无高亮,0..N = 第 N 个候选项)
+  let highlightIndex = -1
+
+  function updateIcon(value: string): void {
+    iconSpan.innerHTML = langIconSvg(value, 14)
+  }
+
+  function getFiltered(value: string): string[] {
+    const q = value.toLowerCase().trim()
+    if (!q) return [...LANG_OPTIONS]
+    return LANG_OPTIONS.filter((l) => {
+      if (l === '') return q === 'plain' || q === 'text' || q === 'plaintext'
+      return l.toLowerCase().includes(q)
+    })
+  }
+
+  function updateDropdownPosition(): void {
+    if (!dropdown || !langInput.isConnected) return
+    const rect = langInput.getBoundingClientRect()
+    dropdown.style.top = `${rect.bottom + 2}px`
+    dropdown.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 188))}px`
+  }
+
+  /** 把语言名中匹配 query 的部分用 <b> 包裹,其余 escape。 */
+  function highlightMatch(text: string, query: string): string {
+    const q = query.toLowerCase().trim()
+    if (!q) return escapeHtml(text)
+    const idx = text.toLowerCase().indexOf(q)
+    if (idx < 0) return escapeHtml(text)
+    return (
+      escapeHtml(text.slice(0, idx)) +
+      `<b class="velo-lang-match">${escapeHtml(text.slice(idx, idx + q.length))}</b>` +
+      escapeHtml(text.slice(idx + q.length))
+    )
+  }
+
+  function renderDropdownItems(): void {
+    if (!dropdown) return
+    const value = langInput.value
+    const filtered = getFiltered(value)
+    // 无匹配 → 隐藏面板(不显示空白下拉框)
+    if (filtered.length === 0) {
+      dropdown.style.display = 'none'
+      return
+    }
+    dropdown.style.display = ''
+    dropdown.innerHTML = ''
+
+    for (let i = 0; i < filtered.length; i++) {
+      const l = filtered[i]
+      const item = document.createElement('div')
+      item.className = 'velo-lang-dropdown-item'
+      if (i === highlightIndex) item.classList.add('highlighted')
+      const displayText = l || 'plain text'
+      item.innerHTML = `<span class="velo-lang-icon">${langIconSvg(l, 16)}</span><span>${highlightMatch(displayText, value)}</span>`
+      // mousedown preventDefault 阻止 input blur,让 click 正常触发
+      item.addEventListener('mousedown', (e) => { e.preventDefault() })
+      item.addEventListener('click', () => { commitLang(l) })
+      dropdown.appendChild(item)
+    }
+  }
+
+  /** 把高亮条目滚进可视区(键盘导航越界时) */
+  function scrollHighlightIntoView(): void {
+    if (!dropdown) return
+    const items = dropdown.querySelectorAll('.velo-lang-dropdown-item')
+    const el = items[highlightIndex] as HTMLElement | undefined
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  }
+
+  function showDropdown(): void {
+    if (dropdown) {
+      updateDropdownPosition()
+      renderDropdownItems()
+      return
+    }
+    dropdown = document.createElement('div')
+    dropdown.className = 'velo-lang-dropdown'
+    document.body.appendChild(dropdown)
+    updateDropdownPosition()
+    renderDropdownItems()
+    window.addEventListener('scroll', updateDropdownPosition, { capture: true, passive: true })
+    window.addEventListener('resize', updateDropdownPosition)
+  }
+
+  function hideDropdown(): void {
+    if (!dropdown) return
+    dropdown.remove()
+    dropdown = null
+    highlightIndex = -1
+    window.removeEventListener('scroll', updateDropdownPosition, { capture: true } as EventListenerOptions)
+    window.removeEventListener('resize', updateDropdownPosition)
+  }
+
+  /** 直接用输入框当前值提交(不做精确匹配 / 取首项等智能解析)。 */
+  function commitInputValue(): void {
+    if (committed) return
+    commitLang(langInput.value.trim())
+  }
+
+  function commitLang(value: string): void {
+    if (committed) return
+    committed = true
+    hideDropdown()
+    setLang(value)
+    // setLang → setNodeAttribute → widget key 变 → PM 销毁旧 DOM 建新 DOM,
+    // 旧 input 的 blur 会被 committed flag 拦住,不会二次提交。
+  }
+
+  // mousedown + click 都 stopPropagation(不 preventDefault),让 input 可获得焦点。
+  // **click 必须也 stop**:index.vue 外层卡片有 @click="onCardClick" → focusEditor(),
+  // click 不拦会冒泡到卡片 → 焦点被抢回编辑器 → input 失焦(光标"自动移出"根因)。
+  // fold/copy 按钮在 click 上也 stopPropagation 了,同因。
+  langWrap.addEventListener('mousedown', (e) => {
     e.stopPropagation()
   })
-  langBtn.addEventListener('click', (e) => {
-    e.preventDefault()
+  langWrap.addEventListener('click', (e) => {
     e.stopPropagation()
-    // 通过事件冒泡让父级 (index.vue) 收到,父级从 widget DOM 读 pos
-    wrap.dispatchEvent(new CustomEvent('velo:open-lang-picker', {
-      detail: { pos, lang, anchor: langBtn },
-      bubbles: true,
-    }))
   })
-  wrap.appendChild(langBtn)
+  langInput.addEventListener('input', () => {
+    updateIcon(langInput.value)
+    highlightIndex = -1
+    if (dropdown) {
+      renderDropdownItems()
+      updateDropdownPosition()
+    }
+  })
+  langInput.addEventListener('focus', () => {
+    showDropdown()
+  })
+  // blur 延迟 150ms,让候选项 click 先触发(commitLang 会置 committed=true 拦住本次)
+  langInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (committed) return
+      hideDropdown()
+      // 值没变就不提交(避免无谓 widget 重建)
+      if (langInput.value.trim() === lang) return
+      commitInputValue()
+    }, 150)
+  })
+  langInput.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      langInput.value = lang
+      updateIcon(lang)
+      hideDropdown()
+      langInput.blur()
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      // 有键盘高亮条目 → 提交该条目
+      if (highlightIndex >= 0) {
+        const filtered = getFiltered(langInput.value)
+        if (highlightIndex < filtered.length) {
+          commitLang(filtered[highlightIndex])
+          focusCode()
+          return
+        }
+      }
+      // 无高亮条目 → 提交输入框值并 focus 代码
+      commitInputValue()
+      focusCode()
+      return
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      commitInputValue()
+      focusCode()
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const filtered = getFiltered(langInput.value)
+      if (filtered.length === 0) return
+      if (e.key === 'ArrowDown') {
+        highlightIndex = highlightIndex < filtered.length - 1 ? highlightIndex + 1 : 0
+      } else {
+        highlightIndex = highlightIndex > 0 ? highlightIndex - 1 : filtered.length - 1
+      }
+      renderDropdownItems()
+      scrollHighlightIntoView()
+      return
+    }
+  })
+
+  langWrap.appendChild(iconSpan)
+  langWrap.appendChild(langInput)
+  wrap.appendChild(langWrap)
 
   // 折叠态行数摘要(展开态 CSS 隐藏)
   const lineCount = getCode().split('\n').length
@@ -361,11 +558,31 @@ function buildDecorations(
             if (!view || view.isDestroyed) return
             view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
           },
+          (newLang: string) => {
+            if (!view || view.isDestroyed) return
+            setCodeBlockLanguage(view.state, pos, newLang, (tr) => {
+              view.dispatch(tr)
+            })
+          },
+          () => {
+            if (!view || view.isDestroyed) return
+            view.focus()
+            const $pos = view.state.doc.resolve(blockStart)
+            view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
+          },
         )
       }, {
         side: -1,
         key,
         ignoreSelection: true,
+        // stopEvent:true 让 PM 不拦截来自 widget 内部的事件(mousedown / keydown /
+        // input / focus 等)。不加时 PM 的 eventBelongsToView 认为 widget 内的事件
+        // "属于编辑器" → mousedown → selection 变化 → DOMObserver 反推选区 →
+        // 光标被拉出 input(与 math_block NodeView stopEvent 同源坑,见
+        // editor.md "NodeView 必须实现 stopEvent")。按钮(fold / copy)自己
+        // mousedown preventDefault + stopPropagation,不依赖 stopEvent,这里
+        // 返回 true 对它们无影响。
+        stopEvent: () => true,
       }),
     )
     if (!lang) return

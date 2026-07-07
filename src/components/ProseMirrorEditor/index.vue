@@ -1,9 +1,8 @@
 <script setup lang="ts">
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
-import CodeBlockLanguagePicker from './CodeBlockLanguagePicker.vue'
 import { createPmBackend } from './findreplace/backend'
 import type { CursorPosition } from '@/utils/editorCursor'
 
@@ -58,17 +57,6 @@ function onCardClick() {
   innerRef.value?.focusEditor()
 }
 
-// ========== 代码块语言选择浮层 ==========
-// CodeHighlightWidget 工具条 click → CustomEvent('velo:open-lang-picker') 冒泡到这里。
-// 复制按钮 click 已在 widget 内部 await 完成,这里不再转发。
-const pickerRef = ref<InstanceType<typeof CodeBlockLanguagePicker> | null>(null)
-
-function onOpenLangPicker(e: Event) {
-  const ev = e as CustomEvent<{ pos: number, lang: string, anchor: HTMLElement }>
-  if (!ev.detail) return
-  pickerRef.value?.open(ev.detail)
-}
-
 // ========== 查找替换面板 ==========
 // 状态全在 App.vue(v-model:find-open 透传),本组件只做透传 + 把 FindReplace
 // 关闭事件回写给父级。父级改 findOpen / findInitialQuery / findInitialShowReplace
@@ -83,14 +71,6 @@ function getEditorView() {
 function onFindClose() {
   emit('update:findOpen', false)
 }
-
-// 事件挂到外层容器,widget 冒泡上来
-onMounted(() => {
-  window.addEventListener('velo:open-lang-picker', onOpenLangPicker)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('velo:open-lang-picker', onOpenLangPicker)
-})
 
 // 保留 watch 占位(原本监听 props 变化)
 watch(() => props.modelValue, () => {
@@ -136,7 +116,6 @@ defineExpose({ getEditorView })
       @close="onFindClose"
       @open-global-search="emit('open-global-search')"
     />
-    <CodeBlockLanguagePicker ref="pickerRef" :view="getEditorView()" />
   </div>
 
 </template>

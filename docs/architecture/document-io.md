@@ -35,10 +35,13 @@
 
 `checkExternalChange`(fs:watch + window focus 兜底)按序判定:
 
-1. `disk === lastSavedContent` → 自己的写,忽略
-2. `disk === content` → 别人重写为同样内容,刷新基线
-3. `!dirty` → 静默 reload
-4. `dirty` → 弹确认
+1. `disk === lastSavedContent` → 自己的写(save 后 fast path),忽略
+2. `canonical(disk) === lastSavedContent` → 磁盘原文与 canonical 基线语义等价(未保存时 disk 是 raw,lastSavedContent 是 canonical),忽略
+3. `canonical(disk) === content` → 别人重写为同样内容,刷新基线
+4. `!dirty` → 静默 reload
+5. `dirty` → 弹确认
+
+`loadContentInto` 把磁盘内容 canonicalize 后同时塞进 `content` 与 `lastSavedContent`,所以基线是 canonical 形式而非磁盘原文。save() 写的是 canonical,写完后 `disk === lastSavedContent` 走 fast path;但未保存时磁盘仍是 raw 原文,直接与 canonical 基线比会误判外部修改,因此 step 2 在 exact match 失败后把 disk 也 canonicalize 再比。
 
 ## 崩溃恢复
 
@@ -53,6 +56,7 @@
 ## 设计要点
 
 - **自家写盘不打扰**: `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 被 `disk === lastSavedContent` 短路。
+- **`checkExternalChange` canonical 比对**: `lastSavedContent` 是 canonical 形式(`loadContentInto` 过了一遍 markdownIO),但磁盘原文可能与 canonical 不字节相等(多余空行 / whitespace normalize)。save() 写 canonical → 写完后 fast path 命中;未保存时 disk 是 raw → exact match 失败后把 disk 也 canonicalize 再比,避免非 canonical 文件编辑后切窗口 focus 误报"外部修改"。
 - **echo 哨兵** (`lastSelfEmitted`): EditorInner / SourceModeEditor dispatch 时先把 markdown 写进 `lastSelfEmitted`,父级 watch 看到匹配则跳过 echo,避免编辑时光标被重置。
 - **多窗口草稿 ID 带 window scope**:Tauri 窗口启动后用当前 window label 作为 `draftScope`,草稿 ID 变为 `win-{label}-file-{pathId}` / `win-{label}-untitled`;dev web 或旧路径无 scope 时保留 `file-{pathId}` / `untitled`。这样两个窗口编辑同一文件或各自未命名文档不会互相覆盖草稿,恢复列表按 savedAt 展示多份候选而不是静默合并。
 

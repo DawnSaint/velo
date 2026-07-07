@@ -183,6 +183,35 @@ describe('document store', () => {
       expect(store.content).toBe('hello world\n') // 用户编辑保留
     })
 
+    // 回归:磁盘原文 ≠ PM canonical(多余空行 / whitespace normalize)时,
+    // 编辑后切窗口 focus 不应误报"外部修改"。
+    // 根因:loadContentInto 把 lastSavedContent 设为 canonical(disk 经 markdownIO
+    // round-trip),但磁盘原文仍是 raw。checkExternalChange 读到 raw disk 后直接
+    // 和 canonical lastSavedContent 比 → 不等 → 误判"外部修改"。
+    // 修法:checkExternalChange 在 exact match 失败后,把 disk 也 canonicalize 再比。
+    it('非 canonical 磁盘文件:编辑后切窗口 focus 不误报外部修改', async () => {
+      // 磁盘原文有多余空行,canonical 形式会折叠
+      const rawDisk = 'hello\n\n\n\n\n'
+      const store = await setupOpenedFile(rawDisk, '/p.md')
+      // load 后 content/lastSavedContent 都是 canonical(rawDisk 经 round-trip)
+      expect(store.dirty).toBe(false)
+      // canonical 与 raw 不字节相等(多余空行被折叠)
+      expect(store.content).not.toBe(rawDisk)
+
+      // 用户编辑
+      store.setContent(store.content + 'edited')
+      expect(store.dirty).toBe(true)
+
+      // 切窗口再 focus:磁盘内容仍是 rawDisk(未保存)
+      vi.mocked(readTextFile).mockResolvedValue(rawDisk)
+      await store.checkExternalChange()
+
+      // canonicalDisk === lastSavedContent → 应早退,不弹 confirm
+      expect(confirm).not.toHaveBeenCalled()
+      // 用户编辑保留
+      expect(store.content).toContain('edited')
+    })
+
     it('loadContent 切到新文件后,内容一致则不变脏', async () => {
       const store = useDocumentStore()
       store.init('')

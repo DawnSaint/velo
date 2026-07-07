@@ -166,6 +166,16 @@ describe('collectFoldableKeys', () => {
     view.destroy()
   })
 
+  it('空 code_block 也算 foldable(header 始终渲染 chevron)', () => {
+    // 空 code_block 的 header(含折叠 chevron)始终渲染,折叠状态需能持久化
+    // 恢复,所以 collectFoldableKeys 不能因 content.size===0 跳过。
+    const md = ['```js', '```'].join('\n')
+    const view = makeView(md)
+    const keys = collectFoldableKeys(view.state.doc)
+    expect(keys.filter(k => k.type === 'code_block')).toHaveLength(1)
+    view.destroy()
+  })
+
   it('contentStart 是从 stable key 反查 pos 的关键(同一个 heading 多次调用稳定)', () => {
     const md = ['# Stable', '', 'p'].join('\n')
     const view = makeView(md)

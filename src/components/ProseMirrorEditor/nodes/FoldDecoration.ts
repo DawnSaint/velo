@@ -563,7 +563,6 @@ function addCodeBlockDecos(
   // code_block 折叠:折叠自身(pre 整块 display:none)。
   // toggle 由 CodeHighlightWidget 的 header 提供(chevron),不需要本 plugin 挂。
   // 不需要 placeholder(header 即摘要)。
-  if (node.content.size === 0) return
   const contentStart = pos + 1
   const isCollapsed = deco.collapsedSet.has(contentStart)
   if (!isCollapsed) return
@@ -815,7 +814,7 @@ export function collectFoldableKeys(
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'list_item' })
       return
     }
-    if (node.type.name === 'code_block' && node.content.size > 0) {
+    if (node.type.name === 'code_block') {
       const key = makeStableKey(node)
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'code_block' })
       return
