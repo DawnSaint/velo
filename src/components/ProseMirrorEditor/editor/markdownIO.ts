@@ -23,6 +23,7 @@ import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
+import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 
 // ============================================================
 //  unified processor
@@ -148,7 +149,7 @@ export function extractLangsFromDoc(md: string): string[] {
   const seen = new Set<string>()
   const visit = (n: Root | RootContent): void => {
     if (n.type === 'code' && n.lang) {
-      seen.add(n.lang.toLowerCase())
+      seen.add(resolveShikiLang(n.lang))
     }
     // mdast 节点只有 block / root / 部分 phrasing 节点带 children,统一读
     if ('children' in n && Array.isArray((n as { children?: unknown }).children)) {

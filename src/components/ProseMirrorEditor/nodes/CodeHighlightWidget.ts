@@ -202,7 +202,7 @@ function makeToolbarDom(
   langBtn.title = '选择语言'
   langBtn.contentEditable = 'false'
   // 按钮内容:语言图标(品牌色由 devicon body 自带 fill,兜底项走单色) + lang 名 + chevron
-  langBtn.innerHTML = `${langIconSvg(lang, 14)}<span class="velo-lang-label">${escapeHtml(lang || 'plain text')}</span>${chevronDownSvg(10)}`
+  langBtn.innerHTML = `${langIconSvg(lang, 14)}<span class="ml-1">${escapeHtml(lang || 'plain text')}</span>${chevronDownSvg(10)}`
   langBtn.addEventListener('mousedown', (e) => {
     e.preventDefault()
     e.stopPropagation()

@@ -175,14 +175,58 @@ const LANG_ICON_BRAND: Readonly<Record<string, string>> = {
 const FALLBACK_BODY = inner(codeSvg)
 
 /**
+ * 语言别名 → 规范名(对齐 LANG_ICON_BRAND 键)。文档 code fence 常用简写
+ * (js/py/md/sh …)或大小写变体(Python),shiki 路径已自带 lowercase + alias
+ * 路由(见 CodeBlockLangs 的 getTokensSync / extractLangsFromDoc),高亮不受
+ * 影响;但图标层做的是裸字符串查表,不归一化就会 miss → fallback 图标,出现
+ * "高亮对、图标错"的不一致。本表只覆盖常见简写,未列出的 lang 原样小写后
+ * 查表,查不到走 fallback code 图标。新增别名在此补一行即可。
+ */
+const LANG_ALIASES: Readonly<Record<string, string>> = {
+  js: 'javascript',
+  ts: 'typescript',
+  py: 'python',
+  md: 'markdown',
+  sh: 'bash',
+  zsh: 'bash',
+  golang: 'go',
+  rs: 'rust',
+  'c++': 'cpp',
+  'c#': 'csharp',
+  cs: 'csharp',
+  kt: 'kotlin',
+  ps1: 'powershell',
+  pwsh: 'powershell',
+  yml: 'yaml',
+  docker: 'dockerfile',
+  make: 'makefile',
+  ex: 'elixir',
+  exs: 'elixir',
+  gql: 'graphql',
+  text: '',
+  txt: '',
+  plaintext: '',
+}
+
+/** 规范化 lang:小写 + 别名解析,供图标 / 品牌色查表用。 */
+function normalizeLang(lang: string): string {
+  const lower = lang.toLowerCase()
+  return LANG_ALIASES[lower] ?? lower
+}
+
+/**
  * 工厂:返回可直接 innerHTML / v-html 的带尺寸 <svg> 字符串。
  * 品牌分支:有品牌色 → fill=品牌色;有图标但无品牌色(json/diff/xml/plain text)
  * → fill=currentColor 跟随文字色。未命中品牌分支(fallback code 图标)同样
  * 走 fill=currentColor。lang 不在 LANG_OPTIONS 里同样走 fallback(不崩溃)。
+ * 查表前先 normalizeLang:小写 + 别名解析(js→javascript、Python→python、
+ * md→markdown),与 shiki 的 alias 行为对齐,避免文档用了简写 / 大小写变体
+ * 时显示 fallback 图标。
  */
 export function langIconSvg(lang: string, size: number): string {
-  const brand = LANG_ICON_BRAND[lang] ?? FALLBACK_BODY
-  const color = LANG_ICON_COLOR[lang] ?? 'currentColor'
+  const n = normalizeLang(lang)
+  const brand = LANG_ICON_BRAND[n] ?? FALLBACK_BODY
+  const color = LANG_ICON_COLOR[n] ?? 'currentColor'
   return `<svg viewBox="${LANG_ICON_VIEWBOX}" fill="${color}" width="${size}" height="${size}">${brand}</svg>`
 }
 

@@ -399,6 +399,36 @@ describe('codeHighlightPlugin', () => {
     const langs = extractLangsFromDoc(md)
     expect(new Set(langs)).toEqual(new Set(['javascript', 'python']))
   })
+
+  it('17. react 别名映射到 jsx:extractLangsFromDoc 扫出 jsx,代码块出 shiki token', async () => {
+    // react 不是 shiki 合法语言 id(shiki 只有 jsx/tsx),resolveShikiLang
+    // 映射 react→jsx。验证:预扫扫出 'jsx' 而非 'react';react 代码块能出
+    // shiki token span(不再因非法 id 走 fallback 无高亮)。
+    const { extractLangsFromDoc } = await import('../editor/markdownIO')
+    const { resolveShikiLang } = await import('../nodes/CodeBlockLangs')
+
+    // resolveShikiLang 直接验证
+    expect(resolveShikiLang('react')).toBe('jsx')
+    expect(resolveShikiLang('React')).toBe('jsx')
+    expect(resolveShikiLang('jsx')).toBe('jsx') // 幂等
+
+    // extractLangsFromDoc 走同一映射
+    const md = [
+      '```react',
+      'const App = () => <div>hello</div>',
+      '```',
+    ].join('\n')
+    const langs = extractLangsFromDoc(md)
+    expect(langs).toContain('jsx')
+    expect(langs).not.toContain('react')
+
+    // react 代码块出 shiki token(不再走 fallback)
+    const view = makeView('```react\nconst App = () => <div>hi</div>\n```')
+    await flushHighlighter()
+    const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
+    expect(styledSpans.length).toBeGreaterThan(0)
+    view.destroy()
+  })
 })
 
 // ============================================================

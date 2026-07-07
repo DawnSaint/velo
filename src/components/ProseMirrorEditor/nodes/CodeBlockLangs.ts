@@ -52,6 +52,23 @@ export const LANG_OPTIONS: readonly string[] = [
   'mermaid',
 ]  
 
+/**
+ * shiki 高亮用 lang 别名表。LANG_OPTIONS 里的某些项不是 shiki 合法语言 id
+ * (如 `react` — shiki 只有 `jsx`/`tsx`,没有 `react`),需映射到等价的合法 id
+ * 才能走高亮。React 组件代码用的就是 JSX 语法,`react` → `jsx` 语义等价
+ * (VSCode / GitHub 的 react 高亮底层也是 jsx grammar)。未列出的 lang 原样
+ * 使用(走 shiki 自身的 alias 路由或被 bundledLanguages gate 拦截)。
+ */
+const SHIKI_LANG_ALIASES: Readonly<Record<string, string>> = {
+  react: 'jsx',
+}
+
+/** 把 lang 映射到 shiki 合法语言 id(小写 + 别名解析)。供高亮路径统一用。 */
+export function resolveShikiLang(lang: string): string {
+  const lower = lang.toLowerCase()
+  return SHIKI_LANG_ALIASES[lower] ?? lower
+}
+
 /** 启动期最小预装 lang 清单(空 doc / 首次打开新文件时兜底用)。
  *  覆盖 markdown 编辑器最高频的 5 种:js / ts / py / bash / json。
  *  跟 LANG_OPTIONS 不重叠,LANG_OPTIONS 是浮层下拉用的全集。
@@ -123,10 +140,15 @@ export function getHighlighter(
   darkTheme = DEFAULT_DARK_THEME,
 ): Promise<Highlighter> {
   if (!highlighterPromise) {
-    // undefined(未传)→ 测试 / 旧调用方,装全集;显式 [] 走兜底空集;显式数组用之
-    const resolvedLangs = langs === undefined
+    // undefined(未传)→ 测试 / 旧调用方,装全集;显式 [] 走兜底空集;显式数组用之。
+    // 先 resolveShikiLang 映射别名(react→jsx),再过滤掉不在 bundledLanguages
+    // 里的非法 id,防 createHighlighter 抛 ShikiError 拖垮整篇高亮
+    // (App.vue .catch 兜底虽不白屏,但 cachedHighlighter 永远 null → 全降级)。
+    const raw = langs === undefined
       ? LANG_OPTIONS.filter(l => l)
       : langs
+    const resolvedLangs = [...new Set(raw.map(resolveShikiLang))]
+      .filter(l => l in bundledLanguages)
     highlighterPromise = createHighlighter({
       langs: resolvedLangs,
       themes: [lightTheme, darkTheme],
@@ -202,7 +224,7 @@ export function setDecorationRebuildCallback(cb: (() => void) | null): void {
  */
 export async function ensureLanguage(lang: string): Promise<void> {
   const hl = await getHighlighter()
-  const id = lang.toLowerCase()
+  const id = resolveShikiLang(lang)
   if (hl.getLoadedLanguages().includes(id)) return
   if (loadingLangs.has(id)) return
   loadingLangs.add(id)
@@ -276,7 +298,7 @@ export function getTokensSync(
   darkTheme: string,
 ): { tokens: ThemedTokenWithVariants[][] } | null {
   if (!hl || !lang) return null
-  const id = lang.toLowerCase()
+  const id = resolveShikiLang(lang)
   if (!hl.getLoadedLanguages().includes(id)) {
     // lang 不在 shiki bundled 列表(用户手敲 `xyz-not-registered` 之类)
     // → 直接 return null,不触发 ensureLanguage 也不 warn(避免控制台刷屏)。
@@ -326,7 +348,8 @@ export function getTokensCached(
   darkTheme: string,
 ): { tokens: ThemedTokenWithVariants[][] } | null {
   if (!hl || !lang) return null
-  const key = `${lang}:${lightTheme}:${darkTheme}:${hashCode(code)}`
+  const resolvedLang = resolveShikiLang(lang)
+  const key = `${resolvedLang}:${lightTheme}:${darkTheme}:${hashCode(code)}`
   const cached = tokenCache.get(key)
   if (cached) {
     // LRU 提到末尾(Map iteration 序 = 插入序)
@@ -334,7 +357,7 @@ export function getTokensCached(
     tokenCache.set(key, cached)
     return { tokens: cached }
   }
-  const result = getTokensSync(hl, code, lang, lightTheme, darkTheme)
+  const result = getTokensSync(hl, code, resolvedLang, lightTheme, darkTheme)
   if (!result) return null
   if (tokenCache.size >= TOKEN_CACHE_CAP) {
     // 淘汰最老条目:Map.keys() 迭代序就是插入序,第一个是 LRU 端
