@@ -221,7 +221,7 @@ onBeforeUnmount(() => {
             :class="{ active: l === currentLang }"
             @click="pickLang(l)"
           >
-            <span class="velo-lang-icon" v-html="langIconSvg(l, 14)"></span>{{ l || 'plain text' }}
+            <span class="velo-lang-icon" v-html="langIconSvg(l, 16)"></span>{{ l || 'plain text' }}
           </li>
           <li
             v-if="filter.trim() && !hasExactMatch"

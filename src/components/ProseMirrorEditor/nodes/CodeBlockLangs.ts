@@ -40,11 +40,15 @@ export const LANG_OPTIONS: readonly string[] = [
   '',
   'javascript', 'typescript', 'jsx', 'tsx',
   'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp',
+  'dart', 'kotlin', 'swift', 'scala',
+  'php', 'perl', 'lua', 'r',
+  'elixir', 'elm',
   'html', 'css', 'scss', 'sass', 'less',
   'json', 'yaml', 'toml', 'xml',
   'sql', 'bash', 'shell', 'powershell',
+  'graphql',
   'markdown', 'diff', 'dockerfile', 'makefile',
-  'vue', 'svelte',
+  'vue', 'svelte', 'react',
   'mermaid',
 ]  
 

@@ -331,7 +331,7 @@ html.dark .velo-lang-filter {
 
 .velo-lang-list li {
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   user-select: none;
   color: inherit;
@@ -345,9 +345,15 @@ html.dark .velo-lang-filter {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  margin-right: 6px;
+  margin-right: 8px;
   line-height: 0;
   vertical-align: -3px;
+}
+
+// flex 居中时 SVG 盒模型与文字 font metrics 有 1px 亚像素偏差,图标偏高,向下微调
+.velo-lang-icon svg,
+.velo-code-lang-btn > svg {
+  margin-top: 2px;
 }
 
 .velo-lang-list li:hover {
