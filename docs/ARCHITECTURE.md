@@ -22,7 +22,7 @@
 | 打开/保存、外部变更同步、echo 哨兵、草稿、持久化 | [`architecture/document-io.md`](./architecture/document-io.md) |
 | ProseMirror 插件链、schema、markdownIO、syntax、NodeView/Decoration、mermaid、shiki、源码模式、跨模式同步 | [`architecture/editor.md`](./architecture/editor.md) |
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
-| Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse、ActivityBar 排序/隐藏持久化 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
+| Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse、ActivityBar 排序/隐藏持久化、资产面板 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
 | Ctrl+P 快速打开、Ctrl+Shift+P 命令面板、Ctrl+Shift+F 全文搜索、fuzzy、最近文件 | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
 | HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
@@ -64,9 +64,10 @@ velo/
 │   ├── utils/                     fuzzy / quickCommand / commandPalette / quickOpenIndex / workspaceSearch 等跨组件纯工具
 │   ├── styles/                    Tailwind + Sass partial
 │   └── components/
-│       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树
-│       │   ├── Sidebar.vue         大纲 / 文件 tab 切换容器(per-workspace 持久化 tab 选择)
+│       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树 + 资产面板
+│       │   ├── Sidebar.vue         大纲 / 文件 / 资产 / 搜索 tab 切换容器(per-workspace 持久化 tab 选择)
 │       │   ├── EditorOutline.vue   嵌在 Sidebar tab 内
+│       │   ├── AssetPanel.vue      图片资产面板(v0.6.4):扫描文档图片引用 + 分组展示 + 孤儿检测 + 点击定位
 │       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD + 内部拖拽 move(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示 / 跨目录拖动 rename)
 │       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;v0.5.x 加复制 / 粘贴;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定”点外部”)
 │       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿

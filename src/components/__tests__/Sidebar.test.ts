@@ -13,6 +13,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '../Sidebar/Sidebar.vue'
 import WorkspaceSearchPanel from '../WorkspaceSearchPanel.vue'
+import AssetPanel from '../Sidebar/AssetPanel.vue'
 import { readDir } from '@tauri-apps/plugin-fs'
 import * as workspaceSearch from '@/utils/workspaceSearch'
 
@@ -96,6 +97,38 @@ describe('Sidebar', () => {
     expect(typeof sidebarVm.refreshDir).toBe('function')
     // 同步调用,内部 FileTree.refreshDir(异步) 走 try/catch,不抛到 Sidebar 层
     expect(() => sidebarVm.refreshDir('/test/ws/sub')).not.toThrow()
+  })
+
+  // paste 时若 file.type 为空 / 未知 MIME,旧版会把 ext 字面写成 '(null)';
+  // 源码里 src 被 escapeMdUrl 写成 `\(null\)`(避免括号破坏 markdown 语法)。
+  // 面板正则提取 src 后必须剥掉转义反斜杠,否则算出的 absPath 与磁盘真实路径
+  // (无转义)对不上,会被 referencedAbsPaths 误判为未引用。
+  it(' AssetPanel:转义括号 src 能归一化到磁盘路径,不被误判为未引用', async () => {
+    // 模拟孤儿扫描时 readDir 返回的磁盘文件(无转义)
+    vi.mocked(readDir).mockResolvedValue([
+      { name: '(null)-20250717165607855.(null)', isFile: true, isDirectory: false },
+    ] as any)
+
+    const md = [
+      '# test',
+      '',
+      '![img](assets/\\(null\\)-20250717165607855.\\(null\\))',
+      '',
+    ].join('\n')
+
+    const wrapper = mount(AssetPanel, {
+      props: { modelValue: md, filePath: 'C:/Users/foo/note.md' },
+    })
+    await nextTick()
+    // 等 debounce 300ms + 异步 readDir 完成
+    await new Promise(r => setTimeout(r, 500))
+    await nextTick()
+
+    const vm = wrapper.vm as any
+    // 直接断言响应式数据,定位路径匹配差异
+    const ref = [...vm.referencedAbsPaths]
+    const orphanPaths = vm.orphans.map((o: any) => o.absPath)
+    expect({ ref, orphanPaths }).toEqual({ ref: ['C:/Users/foo/assets/(null)-20250717165607855.(null)'], orphanPaths: [] })
   })
 
   it('outline tab 时 refreshDir 不抛错(FileTree 未挂载)', () => {

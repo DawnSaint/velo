@@ -7,6 +7,7 @@
 | 文件 | 对应 ROADMAP | 调研日期 | 状态 |
 |---|---|---|---|
 | [block-drag-reorder.md](./block-drag-reorder.md) | 段落拖拽重排（hover gutter 拽手） | 2026-07-04 | 初版调研完成，待 PoC |
+| [asset-panel-global-orphan.md](./asset-panel-global-orphan.md) | 资产面板工程级未引用扫描（rust vs JS 选型 + 缓存层设计） | 2026-07-08 | 初版 |
 | [RESEARCH.md#obsidian-风格知识图谱调研](#obsidian-风格知识图谱调研) | 双链 / 反向链接 | 2026-06-25 | 初版 |
 | [RESEARCH.md#git-集成调研报告](#git-集成调研报告) | Git 集成 | — | — |
 
@@ -464,12 +465,6 @@ npm install sigma graphology graphology-layout-forceatlas2
 | Sidebar tab 容器 | `Sidebar.vue` 已有 2 tab（文件 / 大纲），`v-if` 互斥 | 扩成 3 tab，新增 `KnowledgeGraph` 组件 + `workspaceStore.sidebarTab` 增 `'graph'` |
 | Link click 源码编辑态 | `linkClickPlugin` + `linkEditEscapeKeymap` | Wikilink 二期尽量复用同套源码编辑语义 |
 | search fuzzy 算法 | `src/utils/outlineFilter.ts` 子序列匹配 | 图谱 / 反链面板的节点搜索直接复用 |
-
-#### 6.5 ROADMAP 对齐
-
-- **v0.5.6 双链**：只覆盖「`[[wikilink]]` 语法 + 工作区索引 + 损坏链接检测」。知识图谱的「可视化渲染 + 反链 panel UI」是 0.5.6 之外的延伸工作，不应塞回 0.5.6 增加范围。
-- **「反向链接」**（当前 ROADMAP 在「未规划入具体版本」章节里）：建议提前到 v0.5.6 后续紧邻版本，作为双链的 UI 出口。可以单开 `v0.5.7 — 反链面板`，或在 v0.5.6 加 `- [ ]` 子条目。
-- 暂不动 Git 集成（ROADMAP v0.5.6 不含），但要注意：如果 Git 集成引入「stash / switch branch」语义，会让知识图谱索引与文件实际内容脱节，要预留「重扫整树」入口。
 
 ---
 

@@ -11,12 +11,12 @@ export type StartupMode = 'last-file' | 'new-doc'
  *  - 「文件」下拉(FileMenuButton)固定在顶部,不参与排序 / 隐藏 —— 主命令入口,
  *    拖拽会与 #trigger slot-ref 注册链冲突,隐藏会孤立文件命令
  *  ActivityBar.vue 与 App.vue 共用此类型;canonical home 在 store 而非组件。 */
-export type ActivityBarItem = 'files' | 'outline' | 'search' | 'settings'
+export type ActivityBarItem = 'files' | 'outline' | 'search' | 'assets' | 'settings'
 
 /** 可自定义的 3 个视图入口(顺序即从上到下)。'settings' 固定底部 —— 既不可重排也不可隐藏。 */
-const DEFAULT_ACTIVITY_BAR_ORDER: ActivityBarItem[] = ['files', 'outline', 'search']
-const ACTIVITY_BAR_REORDERABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search']
-const ACTIVITY_BAR_HIDEABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search']
+const DEFAULT_ACTIVITY_BAR_ORDER: ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
+const ACTIVITY_BAR_REORDERABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
+const ACTIVITY_BAR_HIDEABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
 
 export const useEditorStore = defineStore('editor', () => {
   const fontSize = ref('16px')

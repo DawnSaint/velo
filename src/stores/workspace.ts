@@ -93,9 +93,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 如果未来要让新 workspace 继承当前 UI 宽度,改此处即可,但要和
    * 文档「文档同步」一节同步说明。
    *
-   * root=null(关闭工作区)时强制 'outline':无工作区时 'files' tab 没意义
-   * (FileTree 渲染空态按钮),回到 outline 是派生约束。sidebarWidth 保留
-   * (下次切回任何 workspace 时不会闪)。
+   * root=null(关闭工作区)时:'files' / 'search' tab 需要 workspace,回退到
+   * 'outline';'outline' / 'assets' 基于当前文档,无需 workspace,保留不变。
+   * sidebarWidth 保留(下次切回任何 workspace 时不会闪)。
    */
   function setActiveRoot(root: string | null) {
     activeRoot.value = root
@@ -105,7 +105,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       sidebarWidth.value = ws.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT
     }
     else {
-      sidebarTab.value = 'outline'
+      if (sidebarTab.value === 'files' || sidebarTab.value === 'search') {
+        sidebarTab.value = 'outline'
+      }
     }
   }
 

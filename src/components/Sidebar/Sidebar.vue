@@ -11,6 +11,7 @@
 import { ref } from 'vue'
 import EditorOutline from './EditorOutline.vue'
 import FileTree from './FileTree.vue'
+import AssetPanel from './AssetPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import type { WorkspaceSearchHit } from '@/utils/workspaceSearch'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -35,6 +36,8 @@ const emit = defineEmits<{
   'workspace-search-apply-replace': [{ hits: WorkspaceSearchHit[], replacement: string, scope: 'one' | 'all' }]
   /** 文件树右键菜单「在此文件夹中搜索」透传给 App.vue */
   'search-in-folder': [string]
+  /** 资产面板:点击图片条目 → 定位到编辑器中对应 image 节点 */
+  'locate-image': [src: string, occurrence: number]
 }>()
 
 const workspace = useWorkspaceStore()
@@ -75,6 +78,10 @@ function onSearchApplyReplace(payload: { hits: WorkspaceSearchHit[], replacement
 function onFileTreeSearchInFolder(dirPath: string) {
   emit('search-in-folder', dirPath)
 }
+
+function onLocateImage(src: string, occurrence: number) {
+  emit('locate-image', src, occurrence)
+}
 </script>
 
 <template>
@@ -93,6 +100,12 @@ function onFileTreeSearchInFolder(dirPath: string) {
         v-else-if="workspace.sidebarTab === 'outline'"
         :model-value="modelValue"
         :file-path="filePath"
+      />
+      <AssetPanel
+        v-else-if="workspace.sidebarTab === 'assets'"
+        :model-value="modelValue"
+        :file-path="filePath"
+        @locate-image="onLocateImage"
       />
       <WorkspaceSearchPanel
         v-else

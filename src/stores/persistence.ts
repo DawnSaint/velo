@@ -352,7 +352,7 @@ const WORKSPACES_FILE = 'velo-workspaces.json'
 // v4(v0.6.x):WorkspaceState 新增 openTabs + activeTab(标签持久化,恢复工作区时重开上次的标签集)。
 const WORKSPACES_VERSION = 4
 
-export type SidebarTab = 'outline' | 'files' | 'search'
+export type SidebarTab = 'outline' | 'files' | 'search' | 'assets'
 
 export interface WorkspaceState {
   /** 该工作区下处于展开态的目录绝对路径 */

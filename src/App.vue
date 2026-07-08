@@ -47,6 +47,7 @@ import {
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
+import { NodeSelection } from 'prosemirror-state'
 import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
 import veloLogo from '@/assets/Velo.png'
@@ -939,6 +940,31 @@ function onWorkspaceSearchClose() {
   leftPanelView.value = null
 }
 
+/** 资产面板:点击图片条目 → 在 PM doc 中找到第 occurrence 个 src 匹配的 image 节点,
+ *  NodeSelection 选中 + scrollIntoView + 聚焦编辑器。
+ *  源码模式下无 PM view,静默跳过(资产面板本身仍可用,只是点击不定位)。 */
+function onLocateImage(src: string, occurrence: number) {
+  const view = editorRef.value?.getEditorView()
+  if (!view || view.isDestroyed) return
+  let count = 0
+  let targetPos = -1
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'image' && (node.attrs.src as string) === src) {
+      if (count === occurrence) {
+        targetPos = pos
+        return false
+      }
+      count++
+    }
+    return true
+  })
+  if (targetPos < 0) return
+  const tr = view.state.tr.setSelection(NodeSelection.create(view.state.doc, targetPos))
+  tr.scrollIntoView()
+  view.dispatch(tr)
+  view.focus()
+}
+
 /** TabBar 标签右键菜单「在文件树中显示」:切到 files tab + 展开到该文件 +
  * 短暂蓝高亮。TabBar 不持有 sidebarRef,emit 上来由 App.vue 拼装。 */
 function revealFileInTree(filePath: string) {
@@ -1177,6 +1203,14 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       group: 'workspace',
       keywords: ['outline', 'headings'],
       run: () => showSidebarTab('outline'),
+    },
+    {
+      id: 'workspace.assets',
+      title: '显示资产面板',
+      subtitle: '查看当前文档的图片资产',
+      group: 'workspace',
+      keywords: ['assets', 'images', 'pictures'],
+      run: () => showSidebarTab('assets'),
     },
     {
       id: 'workspace.close',
@@ -1805,6 +1839,7 @@ watch(editorRef, (v) => {
         @select-files="toggleSidebarTab('files')"
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
+        @select-assets="toggleSidebarTab('assets')"
         @select-settings="toggleSettingsPanel"
         @new-doc="documentStore.newDoc()"
         @new-window="createNewAppWindow()"
@@ -1845,6 +1880,7 @@ watch(editorRef, (v) => {
               @workspace-search-clear-scope="onWorkspaceSearchClearScope"
               @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
               @search-in-folder="onSearchInFolder"
+              @locate-image="onLocateImage"
             />
           </KeepAlive>
           <EditorSettings v-if="leftPanelView === 'settings'" />

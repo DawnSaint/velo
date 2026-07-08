@@ -4,6 +4,18 @@
 >
 > 重大架构取舍见 [DECISIONS.md](./DECISIONS.md)；用户可见变更见 [CHANGELOG.md](./CHANGELOG.md)；当前设计状态与踩坑记录见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
+## v0.6.4
+
+### 图片资产面板
+
+侧边栏新增「资产」tab，聚焦当前文档的图片资产管理。
+
+**feat**
+
+- [ ] 图片资产面板（侧边栏新增 tab）：扫描当前文档所有 `image` 节点，按本地路径 / 外链分组展示，缩略图预览；点击条目把光标定位到图片引用位置（PM `NodeSelection + scrollIntoView`）
+- [ ] 孤儿图片检测：扫描文档同目录 `assets/` 下的图片文件，引用计数为 0 的标灰展示（孤儿候选）
+- [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
+
 ## 已知问题
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
@@ -17,34 +29,14 @@
 
 ### 编辑器增强
 
-- [x] WYSIWYG code_block 行号（可选开关）
-- [x] code_block 自动换行（per-block wrap toggle）
 - [ ] 表格增强（行列增删的浮层操作 / 单元格对齐 / 整表格拖拽）
-- [x] ``` 语法增加语言选择下拉框
-- [x] 语言选择器增加语言图标
-- [x] code_block 折叠
 - [ ] 段落拖拽重排（hover gutter 拽手）
-- [x] 块级折叠（heading / list 折叠）
-- [x] 打字机模式：光标锁屏中
-- [x] 全屏模式（F11）
-- [x] 专注模式：当前段落外内容降透明度（独立开关，可与全屏叠加）
-- [x] 阅读模式：无法编辑
 - [ ] Breadcrumbs 面包屑：编辑器顶部常驻「文件名 > 一级标题 > 二级标题」面包屑，点任一段跳转；常驻迷你大纲，比侧栏大纲更快、比命令面板 @ 模式少一次按键（需监听光标所在 heading）
 
 ### 窗口与全局体验
 
-- [x] 保持窗口最前
 - [ ] 系统托盘
 - [ ] 设置面板、工具栏重做
-- [x] 左侧功能栏可自定义（排序、隐藏）
-- [x] 编辑器多标签：单窗口内同时打开多个 .md，标签条横排，关闭脏盘弹 confirm；标签状态走 `documentStore` 多实例化（`documents: Map<id, DocState>` + `activeId`，`currentFilePath` / `content` / `lastSavedContent` 等下沉到 DocState）
-- [x] 标签持久化到 `velo-workspaces.json` 的 per-workspace `openTabs: string[]`，恢复工作区时重开上次的标签集
-- [x] 文件树↔标签联动：点击树节点优先复用已开标签，不重复打开；中键点击 = 新标签打开
-- [x] 标签拖拽重排
-- [x] 标签右键菜单（关闭其他 / 关闭右侧 / 复制路径等）
-- [x] 「文件」命令入口上移顶栏：原侧栏 FileActionsPanel 命令列表、原顶栏 RecentFilesButton、开发模式欢迎按钮统一合并到顶栏 Logo 右侧下拉按钮（图标 + 主菜单 + 最近文件右侧子菜单，视觉对齐右键菜单），ActivityBar 去掉「文件」tab
-- [x] App shell 重构：移除 Velo logo；ActivityBar 接顶；「文件」入口移到 ActivityBar 第一个位置 ~~调整：本次回滚为下方「顶栏布局回滚」条目，logo 段恢复，顶栏恢复全局形态，ActivityBar / 侧栏回到顶栏下方一格~~
-- [x] 顶栏布局修改全局 header 横跨整个窗口顶部（Velo logo 段 + TabBar + 右侧 dev 欢迎 + 窗口控制），logo 段固定 48px 不与侧栏宽度联动 —— 标签条起点位置稳定不随工作区 / 侧栏状态抖动；ActivityBar / 左侧功能区改回顶栏下方中间一格；FileMenuButton 仍由 ActivityBar 第一个按钮触发（`#trigger` slot 必须 `:ref="registerRef"` 否则菜单不渲染，见 ActivityBar.vue:87 / ActivityBar.test.ts 用例注释）
 
 ### 视觉与个性化
 
@@ -55,21 +47,12 @@
 
 ### 功能性
 
-- [x] 全局搜索增加替换功能、在文件夹中搜索功能
-- [x] 全局搜索文件可展开折叠
 - [ ] 功能更新弹窗（版本升级后首启展示 CHANGELOG 摘要）
 - [ ] Git 集成（侧栏显示 git status / commit / diff）
-  - [ ] 最近编辑位置时间线（JetBrains Ctrl+Shift+E 风格）：跨文件记光标位置而非文件，与 Git 集成一同实现
+- [ ] 最近编辑位置时间线（JetBrains Ctrl+Shift+E 风格）：跨文件记光标位置而非文件，与 Git 集成一同实现
 - [ ] 导出更多格式（DOCX / EPUB）
-- [ ] 资产面板（侧边栏第 3 个 tab）：扫描当前文档所有 `image` / `link` 节点，列出本地路径 + 外链分组；点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）；引用计数为 0 的本地资产标灰（孤儿候选）
-- [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
 - [ ] 书签
 - [ ] 导出 PDF 分页预览
-- [x] 命令面板按照 VSCode “多模式输入框”升级
-  - `>` 是命令模式
-  - 无前缀是文件模式
-  - @ 是符号
-  - : 是行号
 
 ### 双链
 
@@ -77,6 +60,7 @@
 
 **feat**
 
+- [ ] 链接资产面板：扫描当前文档所有 `link` 节点，列出本地路径 + 外链分组；点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）；引用计数为 0 的本地资产标灰（孤儿候选）
 - [ ] `[[wikilink]]` 语法：schema + remark 插件 + syntax/inline 注册 + NodeView（hover 显示目标文件预览，点击跳转）
 - [ ] 工作区索引：`workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新（依赖 v0.5.0 的工作区根 watch）
 - [ ] 损坏链接检测：索引时标记指向不存在文件的 `[[link]]`，编辑器内 decoration 标红 + 提示
@@ -88,6 +72,21 @@
 
 - [ ] `[[link]]` 语法 round-trip 测试（按新增语法 checklist 第 8 项）
 - [ ] 工作区索引增量更新逻辑单元测试（不走 PM，纯函数测试）
+
+### 资产面板工程级未引用
+
+把 v0.6.4 资产面板的孤儿判定从「本 markdown 没引用过」升级为「整个工作区没被任何 markdown 引用过」，避免用户误以为其他文档仍引用的图片是孤儿而误删。
+
+**feat**
+
+- [ ] [调研] 输出 `docs/Research/asset-panel-global-orphan.md`，对比 rust / JS 增量索引层方案，与 RESEARCH 知识图谱章节合并索引层讨论
+- [ ] 模块级索引缓存：维护 `Map<assetAbsPath, Set<absPathMd>>`，每次 markdown 文件保存 / fs.watch 触发时增量刷新该文件的引用集合
+- [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
+
+**test**
+
+- [ ] 工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）
+- [ ] 面板展示分组与徽标正确性测试（mount Sidebar + 注入缓存）
 
 ## 工程化
 
