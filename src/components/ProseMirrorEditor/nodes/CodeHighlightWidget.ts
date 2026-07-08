@@ -54,9 +54,10 @@ import {
 } from './CodeBlockLangs'
 import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
-import { checkSvg, chevronDownSvg, copySvg } from '@/components/icons/widgetIcons'
+import { checkSvg, chevronDownSvg, copySvg, wrapTextSvg, nowrapSvg } from '@/components/icons/widgetIcons'
 import { langIconSvg } from './langIcons'
 import { foldKey, isCodeBlockFolded } from './FoldDecoration'
+import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
 
 // ============================================================
 //  Plugin state
@@ -118,6 +119,8 @@ function makeHeaderDom(
   getCode: () => string,
   isFolded: boolean,
   toggleFold: () => void,
+  isWrapped: boolean,
+  toggleWrap: () => void,
   setLang: (lang: string) => void,
   focusCode: () => void,
 ): HTMLElement {
@@ -365,6 +368,27 @@ function makeHeaderDom(
   infoSpan.textContent = `${lineCount} 行`
   wrap.appendChild(infoSpan)
 
+  // 自动换行 toggle 按钮(wrap):点击切换 pre 的 white-space 模式。
+  // 与 fold/copy 按钮同款 mousedown preventDefault + stopPropagation +
+  // click stopPropagation(防 index.vue onCardClick 抣焦点)。
+  const wrapBtn = document.createElement('button')
+  wrapBtn.type = 'button'
+  wrapBtn.className = 'velo-code-wrap-btn'
+  wrapBtn.title = isWrapped ? '取消自动换行' : '自动换行'
+  wrapBtn.contentEditable = 'false'
+  wrapBtn.setAttribute('data-wrap-active', String(isWrapped))
+  wrapBtn.innerHTML = isWrapped ? wrapTextSvg(14) : nowrapSvg(14)
+  wrapBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  wrapBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    toggleWrap()
+  })
+  wrap.appendChild(wrapBtn)
+
   // 复制按钮 —— widget 内部直接 await,避免跨组件 async 时序问题
   const copyBtn = document.createElement('button')
   copyBtn.type = 'button'
@@ -537,6 +561,7 @@ function buildDecorations(
       ? state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
       : ''
     const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
+    const isWrapped = isCodeBlockWrapped(pos)
     // 祖先(heading / list_item)折叠把本 code_block 隐了:pre 已被
     // velo-folded display:none,但 header widget 是 pre 的 side:-1 sibling
     // (不在 pre 内部,velo-folded 影响不到),不跳过会孤零零浮在 fold 区段
@@ -546,7 +571,7 @@ function buildDecorations(
     // 范式)。**自身折叠(isFolded)不跳过**:header 是自身折叠的摘要
     // (行数 + 语言 + 复制),必须保留。
     if (!isFolded && isCodeBlockFolded(pos)) return
-    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}`
+    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}:${isWrapped}`
     decos.push(
       Decoration.widget(pos, (view, _getPos) => {
         return makeHeaderDom(
@@ -557,6 +582,11 @@ function buildDecorations(
           () => {
             if (!view || view.isDestroyed) return
             view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
+          },
+          isWrapped,
+          () => {
+            if (!view || view.isDestroyed) return
+            view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
           },
           (newLang: string) => {
             if (!view || view.isDestroyed) return

@@ -39,6 +39,7 @@ import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/mark
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
+import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
 import { foldDecoration, foldKey, collectFoldableKeys } from './nodes/FoldDecoration'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
@@ -305,6 +306,7 @@ const basePlugins: Plugin[] = [
   markSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   codeHighlightPlugin,
+  codeWrapPlugin,
   codeLineNumberPlugin,
   imageInlineViewPlugin,
   htmlNodeViewPlugin,

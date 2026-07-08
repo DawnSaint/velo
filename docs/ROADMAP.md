@@ -18,6 +18,7 @@
 ### 编辑器增强
 
 - [x] WYSIWYG code_block 行号（可选开关）
+- [x] code_block 自动换行（per-block wrap toggle）
 - [ ] 表格增强（行列增删的浮层操作 / 单元格对齐 / 整表格拖拽）
 - [x] ``` 语法增加语言选择下拉框
 - [x] 语言选择器增加语言图标

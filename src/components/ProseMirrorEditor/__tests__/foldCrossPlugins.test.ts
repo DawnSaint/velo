@@ -7,7 +7,7 @@
 // 用例抽到自己的文件,suite 短、状态干净,失败时不会被其他测试噪音掩盖。
 //
 // 关注:
-//  1. codeLineNumber × fold:折叠含 code_block 的 heading → gutter 不渲染;
+//  1. codeLineNumber × fold:折叠含 code_block 的 heading → 行号不渲染;
 //     展开 → 回来(对应 #23 时机修复)
 //  2. mermaid × fold:折叠含 mermaid 的 heading → mermaid widget 不渲染;
 //     展开 → 回来(对应 #25 跨插件集合同步)
@@ -68,14 +68,14 @@ describe('codeLineNumber × fold', () => {
     ].join('\n')
     const view = makeView(md, [foldDecoration, codeLineNumberPlugin])
     view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled: true }))
-    expect(view.dom.querySelector('.velo-code-gutter-widget')).not.toBeNull()
+    expect(view.dom.querySelector('.velo-code-lineno')).not.toBeNull()
 
     const contentStart = findHeadingContentStart(view, 'Section')
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
-    expect(view.dom.querySelector('.velo-code-gutter-widget')).toBeNull()
+    expect(view.dom.querySelector('.velo-code-lineno')).toBeNull()
 
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
-    expect(view.dom.querySelector('.velo-code-gutter-widget')).not.toBeNull()
+    expect(view.dom.querySelector('.velo-code-lineno')).not.toBeNull()
 
     view.destroy()
   })

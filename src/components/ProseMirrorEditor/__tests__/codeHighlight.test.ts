@@ -289,21 +289,23 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('11. header 始终可见(非 hover-gated),含 fold + lang input + copy 三部分', async () => {
+  it('11. header 始终可见(非 hover-gated),含 fold + lang input + wrap + copy', async () => {
     // header 取代旧 hover-gated toolbar,始终可见。
-    // 验证结构正确:fold chevron + lang input wrap + fold-info + copy。
+    // 验证结构正确:fold chevron + lang input wrap + fold-info + wrap + copy。
     const view = makeView('```js\nx\n```')
     await flushHighlighter()
     const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
     const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
     const langInputWrap = view.dom.querySelector('.velo-code-lang-input-wrap') as HTMLElement | null
+    const wrapBtn = view.dom.querySelector('.velo-code-wrap-btn') as HTMLElement | null
     const copyBtn = view.dom.querySelector('.velo-code-copy-btn') as HTMLElement | null
     expect(header).not.toBeNull()
     expect(foldBtn).not.toBeNull()
     expect(langInputWrap).not.toBeNull()
+    expect(wrapBtn).not.toBeNull()
     expect(copyBtn).not.toBeNull()
-    // header 内有 fold + lang-input-wrap + fold-info + copy 四个子节点
-    expect(header!.children.length).toBe(4)
+    // header 内有 fold + lang-input-wrap + fold-info + wrap + copy 五个子节点
+    expect(header!.children.length).toBe(5)
     // 按钮有 type='button'(防止 ProseMirror 把它当 form submit 截走)
     expect((foldBtn as HTMLButtonElement).type).toBe('button')
     expect((copyBtn as HTMLButtonElement).type).toBe('button')

@@ -26,6 +26,18 @@ const CODE_XML_INNER
   = '<path d="m18 16 4-4-4-4" />'
   + '<path d="m6 8-4 4 4 4" />'
   + '<path d="m14.5 4-5 16" />'
+// wrap-text:lucide 标准 path(横线 + 弯曲箭头,表示自动换行)
+const WRAP_TEXT_INNER
+  = '<line x1="3" y1="6" x2="21" y2="6" />'
+  + '<path d="M3 12h15a3 3 0 0 1 0 6h-4" />'
+  + '<polyline points="16 16 14 18 16 20" />'
+  + '<line x1="3" y1="18" x2="10" y2="18" />'
+// nowrap:横线 + 右箭头,表示文本向右溢出不换行(与 wrap-text 对仗)
+const NOWRAP_INNER
+  = '<line x1="3" y1="6" x2="21" y2="6" />'
+  + '<line x1="3" y1="12" x2="18" y2="12" />'
+  + '<polyline points="15 9 18 12 15 15" />'
+  + '<line x1="3" y1="18" x2="21" y2="18" />'
 // Trash2:lucide 标准 path(lid + body 合并,line 表中间两条竖线)
 const TRASH_INNER
   = '<polyline points="3 6 5 6 21 6" />'
@@ -52,3 +64,9 @@ export const trashSvg = (size: number): string => makeSvg(TRASH_INNER, size)
 
 /** code-xml 图标(图片源码编辑按钮)。 */
 export const codeXmlSvg = (size: number): string => makeSvg(CODE_XML_INNER, size)
+
+/** 自动换行图标(代码块 wrap toggle 按钮,wrap 开启态)。 */
+export const wrapTextSvg = (size: number): string => makeSvg(WRAP_TEXT_INNER, size)
+
+/** 不换行图标(代码块 wrap toggle 按钮,wrap 关闭态:横线 + 右箭头表示溢出)。 */
+export const nowrapSvg = (size: number): string => makeSvg(NOWRAP_INNER, size)
