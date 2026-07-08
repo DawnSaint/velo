@@ -32,7 +32,7 @@ import FindReplace from '@/components/ProseMirrorEditor/findreplace/FindReplace.
 import { createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { cmFindHighlightField } from '@/components/ProseMirrorEditor/findreplace/cmFindHighlight'
 import { cmLineHighlightField, cmLineHighlightDeco } from '@/components/ProseMirrorEditor/findreplace/cmLineHighlight'
-import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl } from '@/components/ProseMirrorEditor/image/treeDrop'
+import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl, parseAssetImageMime } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { saveImageAsset } from '@/utils/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
 
@@ -206,6 +206,20 @@ async function insertImageFromOsFile(view: EditorView, file: File): Promise<void
 const forbidFileDropPaste = EditorView.domEventHandlers({
   drop(event: DragEvent) {
     const dt = event.dataTransfer
+
+    // 资产面板拖入:图片已在磁盘上 / 是外链 URL,直接插 ![](src) markdown 文本,不落盘。
+    const assetData = parseAssetImageMime(dt)
+    if (assetData) {
+      event.preventDefault()
+      const view = viewRef.value
+      if (!view) return true
+      const md = `![${escapeMdAlt(assetData.alt)}](${escapeMdUrl(assetData.src)})\n`
+      view.dispatch(view.state.changeByRange((range) => ({
+        changes: { from: range.from, to: range.to, insert: md },
+        range: EditorSelection.cursor(range.from + md.length),
+      })))
+      return true
+    }
 
     // 文件树拖入优先接管
     if (dt?.types && Array.from(dt.types).includes('application/x-velo-tree-path')) {

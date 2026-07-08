@@ -27,6 +27,7 @@ import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/image
 import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
 import { writeClipboardText } from '@/utils/clipboard'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { ASSET_IMAGE_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { basename as basenameSync } from './treeUtils'
 import AssetContextMenu from './AssetContextMenu.vue'
 
@@ -157,9 +158,9 @@ function makeLabel(src: string): string {
 /** 全部图片条目(本地 + 外链),按文档出现顺序 */
 const allImages = computed<ImageEntry[]>(() => {
   const raw = scanMarkdownImages(props.modelValue)
-  // 按 src 统计 occurrence
+  // 按 src 统计 occurrence + 总数(用于判断是否需要显示序号)
   const srcCount = new Map<string, number>()
-  return raw.map((img) => {
+  const entries = raw.map((img) => {
     const occ = srcCount.get(img.src) ?? 0
     srcCount.set(img.src, occ + 1)
     const { displayUrl, absPath } = resolveDisplayUrl(img.src, props.filePath)
@@ -173,6 +174,13 @@ const allImages = computed<ImageEntry[]>(() => {
       label: makeLabel(img.src),
     }
   })
+  // 同 src 出现多次时,给 label 追加 #N(1-based)序号
+  for (const e of entries) {
+    if ((srcCount.get(e.src) ?? 0) > 1) {
+      e.label = `${e.label} #${e.occurrence + 1}`
+    }
+  }
+  return entries
 })
 
 const localImages = computed(() => allImages.value.filter((e) => e.absPath !== null))
@@ -511,6 +519,26 @@ const brokenThumbs = ref(new Set<string>())
 function onThumbError(src: string) {
   brokenThumbs.value.add(src)
 }
+
+// ============================================================
+//  拖拽源:图片条目 → 编辑器
+// ============================================================
+
+/** 孤儿图片的 markdown src:孤儿扫描自 <docDir>/assets/,相对路径即 assets/<fileName>。
+ *  无 filePath(理论不会出现,孤儿扫描需 filePath)时回退绝对路径。 */
+function orphanToSrc(orphan: OrphanEntry): string {
+  return props.filePath ? `assets/${orphan.fileName}` : orphan.absPath
+}
+
+/** 把图片条目拖到编辑器:写入 ASSET_IMAGE_MIME(JSON { src, alt }),编辑器侧
+ *  直接插 image 节点 / markdown 文本,不落盘(图片已在磁盘上 / 是外链 URL)。
+ *  不写 text/plain —— 防止 drop 未被接管时 PM 把 src 串当文本插入。 */
+function onAssetDragStart(event: DragEvent, src: string, alt: string) {
+  if (!event.dataTransfer) return
+  closeContextMenu()
+  event.dataTransfer.setData(ASSET_IMAGE_MIME, JSON.stringify({ src, alt }))
+  event.dataTransfer.effectAllowed = 'copy'
+}
 </script>
 
 <template>
@@ -552,10 +580,12 @@ function onThumbError(src: string) {
                 v-for="img in localImages"
                 :key="`local-${img.occurrence}-${img.src}`"
                 type="button"
+                draggable="true"
                 :class="['asset-item', { 'asset-item--selected': selectedAbsPath === img.absPath }]"
                 :title="img.src + (img.alt ? ` — ${img.alt}` : '')"
                 @click="onImageClick(img)"
                 @contextmenu.prevent="onContextMenu($event, img.absPath!, img.src)"
+                @dragstart="onAssetDragStart($event, img.src, img.alt)"
               >
                 <div class="asset-item__thumb">
                   <img
@@ -585,9 +615,11 @@ function onThumbError(src: string) {
                 v-for="img in externalImages"
                 :key="`ext-${img.occurrence}-${img.src}`"
                 type="button"
+                draggable="true"
                 class="asset-item"
                 :title="img.src + (img.alt ? ` — ${img.alt}` : '')"
                 @click="onImageClick(img)"
+                @dragstart="onAssetDragStart($event, img.src, img.alt)"
               >
                 <div class="asset-item__thumb">
                   <img
@@ -629,9 +661,11 @@ function onThumbError(src: string) {
             <div
               v-for="orphan in orphans"
               :key="orphan.absPath"
+              draggable="true"
               :class="['asset-item', { 'asset-item--selected': selectedAbsPath === orphan.absPath }]"
               :title="orphan.fileName"
               @contextmenu.prevent="onContextMenu($event, orphan.absPath, null)"
+              @dragstart="onAssetDragStart($event, orphanToSrc(orphan), orphan.fileName)"
             >
               <div class="asset-item__thumb">
                 <img

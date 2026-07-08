@@ -1,16 +1,20 @@
-// 文件树 → 编辑器的拖拽:把"从 velo 文件树拖一行进编辑器"这件事抽成共享逻辑,
+// 内部拖拽 → 编辑器的共享逻辑:把"从 velo 内部拖一行进编辑器"抽成共享接口,
 // 让富文本(imageUploadPlugin)与源码模式(SourceModeEditor)走同一条决策路径。
 //
-// 两种来源、一种信号:
+// 两种内部来源:
 //  - 树拖:FileTree.vue onRowDragStart 把 fullPath 写进 application/x-velo-tree-path
 //    (自定义 MIME,避免与 OS 拖文件进来的 text/uri-list 混淆)。
+//  - 资产面板拖:AssetPanel.vue onAssetDragStart 把 { src, alt } JSON 写进
+//    application/x-velo-asset-image(图片已在磁盘上,不需落盘,直接插图)。
 //  - OS 拖:走原生 dataTransfer.files(imageUploadPlugin 的 Files 通道)。
 //
-// 决策(树路径非空时):
+// 树拖决策(树路径非空时):
 //  - .md/.markdown/.mdown:打开文件 —— confirmDiscardIfDirty 通过后 openPath + setLastFile
 //  - 图片扩展名:落盘(saveImageAssetFromPath)→ 走回调插图
 //    (富文本插 image 节点;源码模式插 ![](src) markdown 文本)
 //  - 其它:忽略(return false 让默认/后续处理器接管)
+//
+// 资产面板拖决策:直接用携带的 src + alt 插图,不落盘(图片已在磁盘上 / 是外链 URL)。
 //
 // 落盘复用 imageStorage.saveImageAssetFromPath —— 它从磁盘路径造 File 再走
 // saveImageAsset 的同一套(去重 + resolveImagePath),与粘贴/OS 拖图完全一致。
@@ -30,6 +34,32 @@ export const TREE_PATH_MIME = 'application/x-velo-tree-path'
 /** 文件树 → 文件树内部:目录拖拽的独立 MIME。编辑器侧不识别此 MIME,故目录
  *  无法拖入编辑器(预期行为);FileTree 内部 drop 同时接受两种 MIME 走 rename。 */
 export const TREE_DIR_PATH_MIME = 'application/x-velo-tree-dir-path'
+
+/** 资产面板 → 编辑器:图片条目拖拽的自定义 MIME。
+ *  与 TREE_PATH_MIME 不同——资产面板的图片已在磁盘上(本地图片)或是外链 URL,
+ *  不需要落盘,只需直接插入 image 节点 / markdown 文本。
+ *  数据为 JSON 字符串 `{ src: string, alt: string }`。 */
+export const ASSET_IMAGE_MIME = 'application/x-velo-asset-image'
+
+export interface AssetImageData {
+  src: string
+  alt: string
+}
+
+/** 从 dataTransfer 解析资产面板图片拖拽数据。非资产面板拖拽返回 null。 */
+export function parseAssetImageMime(dt: DataTransfer | null | undefined): AssetImageData | null {
+  if (!dt?.types || !Array.from(dt.types).includes(ASSET_IMAGE_MIME)) return null
+  try {
+    const raw = dt.getData(ASSET_IMAGE_MIME)
+    if (!raw) return null
+    const data = JSON.parse(raw)
+    if (typeof data?.src !== 'string') return null
+    return { src: data.src, alt: typeof data.alt === 'string' ? data.alt : '' }
+  }
+  catch {
+    return null
+  }
+}
 
 /**
  * 从 FileList 里挑第一个 image/* 文件;没有返回 null。

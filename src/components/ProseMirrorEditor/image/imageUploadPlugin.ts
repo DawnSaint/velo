@@ -19,7 +19,7 @@ import { Plugin } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { saveImageAsset } from '@/utils/imageStorage'
 import { useDocumentStore } from '@/stores/document'
-import { handleTreePathDrop, pickImageFile } from './treeDrop'
+import { handleTreePathDrop, pickImageFile, parseAssetImageMime } from './treeDrop'
 
 /** 异步保存 + 插入。 */
 async function saveAndInsert(view: EditorView, file: File, dropPos: number | null): Promise<void> {
@@ -79,11 +79,21 @@ export const imageUploadPlugin = new Plugin({
     handleDOMEvents: {
       drop: (view, event) => {
         const dt = (event as DragEvent).dataTransfer
+        const dragEvent = event as DragEvent
 
-        // 优先:文件树拖入(.md 打开 / 图片落盘插图)。它走自定义 MIME,与 OS 拖
+        // 资产面板拖入:图片已在磁盘上 / 是外链 URL,直接插 image 节点,不落盘。
+        // 优先于树拖 / OS 拖检查 —— 三种来源互斥(各自独立 MIME),顺序不影响正确性。
+        const assetData = parseAssetImageMime(dt)
+        if (assetData) {
+          event.preventDefault()
+          const dropPos = view.posAtCoords({ left: dragEvent.clientX, top: dragEvent.clientY })?.pos ?? null
+          insertImageNode(view, assetData.src, assetData.alt, dropPos)
+          return true
+        }
+
+        // 文件树拖入(.md 打开 / 图片落盘插图)。它走自定义 MIME,与 OS 拖
         // 文件的 Files 通道互斥(树拖不携带 File 对象,只写文本型 MIME)。
         // 先于 Files 检查,避免树拖的 text/plain 被当成普通文本 drop 处理。
-        const dragEvent = event as DragEvent
         if (dt?.types && Array.from(dt.types).includes('application/x-velo-tree-path')) {
           const dropPos = view.posAtCoords({ left: dragEvent.clientX, top: dragEvent.clientY })?.pos ?? null
           // 不 await:ProseMirror 的 handleDOMEvents 是同步返回;落盘/打开异步进行,
