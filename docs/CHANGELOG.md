@@ -11,8 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-07-08
+
 ### Added
-- **代码块语言选择器增加语言图标**：语言浮层列表每项左侧、工具栏语言按钮均显示单色语言图标（本地维护的 SVG 图标集，主要是 Nonicons 开源图标库 + 单色定制图标，currentColor 单色风格与 `@lucide/vue` 等其他 UI 图标协调，离线打包无运行时网络请求，所有 32 种语言均有独立图标，无 fallback）；图标以构建期静态 map 形式打包，不引入图标运行时库。
+- **代码块语言图标**：语言选择器列表每项与 header 语言输入框均显示单色品牌语言图标，覆盖所有 32 种语言，无 fallback。
+- **``` 语言选择下拉框**：在段落中键入 ``` + 语言前缀时浮出模糊匹配下拉，上下键导航选择后一次性转成 code_block。
+- **代码块折叠**：code_block 接入块级折叠，header 内 chevron 触发折叠 / 展开。
+- **代码块自动换行**：per-block wrap toggle，默认开启，header 内按钮切换换行开关。
+
+### Changed
+- **代码块工具条改为常驻 header 标题栏**：原悬浮式 hover 工具条改为正常文档流的常驻标题栏（折叠 chevron + 语言输入框 + 换行开关 + 复制按钮），始终可见，与 pre 共享边框 / 背景；语言选择从按钮 + 浮层改为 header 内嵌输入框 + 下拉。
+
+### Removed
+- 移除 isMacCodeBlock（红黄绿圆点）设置。
+
+### Fixed
+- 修复语言别名（js/py/md 等）和大小写变体（Python）显示 fallback 图标的问题。
+- 修复 react 非 shiki 合法语言 id 导致代码高亮崩溃、整篇代码块高亮降级为默认色的问题。
+- 修复非 canonical 文件切窗口后误报外部修改的问题。
 
 ## [0.6.2] — 2026-07-06
 

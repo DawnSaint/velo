@@ -297,6 +297,12 @@ export const useDocumentStore = defineStore('document', () => {
       const canonicalDisk = toMarkdown(fromMarkdown(disk, pmSchema))
       if (canonicalDisk === d.lastSavedContent) return
       // 磁盘内容已经和编辑器里的一致（比如别人重写为同样内容）：只刷新基线
+      // raw match（disk 与 content 字节相等）或 canonical match（disk 非 canonical
+      // 但 canonicalize 后与 canonical content 一致）
+      if (disk === d.content) {
+        d.lastSavedContent = disk
+        return
+      }
       if (canonicalDisk === d.content) {
         d.lastSavedContent = canonicalDisk
         return

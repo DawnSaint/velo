@@ -190,12 +190,12 @@ describe('document store', () => {
     // 和 canonical lastSavedContent 比 → 不等 → 误判"外部修改"。
     // 修法:checkExternalChange 在 exact match 失败后,把 disk 也 canonicalize 再比。
     it('非 canonical 磁盘文件:编辑后切窗口 focus 不误报外部修改', async () => {
-      // 磁盘原文有多余空行,canonical 形式会折叠
-      const rawDisk = 'hello\n\n\n\n\n'
+      // 磁盘原文用 CRLF 行尾,canonical 形式(LF)与 raw 不字节相等
+      const rawDisk = 'hello\r\n'
       const store = await setupOpenedFile(rawDisk, '/p.md')
       // load 后 content/lastSavedContent 都是 canonical(rawDisk 经 round-trip)
       expect(store.dirty).toBe(false)
-      // canonical 与 raw 不字节相等(多余空行被折叠)
+      // canonical(LF)与 raw(CRLF)不字节相等
       expect(store.content).not.toBe(rawDisk)
 
       // 用户编辑

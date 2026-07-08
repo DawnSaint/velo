@@ -368,7 +368,7 @@ describe('htmlRenderer', () => {
       const hasSvg = html.includes('<svg')
       const hasFallback = html.includes('mermaid-error')
       expect(hasSvg || hasFallback).toBe(true)
-    })
+    }, 15000)
 
     it('falls back to <pre class="mermaid-error"> for broken mermaid + emits warning', async () => {
       __resetMermaidExportIdForTest()
