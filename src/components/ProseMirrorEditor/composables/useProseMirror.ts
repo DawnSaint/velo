@@ -139,6 +139,8 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
         view.updateState(next)
         // SKIP_CONTENT_EMIT:进入编辑态这类瞬时结构变更(image→源码文本)不应
         // 触发内容回写 —— 详见 editor/transactionMeta.ts。选区回调照常走。
+        // 源码编辑 session 活跃时的转义补偿由 EditorInner.vue 的 onChange 自行处理
+        // (用占位符绕过 toMarkdown 对源码文本的转义),此处不再拦截。
         if (tr.docChanged && opts.onChange && !tr.getMeta(SKIP_CONTENT_EMIT)) {
           opts.onChange(next.doc, tr)
         }

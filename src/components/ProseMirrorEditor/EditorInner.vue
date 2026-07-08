@@ -53,6 +53,7 @@ import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
+import { getSourceEditRanges } from './editor/sourceEditSession'
 // katex.min.css 不再静态 import —— katex 包整体懒加载(见 MathNodeViews.ts
 // 的 getKatex),CSS 也跟着第一次 render 时动态 import,避免首屏加载 ~80KB CSS。
 
@@ -500,7 +501,31 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
   plugins: allPlugins,
   editable: !props.readOnly,
   onChange: (doc) => {
-    const md = toMarkdown(doc)
+    const view = getView()
+    const ranges = view ? getSourceEditRanges(view.state) : []
+    let md: string
+    if (ranges.length > 0) {
+      // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
+      // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
+      // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
+      const schema_ = doc.type.schema
+      let tr = view!.state.tr
+      const restores: { placeholder: string; original: string }[] = []
+      for (let i = ranges.length - 1; i >= 0; i--) {
+        const { from, to } = ranges[i]
+        const original = doc.textBetween(from, to, '\n', '\n')
+        if (!original) continue
+        const placeholder = `veloRaw${i}Placeholder`
+        tr = tr.replaceWith(from, to, schema_.text(placeholder))
+        restores.unshift({ placeholder, original })
+      }
+      md = toMarkdown(tr.doc)
+      for (const { placeholder, original } of restores) {
+        md = md.replace(placeholder, original)
+      }
+    } else {
+      md = toMarkdown(doc)
+    }
     lastSelfEmitted = md
     emit('update:modelValue', md)
     // state 缓存走 onSelectionChange(它覆盖 docChanged + selectionSet,更全)

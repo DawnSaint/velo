@@ -38,6 +38,8 @@ const emit = defineEmits<{
   'search-in-folder': [string]
   /** 资产面板:点击图片条目 → 定位到编辑器中对应 image 节点 */
   'locate-image': [src: string, occurrence: number]
+  /** 资产面板:复制/移动图片到工作区 assets/<docName>/ → 重写编辑器内引用路径 */
+  'reorganize-asset': [payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }]
 }>()
 
 const workspace = useWorkspaceStore()
@@ -82,6 +84,10 @@ function onFileTreeSearchInFolder(dirPath: string) {
 function onLocateImage(src: string, occurrence: number) {
   emit('locate-image', src, occurrence)
 }
+
+function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }) {
+  emit('reorganize-asset', payload)
+}
 </script>
 
 <template>
@@ -106,6 +112,7 @@ function onLocateImage(src: string, occurrence: number) {
         :model-value="modelValue"
         :file-path="filePath"
         @locate-image="onLocateImage"
+        @reorganize-asset="onReorganizeAsset"
       />
       <WorkspaceSearchPanel
         v-else

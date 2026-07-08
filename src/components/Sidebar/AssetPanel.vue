@@ -8,17 +8,27 @@
 //    扩展名过滤:8 种标准图片 + 'bin'(当前版本 paste 兜底) + '(null)'(旧版字面量)
 //    src 归一化:scanMarkdownImages 正则提取后走 unescapeMdUrl 剥转义反斜杠,
 //    避免与孤儿磁盘路径(无转义)比对时误判为未引用
+//  - 右键本地图片/孤儿条目 → 复制/移动到工作区 assets/<docName>/,编辑器引用路径同步重写
 //
 // 扫描走 markdown 字符串正则(非 PM doc),因为 Sidebar 不可达 PM view;
 // 点击定位时 App.vue 负责在 PM doc 里按 src + occurrence 匹配节点。
 //
 // 未被引用图片扫描走 Tauri fs.readDir,dev web 端降级为只显示文档图片。
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Image as ImageIcon, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { readDir, tauriOnly } from '@/tauri/fs'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
+import { Image as TauriImage } from '@tauri-apps/api/image'
+import { readDir, readFile, remove, copyFile, tauriOnly } from '@/tauri/fs'
+import { save as dialogSave, confirm as dialogConfirm, message as dialogMessage } from '@/tauri/dialog'
 import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/imagePath'
+import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
+import { writeClipboardText } from '@/utils/clipboard'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { basename as basenameSync } from './treeUtils'
+import AssetContextMenu from './AssetContextMenu.vue'
 
 const props = defineProps<{
   modelValue: string
@@ -27,7 +37,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'locate-image': [src: string, occurrence: number]
+  'reorganize-asset': [payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }]
 }>()
+
+const workspaceStore = useWorkspaceStore()
 
 // ============================================================
 //  类型
@@ -252,6 +265,13 @@ watch(
 
 onMounted(() => {
   void scanOrphans()
+  document.addEventListener('pointerdown', onGlobalPointerDown, true)
+  document.addEventListener('keydown', onGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
+  document.removeEventListener('keydown', onGlobalKeydown)
 })
 
 // ============================================================
@@ -267,6 +287,219 @@ const unreferencedCollapsed = ref(false)
 
 function onImageClick(entry: ImageEntry) {
   emit('locate-image', entry.src, entry.occurrence)
+}
+
+// ============================================================
+//  右键菜单
+// ============================================================
+
+interface ContextMenuState {
+  x: number
+  y: number
+  absPath: string
+  /** 文档图片的 src（用于路径重写 / 复制相对路径）；孤儿为 null */
+  src: string | null
+}
+
+const contextMenu = ref<ContextMenuState | null>(null)
+const contextMenuRef = ref<InstanceType<typeof AssetContextMenu> | null>(null)
+
+const isTauri = tauriOnly()
+
+/** 是否允许"复制/移动到工作区"：需 Tauri + 有工作区 + 有 filePath + 文档在工作区内 */
+const canReorganize = computed(() => {
+  return isTauri
+    && !!workspaceStore.activeRoot
+    && !!props.filePath
+    && isPathInRoot(props.filePath, workspaceStore.activeRoot)
+})
+
+const contextMenuDocName = computed(() => {
+  return props.filePath ? docNameFromPath(props.filePath) : ''
+})
+
+function onContextMenu(event: MouseEvent, absPath: string, src: string | null) {
+  const MENU_W = 220
+  const MENU_H = 340
+  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
+  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
+  contextMenu.value = { x, y, absPath, src }
+}
+
+/** 当前右键选中的资产绝对路径，用于高亮选中态 */
+const selectedAbsPath = computed(() => contextMenu.value?.absPath ?? null)
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+// ========== 剪贴板操作 ==========
+
+async function onCopyImage() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  try {
+    const bytes = await readFile(absPath)
+    // writeImage 直接传 raw bytes 会被 Rust 当作 RGBA 像素数据，报
+    // "expected RGBA image data, found raw bytes"。需要先用 canvas 解码
+    // 图片文件为 RGBA 像素，再构造 Tauri Image 对象传给 writeImage。
+    const blob = new Blob([bytes])
+    const bitmap = await createImageBitmap(blob)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    const img = await TauriImage.new(
+      new Uint8Array(imageData.data.buffer),
+      canvas.width,
+      canvas.height,
+    )
+    await writeImage(img)
+  }
+  catch (e) {
+    console.error('复制图片失败', e)
+  }
+}
+
+async function onCopyPath() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  await writeClipboardText(absPath)
+}
+
+async function onCopyRelativePath() {
+  if (!contextMenu.value || !props.filePath) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  const docDir = dirnameSync(props.filePath)
+  const normalizedDocDir = docDir.replace(/\\/g, '/')
+  const normalizedAbs = absPath.replace(/\\/g, '/')
+  if (normalizedAbs.startsWith(normalizedDocDir + '/')) {
+    await writeClipboardText(normalizedAbs.slice(normalizedDocDir.length + 1))
+  } else {
+    await writeClipboardText(absPath)
+  }
+}
+
+// ========== 重新组织到工作区 ==========
+
+async function onCopyToWorkspace() {
+  if (!contextMenu.value || !workspaceStore.activeRoot || !props.filePath) return
+  const { absPath, src } = contextMenu.value
+  closeContextMenu()
+  try {
+    const result = await reorganizeAsset({
+      sourceAbsPath: absPath,
+      currentFilePath: props.filePath,
+      workspaceRoot: workspaceStore.activeRoot,
+      mode: 'copy',
+    })
+    if (src !== null && result.moved) {
+      emit('reorganize-asset', { oldAbsPath: absPath, newSrc: result.newSrc, mode: 'copy' })
+    }
+    scheduleOrphanScan()
+  }
+  catch (e) {
+    console.error('复制资产失败', e)
+  }
+}
+
+async function onMoveToWorkspace() {
+  if (!contextMenu.value || !workspaceStore.activeRoot || !props.filePath) return
+  const { absPath, src } = contextMenu.value
+  closeContextMenu()
+  try {
+    const result = await reorganizeAsset({
+      sourceAbsPath: absPath,
+      currentFilePath: props.filePath,
+      workspaceRoot: workspaceStore.activeRoot,
+      mode: 'move',
+    })
+    if (src !== null && result.moved) {
+      emit('reorganize-asset', { oldAbsPath: absPath, newSrc: result.newSrc, mode: 'move' })
+    }
+    scheduleOrphanScan()
+  }
+  catch (e) {
+    console.error('移动资产失败', e)
+  }
+}
+
+// ========== 另存为 ==========
+
+async function onSaveAs() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  const fileName = basenameSync(absPath)
+  try {
+    const targetPath = await dialogSave({ defaultPath: fileName })
+    if (!targetPath) return
+    await copyFile(absPath, targetPath)
+  }
+  catch (e) {
+    console.error('另存为失败', e)
+  }
+}
+
+// ========== 删除 ==========
+
+async function onDelete() {
+  if (!contextMenu.value) return
+  const { absPath, src } = contextMenu.value
+  const fileName = basenameSync(absPath)
+  closeContextMenu()
+  const ok = await dialogConfirm(`确定要删除「${fileName}」吗？`, { title: '确认删除', kind: 'warning' })
+  if (!ok) return
+  try {
+    await remove(absPath)
+    // 如果是文档引用的图片，通知 App.vue 从 PM doc 中移除对应 image 节点
+    if (src !== null) {
+      emit('reorganize-asset', { oldAbsPath: absPath, newSrc: '', mode: 'move' })
+    }
+    scheduleOrphanScan()
+  }
+  catch (e) {
+    await dialogMessage(`删除失败:${e instanceof Error ? e.message : String(e)}`, { title: '删除失败', kind: 'error' })
+  }
+}
+
+// ========== 在资源管理器中显示 ==========
+
+async function onReveal() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  try {
+    await revealItemInDir(absPath)
+  }
+  catch (e) {
+    console.error('在资源管理器中显示失败', e)
+  }
+}
+
+// ============================================================
+//  全局点击 / 键盘 → 关闭菜单
+// ============================================================
+
+function onGlobalPointerDown(event: PointerEvent) {
+  if (!contextMenu.value) return
+  const target = event.target as Node | null
+  if (!target) return
+  const menuEl = contextMenuRef.value?.rootEl ?? null
+  if (menuEl && (menuEl === target || menuEl.contains(target))) return
+  closeContextMenu()
+}
+
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && contextMenu.value) {
+    closeContextMenu()
+  }
 }
 
 // ============================================================
@@ -319,9 +552,10 @@ function onThumbError(src: string) {
                 v-for="img in localImages"
                 :key="`local-${img.occurrence}-${img.src}`"
                 type="button"
-                class="asset-item"
+                :class="['asset-item', { 'asset-item--selected': selectedAbsPath === img.absPath }]"
                 :title="img.src + (img.alt ? ` — ${img.alt}` : '')"
                 @click="onImageClick(img)"
+                @contextmenu.prevent="onContextMenu($event, img.absPath!, img.src)"
               >
                 <div class="asset-item__thumb">
                   <img
@@ -391,12 +625,13 @@ function onThumbError(src: string) {
             <span>未被引用的图片文件</span>
             <span class="asset-section__count">{{ orphans.length }}</span>
           </button>
-          <template v-if="!unreferencedCollapsed">
+          <div v-if="!unreferencedCollapsed" class="asset-subgroup">
             <div
               v-for="orphan in orphans"
               :key="orphan.absPath"
-              class="asset-item"
+              :class="['asset-item', { 'asset-item--selected': selectedAbsPath === orphan.absPath }]"
               :title="orphan.fileName"
+              @contextmenu.prevent="onContextMenu($event, orphan.absPath, null)"
             >
               <div class="asset-item__thumb">
                 <img
@@ -413,7 +648,7 @@ function onThumbError(src: string) {
                 <span class="asset-item__name">{{ orphan.fileName }}</span>
               </div>
             </div>
-          </template>
+          </div>
         </div>
 
         <!-- 未被引用图片扫描中 -->
@@ -422,6 +657,25 @@ function onThumbError(src: string) {
         </div>
       </template>
     </div>
+    <!-- 右键上下文菜单 -->
+    <AssetContextMenu
+      v-if="contextMenu"
+      ref="contextMenuRef"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :can-reorganize="canReorganize"
+      :doc-name="contextMenuDocName"
+      :is-tauri="isTauri"
+      :has-src="!!props.filePath"
+      @copy-image="onCopyImage"
+      @copy-path="onCopyPath"
+      @copy-relative-path="onCopyRelativePath"
+      @copy-to-workspace="onCopyToWorkspace"
+      @move-to-workspace="onMoveToWorkspace"
+      @save-as="onSaveAs"
+      @delete="onDelete"
+      @reveal="onReveal"
+    />
   </div>
 </template>
 
@@ -519,6 +773,18 @@ function onThumbError(src: string) {
 .dark .asset-item:hover {
   background: rgb(31 41 55 / 0.5); /* gray-800/50 */
 }
+
+/* 右键选中态：复用 hover 底色 + 字体加粗，与 hover 区分靠 font-weight */
+.asset-item.asset-item--selected,
+.asset-item.asset-item--selected:hover {
+  background: rgb(243 244 246); /* gray-100 */
+}
+
+.dark .asset-item.asset-item--selected,
+.dark .asset-item.asset-item--selected:hover {
+  background: rgb(31 41 55 / 0.5); /* gray-800/50 */
+}
+
 
 .asset-item__thumb {
   display: flex;

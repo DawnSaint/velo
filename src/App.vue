@@ -48,6 +48,7 @@ import {
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
 import { NodeSelection } from 'prosemirror-state'
+import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
 import veloLogo from '@/assets/Velo.png'
@@ -965,6 +966,49 @@ function onLocateImage(src: string, occurrence: number) {
   view.focus()
 }
 
+/** 资产面板:复制/移动图片到工作区 assets/<docName>/ 后,重写 PM doc 中
+ *  所有引用该图片的 image 节点 src。setNodeMarkup 不改变文档大小,pos 无偏移。
+ *  newSrc 为空串时表示图片被删除 → delete 对应 image 节点(倒序删防 pos 偏移)。
+ *  事务触发正常 onChange → documentStore.content 更新 → autosave。
+ *  源码模式下无 PM view,静默跳过(文件操作已完成,切回 WYSIWYG 后 src 仍是旧的,
+ *  属于已知限制 —— 与 locate-image 同款策略)。 */
+function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }) {
+  const view = editorRef.value?.getEditorView()
+  if (!view || view.isDestroyed) return
+  const { oldAbsPath, newSrc } = payload
+  const currentFilePath = documentStore.currentFilePath
+
+  const matches: { pos: number; nodeSize: number }[] = []
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'image') {
+      const nodeAbsPath = resolveImageAssetAbsPath(node.attrs.src as string, currentFilePath)
+      if (nodeAbsPath.replace(/\\/g, '/') === oldAbsPath.replace(/\\/g, '/')) {
+        matches.push({ pos, nodeSize: node.nodeSize })
+      }
+    }
+    return true
+  })
+
+  if (matches.length === 0) return
+
+  const tr = view.state.tr
+  if (newSrc === '') {
+    // 删除：倒序 delete 防 pos 偏移
+    for (let i = matches.length - 1; i >= 0; i--) {
+      tr.delete(matches[i].pos, matches[i].pos + matches[i].nodeSize)
+    }
+  } else {
+    // 重写 src：setNodeMarkup 不改变文档大小，pos 无偏移
+    for (const { pos } of matches) {
+      const node = tr.doc.nodeAt(pos)
+      if (node) {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: newSrc })
+      }
+    }
+  }
+  view.dispatch(tr)
+}
+
 /** TabBar 标签右键菜单「在文件树中显示」:切到 files tab + 展开到该文件 +
  * 短暂蓝高亮。TabBar 不持有 sidebarRef,emit 上来由 App.vue 拼装。 */
 function revealFileInTree(filePath: string) {
@@ -1880,8 +1924,9 @@ watch(editorRef, (v) => {
               @workspace-search-clear-scope="onWorkspaceSearchClearScope"
               @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
               @search-in-folder="onSearchInFolder"
-              @locate-image="onLocateImage"
-            />
+@locate-image="onLocateImage"
+@reorganize-asset="onReorganizeAsset"
+/>
           </KeepAlive>
           <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>

@@ -12,9 +12,9 @@
 
 **feat**
 
-- [ ] 图片资产面板（侧边栏新增 tab）：扫描当前文档所有 `image` 节点，按本地路径 / 外链分组展示，缩略图预览；点击条目把光标定位到图片引用位置（PM `NodeSelection + scrollIntoView`）
-- [ ] 孤儿图片检测：扫描文档同目录 `assets/` 下的图片文件，引用计数为 0 的标灰展示（孤儿候选）
-- [ ] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
+- [x] 图片资产面板（侧边栏新增 tab）：扫描当前文档所有 `image` 节点，按本地路径 / 外链分组展示，缩略图预览；点击条目把光标定位到图片引用位置（PM `NodeSelection + scrollIntoView`）
+- [x] 孤儿图片检测：扫描文档同目录 `assets/` 下的图片文件，**当前文档**引用计数为 0 的标灰展示（孤儿候选）
+- [x] 资产"重新组织到 assets/" 入口：右键资产条目 → 复制 / 移动到工作区 `assets/<docName>/`，编辑器内引用路径同步重写（依赖 `fs:allow-copy`，本版本补 capability）
 
 ## 已知问题
 
