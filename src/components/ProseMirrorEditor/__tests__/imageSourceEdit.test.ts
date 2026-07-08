@@ -148,7 +148,6 @@ describe('parseImageSource / serializeImageSource', () => {
     expect(parseImageSource('![alt]src')).toBeNull() // 缺括号
     expect(parseImageSource('![alt](src')).toBeNull() // 缺 )
     expect(parseImageSource("![alt](src 't')")).toBeNull() // 单引号 title
-    expect(parseImageSource('![a](a)b)')).toBeNull() // src 禁括号
     expect(parseImageSource('')).toBeNull() // 空串
   })
 
@@ -158,12 +157,41 @@ describe('parseImageSource / serializeImageSource', () => {
     expect(serializeImageSource({ src: 's', alt: '', title: '' })).toBe('![](s)')
   })
 
-  it('round-trip:合法输入 serialize(parse(x)) 等价', () => {
-    const cases = ['![alt](src)', '![alt](src "t")', '![](src)', '![alt text](src "a title")']
-    for (const c of cases) {
-      const parsed = parseImageSource(c)
+  it('serialize:src 含括号时不转义(保持原始形态)', () => {
+    // (null) 文件名场景:不转义括号,与 toMarkdown 自定义 image handler 一致
+    expect(serializeImageSource({ src: 'assets/(null)-20250717165607855.(null)', alt: 'img', title: '' }))
+      .toBe('![img](assets/(null)-20250717165607855.(null))')
+    // 无特殊字符不变
+    expect(serializeImageSource({ src: 'a.png', alt: 'a', title: '' })).toBe('![a](a.png)')
+  })
+
+  it('parse:src 含括号时正常解析(不转义形态)', () => {
+    // (null) 文件名场景:直接解析含括号的 src,无需反转义
+    expect(parseImageSource('![img](assets/(null)-20250717165607855.(null))'))
+      .toEqual({ alt: 'img', src: 'assets/(null)-20250717165607855.(null)', title: '' })
+    // 嵌套括号
+    expect(parseImageSource('![alt](path/(dir)/file.png)'))
+      .toEqual({ alt: 'alt', src: 'path/(dir)/file.png', title: '' })
+    // 含括号 + title
+    expect(parseImageSource('![alt](path/(dir)/file.png "title")'))
+      .toEqual({ alt: 'alt', src: 'path/(dir)/file.png', title: 'title' })
+    // 无特殊字符不变
+    expect(parseImageSource('![a](a.png)')).toEqual({ alt: 'a', src: 'a.png', title: '' })
+  })
+
+  it('round-trip:含括号 src 的 serialize → parse → serialize 等价(不转义形态)', () => {
+    const srcs = [
+      'assets/(null)-20250717165607855.(null)',
+      'path/(dir)/file.png',
+      'a.png',
+      'path with (parens) and space.png',
+    ]
+    for (const src of srcs) {
+      const serialized = serializeImageSource({ src, alt: 'alt', title: 't' })
+      const parsed = parseImageSource(serialized)
       expect(parsed).not.toBeNull()
-      expect(serializeImageSource(parsed!)).toBe(c)
+      expect(parsed!.src).toBe(src)
+      expect(serializeImageSource(parsed!)).toBe(serialized)
     }
   })
 })
@@ -244,6 +272,46 @@ describe('image 源码编辑 session', () => {
     expect(preview).not.toBeNull()
     expect(preview.tagName).toBe('IMG')
     expect(preview.src).toContain('a.png')
+    view.destroy()
+  })
+
+  it('src 含括号时编辑态预览 widget 正常显示(不消失)', async () => {
+    // 回归:src 含 (null) 等括号时,不转义 → parseImageSource 正则支持括号 → 预览正常
+    const view = makeView(imageNode({ src: 'assets/(null)-20250717165607855.(null)', alt: 'img', title: '' }))
+    await enterEdit(view)
+
+    // 源码文本不含转义符号(保持原始形态)
+    expect(getTextContent(view.state.doc)).toBe('![img](assets/(null)-20250717165607855.(null))')
+    expect(getTextContent(view.state.doc)).not.toContain('\\(')
+
+    // 预览 widget 应正常渲染(parse 能解析含括号的 src)
+    const preview = view.dom.querySelector('.velo-image-source-preview') as HTMLImageElement
+    expect(preview).not.toBeNull()
+    expect(preview.tagName).toBe('IMG')
+    expect(preview.src).toContain('(null)')
+    view.destroy()
+  })
+
+  it('src 含括号时默认选中范围覆盖完整 src', async () => {
+    // 选中范围用原始 src 长度(不转义,长度不变)
+    const view = makeView(imageNode({ src: 'assets/(null).png', alt: 'img', title: '' }))
+    await enterEdit(view)
+
+    const sel = view.state.selection
+    const selectedText = view.state.doc.textBetween(sel.from, sel.to, '\n', '\n')
+    // 选中应是完整 src:assets/(null).png(不含转义符)
+    expect(selectedText).toBe('assets/(null).png')
+    view.destroy()
+  })
+
+  it('src 含括号:不改文本光标移出 → 重建 image,src 保持原始值', async () => {
+    const view = makeView(imageNode({ src: 'assets/(null)-20250717165607855.(null)', alt: 'img', title: '' }))
+    await enterEdit(view)
+    await moveCursorOut(view)
+
+    const img = getImageNode(view.state.doc)
+    expect(img).not.toBeNull()
+    expect(img!.attrs.src).toBe('assets/(null)-20250717165607855.(null)')
     view.destroy()
   })
 

@@ -91,13 +91,16 @@ function scanMarkdownImages(markdown: string): { src: string; alt: string; title
     // 移除行内代码 span,避免 `![alt](src)` 被误匹配
     let cleaned = line.replace(/`[^`]+`/g, '')
 
-    // 链接目标里括号会被 escapeMdUrl 写成 `\(` `\)`,正则 `[^)\s]+` 遇到
+    // 链接目标里括号会被 escapeMdUrl 写成 `\(` `\)`,正则遇到
     // 第一个 `)` 就会截断,导致 src 解析失败。先把 `\(` `\)` 分别替换成
     // 两个路径里几乎不可能出现的 ASCII 占位标记 `__LPAR__` / `__RPAR__`,
     // 链接结束的裸 `)` 照常匹配占截断位。提取 src 后再把占位符还原回裸括号。
+    // (旧文件可能仍有转义括号;新文件 toMarkdown 不转义,裸括号走 balanced 分支)
     cleaned = cleaned.replace(/\\\(/g, '__LPAR__').replace(/\\\)/g, '__RPAR__')
 
-    const regex = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g
+    // src 允许含 balanced 括号(本地路径常见,如 `(null).png`),用
+    // `(?:[^()\s]|\([^()]*\))*` 匹配非括号非空白字符或 balanced `(...)` 对。
+    const regex = /!\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))*)(?:\s+"([^"]*)")?\)/g
     let match: RegExpExecArray | null
     while ((match = regex.exec(cleaned)) !== null) {
       const srcRaw = match[2].replace(/__LPAR__/g, '(').replace(/__RPAR__/g, ')')

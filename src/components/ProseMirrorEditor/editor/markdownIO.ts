@@ -80,6 +80,18 @@ const processor = unified()
         }
         return sequence + value + sequence
       },
+      // 图片:覆盖默认 handler,不转义 URL 中的 `(` `)` —— 本地文件路径常含
+      // 括号(如 `(null).png`),默认 safe() 会转义成 `\(` `\)`,导致源码模式
+      // 出现转义符号。CommonMark 规范允许 balanced 括号出现在 link destination,
+      // remark-parse 也能正确解析,因此不转义不影响 round-trip。
+      // URL 含空格时用 `<>` 包裹(CommonMark 要求),否则直接输出。
+      image(node: any) {
+        const alt = (node.alt || '').replace(/\\/g, '\\\\').replace(/([[\]])/g, '\\$1')
+        const rawUrl = node.url || ''
+        const title = node.title ? ` "${node.title}"` : ''
+        const url = /\s/.test(rawUrl) ? `<${rawUrl}>` : rawUrl
+        return `![${alt}](${url}${title})`
+      },
     },
     // `highlight` 是自定义 mdast 节点,Options 类型联合里没有 —— 用 any 绕过
   } as any)
