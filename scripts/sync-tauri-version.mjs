@@ -4,14 +4,12 @@
 //   src-tauri/Cargo.lock      （name = "velo" 这一节的 version）
 //   src-tauri/tauri.conf.json （顶层 "version"）
 //
-// 挂在 package.json 的 "version" lifecycle 上：
-//   "version": "node scripts/sync-tauri-version.mjs
-//               && git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
+// 发版流程已切换到 release-please（CI 自动 bump Cargo.toml / tauri.conf.json），
+// 此脚本降级为本地辅助工具——手动发版或本地版本同步时使用。
+// release-please 不处理 Cargo.lock（锁文件在 cargo build 时自动更新），
+// 手动发版时跑此脚本可一并同步 Cargo.lock。
 //
-// `version` 钩子在 npm 改完 package.json、但还没 git commit / git tag 之前跑 ——
-// 我们 sync 完 + git add，这几个 Tauri 文件就会被 npm 自动一起 commit 进同一个 release commit。
-//
-// 单独手跑也行：node scripts/sync-tauri-version.mjs
+// 单独手跑：node scripts/sync-tauri-version.mjs
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'

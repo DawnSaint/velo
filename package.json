@@ -15,10 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "wdio run e2e/wdio.conf.ts",
-    "preversion": "npm run type-check && npm run test && npm run build",
-    "version": "node scripts/sync-tauri-version.mjs && git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json",
-    "postversion": "git push --follow-tags"
+    "test:e2e": "wdio run e2e/wdio.conf.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

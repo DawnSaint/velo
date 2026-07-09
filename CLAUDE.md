@@ -50,9 +50,9 @@
 ### 2. ROADMAP.md — 版本任务推进必须同步
 
 - 完成 ROADMAP 中已列出的某条 `- [ ]` → 改为 `- [x]`，不要删除条目
-- 某版本全部 feat/fix/refactor 收口发布后：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"用写入 DECISIONS；普通 feat/fix 进 CHANGELOG
+- 某版本全部 feat/fix/refactor 收口发布后：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"写入 DECISIONS；CHANGELOG 由 release-please 自动生成
 - 实现过程中发现 ROADMAP 原计划无法落地或方案改了 → 用删除线 + `→` 注明实际走法
-- 临时新增的、原计划没列的功能 / 重要 fix → 追加到 CHANGELOG 当前版本对应分组下（不再回 ROADMAP）
+- 临时新增的、原计划没列的功能 / 重要 fix → 通过 Conventional Commits 的 commit message 体现，release-please 自动归入 CHANGELOG（不再回 ROADMAP）
 
 
 ### 2.1 调研文档（docs/research/）— 复杂功能的 pre-implementation 研究
@@ -67,9 +67,9 @@
 ### 3. CHANGELOG.md — 用户可见的版本变更日志（Keep a Changelog）
 
 - 按 [Keep a Changelog](https://keepachangelog.com/) 格式 + [SemVer](https://semver.org/) 记录版本变更，分组：Added / Changed / Deprecated / Removed / Fixed / Security / Dependencies，按需选择
-- 写入时机：版本发布时整批入（与 ROADMAP 整章删除同步），不要零散追加
+- **发版时由 release-please 自动生成**（从 Conventional Commits 推导），平时不要手写零散追加
 - 内容粒度：能让用户"看懂这个版本加了/改了什么"即可；纯内部重构如无用户可见影响可不写
-- **只写用户可见的事项本身，不写背后的实现细节**：不出现函数名 / 行号 / 内部机制 / 代码级步骤（如 `tr.delete 误用 absolutePos`、源码行号引用等）；实现取舍进 DECISIONS，踩坑进 ARCHITECTURE
+- **只写用户可见的事项本身，不写背后的实现细节**：不出现函数名 / 行号 / 内部机制 / 代码级步骤；实现取舍进 DECISIONS，踩坑进 ARCHITECTURE
 - 普通的"为什么这样设计"取舍不进 CHANGELOG（进 DECISIONS）
 
 ### 4. DECISIONS.md — 重大决策的 ADR 留痕
@@ -183,27 +183,41 @@
 
 ## 版本发布
 
-### 前提
+### 发版流程（release-please 自动化）
 
-- 所有 feat / fix / test / refactor 已单独提交
-- `master` 上的 commit 已通过测试和类型检查
-- **发版收口的 docs 改动暂存即可、不 commit**：CHANGELOG 把 `[Unreleased]` 改成 `[<new-version>] — YYYY-MM-DD`、ROADMAP 删整章、DECISIONS 追加 ADR —— 这几处改完 `git add` 但**不要** `git commit`，让 `npm version` 把它们和 version bump、Tauri 版本同步一起合并到唯一的 `release(v%s):` commit 里
-- 不允许残留任何**非发版收口**的未提交改动；如果有，先按它本来该走的 Conventional Commits 类型单独提了再发版
+1. 所有 commit 走 Conventional Commits（见上方格式规约），release-please 自动解析推 semver（feat → minor / fix → patch / `BREAKING CHANGE` → major）
+2. push 到 `master` 后，release-please bot 自动维护一个长期存在的 release PR：
+   - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
+   - 自动生成 CHANGELOG 条目（按 `changelog-sections` 配置映射到 Added / Fixed / Changed 等分组）
+3. 人工 review release PR → merge → release-please 自动创建 tag + GitHub Release
+4. tag push 触发 CI 跨平台构建流水线（见 ROADMAP「CI 跨平台发布流水线」节）
 
-### 流程
+### 文档收口
 
-```bash
-# 1. 改 docs 收口（CHANGELOG / ROADMAP / DECISIONS）
-git add docs/
+**release-please 自动处理**（merge release PR 时）：
+- `docs/CHANGELOG.md`：自动生成新版本条目，平时不要手写零散追加
+- 版本号 bump：`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
 
-# 2. 发版（preversion 跑测试 / 类型检查 / 构建；通过后 bump + commit + tag + push）
-npm version <level> -f -m "release(v%s): <summary>"
-```
+**发版前人工处理**（merge release PR 前，改完推到 `master`，release-please 会自动纳入 release PR）：
+- `docs/ROADMAP.md`：删掉该版本整章
+- `docs/DECISIONS.md`：追加该版本的 ADR（如有重大决策）
 
-- `npm version` 串行触发：
-  1. **preversion**：`type-check` + `test` + `build`，任一失败中止，不会改任何文件
-  2. bumped `package.json` version
-  3. **version** lifecycle：`scripts/sync-tauri-version.mjs` 同步 Tauri 版本 + `git add` 同步过的文件
-  4. `git commit`（捕获**当前整个暂存区**：version bump + 同步的 Tauri 文件 + 第 1 步预先暂存的 docs 收口改动）+ `git tag`
-  5. **postversion**：`git push --follow-tags` 自动推 commit 和 tag
-- 单 commit 同时包含：版本号 bump（4 处：`package.json` / `package-lock.json` / `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`）+ docs 收口（CHANGELOG / ROADMAP / DECISIONS）
+### 强制版本号
+
+在 commit message footer 加 `Release-As: x.y.z` 可强制指定版本号（逃生口）。
+
+### 手动发版（应急）
+
+正常使用 release-please 自动发版。如需手动发版（如 release-please 故障）：
+1. `npm run type-check && npm run test && npm run build`
+2. 手动改 `package.json` 版本号
+3. `node scripts/sync-tauri-version.mjs`（同步 Tauri 三文件，含 Cargo.lock）
+4. 手动改 `docs/CHANGELOG.md` / `docs/ROADMAP.md` / `docs/DECISIONS.md`
+5. `git commit -m "release(vX.Y.Z): bump version" && git tag vX.Y.Z && git push --follow-tags`
+
+### 配置文件
+
+- `.github/workflows/release-please.yml` — push 到 master 触发
+- `release-please-config.json` — release-type / extra-files / changelog-sections
+- `.release-please-manifest.json` — 版本起点
+- `scripts/sync-tauri-version.mjs` — 本地辅助工具（手动发版时同步 Tauri 版本）

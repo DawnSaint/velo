@@ -81,30 +81,17 @@
 
 ### 发版流程自动化（release-please）
 
-Tier 1 已落地（preversion/postversion hook + Conventional Commits + 去 `-f`），见 CLAUDE.md「版本发布」节。目标：发版决策、CHANGELOG 生成、tag 创建全自动化；人工只做 review + merge。
+已落地。发版决策、CHANGELOG 生成、版本号 bump、tag 创建全自动化；人工只做 review + merge。见 CLAUDE.md「版本发布」节。
 
-**为什么是 release-please**：
-- 单 package + 桌面 app 形态匹配（changesets 是 monorepo 取向、semantic-release 太激进、standard-version 已废弃）
-- 基于 Conventional Commits 自动推 semver（feat → minor / fix → patch / `BREAKING CHANGE` → major）
-- PR 驱动：bot 维护一个长期存在的 release PR，merge 即发版，不 merge 就继续攒；保留人工节奏把控
-- CHANGELOG 按 Keep a Changelog 格式自动分组（Added / Changed / Fixed / ...）
-
-**落地步骤**：
-1. 装 `googleapis/release-please-action` workflow
-2. 配 `release-please-config.json`：
-   - `release-type: node`
-   - `extra-files`: `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` 挂上（让 release-please 直接 bump，省掉 `sync-tauri-version.mjs` 在 CI 流程里的位置）
-   - `changelog-sections` 按 Keep a Changelog 配置 type → 分组映射
-3. 配 `.release-please-manifest.json` 记当前版本起点（`0.5.x`）
-4. CLAUDE.md 同步：
-   - 「版本发布」改为「review release-please PR → merge」
-   - 「文档同步规则」里 CHANGELOG 一节标注：发版时自动生成，平时不要手写零散追加；保留 ROADMAP 整章删除 / DECISIONS 写入的同步要求
-5. 把 `scripts/sync-tauri-version.mjs` 的角色降级为本地辅助，CI 上由 release-please 直接改文件
+**配置文件**：
+- `.github/workflows/release-please.yml` — push 到 master 触发
+- `release-please-config.json` — `release-type: node` / `extra-files`（Cargo.toml + tauri.conf.json）/ `changelog-sections`（Keep a Changelog 分组映射）
+- `.release-please-manifest.json` — 版本起点 `0.6.5`
 
 **风险点 / 注意**：
-- release-please 对 `release-as` footer 的支持可用来做"强制版本号"逃生口
+- release-please 对 `Release-As` footer 的支持可用来做"强制版本号"逃生口
 - 首次接入需要 squash merge 策略统一，避免 merge commit 污染 conventional commits 解析
-- Tauri 的版本号在 3 处（`package.json` / `Cargo.toml` / `tauri.conf.json`），都要在 `extra-files` 里列上，漏了会发版后版本不一致
+- Tauri 的版本号在 3 处（`package.json` / `Cargo.toml` / `tauri.conf.json`），都在 `extra-files` 里列上；`Cargo.lock` 不由 release-please 处理（cargo build 时自动更新）
 
 ### CI 跨平台发布流水线（首次对外分发前必须做）
 
