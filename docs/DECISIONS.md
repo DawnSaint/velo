@@ -4,8 +4,6 @@
 >
 > **写入标准**: 候选方案 ≥ 2、对未来 1+ 个版本有持续影响、踩坑点非显然。
 > **不写入**: 纯 bug fix、Cargo.toml 一行配置、已被后续 ADR 覆盖的旧方案、实现细节（已沉淀到 `docs/architecture/*.md`）。
->
-> 用户可见版本变更见 [`CHANGELOG.md`](./CHANGELOG.md)；设计状态见 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → `docs/architecture/*.md`。
 
 ---
 

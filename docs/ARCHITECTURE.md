@@ -8,9 +8,9 @@
 > - 本文件承载全局概览与数据流基础，其余长篇设计细节放在对应模块文档。
 > - 架构层变动写入对应模块；只有新增 / 删除 / 重命名模块或路由变化时才改“模块路由”。
 > - 非显然 bug 的踩坑记录沉淀到对应模块的“设计要点 / 维护者注意点”。
-> - 重大取舍进 `DECISIONS.md`，用户可见版本变化进 `CHANGELOG.md`。
+> - 重大取舍进 `DECISIONS.md`，用户可见版本变化进 `RELEASE_NOTES.md`。
 >
-> **相关文件**: [DECISIONS](./DECISIONS.md) / [CHANGELOG](./CHANGELOG.md) / [测试](./architecture/testing.md)
+> **相关文件**: [DECISIONS](./DECISIONS.md) / [RELEASE_NOTES](./RELEASE_NOTES.md) / [测试](./architecture/testing.md)
 
 ---
 
@@ -96,7 +96,7 @@ velo/
 ## 全局约定
 
 - **路径别名**: `@/` → `src/`。
-- **文档写当前状态**: 模块文档只描述最终架构与非显然取舍，不堆叠版本演进；演进记录归 [`CHANGELOG.md`](./CHANGELOG.md) / [`DECISIONS.md`](./DECISIONS.md)。
+- **文档写当前状态**: 模块文档只描述最终架构与非显然取舍，不堆叠版本演进；演进记录归 [`RELEASE_NOTES.md`](./RELEASE_NOTES.md) / [`DECISIONS.md`](./DECISIONS.md)。
 - **新增模块时同步索引**: 新增 / 删除 / 重命名 `docs/architecture/*.md` 时，同步更新本文件“模块路由”。
 
 ---
@@ -122,4 +122,4 @@ velo/
 - 技术栈、目录结构、全局约定、数据流基础直接更新本文件。
 - 不要把其他模块的长篇设计记录直接写进本文件；写进对应 `docs/architecture/*.md`。
 - 新增 / 删除 / 重命名模块时，同步更新"模块路由"。
-- 文档写当前架构最终状态，不写工作日志；重大取舍用 ADR，普通用户可见变化用 CHANGELOG。
+- 文档写当前架构最终状态，不写工作日志；重大取舍用 ADR，普通用户可见变化用 RELEASE_NOTES。

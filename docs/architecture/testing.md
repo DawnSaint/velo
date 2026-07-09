@@ -46,8 +46,6 @@
 
 **E2E**: WebdriverIO 9 + tauri-driver，2 条主链路 spec(`e2e/specs/workspace-crud.spec.ts` / `e2e/specs/multi-window.spec.ts`)，覆盖 CLI 启动 / 新建 / 编辑保存 / 重命名 / 删除,以及二次启动创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；不接 CI。
 
-向前规划(组件层按需补、E2E 何时启动)见 ROADMAP,不在此维护阶段表。
-
 ---
 
 ## 目录与命名规范

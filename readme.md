@@ -10,7 +10,7 @@
 
 > 架构索引与模块入口 → 见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 > 当前 / 下一版本 To-Do → 见 [`docs/ROADMAP.md`](docs/ROADMAP.md)
-> 版本变更日志 → 见 [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+> 版本变更日志 → 见 [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md)
 > 重大架构决策与重构记录 → 见 [`docs/DECISIONS.md`](docs/DECISIONS.md)
 > 测试目标与规约 → 见 [`docs/architecture/testing.md`](docs/architecture/testing.md)
 

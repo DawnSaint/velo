@@ -1,8 +1,8 @@
 # Velo Roadmap
 
-> Velo 的迭代规划：功能 backlog、工程化、已知问题统一在此追踪。每条 `- [ ]` 完成后改 `- [x]`；纳入某版本时在[`docs/CHANGELOG.md`](./CHANGELOG.md)顶部新增 `## v<version>` 章节把条目移入（如果版本存在则直接写入对应章节），发版时需要删除本文档中已实现功能。
+> Velo 的迭代规划：功能 backlog、工程化、已知问题统一在此追踪。每条 `- [ ]` 完成后改 `- [x]`；纳入某版本时在[`docs/RELEASE_NOTES.md`](./RELEASE_NOTES.md)顶部新增 `## v<version>` 章节把条目移入（如果版本存在则直接写入对应章节），发版时需要删除本文档中已实现功能。
 >
-> 复杂功能开发前先写调研文档（`docs/research/`），在对应条目以 `[调研](./research/xxx.md)` 引用；功能实现后随版本发布一并删除调研文档。
+> 复杂功能开发前先写调研文档（`docs/research/`），在对应条目以 `[RESEARCH](./research/xxx.md)` 引用；功能实现后随版本发布一并删除调研文档。
 
 
 
@@ -106,7 +106,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 > `→ #backlinks` `→ #wikilink` `→ #workspace-symbol` `→ #broken-link` `→ #asset-orphan`
 >
-> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[调研](./research/knowledge-graph.md)
+> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md)
 >
 > `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新（依赖 v0.5.0 的工作区根 watch）。索引层独立于 editor state，不只看当前文档。
 
@@ -136,7 +136,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 单元格对齐（left / center / right 切换）
   - 整表格拖拽（移动表格在文档中的位置）
 
-- [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [调研](./research/block-drag-reorder.md)
+- [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [RESEARCH](./research/block-drag-reorder.md)
   - 调研结论：中偏高复杂度，建议先做 PoC（仅 paragraph 之间），验证几何同步 + drop preview 再扩到列表语义
   - 复用 fold / lineNumber / toc 的 Decoration.widget 范式，不造 NodeView
   - 注意与 fold chevron 共享 gutter 空间
@@ -146,6 +146,17 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 可配置规则开关（放在设置面板中）
   - 可选：readability 评分、字数目标进度条
   - 复用现有 Decoration.inline + syntax registry 框架
+
+- [ ] **YAML Front Matter 识别与样式适配** `#frontmatter` `P2` `M`
+  - 文档首部 `---` 包裹的 YAML 元数据块：remark-frontmatter 解析 + schema 新增 `frontmatter` 节点 + markdownIO 双向 + NodeView（Typora 风格 styled code block + "Front Matter" 标题栏，内容可直接编辑）
+  - `doc` content 改为 `'frontmatter? block+'`，限定 frontmatter 只能出现在文档首部
+  - 导出 HTML/PDF 时剥离 frontmatter（元数据非内容）
+  - 源码模式自然兼容（raw markdown 文本，无需额外处理）
+
+- [ ] **Front Matter 后续增强** `#frontmatter-enhance` `P2` `M` `← #frontmatter`
+  - YAML 语法高亮（复用 shiki yaml grammar）
+  - frontmatter 块可折叠（复用 foldDecoration 框架）
+  - TOML frontmatter 支持（`+++` 分隔符，remark-frontmatter toml marker）
 
 ### 窗口与工作流
 
@@ -160,7 +171,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 - [ ] **功能更新弹窗** `#changelog-popup` `P2` `S`
   - 版本升级后首启展示 CHANGELOG 摘要
-  - 读取 `docs/CHANGELOG.md` 当前版本段落，渲染为 markdown
+  - 读取 `docs/RELEASE_NOTES.md` 当前版本段落，渲染为 markdown
 
 ### 知识库 — 双链扩展
 
@@ -191,7 +202,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 ### 版本管理与导航
 
-- [ ] **Git 集成** `#git-integration` `P2` `L` `↔ #local-timeline` `→ #recent-locations` —— [调研](./research/git-integration.md)
+- [ ] **Git 集成** `#git-integration` `P2` `L` `↔ #local-timeline` `→ #recent-locations` —— [RESEARCH](./research/git-integration.md)
   - MVP 走系统 git CLI（`plugin-shell` 调用），零额外依赖，功能最完整
   - 侧栏新增 Git tab：git status（文件变更列表）、git commit（暂存 + 提交消息）、git diff（当前文件 diff 查看）
   - Diff 展示优先复用 CodeMirror 6 diff 适配器（已有依赖）
@@ -223,7 +234,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 > 把 v0.6.4 资产面板的孤儿判定从「本 markdown 没引用过」升级为「整个工作区没被任何 markdown 引用过」，避免用户误以为其他文档仍引用的图片是孤儿而误删。
 
-- [x] [调研](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案，与知识图谱调研合并索引层讨论
+- [x] [RESEARCH](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案，与知识图谱调研合并索引层讨论
 - [ ] 模块级索引缓存：维护 `Map<assetAbsPath, Set<absPathMd>>`，每次 markdown 文件保存 / fs.watch 触发时增量刷新该文件的引用集合
 - [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
 - [ ] test：工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）
