@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "wdio run e2e/wdio.conf.ts"
+    "test:e2e": "wdio run e2e/wdio.conf.ts",
+    "clean:dev": "node scripts/clean-dev-cache.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

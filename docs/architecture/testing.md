@@ -119,7 +119,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 1. **新加业务逻辑默认带测试** —— 改 `document.ts` / `outline.ts` / `markdownIO.ts` 这种核心文件时,改动 PR 必须包含对应 `*.test.ts`。
 2. **Bug 修复先写一个失败用例** —— 任何 bug 的修复 PR 第一条 commit 是“加一个会失败的测试”,第二条才是“修代码让它绿”。
 3. **失败用例优先于新功能测试** —— 升级 ProseMirror / remark / Pinia / Tauri 时,先跑 `npm test`,红了再决定要不要升级。
-4. **改 schema / markdownIO 必跑 round-trip** —— `markdownIO.test.ts` 是合约门,任何 schema / 双向序列化改动后 `vitest run` 必须全绿。
+4. **改 schema / markdownIO 必跑 round-trip** —— `markdownIO.test.ts` 是合约门,开发中跑 `vitest run markdownIO` 确认不破,commit 前跑全量 `vitest run` 必须全绿。
 5. **不强求覆盖** —— `MathNodeViews.ts` / `TaskListNodeView.ts` / `TextareaEditor.ts` 这类强依赖 ProseMirror 视图 / CodeMirror 内嵌的,绕过。
 
 ---

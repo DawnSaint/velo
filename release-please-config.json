@@ -5,7 +5,6 @@
   "bump-minor-pre-major": true,
   "packages": {
     ".": {
-      "changelog-path": "docs/CHANGELOG.md",
       "extra-files": [
         "src-tauri/Cargo.toml",
         {

@@ -11,7 +11,7 @@
      - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本的迭代方向
      - [`docs/DECISIONS.md`](./docs/DECISIONS.md) — 重大架构决策与重大重构的 ADR
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 版本变更日志
-     - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
+     - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 时读
      - [`docs/architecture/styles.md`](./docs/architecture/styles.md) — SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定；动任何样式来源或加 / 删 class 时读
      - `docs/research/*.md` — 复杂功能的 pre-implementation 调研文档，从 ROADMAP 对应条目链接进入；开发该功能前读
 2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
@@ -50,9 +50,9 @@
 ### 2. ROADMAP.md — 版本任务推进必须同步
 
 - 完成 ROADMAP 中已列出的某条 `- [ ]` → 改为 `- [x]`，不要删除条目
-- 某版本全部 feat/fix/refactor 收口发布后：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"写入 DECISIONS；CHANGELOG 由 release-please 自动生成
+- 某版本全部 feat/fix/refactor 收口发布后：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"写入 DECISIONS；CHANGELOG 人工手写
 - 实现过程中发现 ROADMAP 原计划无法落地或方案改了 → 用删除线 + `→` 注明实际走法
-- 临时新增的、原计划没列的功能 / 重要 fix → 通过 Conventional Commits 的 commit message 体现，release-please 自动归入 CHANGELOG（不再回 ROADMAP）
+- 临时新增的、原计划没列的功能 / 重要 fix → 通过 Conventional Commits 的 commit message 体现，发版时人工归入 CHANGELOG（不再回 ROADMAP）
 
 
 ### 2.1 调研文档（docs/research/）— 复杂功能的 pre-implementation 研究
@@ -64,10 +64,18 @@
 - **调研文档写什么**：候选方案对比、第三方依赖评估、与现有架构的结合点、风险点、推荐路线；不写实现步骤（实现后进 architecture docs）
 
 
-### 3. CHANGELOG.md — 用户可见的版本变更日志（Keep a Changelog）
+### 3. CHANGELOG — 双轨制
 
+项目维护两份 CHANGELOG，各司其职：
+
+| 文件 | 维护方式 | 语言 | 内容 | 用途 |
+|------|---------|------|------|------|
+| `CHANGELOG.md`（repo 根） | release-please 自动生成 | 英文（取自 commit summary） | 每条 commit 一行 + hash 链接 | GitHub Release 页面 / 机器可读 |
+| `docs/CHANGELOG.md` | 人工手写 | 中文 | 用户可见变更的详细描述 | 面向用户的版本日志 |
+
+**`docs/CHANGELOG.md` 写作要求**：
 - 按 [Keep a Changelog](https://keepachangelog.com/) 格式 + [SemVer](https://semver.org/) 记录版本变更，分组：Added / Changed / Deprecated / Removed / Fixed / Security / Dependencies，按需选择
-- **发版时由 release-please 自动生成**（从 Conventional Commits 推导），平时不要手写零散追加
+- 发版前从 `git log` / commit message 提取用户可见变更，手写中文条目
 - 内容粒度：能让用户"看懂这个版本加了/改了什么"即可；纯内部重构如无用户可见影响可不写
 - **只写用户可见的事项本身，不写背后的实现细节**：不出现函数名 / 行号 / 内部机制 / 代码级步骤；实现取舍进 DECISIONS，踩坑进 ARCHITECTURE
 - 普通的"为什么这样设计"取舍不进 CHANGELOG（进 DECISIONS）
@@ -116,8 +124,8 @@
 - **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先询问
 - **修 bug 先看对应架构模块的"先记住 / 禁令速查"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
-- **测试**：`__tests__/` 里有现成的 round-trip / 回归合约测试，改 schema / markdownIO 后跑 `vitest run` 确认全部通过
-- **类型严格**：TypeScript strict 模式，`vue-tsc --noEmit` 必须 0 错
+- **测试**：开发中只跑改动相关的测试文件（如 `vitest run markdownIO`），尽量不主动跑全量测试；`vitest run` 全量 + `vue-tsc --noEmit` 仅在明确需要 commit 时执行
+- **类型严格**：TypeScript strict 模式；`vue-tsc --noEmit` 0 错是 commit 前门，开发中不主动跑
 
 ### 新增语法支持 checklist
 
@@ -188,17 +196,18 @@
 1. 所有 commit 走 Conventional Commits（见上方格式规约），release-please 自动解析推 semver（feat → minor / fix → patch / `BREAKING CHANGE` → major）
 2. push 到 `master` 后，release-please bot 自动维护一个长期存在的 release PR：
    - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
-   - 自动生成 CHANGELOG 条目（按 `changelog-sections` 配置映射到 Added / Fixed / Changed 等分组）
+   - 自动生成根目录 `CHANGELOG.md`（英文，从 commit summary 提取；`docs/CHANGELOG.md` 不受影响，始终人工维护）
 3. 人工 review release PR → merge → release-please 自动创建 tag + GitHub Release
 4. tag push 触发 CI 跨平台构建流水线（见 ROADMAP「CI 跨平台发布流水线」节）
 
 ### 文档收口
 
 **release-please 自动处理**（merge release PR 时）：
-- `docs/CHANGELOG.md`：自动生成新版本条目，平时不要手写零散追加
 - 版本号 bump：`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`
+- 根目录 `CHANGELOG.md`：自动生成英文条目（从 commit summary 提取）
 
-**发版前人工处理**（merge release PR 前，改完推到 `master`，release-please 会自动纳入 release PR）：
+**发版前手动处理**（merge release PR 前，改完推到 `master`，release-please 会自动纳入 release PR）：
+- `docs/CHANGELOG.md`：将 `[Unreleased]` 改为 `[X.Y.Z] — YYYY-MM-DD` 并补充中文条目
 - `docs/ROADMAP.md`：删掉该版本整章
 - `docs/DECISIONS.md`：追加该版本的 ADR（如有重大决策）
 
@@ -218,6 +227,6 @@
 ### 配置文件
 
 - `.github/workflows/release-please.yml` — push 到 master 触发
-- `release-please-config.json` — release-type / extra-files / changelog-sections
+- `release-please-config.json` — release-type / extra-files / changelog-sections（根目录 `CHANGELOG.md` 由 release-please 自动生成，`docs/CHANGELOG.md` 人工维护）
 - `.release-please-manifest.json` — 版本起点
 - `scripts/sync-tauri-version.mjs` — 本地辅助工具（手动发版时同步 Tauri 版本）
