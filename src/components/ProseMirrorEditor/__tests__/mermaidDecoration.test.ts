@@ -22,6 +22,7 @@ import {
   mermaidDecoKey,
   ensureMermaidSourceVisibleAt,
 } from '../nodes/MermaidDecoration'
+import { codeHighlightPlugin } from '../nodes/CodeHighlightWidget'
 
 function makeView(initialMd: string): EditorView {
   const container = document.createElement('div')
@@ -238,6 +239,80 @@ describe('mermaidDecoration toggle 按钮', () => {
     view.dispatch(tr2)
     const deco2 = mermaidDecoKey.getState(view.state)!
     expect(deco2.editNodeSet.has(absolutePos)).toBe(false)
+
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  相邻 mermaid:block2 展开时 header/SVG 的 DOM 顺序不冲突
+// ============================================================
+//
+// 两个紧邻 mermaid block(block1 末尾 = block2 起始 = 同一文档位置)的
+// SVG widget(side 1)与 block2 的 header widget(side -1)会碰撞在同一位置,
+// PM 同位置按 side 升序绘制。SVG 改 side -2 后先绘制,顺序回归正确:
+//   PRE1(hidden) → SVG1 → header2 → PRE2(visible) → SVG2
+// 修复前 SVG 用 side 1,header(-1) 画到 SVG 上方。
+describe('mermaidDecoration 相邻 block DOM 顺序', () => {
+  it('两个连续 mermaid,展开第二个:block1 SVG 在 block2 header 上方', () => {
+    const md = [
+      '```mermaid',
+      'graph TD',
+      '  A-->B',
+      '```',
+      '',
+      '```mermaid',
+      'graph LR',
+      '  X-->Y',
+      '```',
+    ].join('\n')
+    // 双插件 view:codeHighlight 提供 header,方能验证 SVG 与 header 的绘制顺序
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown(md, schema),
+      plugins: [codeHighlightPlugin, mermaidDecoration],
+    })
+    const view = new EditorView(container, { state })
+
+    const blocks: Array<{ pos: number, size: number }> = []
+    view.state.doc.descendants((node, p) => {
+      if (node.type.name === 'code_block') blocks.push({ pos: p, size: node.nodeSize })
+    })
+    expect(blocks.length).toBe(2)
+    // 紧邻:block1 末尾 = block2 起始
+    expect(blocks[0].pos + blocks[0].size).toBe(blocks[1].pos)
+
+    // 展开第二个
+    const absolutePos = blocks[1].pos + 1
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
+
+    const root = view.dom as HTMLElement
+    const children = Array.from(root.children) as HTMLElement[]
+    // 仅保留 mermaid 相关节点(header / mermaid-widget / PRE)的索引
+    const mermaidIdx: number[] = []
+    children.forEach((c, i) => {
+      if (c.classList.contains('velo-code-header-widget')
+        || c.classList.contains('mermaid-node')
+        || (c.tagName === 'PRE' && c.getAttribute('data-mermaid-source') !== null)) {
+        mermaidIdx.push(i)
+      }
+    })
+    // 期望: PRE1(hidden) < mermaid1(SVG1) < header2 < PRE2(visible) < mermaid2(SVG2)
+    expect(mermaidIdx.length).toBe(5)
+
+    const pre1 = children[mermaidIdx[0]]
+    const svg1 = children[mermaidIdx[1]]
+    const header2 = children[mermaidIdx[2]]
+    const pre2 = children[mermaidIdx[3]]
+    const svg2 = children[mermaidIdx[4]]
+
+    expect(pre1.getAttribute('data-mermaid-source')).toBe('hidden')
+    expect(svg1.classList.contains('mermaid-node')).toBe(true)
+    expect(header2.classList.contains('velo-code-header-widget')).toBe(true)
+    expect(pre2.getAttribute('data-mermaid-source')).toBe('visible')
+    expect(svg2.classList.contains('mermaid-node')).toBe(true)
 
     view.destroy()
   })

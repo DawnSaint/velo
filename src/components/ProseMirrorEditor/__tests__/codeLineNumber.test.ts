@@ -12,13 +12,28 @@
 // 9. dark 模式 <html class="dark"> → 行号颜色由 var(--shiki-light) 翻面
 //    到 var(--shiki-dark)(CSS cascade,ProseMirror / plugin 不参与)
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
 import { codeLineNumberPlugin, lineNumbersKey } from '../nodes/CodeLineNumberWidget'
+import { mermaidDecoration, mermaidDecoKey } from '../nodes/MermaidDecoration'
+
+// ★ stub mermaid:真实包 ~3MB,jsdom 执行顶层代码阻塞主线程 → 本测只关心
+// 行号联动 editNodeSet,不需要真渲染 SVG。vi.mock 工厂让 getMermaid() 立即
+// resolve 一个 noop 实例,把 import 代价降到近零。
+vi.mock('mermaid', () => {
+  const noop = (): Promise<void> => Promise.resolve()
+  return {
+    default: {
+      initialize: noop,
+      parse: () => Promise.resolve(),
+      render: () => Promise.resolve({ svg: '<svg></svg>', bindFunctions: undefined }),
+    },
+  }
+})
 
 // ============================================================
 //  工具:起一个最小可工作的 EditorView,只挂 line number plugin
@@ -34,6 +49,23 @@ function makeView(initialMd: string, enabled = false): EditorView {
   })
   const view = new EditorView(container, { state })
   // 通过 setMeta 把 enabled 翻到目标值(模拟"用户在设置面板打开开关")
+  if (enabled !== false) {
+    view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled }))
+  }
+  return view
+}
+
+// 双插件 view:codeLineNumber + mermaidDecoration,方能驱动 mermaid 展开态
+// (editNodeSet)验证行号联动。
+function makeViewWithMermaid(initialMd: string, enabled = false): EditorView {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const state = EditorState.create({
+    schema,
+    doc: fromMarkdown(initialMd, schema),
+    plugins: [codeLineNumberPlugin, mermaidDecoration],
+  })
+  const view = new EditorView(container, { state })
   if (enabled !== false) {
     view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled }))
   }
@@ -102,9 +134,36 @@ describe('codeLineNumberPlugin', () => {
     view.destroy()
   })
 
-  it('4. mermaid code_block → 无行号', () => {
+  it('4. mermaid code_block → 无行号(mermaidDecoration 未加载 → 视为收起态)', () => {
+    // 单 plugin 场景:mermaidDecoration 未挂 → mermaidState undefined → 视为收起态
+    // → 跳过行号,维持既有行为(视觉上此时 mermaid 渲染 SVG,行号与 SVG 并排割裂)。
     const view = makeView('```mermaid\ngraph TD\n  A --> B\n  C --> D\n```', true)
     expect(view.dom.querySelector('.velo-code-lineno')).toBeNull()
+    view.destroy()
+  })
+
+  it('4b. mermaid 展开态显示行号(源码可见),收起态隐藏', () => {
+    // 收起态(默认,显示 SVG)→ 行号隐藏;展开 toggle 后源码可见 → 行号出现。
+    const md = '```mermaid\ngraph TD\n  A --> B\n  C --> D\n```'
+    const view = makeViewWithMermaid(md, true)
+    const pos = findCodeBlockPos(view)
+    expect(pos).toBeGreaterThanOrEqual(0)
+    // 收起态 → 无行号
+    expect(view.dom.querySelector('.velo-code-lineno')).toBeNull()
+
+    // 展开:toggleEditAt(absolutePos = pos + 1)→ 行号出现(源码可见)
+    const absolutePos = pos + 1
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
+    const linenos = view.dom.querySelectorAll('.velo-code-lineno')
+    expect(linenos.length).toBe(3)
+    expect(linenos[0]?.textContent).toBe('1')
+    expect(linenos[1]?.textContent).toBe('2')
+    expect(linenos[2]?.textContent).toBe('3')
+
+    // 收起 → 行号消失
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
+    expect(view.dom.querySelector('.velo-code-lineno')).toBeNull()
+
     view.destroy()
   })
 

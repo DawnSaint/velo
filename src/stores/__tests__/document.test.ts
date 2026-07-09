@@ -388,6 +388,36 @@ describe('document store', () => {
       // 状态切到了新路径
       expect(store.currentFilePath).toBe('/new.md')
     })
+
+    // 回归:示例文档(readOnlyLocked)点另存为不应被静默拦截 —— 另存为写新路径,
+    // 不覆盖只读源,且是 sample 唯一的"翻回可编辑"出口(状态栏 tooltip 承诺)。
+    // 修复前 saveAsDoc 入口 `if (... || d.readOnlyLocked) return false` 直接吞掉,
+    // 无弹窗无报错,路径/只读态都不变。
+    it('saveAs:示例文档(只读锁)正常弹窗 + 写盘 + 切路径 + 翻回可编辑', async () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.openSampleTab('# sample content', '示例.md')
+      expect(store.readOnlyLocked).toBe(true)
+      expect(store.currentFilePath).toBeNull()
+
+      vi.mocked(saveDialog).mockResolvedValueOnce('/workspace/copy.md')
+      vi.mocked(writeTextFile).mockResolvedValueOnce()
+
+      const ok = await store.saveAs()
+
+      // 1. 走到了 dialog(没被静默拦截)
+      expect(vi.mocked(saveDialog)).toHaveBeenCalledTimes(1)
+      expect(ok).toBe(true)
+      // 2. 写盘到用户挑的新路径,而非静默跳过(content 经 loadContentInto 的
+      //    markdownIO round-trip 规范化为 canonical 形式,保留尾部换行)
+      expect(vi.mocked(writeTextFile)).toHaveBeenCalledWith('/workspace/copy.md', '# sample content\n')
+      // 3. 路径切换
+      expect(store.currentFilePath).toBe('/workspace/copy.md')
+      // 4. 翻回可编辑 + 清掉虚拟标题(标题改显示真实路径)
+      expect(store.readOnlyLocked).toBe(false)
+      expect(store.readOnly).toBe(false)
+      expect(store.virtualFileName).toBeNull()
+    })
   })
 
   // 6. confirmDiscardIfDirty 三态
