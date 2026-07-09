@@ -58,7 +58,7 @@
   // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected
   &.selected > .image-frame > img.image-inline {
     outline-color: var(--md-primary-color, #1F71D9);
-    outline-width: 2px;
+    outline-width: 0.1em;
   }
 
   // 悬浮编辑按钮:常驻 DOM,默认隐藏,选中(.selected)时显现。

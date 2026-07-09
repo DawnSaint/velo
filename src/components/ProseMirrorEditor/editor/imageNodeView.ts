@@ -3,6 +3,7 @@ import type { EditorView, NodeView } from 'prosemirror-view'
 
 import { triggerImageEdit } from '../image/imageEditPlugin'
 import { codeXmlSvg } from '@/components/icons/widgetIcons'
+import { createSelectionSync } from '../nodes/selectionSync'
 
 export interface ImageViewOptions {
   /** 把 markdown 里的 src(可能是相对路径 / 绝对路径)转成浏览器能展示的 url。 */
@@ -16,6 +17,10 @@ export interface ImageViewOptions {
 //   光标进去编辑,光标移出 commit(合法重建 image / 残缺保留纯文本),Escape 还原。
 //   本 NodeView 不持有编辑态 —— 替换成纯文本后本 NodeView 销毁,编辑期间是普通文本
 //   + Decoration,commit 重建 image 后新 NodeView 创建、按钮重新出现。
+//
+// 选中态同步逻辑(DOM 选区重叠 + PM state + mouseenter/mouseleave 即时反馈)
+// 抽取到 selectionSync.ts 共用。image 虽是 inline atom,但同样 contenteditable=false,
+// 选区端点无法进入图片 —— mouseInNode 补丁对所有 atom 类型一视同仁。
 export function createImageNodeView(opts: ImageViewOptions) {
   return function imageNodeViewFactory(
     node: PMNode,
@@ -81,6 +86,13 @@ export function createImageNodeView(opts: ImageViewOptions) {
 
     render(node)
 
+    const selectionSync = createSelectionSync({
+      dom: wrapper,
+      view,
+      getPos,
+      getNode: () => node,
+    })
+
     return {
       dom: wrapper,
       update(newNode: PMNode) {
@@ -90,14 +102,17 @@ export function createImageNodeView(opts: ImageViewOptions) {
         return true
       },
       selectNode() {
-        wrapper.classList.add('selected')
+        selectionSync.syncSelected()
       },
       deselectNode() {
-        wrapper.classList.remove('selected')
+        selectionSync.syncSelected()
       },
       // image 是 atom + isolating,内部无 ProseMirror 可观察的 mutation
       ignoreMutation() {
         return true
+      },
+      destroy() {
+        selectionSync.destroy()
       },
     }
   }

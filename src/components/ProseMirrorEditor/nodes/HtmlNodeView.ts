@@ -18,8 +18,9 @@
 
 import DOMPurify from 'dompurify'
 import { Plugin, PluginKey } from 'prosemirror-state'
-import type { NodeView } from 'prosemirror-view'
+import type { EditorView, NodeView } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
+import { createSelectionSync } from './selectionSync'
 
 // dompurify v3:Config 通过 Parameters<typeof sanitize>[1] 拿,namespace 不再导出
 type PurifyConfig = Parameters<typeof DOMPurify.sanitize>[1]
@@ -42,23 +43,37 @@ function safeRender(target: HTMLElement, raw: string): void {
 }
 
 /** 块级 HTML NodeView。dom = <div class="velo-html-block">,内容 sanitize 后写入。 */
-function createHtmlBlockView(node: PMNode): NodeView {
+function createHtmlBlockView(node: PMNode, view: EditorView, getPos: () => number): NodeView {
   const dom = document.createElement('div')
   dom.className = 'velo-html-block'
   dom.setAttribute('data-type', 'html_block')
   safeRender(dom, node.attrs.value as string)
+
+  // 选中态同步:与 image / hr / math_block 同范式,抽取到 selectionSync.ts 共用。
+  const selectionSync = createSelectionSync({
+    dom,
+    view,
+    getPos,
+    getNode: () => node,
+  })
+
   return {
     dom,
     // atom 节点不更新(value 不变就不重渲);value 变就让 ProseMirror destroy + 重建
     update: (newNode) => {
       if (newNode.type.name !== 'html_block') return false
-      if (newNode.attrs.value === node.attrs.value) return true
+      if (newNode.attrs.value === node.attrs.value) { node = newNode; return true }
       return false
     },
+    selectNode() { selectionSync.syncSelected() },
+    deselectNode() { selectionSync.syncSelected() },
     // 内部 DOM 变(details 折叠等)不让 ProseMirror 知道
     ignoreMutation: () => true,
     // 内部事件不让 ProseMirror 抢(用户点 summary 时正常折叠)
     stopEvent: () => true,
+    destroy() {
+      selectionSync.destroy()
+    },
   }
 }
 
@@ -86,7 +101,7 @@ export const htmlNodeViewPlugin = new Plugin({
   key: htmlNodeViewPluginKey,
   props: {
     nodeViews: {
-      html_block: (node) => createHtmlBlockView(node),
+      html_block: (node, view, getPos) => createHtmlBlockView(node, view, getPos as () => number),
       html_inline: (node) => createHtmlInlineView(node),
     },
   },

@@ -6,6 +6,12 @@
 .velo-editor {
   .velo-html-block {
     border-radius: 4px;
+
+    // 选中态(NodeSelection 直接选中 + 鼠标拖蓝跨越),与 image / hr / math_block 同范式
+    &.selected {
+      outline: 0.1em solid var(--md-primary-color, #1F71D9);
+      outline-offset: 2px;
+    }
   }
 
   .velo-html-inline {

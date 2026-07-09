@@ -4,6 +4,7 @@ import {
   createTextareaEditor,
   stopMousedownPropagation,
 } from './TextareaEditor'
+import { createSelectionSync } from './selectionSync'
 
 // ========== katex 懒加载 ==========
 //
@@ -328,6 +329,16 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
 
   showDisplay()
 
+  // 选中态同步:与 image / hr 同范式,抽取到 selectionSync.ts 共用。
+  // math_block 是 block atom,编辑态下跳过选中框(textarea UI 视觉冲突)。
+  const selectionSync = createSelectionSync({
+    dom,
+    view,
+    getPos,
+    getNode: () => node,
+    skipSelected: () => editing,
+  })
+
   // 弱引用 set 里的"待自动进 edit"标记。
   // 外部(dollarEnterToMathBlock keymap)在创建节点前 trigger(node),NodeView
   // 初始化时 has() + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit(),
@@ -350,7 +361,12 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
       if (!editing && valueChanged) showDisplay()
       return true
     },
-    destroy() { editor?.dispose() },
+    selectNode() { selectionSync.syncSelected() },
+    deselectNode() { selectionSync.syncSelected() },
+    destroy() {
+      editor?.dispose()
+      selectionSync.destroy()
+    },
     ignoreMutation() { return true },
     // 编辑态下,editor(内部 textarea + preview)的所有输入事件不能让 PM 看到。
     // 典型场景:`$$`+Enter 进入自动 edit → 用户敲字符 → PM 默认 handleTextInput

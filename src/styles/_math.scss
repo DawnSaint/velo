@@ -97,6 +97,15 @@
 .velo-editor .math-block-node:not(.is-editing):hover {
   background: rgba(128, 128, 128, 0.1);
 }
+/* 选中态(NodeSelection 直接选中 + 鼠标拖蓝跨越),与 image / hr 同范式 */
+.velo-editor .math-block-node.selected:not(.is-editing) {
+  outline: 0.1em solid var(--md-primary-color, #1F71D9);
+  outline-offset: 2px;
+}
+/* 选中 math_block 时隐藏文本光标(同 image / hr) */
+.velo-editor:has(.math-block-node.selected) {
+  caret-color: transparent;
+}
 
 /* 块级公式编辑壳:在 MathNodeViews.ts 的 createMathBlockView 里走 createTextareaEditor */
 .edit-textarea {
