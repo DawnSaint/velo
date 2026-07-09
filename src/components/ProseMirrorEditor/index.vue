@@ -5,6 +5,7 @@ import EditorInner from './EditorInner.vue'
 import FindReplace from './findreplace/FindReplace.vue'
 import { createPmBackend } from './findreplace/backend'
 import type { CursorPosition } from '@/utils/editorCursor'
+import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -37,6 +38,7 @@ const emit = defineEmits<{
    *  把父级的 findOpen 翻成 false —— 唯一的回流路径。 */
   'update:findOpen': [open: boolean]
   'cursor-position-change': [position: CursorPosition]
+  'heading-context-change': [chain: HeadingBreadcrumb[]]
   /** FindReplace 内按 Ctrl+Shift:F → 切全局搜索,App.vue 关本面板 + 开侧栏 search tab */
   'open-global-search': []
 }>()
@@ -107,6 +109,7 @@ defineExpose({ getEditorView })
           :typewriter-mode="typewriterMode"
           @update:model-value="emit('update:modelValue', $event)"
           @cursor-position-change="emit('cursor-position-change', $event)"
+          @heading-context-change="emit('heading-context-change', $event)"
         />
       </div>
     </div>

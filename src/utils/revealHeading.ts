@@ -9,21 +9,23 @@
 import { stripFormatting } from '@/utils/outline'
 
 /**
- * WYSIWYG 下滚动到指定标题并短暂高亮。匹配不到(标题已被改 / 不在当前 DOM)返回 false。
+ * WYSIWYG 下滚动到指定标题并短暂高亮。匹配不到(标题已被改 / 不在当前 DOM)返回 null;
+ * 命中返回该标题 DOM 元素,供调用方在 focus 前把 PM 选区设到该位置,
+ * 避免 focus 触发浏览器滚动到旧选区把高亮滚出视口。
  */
-export function revealHeadingInDom(level: number, displayText: string): boolean {
+export function revealHeadingInDom(level: number, displayText: string): HTMLElement | null {
   const editor = document.querySelector('.ProseMirror') as HTMLElement | null
-  if (!editor) return false
+  if (!editor) return null
   const els = editor.querySelectorAll<HTMLElement>(`h${level}`)
   for (const el of els) {
     if (el.textContent?.trim() === displayText) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       el.classList.add('outline-highlight')
       setTimeout(() => el.classList.remove('outline-highlight'), 1500)
-      return true
+      return el
     }
   }
-  return false
+  return null
 }
 
 /**

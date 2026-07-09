@@ -35,6 +35,7 @@ import { cmLineHighlightField, cmLineHighlightDeco } from '@/components/ProseMir
 import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl, parseAssetImageMime } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { saveImageAsset } from '@/utils/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
+import { headingChainFromMarkdown, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -61,6 +62,7 @@ const emit = defineEmits<{
   /** v-model:find-open 的 update 端。FindReplace 关闭时触发,父级翻成 false。 */
   'update:findOpen': [open: boolean]
   'cursor-position-change': [position: CursorPosition]
+  'heading-context-change': [chain: HeadingBreadcrumb[]]
   /** FindReplace 内按 Ctrl+Shift:F → 切全局搜索,App.vue 关本面板 + 开侧栏 search tab */
   'open-global-search': []
 }>()
@@ -105,6 +107,12 @@ function emitCursorPosition(view: EditorView) {
     line: line.number,
     column: head - line.from + 1,
   })
+}
+
+function emitHeadingContext(view: EditorView) {
+  const head = view.state.selection.main.head
+  const line = view.state.doc.lineAt(head)
+  emit('heading-context-change', headingChainFromMarkdown(view.state.doc.toString(), line.number))
 }
 
 /** 把光标所在行滚到 scrollDOM(cm-scroller)垂直中线 —— 镜像 PM 侧
@@ -384,7 +392,10 @@ function createView(): EditorView {
           lastSelfEmitted = next
           emit('update:modelValue', next)
         }
-        if (u.docChanged || u.selectionSet) emitCursorPosition(u.view)
+        if (u.docChanged || u.selectionSet) {
+          emitCursorPosition(u.view)
+          emitHeadingContext(u.view)
+        }
         // Step 3: 缓存活动标签的 CM6 state + 滚动位,切回时 setState 恢复(保 undo / 滚动 / 光标)
         if (u.docChanged || u.selectionSet || u.viewportChanged) {
           const scroller = u.view.scrollDOM
@@ -427,9 +438,10 @@ watch(
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: next },
       selection: EditorSelection.range(anchor, head),
-    })
-    emitCursorPosition(view)
-  },
+})
+emitCursorPosition(view)
+emitHeadingContext(view)
+},
 )
 
 // 切标签:恢复该标签缓存的 CM6 state(保 undo 历史 / 光标),而非 modelValue watch 的全量替换。
@@ -523,9 +535,10 @@ onMounted(async () => {
   if (!hostRef.value) return
   const view = createView()
   viewRef.value = view
-  view.focus()
-  emitCursorPosition(view)
-  // 首挂时若专注模式已开,dispatch effect 让 StateField 翻 enabled
+view.focus()
+emitCursorPosition(view)
+emitHeadingContext(view)
+// 首挂时若专注模式已开,dispatch effect 让 StateField 翻 enabled
   // (create() 初值固定 false,watch 只管后续变化)
   if (props.focusMode) {
     view.dispatch({ effects: setCmFocusMode.of(true) })

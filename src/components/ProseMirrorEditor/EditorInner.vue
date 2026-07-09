@@ -53,6 +53,7 @@ import { buildShortcutKeymap } from './editor/shortcuts'
 import { useDocumentStore } from '@/stores/document'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
+import { headingChainFromDoc, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { getSourceEditRanges } from './editor/sourceEditSession'
 // katex.min.css 不再静态 import —— katex 包整体懒加载(见 MathNodeViews.ts
 // 的 getKatex),CSS 也跟着第一次 render 时动态 import,避免首屏加载 ~80KB CSS。
@@ -355,6 +356,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'cursor-position-change': [position: CursorPosition]
+  'heading-context-change': [chain: HeadingBreadcrumb[]]
 }>()
 
 // 区分 self-emit echo vs 外部 modelValue 变化。值匹配 → echo,跳过;
@@ -418,6 +420,12 @@ function emitCursorPosition() {
   emit('cursor-position-change', cursorFromTextBefore(textBefore))
 }
 
+function emitHeadingContext() {
+  const view = getView()
+  if (!view) return
+  emit('heading-context-change', headingChainFromDoc(view.state.doc, view.state.selection.head))
+}
+
 watch(() => props.modelValue, async (newVal) => {
   if (pendingTabRestore) {
     // 切标签恢复已由 tabSwitchToken watch 调 view.updateState(cachedState) 处理,
@@ -458,6 +466,7 @@ watch(() => props.modelValue, async (newVal) => {
     try { view.focus() } catch { /* 销毁期忽略 */ }
   }
   emitCursorPosition()
+emitHeadingContext()
 })
 
 const documentStore = useDocumentStore()
@@ -530,15 +539,17 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
     emit('update:modelValue', md)
     // state 缓存走 onSelectionChange(它覆盖 docChanged + selectionSet,更全)
   },
-  onSelectionChange: (view) => {
-    emitCursorPosition()
+onSelectionChange: (view) => {
+emitCursorPosition()
+emitHeadingContext()
     // Step 3: 选区变化(含光标移动)也缓存,切回时恢复光标位 —— 不只编辑才记
     const scroller = (findScrollAncestor(view.dom) ?? view.dom)
     documentStore.captureActivePmState(view.state, scroller.scrollTop)
   },
-  onReady: () => {
-    mounted = true
-    emitCursorPosition()
+onReady: () => {
+mounted = true
+emitCursorPosition()
+emitHeadingContext()
   },
 })
 

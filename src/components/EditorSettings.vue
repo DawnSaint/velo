@@ -191,6 +191,15 @@ function endDrag(e: PointerEvent) {
           >
         </label>
         <label class="setting-row h-8 cursor-pointer">
+          <span class="setting-label">面包屑</span>
+          <input
+            v-model="store.showBreadcrumbs"
+            type="checkbox"
+            role="switch"
+            class="velo-switch"
+          >
+        </label>
+        <label class="setting-row h-8 cursor-pointer">
           <span class="setting-label">暗色模式</span>
           <input
             v-model="store.darkMode"

@@ -13,18 +13,19 @@
   - 修复方向：session 期间所有 tr 跳过回写、commit 时一次性同步。link / image / markSourceEdit 三者共有此限制。
 - [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持）
 
-## v0.6.5 — 样式系统整理
+## v0.6.5
 
 > 项目同时使用 SCSS、Tailwind v4、Vue scoped style、TS 行内样式四种样式来源，缺乏文档化的分工边界，导致颜色值分散、暗色模式写法不统一、幽灵 class 噪音。本版本不大幅重构，以建立规约 + 清理噪音为目标。
 
-**refactor**
+**feat**
+- [x] Breadcrumbs 面包屑：编辑器顶部常驻「文件名 > 一级标题 > 二级标题」面包屑，点任一段跳转；常驻迷你大纲，比侧栏大纲更快、比命令面板 @ 模式少一次按键（需监听光标所在 heading）
 
+**refactor**
 - [x] 建立样式分工规约：新增 `docs/architecture/styles.md`，定义 SCSS / Tailwind / scoped style / TS 行内的使用边界与暗色模式统一策略
 - [x] 清理幽灵 class：删除 7 个有 class 名无 CSS 规则的 `velo-*`（`velo-sidebar` / `velo-file-tree` / `velo-outline` / `velo-quick-command-panel` / `velo-tab-context-menu` / `velo-tree-context-menu` / `velo-asset-context-menu`），需要 JS 选择器的改用 `data-` 属性
 - [x] 补全 / 移除悬空 CSS 变量：`_editor-fold.scss` 中 `--md-text-muted` / `--md-text-muted-dark` / `--md-fold-placeholder` / `--md-fold-placeholder-dark` 从未定义，去掉 `var()` 包装直接写硬编码值
 
 **docs**
-
 - [x] TS NodeView class → SCSS 映射表：在 `docs/architecture/editor.md` 补充 TS 文件创建的 class 名与对应 SCSS 文件的文件级映射，降低维护查找成本
 
 ## 功能规划
@@ -33,7 +34,6 @@
 
 - [ ] 表格增强（行列增删的浮层操作 / 单元格对齐 / 整表格拖拽）
 - [ ] 段落拖拽重排（hover gutter 拽手）
-- [ ] Breadcrumbs 面包屑：编辑器顶部常驻「文件名 > 一级标题 > 二级标题」面包屑，点任一段跳转；常驻迷你大纲，比侧栏大纲更快、比命令面板 @ 模式少一次按键（需监听光标所在 heading）
 
 ### 窗口与全局体验
 

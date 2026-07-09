@@ -33,6 +33,9 @@ export const useEditorStore = defineStore('editor', () => {
    * 行号是纯视觉装饰,plugin `lineNumberPlugin` 读这个字段决定是否挂 widget,
    * 不进 schema / 不进 markdown 序列化。 */
   const showCodeLineNumbers = ref(false)
+  /** 编辑器顶部面包屑(可选开关,默认开启)。
+   * 纯 UI 偏好,不进 documentStore / 不持久化到 per-workspace。 */
+  const showBreadcrumbs = ref(true)
 
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
@@ -102,6 +105,7 @@ export const useEditorStore = defineStore('editor', () => {
     codeDarkTheme,
     startupMode,
     showCodeLineNumbers,
+    showBreadcrumbs,
     activityBarOrder,
     activityBarHidden,
     visibleActivityBarItems,

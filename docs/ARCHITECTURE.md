@@ -82,6 +82,7 @@ velo/
 │       ├── TabBar.vue             顶栏标签条(v0.6.0 多标签):横排 + 中键关闭 + 拖拽重排;右键菜单切到关闭其他 / 关闭已保存 / 全部关闭 / 复制路径等
 │       ├── TabContextMenu.vue   标签条右键菜单(v0.6.0):纯展示 + 事件转发,与 FileTreeContextMenu 同款 Teleport + rootEl expose 范式;App.vue 通过 emit 'reveal-in-tree' 拿到 path 后切 sidebar tab + sidebarRef.revealFile()
 │       ├── EditorSettings.vue       设置内容,由左侧功能区承载
+│       ├── Breadcrumbs.vue          编辑器顶部面包屑(v0.6.5):文件名 > 标题祖先链,点击跳转
 │       ├── DraftRecoveryDialog.vue
 │       └── ProseMirrorEditor/
 │           ├── index.vue          壳 (CSS 变量)
@@ -138,6 +139,8 @@ velo/
 **源代码模式**: `documentStore.sourceMode` 控制渲染哪个编辑器实例。`true` = `SourceModeEditor.vue`(CodeMirror 6,软换行 + 持久行号 + shiki 高亮,无 schema / 无 PM plugin,用户输入经 `updateListener` → `emit('update:modelValue')` 回写 `documentStore.content`);`false` = `ProseMirrorEditor`。两者 `v-if` 互斥挂载,`documentStore.content` 始终唯一数据源,自动保存 / 失焦保存 / 草稿 / fs:watch 透明穿透。echo 哨兵 `lastSelfEmitted` 同 PM 路径。主题切换走 ensureTheme → dispatch CM6 StateEffect → ViewPlugin rebuild(主题名镜像在 StateField,防 ensureTheme 未 resolve 期间全黑,见 [`architecture/editor.md`](./architecture/editor.md) 的 shiki 两条正交路径说明)。
 
 **状态栏**: `App.vue` 汇总 `documentStore` 的内容 / 文件 / dirty / sourceMode、`workspaceStore` 的 active root / known roots，以及当前挂载编辑器上报的光标行列，传给 `StatusBar.vue` 展示。光标行列是 UI-only 状态，不进入 `documentStore`、不持久化；文档统计直接从 `documentStore.content` 计算。源码模式切换入口放在状态栏,仍只翻转 `documentStore.sourceMode`。
+
+**面包屑(v0.6.5)**: 编辑器顶部常驻 `Breadcrumbs.vue`,显示「文件名 > 标题祖先链」。标题祖先链由当前挂载编辑器经 `heading-context-change` 事件上报(WYSIWYG 走 `headingChainFromDoc` 遍历 PM doc 节点;源码模式走 `headingChainFromMarkdown` 扫 raw markdown 行),与光标行列同属 UI-only 状态,不进 `documentStore`、不持久化。点击标题段复用 `onRevealHeading` 跳转(WYSIWYG 走 DOM `revealHeadingInDom`,源码模式走 `findHeadingRawOffset` + CM6 setSelection)。
 
 **标签持久化(v0.6.0)**: `WorkspaceState` 增 `openTabs: string[]` + `activeTab?: string`(WORKSPACES_VERSION 4),数据源 `documentStore.openFilePaths`,由 App.vue watcher 自动同步(已有 deep watch 触发 500ms debounce)。启动恢复在 `loadFrom({restoreActive:true})` 命中后异步串行 `openPathInTab(p, { silent: true })` + `switchTab`;`setActiveRoot` 切工作区**不**应用新 workspace 的 openTabs(同 sidebarWidth READ 语义)。详见 [`architecture/file-tree.md`](./architecture/file-tree.md) 工作区段。
 

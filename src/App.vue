@@ -31,6 +31,7 @@ import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
 import TabBar from '@/components/TabBar.vue'
+import Breadcrumbs from '@/components/Breadcrumbs.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
@@ -46,8 +47,9 @@ import {
   type ReplacePlan,
 } from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
+import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
-import { NodeSelection } from 'prosemirror-state'
+import { NodeSelection, TextSelection } from 'prosemirror-state'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
@@ -311,6 +313,7 @@ async function initSettings() {
     if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
     if (typeof e.showCodeLineNumbers === 'boolean') store.showCodeLineNumbers = e.showCodeLineNumbers
+    if (typeof e.showBreadcrumbs === 'boolean') store.showBreadcrumbs = e.showBreadcrumbs
     // ActivityBar 自定义(v0.6.1):normalize 防御(未知项过滤 / 缺失项补默认)后灌入 store。
     // 两字段缺失时 normalize 回退默认,与其它字段的 typeof 守门等价。
     store.hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
@@ -334,6 +337,7 @@ function snapshotSettings(): PersistedSettings {
       codeDarkTheme: store.codeDarkTheme,
       startupMode: store.startupMode,
       showCodeLineNumbers: store.showCodeLineNumbers,
+      showBreadcrumbs: store.showBreadcrumbs,
       activityBarOrder: store.activityBarOrder,
       activityBarHidden: store.activityBarHidden,
     },
@@ -480,6 +484,10 @@ const findShowReplace = ref(false)
 const cursorPosition = ref<CursorPosition>(DEFAULT_CURSOR_POSITION)
 function updateCursorPosition(position: CursorPosition) {
   cursorPosition.value = position
+}
+const headingContext = ref<HeadingBreadcrumb[]>([])
+function updateHeadingContext(chain: HeadingBreadcrumb[]) {
+  headingContext.value = chain
 }
 provide(findIntentKey, {
   query: findQuery,
@@ -718,9 +726,13 @@ async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
   // 关闭走 X / Esc / 再次点 ActivityBar 搜索图标。
 }
 
-// 统一命令面板 @ 符号模式:跳转到当前文档指定标题。
+// 统一命令面板 @ 符号模式 + Breadcrumbs 点击跳转:跳转到当前文档指定标题。
 // WYSIWYG 走 DOM(与 EditorOutline 同款 revealHeadingInDom),source 走 raw markdown
 // 行定位 → CM6 doc offset(源码文档即原始 markdown,offset == pos)→ backend 跳转。
+//
+// **WYSIWYG 选区同步**:revealHeadingInDom 返回命中的标题 DOM 元素后,
+// 用 view.posAtDOM 把 PM 选区设到标题开头,再 focus。否则 focus 会触发浏览器
+// 把旧选区滚入视口,标题被滚走 → 高亮一闪而过(命令面板 / 面包屑都踩此坑)。
 function onRevealHeading({ level, displayText }: { level: number, displayText: string }) {
   if (documentStore.sourceMode) {
     const offset = findHeadingRawOffset(documentStore.content, level, displayText)
@@ -732,8 +744,18 @@ function onRevealHeading({ level, displayText }: { level: number, displayText: s
     be.focus()
     return
   }
-  revealHeadingInDom(level, displayText)
-  editorRef.value?.getEditorView()?.focus()
+  const el = revealHeadingInDom(level, displayText)
+  const view = editorRef.value?.getEditorView()
+  if (el && view) {
+    const pos = view.posAtDOM(el, 0)
+    view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
+  }
+  view?.focus()
+}
+
+/** Breadcrumbs 点击跳转:复用 onRevealHeading 逻辑(HeadingBreadcrumb.text → displayText) */
+function onBreadcrumbReveal(h: HeadingBreadcrumb) {
+  onRevealHeading({ level: h.level, displayText: h.text })
 }
 
 // 统一命令面板 : 行号模式:实时滚动 + 高亮第 N 行,跨模式会话恢复。
@@ -1955,6 +1977,12 @@ watch(editorRef, (v) => {
            decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
            setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
       <div class="flex flex-1 flex-col min-w-0">
+        <Breadcrumbs
+          v-if="codeBlockReady && documentStore.activeId && store.showBreadcrumbs"
+          :file-name="documentStore.fileName"
+          :headings="headingContext"
+          @reveal-heading="onBreadcrumbReveal"
+        />
         <div class="flex flex-1 overflow-hidden">
           <template v-if="codeBlockReady && documentStore.activeId">
             <ProseMirrorEditor
@@ -1971,6 +1999,7 @@ watch(editorRef, (v) => {
               :typewriter-mode="typewriterMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
+              @heading-context-change="updateHeadingContext"
               @open-global-search="openGlobalSearchFromFind"
             />
             <SourceModeEditor
@@ -1984,6 +2013,7 @@ watch(editorRef, (v) => {
               :typewriter-mode="typewriterMode"
               @update:model-value="documentStore.setContent"
               @cursor-position-change="updateCursorPosition"
+              @heading-context-change="updateHeadingContext"
               @open-global-search="openGlobalSearchFromFind"
             />
           </template>
