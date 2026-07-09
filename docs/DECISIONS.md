@@ -2,8 +2,11 @@
 
 > 重大架构取舍的 ADR（Architecture Decision Records）。
 >
-> **写入标准**: 候选方案 ≥ 2、对未来 1+ 个版本有持续影响、踩坑点非显然。
-> **不写入**: 纯 bug fix、Cargo.toml 一行配置、已被后续 ADR 覆盖的旧方案、实现细节（已沉淀到 `docs/architecture/*.md`）。
+> **维护规范**:
+> - 走 Context / Decision / Consequences 三段（精简版 MADR）
+> - 编号 `ADR-YYYYMMDD-NNN`，按写入顺序递增。改 ADR（修正事实 / 补充后果）直接在原条目改，不要新开条目覆盖
+> - 每个 ADR 控制在 5-12 行。Consequences 超过 3 条实现细节的，移到对应 `architecture/*.md`，只保留架构级后果
+> - 如果 ADR 里出现函数名、DOM 事件名、CSS class 名、配置字段名，几乎一定写得太细了——这些归 architecture docs
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **本文件负责**: ProseMirror / CodeMirror 编辑器栈、markdownIO、语法实时转换、NodeView/Decoration、mermaid、shiki 与跨模式同步。
 >
-> **何时阅读**: 改 schema、markdownIO、ProseMirror 插件链、NodeView/Decoration、代码高亮、源代码模式、快捷键或新增 markdown 语法时。
+> **何时阅读**: 改 schema、markdownIO、ProseMirror 插件链、NodeView/Decoration、代码高亮、源代码模式、快捷键或新增 markdown 语法（见下方「新增语法支持 checklist」）时。
 >
 > **先记住**:
 > - `EditorInner.vue` 的 `allPlugins` 顺序是行为契约，改动需同步本文件。
@@ -153,6 +153,42 @@
   1. **必须注册**:`syntax/index.ts` 缺 `registerInlineSyntax(htmlTagSyntax)` 等于整条语法静默失效 —— 不报任何错,用户敲完整段都不转(已踩坑:v0.5.7 之前的 syntax/index.ts 漏注册,文档里有 htmlTag 但实际不生效)。注册位置放 inline 队列最后(`highlight` 之后),不影响其他 syntax 抢匹配
   - **只匹配完整闭合**:regex 是 `PAIRED | SELF_CLOSE`,`<TAG>content</TAG>` 或 `<TAG/>` 才转。**不**做"敲到一半就转开标签"的优化 —— 用户期望边敲边编辑,过早转 atom 反而把光标锁在 atom 之后,backspace 删不掉刚敲的 `<kbd>`,体验更差
   - **`<` 在 prose text 里的反斜杠转义是正常行为**:敲到一半的 `<kbd>` 留 plain text,`toMarkdown` 走 `mdast-util-to-markdown` 的 `safe()` 加 `\<` 反斜杠转义(prose text 里的 `<` 后接字母或 `/` 属于 unsafe 模式,CommonMark 规范要求)。完整闭合转 atom 后这条转义路径自动消失。**不要**在编辑器层去对抗 round-trip 完整性(`safe` 是为重 parse 时 `<` 不被误当 HTML 起始)
+
+---
+
+## 新增语法支持 checklist
+
+> 一条新语法落地，需要 check 一遍涉及哪些层避免遗漏。
+> checklist 不是规约，多数简单语法只碰其中 2-3 个文件。
+
+
+| # | 涉及层 | 文件 | 何时需要动 |
+|---|--------|------|-----------|
+| 1 | **schema** | `editor/schema.ts` | 新增节点类型 / mark / attrs |
+| 2 | **NodeView / widget** | `nodes/*.ts` 或 `editor/imageNodeView.ts` 等 | 需要特殊视觉(数学渲染 / mermaid SVG / 任务 checkbox / 链接源编辑) |
+| 3 | **remark 插件**(外部解析) | `plugins/remark*.ts` + `editor/markdownIO.ts` 里 `.use()` | mdast 树需要重写(如 alert / preserveEmptyLine)或补缺 |
+| 4 | **markdownIO 双向** | `editor/markdownIO.ts` | 新节点要进 fromMarkdown / toMarkdown；新 mark 要在 pmInlineToMdast 加分支 |
+| 5 | **syntax registry**(实时键入) | `syntax/{block，inline}/*.ts` + `syntax/index.ts` | 用户键入也要转(块级 / 行内带匹配) |
+| 6 | **ProseMirror 插件** | `EditorInner.vue` 的 `allPlugins` 数组 | 需要新装饰 / 行为插件(查找高亮 / 自动补全 / 原子保护) |
+| 7 | **keymap** | `EditorInner.vue` | 新快捷键(如 `$$` + Enter) |
+| 8 | **测试** | `__tests__/*.ts` | 每条语法至少 1 happy + 1 反例；`markdownIO` 改动必加 round-trip |
+| 9 | **RELEASE_NOTES** | `docs/RELEASE_NOTES.md` 当前版本对应分组（发布后写） | 发版时该语法的 feat/fix 走 `git log` 即可；属用户可见变更按分组写入 RELEASE_NOTES |
+| 10 | **ARCHITECTURE** | `docs/architecture/editor.md`（必要时联动 `docs/ARCHITECTURE.md` 路由） | 跨节点依赖 / 触发时机反直觉 / 新黑名单维度 / 非显然设计取舍；**纯模板化不需要改** |
+| 11 | **DECISIONS** | `docs/DECISIONS.md` | 候选方案 ≥ 2 的"为什么走 X 不走 Y"取舍（非显然决策），走 ADR 格式；普通语法不进 |
+
+**容易遗漏的项**:
+- 第 5 列注册——`syntax/index.ts` 没 `registerXxx` = 不生效，且无警告，纯静默
+- 第 4 列双向——`fromMarkdown` 加了，`toMarkdown` 忘了，文件保存再加载会丢数据
+- 第 9 列留痕——发版时该语法的 feat/fix 走 `git log` 即可；属用户可见变更按分组写入 RELEASE_NOTES，属"重大决策"取舍另写入 DECISIONS ADR 块（"为什么走 X 不走 Y"不写在 commit message 里）
+- 第 10 列过度——简单语法也写一段架构说明反而稀释文档信号
+
+**已落地的语法参照**:
+- `mermaid` 涉及 schema(`code_block { language: 'mermaid' }`，无独立节点) + remark(走 mdast code) + markdownIO 双向 + mermaidDecoration plugin(扫 code_block 渲染 SVG widget，不走 syntax)。codeHighlight 工具条 + mermaid SVG widget 双 widget 共存(不同 side)
+- `alert` 涉及 schema + remark(remarkAlert) + markdownIO 双向 + syntax/block/alert + 注册
+- `footnote` 涉及 schema + NodeView + FootnoteNumberPlugin + syntax/inline/footnoteRef + 注册
+- `_italic` / `~~strike~~` 涉及 schema + syntax/inline + 注册(无 NodeView / 无 remark)
+- `` `code` `` 涉及 schema(已有 `code` mark,`excludes:'_'` 独占) + syntax/inline/code + 注册 + markSourceEdit session(进 enter 守卫 `isBlacklisted` 需放行 `code` mark,只挡 `code_block`/`math_block` 容器)。无 NodeView / 无 remark(remark-parse 原生 inlineCode);markdownIO 双向已由 `inlineNodeToPM`/`wrapWithMarks` 处理,改 syntax 不碰 markdownIO 但 round-trip 用例已覆盖
+- `[TOC]` 涉及 schema + Decoration.widget(TocDecoration) + markdownIO 双向 + syntax/block/toc + 注册(无 NodeView / 无 remark)
 
 ---
 

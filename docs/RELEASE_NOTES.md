@@ -1,13 +1,12 @@
-# Changelog
+# Release Notes
 
-All notable changes to this project are documented in this file.
+> 面向用户的版本变更日志（中文）。
+>
+> **维护规范**:
+> - 按 [Keep a Changelog](https://keepachangelog.com/) 格式 + [SemVer](https://semver.org/) 记录版本变更，分组：Added / Changed / Deprecated / Removed / Fixed / Security / Dependencies，按需选择
+> - 内容粒度：能让用户"看懂这个版本加了/改了什么"即可
+> - **只写用户可见的事项本身，不写背后的实现细节**：不出现函数名 / 行号 / 内部机制 / 代码级步骤；实现取舍进 DECISIONS，踩坑进 ARCHITECTURE
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-> 简要记录 **用户可见** 的版本变更
-
-## [Unreleased]
 
 ## [0.6.6] — 2026-07-09
 
