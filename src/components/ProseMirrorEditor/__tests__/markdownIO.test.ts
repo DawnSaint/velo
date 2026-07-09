@@ -96,6 +96,11 @@ const samples: Array<{ name: string, md: string }> = [
     name: 'TOC marker with surrounding blank lines',
     md: 'hello\n\n[TOC]\n\nworld',
   },
+  {
+    // hr:block+atom 节点无 attrs,round-trip 严格 idempotent。
+    name: '分割线 hr',
+    md: 'above\n\n---\n\nbelow',
+  },
 ]
 
 describe('markdownIO round-trip', () => {

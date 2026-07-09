@@ -231,6 +231,12 @@ const nodes: Record<string, NodeSpec> = {
 
   hr: {
     group: 'block',
+    // 可选中 + 整块删除:走 block+atom 三件套(selectable + atom + defining),
+    // 与 image / math_block 同范式,让 imageKeymap 的 select-then-delete 路径
+    // 一并覆盖 hr。NodeView 在 nodes/HrNodeView.ts。
+    selectable: true,
+    atom: true,
+    defining: true,
     parseDOM: [{ tag: 'hr' }],
     toDOM: () => ['hr'],
   },

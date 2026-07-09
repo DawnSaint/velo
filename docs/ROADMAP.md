@@ -10,9 +10,6 @@
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
 
-- [ ] **mark / link / image 源码编辑 session 期间切源码模式会看到转义串**
-  - 进入源码编辑态的 trigger 事务挂了 `SKIP_CONTENT_EMIT` 不回写，但 session 内逐字键入的 tr 不挂该 meta（仅 commit 才需回写）→ `onChange` 回写 `toMarkdown` 把纯文本 `[..](..)` / `**..**` 转义成 `\[..\]\(..)` / `\*\*..\*\*`，污染 `documentStore.content`；此时切源码模式读到转义串，切回所见即所得后 `fromMarkdown` 解析转义串只得纯文本，无法变回 link / mark。光标移出 commit 时恢复正常。
-  - 修复方向：session 期间所有 tr 跳过回写、commit 时一次性同步。link / image / markSourceEdit 三者共有此限制。
 - [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持）
 
 ## 功能规划

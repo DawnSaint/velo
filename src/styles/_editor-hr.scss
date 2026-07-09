@@ -1,0 +1,32 @@
+// hr 选中态 —— hr 是 block+atom 节点,NodeView 包裹在 <div class="velo-hr">,
+// selectNode/deselectNode 切换 .selected class,SCSS 用 &.selected hr 画 outline。
+//
+// hr 基础样式(border-top / margin)在 _editor-typography.scss:87,这里只加选中态。
+// 暗色落地在同 partial(:is(.dark .velo-editor, .velo-editor.dark)),
+// 不集中到 _editor-dark.scss。
+
+.velo-editor {
+  .velo-hr {
+    // 包裹 hr 的 NodeView div,块级,撑起行高。
+    // hr 自身 margin:2em 0 仍由 typography 规则决定,这里不覆写。
+    padding: 1px 0;
+
+    // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected。
+    &.selected hr {
+      outline: 0.1em solid var(--md-primary-color, #1F71D9);
+      outline-offset: 2px;
+      border-radius: 1px;
+    }
+  }
+}
+
+// 选中 hr 时隐藏文本光标。hr 是 contentEditable=false 的 block atom,
+// NodeSelection 的 focus 端在 Chrome/WebView2 会被渲染到下一个可编辑文本,
+// 选中态不需要文本光标,整编辑器 caret-color:transparent。
+// 取消选中(.selected 移除)后自动恢复。走 :has() —— WebView2(Chromium ≥105)原生支持。
+.velo-editor:has(.velo-hr.selected) {
+  caret-color: transparent;
+}
+
+// 暗色无需额外规则:outline 沿用 --md-primary-color(暗色下主题色自动翻面),
+// 基础 hr 暗色 border-top-color 在 _editor-dark.scss:54。

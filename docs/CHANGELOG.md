@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **分割线可选中并删除**：分割线现在可以像图片一样被点击选中（出现蓝色选中框），选中后按 Backspace 或 Delete 即可删除；方向键移到分割线位置时光标不再消失。
+
 ## [0.6.5] — 2026-07-09
 
 ### Added

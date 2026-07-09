@@ -8,11 +8,14 @@
 //  - 死循环防御:转换后再 dispatch 一个 noop tr,doc 不再变化
 
 import { describe, expect, it, beforeAll } from 'vitest'
-import { EditorState, TextSelection } from 'prosemirror-state'
+import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
+import { baseKeymap } from 'prosemirror-commands'
+import { keymap } from 'prosemirror-keymap'
 import { schema } from '../editor/schema'
 import { linkClickPlugin } from '../plugins/linkClick'
 import { createImageEditPlugin, triggerImageEdit } from '../image/imageEditPlugin'
+import { imageKeymapPlugin } from '../image/imageKeymap'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { taskListPlugin } from '../nodes/TaskListNodeView'
 import {
@@ -933,6 +936,106 @@ describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
 
   it('"`code`" 闭合后继续输入不继承 code', () => {
     expect(continueTypingHasMark('`code`', 'code')).toBe(false)
+  })
+
+  // hr 可选中 + select-then-delete 路径测试。
+  // hr 是 block+atom 节点,点击后走 NodeSelection 选中(同 math_block 范式),
+  // 再按 Backspace 由 baseKeymap 整块删除。
+  // 需要 syntaxAutoFormatPlugin(--- 转 hr)+ imageKeymapPlugin(hr 在 ATOM_TYPES)
+  // + baseKeymap(删 NodeSelection),单独建一个带 keymap 的 mount。
+  describe('hr 可选中 + select-then-delete', () => {
+    function mountViewWithKeymap(blocks: ReturnType<typeof schema.node>[] = [schema.node('paragraph')]) {
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      const doc = schema.node('doc', null, blocks)
+      const state = EditorState.create({
+        schema,
+        doc,
+        selection: TextSelection.atEnd(doc),
+        plugins: [
+          linkClickPlugin,
+          syntaxAutoFormatPlugin,
+          imageKeymapPlugin,
+          keymap({ Backspace: baseKeymap['Backspace'] }),
+          keymap({ Delete: baseKeymap['Delete'] }),
+        ],
+      })
+      const view = new EditorView(host, { state })
+      return { view, cleanup: () => { view.destroy(); host.remove() } }
+    }
+
+    // 模拟一次 Backspace 按键:调 imageKeymap 的 handleKeyDown handler。
+    // prosemirror-keymap 1.2.x 不把命令暴露在 spec 上,需走 handleKeyDown prop。
+    function pressBackspace(view: EditorView): boolean {
+      const handler = (imageKeymapPlugin.spec as any).props
+        ?.handleKeyDown
+      if (!handler) throw new Error('imageKeymap.handleKeyDown not found')
+      const event = {
+        key: 'Backspace',
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        preventDefault() {},
+      } as unknown as KeyboardEvent
+      return handler(view, event)
+    }
+
+    it('"--- " 转 hr,点击选中 hr 后再按 Backspace → 删除 hr', () => {
+      const { view, cleanup } = mountViewWithKeymap()
+      typeAt(view, 1, '--- ')
+      expect(view.state.doc.firstChild!.type.name).toBe('hr')
+      expect(view.state.doc.childCount).toBe(2) // hr + 尾部段落
+
+      // 模拟点击 hr → NodeSelection 选中 hr 块。
+      // hr 是 block atom(nodeSize 1),其 NodeSelection 锚点在 pos 0。
+      const hrBlockPos = 0
+      view.dispatch(view.state.tr.setSelection(
+        NodeSelection.create(view.state.doc, hrBlockPos),
+      ))
+      expect(view.state.selection instanceof NodeSelection).toBe(true)
+      expect((view.state.selection as NodeSelection).node.type.name).toBe('hr')
+
+      // imageKeymap 对已选中的 atom 返回 false,让 baseKeymap 删。
+      const handled = pressBackspace(view)
+      expect(handled).toBe(false)
+
+      // 走 baseKeymap 删除:block NodeSelection 整块删掉(等价于用户按 Backspace)。
+      baseKeymap['Backspace'](view.state, (t: any) => view.dispatch(t))
+      // hr 应被删,doc 只剩一个段落。
+      expect(view.state.doc.childCount).toBe(1)
+      expect(view.state.doc.firstChild!.type.name).toBe('paragraph')
+      cleanup()
+    })
+
+    it('imageKeymap 把 hr 纳入 atom 保护( Delete 键从 hr 前删→先选中 )', () => {
+      const { view, cleanup } = mountViewWithKeymap()
+      // 构造 [paragraph("above"), hr],光标在 paragraph 末尾(紧贴 hr 前)。
+      // paragraph nodeSize = 7(开+5text+闭),其 depth-0 结束位置 = 7(此时 na=hr)。
+      const para = schema.node('paragraph', null, [schema.text('above')])
+      const hr = schema.node('hr')
+      const doc = schema.node('doc', null, [para, hr])
+      const paraEnd = para.nodeSize // depth-0 上 paragraph 结束位置(na=hr)
+      const state = EditorState.create({
+        schema,
+        doc,
+        selection: TextSelection.create(doc, paraEnd),
+        plugins: [imageKeymapPlugin],
+      })
+      view.updateState(state)
+      expect(view.state.selection.empty).toBe(true)
+
+      // Delete 键:imageKeymap 应消费并把选区设成 NodeSelection 指向 hr。
+      const handler = (imageKeymapPlugin.spec as any).props?.handleKeyDown
+      const ev = {
+        key: 'Delete', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, preventDefault() {},
+      } as unknown as KeyboardEvent
+      const handled = handler(view, ev)
+      expect(handled).toBe(true)
+      expect(view.state.selection instanceof NodeSelection).toBe(true)
+      expect((view.state.selection as NodeSelection).node.type.name).toBe('hr')
+      cleanup()
+    })
   })
 
   it('回归:手动 addStoredMark 后连续输入仍继承 strong(确认 inclusive 未被破坏)', () => {

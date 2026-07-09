@@ -22,6 +22,7 @@ import { schema, type VeloSchema } from './editor/schema'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
+import { createHrNodeView } from './nodes/HrNodeView'
 import { useProseMirror, findScrollAncestor } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
 import { mermaidDecoration } from './nodes/MermaidDecoration'
@@ -235,6 +236,15 @@ const imageInlineViewPlugin = new Plugin({
   },
 })
 
+// hr NodeView:block(atom) 包裹在 <div class="velo-hr">,提供可选中视觉态。
+// 与 image 同范式,挂成独立 plugin 让 PM 在渲染 hr 节点时走 NodeView。
+const hrNodeViewPlugin = new Plugin({
+  key: new PluginKey('hrNodeView'),
+  props: {
+    nodeViews: { hr: createHrNodeView() },
+  },
+})
+
 // image upload 拦截 paste/drop:走 saveImageAsset。
 // 原 imageUploadPlugin 的 saveAndInsert 直接 view.state.schema.nodes.image 拿类型,
 // 行为已通过现 schema 完整。无需新代码。
@@ -311,6 +321,7 @@ const basePlugins: Plugin[] = [
   codeWrapPlugin,
   codeLineNumberPlugin,
   imageInlineViewPlugin,
+  hrNodeViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,
   mermaidDecoration,
