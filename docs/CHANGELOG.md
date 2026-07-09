@@ -5,11 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> 重大架构决策的取舍记录见 [`DECISIONS.md`](./DECISIONS.md)；当前设计状态与踩坑记录从
-> [`ARCHITECTURE.md`](./ARCHITECTURE.md) 索引进入对应 `architecture/*.md` 模块（测试规约见 `architecture/testing.md`）。本文件只记
-> **用户可见**的版本变更；普通 feat / fix 的 source of truth 是 `git log`。
+> 简要记录 **用户可见** 的版本变更
 
 ## [Unreleased]
+
+## [0.6.5] — 2026-07-09
+
+### Added
+- **面包屑导航**：编辑器顶部常驻「文件名 > 标题祖先链」面包屑，点击任一段跳转到对应位置；标题层级随光标实时更新，所见即所得与源码模式双模式覆盖。
+
+### Fixed
+- 修复代码折叠占位符文本因 CSS 变量未定义而不显示的问题。
 
 ## [0.6.4] — 2026-07-09
 
@@ -21,15 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **资产右键菜单**：右键资产条目提供复制图片、复制路径、复制相对路径、另存为、删除、在资源管理器中显示等操作。
 
 ### Fixed
-- 修复图片路径含括号（如 `(null).png`）在源码编辑态和源码模式下被错误转义导致图片裂开的问题。
+- 修复图片路径含括号（如 `(null)`）在源码编辑态和源码模式下被错误转义导致图片裂开的问题。
 
 ## [0.6.3] — 2026-07-08
 
 ### Added
-- **代码块语言图标**：语言选择器列表每项与 header 语言输入框均显示单色品牌语言图标，覆盖所有 32 种语言，无 fallback。
-- **``` 语言选择下拉框**：在段落中键入 ``` + 语言前缀时浮出模糊匹配下拉，上下键导航选择后一次性转成 code_block。
+- **代码块语言图标**：语言选择器列表每项与 header 语言输入框均显示单色品牌语言图标，覆盖 32 种语言。
+- **``` 语言选择下拉框**：在段落中键入 ``` + 语言前缀时浮出模糊匹配下拉，上下键导航选择后转成 code_block。
 - **代码块折叠**：code_block 接入块级折叠，header 内 chevron 触发折叠 / 展开。
-- **代码块自动换行**：per-block wrap toggle，默认开启，header 内按钮切换换行开关。
+- **代码块自动换行**：默认开启，header 内按钮切换换行开关。
 
 ### Changed
 - **代码块工具条改为常驻 header 标题栏**：原悬浮式 hover 工具条改为正常文档流的常驻标题栏（折叠 chevron + 语言输入框 + 换行开关 + 复制按钮），始终可见，与 pre 共享边框 / 背景；语言选择从按钮 + 浮层改为 header 内嵌输入框 + 下拉。
@@ -68,23 +74,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] — 2026-07-06
 
+### Breaking Changes
+- **编辑器多标签**：单窗口内同时打开多个 `.md` 文件，顶栏标签条横排呈现，点击切换、拖拽重排；中键关闭、关闭脏盘弹确认；每个标签独立的文件路径 / 内容 / 光标 / 滚动 / 折叠 / 源码模式 / dirty / lastSavedContent。
+
 ### Added
-- **全局搜索支持替换**：侧栏搜索面板顶栏新增折叠的替换行（点击 chevron 展开），可对当前选中条目所在文件或当前所有命中执行「替换 / 全部替换」；编辑器内有未保存修改的文件会被跳过，状态区显示已替换处数与跳过 / 失败文件数。
-- **在文件夹中搜索**：文件树右键菜单新增「在此文件夹中搜索」（仅目录节点），把搜索范围从工作区根收窄到指定子目录；面板 header 显示当前 scope 与清除按钮，删除 scope 即回到工作区根。
-- **编辑器多标签**：单窗口内同时打开多个 `.md` 文件，顶栏标签条横排呈现（Chrome 浏览器风格），点击切换、拖拽重排；中键关闭、关闭脏盘弹确认；标签状态走 `documentStore` 多实例化（`documents: Map<id, DocState>` + `activeId`），每个标签独立的文件路径 / 内容 / 光标 / 滚动 / 折叠 / 源码模式 / dirty / lastSavedContent。
+- **全局搜索支持替换**：侧栏搜索面板顶栏新增折叠的替换行，可对命中执行「替换 / 全部替换」；状态区显示已替换处数与跳过 / 失败文件数。
+- **在文件夹中搜索**：文件树右键菜单新增「在此文件夹中搜索」（仅目录节点），把搜索范围从工作区根收窄到指定子目录；面板 header 显示当前 scope 与清除按钮。
 - **标签右键菜单**：标签上右键可执行「关闭 / 关闭其他 / 关闭右侧 / 关闭已保存 / 全部关闭 / 复制路径 / 在文件树中定位」。
-- **标签持久化**：每个工作区独立记忆上次打开的标签集与活动标签，存于 `velo-workspaces.json`；切工作区不应用新 workspace 的标签（与 sidebarWidth 同 READ 语义），重开应用还原上次标签集；启动恢复改为并行批量打开。
-- **「文件」下拉按钮合并入口**：原左侧「文件」操作面板、原顶栏「最近文件」菜单与开发模式「欢迎」按钮统一合并到「文件」下拉面板（由 ActivityBar 第一个按钮触发）；「最近文件」条目右侧带箭头，点击展开右侧子菜单展示最近文件列表。下拉菜单与子菜单视觉 / 交互与标签 / 文件树右键菜单一致。
+- **标签持久化**：每个工作区独立记忆上次打开的标签集与活动标签；切工作区不应用新 workspace 的标签，重开应用还原上次标签集；启动恢复改为并行批量打开。
 
 ### Changed
-- **顶栏布局调整**：顶栏恢复全局横跨整个窗口顶部的形态（Velo logo 重新出现在最左 + 标签条中段 + 右侧开发模式欢迎按钮 / 窗口控制）。logo 段固定为 48px 不与侧栏宽度联动 —— 用户拖侧栏不会让标签条起点左右抖动；ActivityBar / 左侧功能区从原本「接顶到状态栏上方」改回顶栏下方中间一格（v0.6.0 多标签引入时的形态）。顶栏左起的渲染顺序为：`[logo 48px] [TabBar] [(isDev) 欢迎] [WindowControls]`。
+- **顶栏布局调整**：顶栏恢复全局横跨整个窗口顶部的形态，logo 段固定为 48px 不与侧栏宽度联动；ActivityBar / 左侧功能区从原本「接顶到状态栏上方」改回顶栏下方中间一格（v0.6.0 多标签引入时的形态）。
+- **「文件」下拉按钮合并入口**：原左侧「文件」操作面板、原顶栏「最近文件」菜单与开发模式「欢迎」按钮统一合并到「文件」下拉面板；「最近文件」条目右侧带箭头，点击展开右侧子菜单展示最近文件列表。下拉菜单与子菜单视觉 / 交互与标签 / 文件树右键菜单一致。
 
 ### Removed
-- 「示例文档」入口不再从「文件」菜单中提供（如需浏览示例文档可通过欢迎对话框进入）。
+- 「示例文档」入口不再从「文件」菜单中提供。
 - 顶栏的「最近文件」与开发模式「欢迎」按钮已合并进「文件」下拉。
 
 ### Fixed
-- **标签持久化导致 dev 启动卡死与同文件双 tab**：之前版本会把标签列表无脑照搬到工作区持久化配置，含同路径重复项；启动恢复时批量打开会把同一文件创建多个标签，TabBar 渲染量过大时会拖死 WebView2 主线程（表现为 dev 进入卡死、无法打开 devtools）；同时 `startupMode='last-file'` 段与启动恢复段会先后打开同一文件，导致同路径出现两个标签。现在标签列表落盘前会去重并加数量上限，启动时若发现已开则跳过重复加载。
+- **标签持久化导致 dev 启动卡死与同文件双 tab**：之前版本会把标签列表搬到工作区持久化配置，含同路径重复项；启动恢复时批量打开会把同一文件创建多个标签，TabBar 渲染量过大时会拖死 WebView2 主线程（表现为 dev 进入卡死、无法打开 devtools）；现在标签列表落盘前会去重并加数量上限，启动时若发现已开则跳过重复加载。
 
 ## [0.5.12] — 2026-07-04
 
@@ -101,8 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WYSIWYG 代码块行号（可选开关）**：设置面板新增「代码块行号」开关，开启后 WYSIWYG 代码块左侧显示行号；与源代码模式行号样式一致，横向滚动保持行号列固定，跨多行不抖动。mermaid 块不显示。
 
 ### Changed
-- **等宽字体改用 JetBrains Mono**：代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的等宽字体栈第一候选改为 JetBrains Mono（随安装包内置 woff2，导出 HTML 也内联 base64 字体数据保证视觉一致）。
-- **设置面板 UI 重做**：字号改为可拖滑块（12–24px，整数吸附）；开关项从原生 checkbox 改为主题色 switch；行布局统一为 label + 右控件。
+- **等宽字体改用 JetBrains Mono**：代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的等宽字体栈第一候选改为 JetBrains Mono。
+- **设置面板 UI 重做**：字号改为可拖滑块；开关项从原生 checkbox 改为主题色 switch；行布局统一为 label + 右控件。
 - **默认编辑器字号 14px → 16px**。
 - **暗色模式切换去过渡**：移除顶栏 / 功能栏 / 侧栏分隔条等 chrome 的颜色过渡，切换瞬间与编辑区同帧翻面。
 
@@ -122,13 +130,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.9] — 2026-07-01
 
 ### Added
-- **欢迎对话框与示例文档**：首次启动时弹出欢迎对话框，提供新建空白文档、打开文件、浏览示例文档三个入口；示例文档随安装包内置，无需落盘文件，重装自动跟随版本。
-- **只读模式**：状态栏新增只读模式开关（`Ctrl+Shift+R`），开启后编辑器不可修改；示例文档默认以只读模式打开，需「另存为」到工作区后才可编辑。
-- **文件树复制 / 粘贴**：右键菜单新增「复制」与「粘贴」,支持文件与整个目录的复制;粘贴时若目标目录已有同名项自动加 " 副本" 后缀。
+- **欢迎对话框与示例文档**：首次启动时弹出欢迎对话框，提供新建空白文档、打开文件、浏览示例文档三个入口。
+- **只读模式**：状态栏新增只读模式开关（`Ctrl+Shift+R`），开启后编辑器不可修改；示例文档默认以只读模式打开。
+- **文件树复制 / 粘贴**：右键菜单新增「复制」与「粘贴」,支持文件与整个目录的复制。
 
 ### Changed
-- 行内数学公式改用 Obsidian Live Preview / Typora 风格:不再有显式输入框。阅读态仅显示渲染后的公式;点击公式后,源码 `$y=f(x)$` 出现在公式前,渲染后的公式保留并实时跟随源码变化,`$` 分隔符用主题色高亮。光标离开源码区域后,`$...$` 隐藏,仅保留渲染公式,回归阅读状态。块级公式保持原有"点击进编辑"行为不变。
-- **启动性能大幅提升**：将 katex 与 mermaid 拆分为独立懒加载 chunk，首屏不再静态加载，主 JS 包体积下降约 89%，编辑器挂载耗时下降约 60%。release 包支持 `F12` 打开开发者工具查看性能指标。
+- 行内数学公式不再有显式输入框。阅读态仅显示渲染后的公式;点击公式后,源码 `$y=f(x)$` 出现在公式前,渲染后的公式保留并实时跟随源码变化,`$` 分隔符用主题色高亮。光标离开源码区域后,`$...$` 隐藏,仅保留渲染公式,回归阅读状态。
+- **性能优化**：将 katex 与 mermaid 拆分为独立懒加载 chunk，首屏不再静态加载，编辑器挂载耗时下降约 60%。
 
 ### Fixed
 - `$$` + Enter 创建的块级公式输入框不再异常消失,输入字符也不再把整段公式替换为文本。
@@ -139,7 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.8] — 2026-06-28
 
 ### Changed
-- 统一了全部图标来源为 `@lucide/vue` 图标库，视觉风格更一致。
+- 统一了图标来源为 `@lucide/vue` 图标库，视觉风格更一致。
 - 移除了编辑器外层卡片的多余视觉样式（圆角、阴影、外边距），编辑器区域更简洁。
 
 ### Fixed
@@ -156,12 +164,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **命令面板**：新增 `Ctrl+Shift+P` 全局命令面板，可搜索并执行常用应用命令、工作区操作和最近文件。
 
 ### Fixed
-- 切换左侧面板时不再意外清空文件树状态。
+- 切换左侧面板时不再清空文件树状态。
 
 
 ## [0.5.6] — 2026-06-26
 
-### Added
+### Breaking Changes
 - **多窗口**：支持创建多个独立 Velo 窗口，每个窗口可以打开自己的工作区。
 - **新窗口入口**：顶栏新增“新窗口”按钮，并支持 `Ctrl+Shift+N` 快捷键。
 - **二次启动打开新窗口**：Velo 已运行时，再次从文件关联或文件夹右键菜单打开文件 / 文件夹，会创建独立窗口而不是覆盖当前窗口。
@@ -171,10 +179,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **侧栏宽度可拖拽**：拖动侧栏与编辑器之间的分隔条调整宽度，200-600px 范围，默认 256px。宽度按工作区记忆（每个工作区独立）。
-- **拖到很窄自动收起**：拖动宽度低于阈值时侧栏自动收起；不松手拖回阈值之上又会自动出现（VSCode / Obsidian 风格）。
+- **拖到很窄自动收起**：拖动宽度低于阈值时侧栏自动收起；不松手拖回阈值之上又会自动出现。
 - **窗口过窄自动收起**：窗口宽度不足 608px 时侧栏自动收起，避免挤压编辑器。
 - **双击分隔条收起**：双击分隔条可收起侧栏，与拖到很窄的收起语义对齐。
-- **分隔条 hover 高亮**：鼠标悬停或拖拽时，分隔条中线变粗并高亮为当前主题色（VSCode / Obsidian 风格）。
+- **分隔条 hover 高亮**：鼠标悬停或拖拽时，分隔条中线变粗并高亮为当前主题色。
 
 
 ## [0.5.4] — 2026-06-26
@@ -214,42 +222,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.1] — 2026-06-24
 
 ### Added
-- **文件树可见图片文件**：文件树现在同时显示 `.md`/`.markdown`/`.mdown` 与图片（`png/jpg/jpeg/gif/webp/svg/bmp/avif`）文件，图片行有独立图标加以区分，其余文件类型保持隐藏。
+- **文件树可见图片文件**：文件树现在同时显示 `.md`/`.markdown`/`.mdown` 与图片文件，其余文件类型保持隐藏。
 - **文件树拖入编辑器**：文件树中的任何文件行现在都可以拖入编辑器区域。
   - 拖 `.md` 文件：打开到编辑器
   - 拖图片文件：复制到当前文档的 `assets/`，并在 drop 位置插入图片。
   - 源码模式行为镜像富文本模式：拖 `.md` 打开文件，拖图片在光标处插入 `![alt](src)`。
 - **文件树内跨目录拖拽移动**：文件树内部把节点拖到另一个目录上释放即可移动（同盘 mv 语义）；若移动的是当前正在编辑的文件，路径同步更新而不重载内容，已编辑但未保存的内容不会丢。
-- **文件夹"在 Velo 中打开"右键菜单（Windows）**：首次启动自动注册 Windows 文件资源管理器中文件夹的右键菜单"在 Velo 中打开"，点击直接以该文件夹为工作区启动 Velo（或切换已运行实例的工作区）。无需管理员权限。
-- **文件树空白处双击/右键新建文件**：在文件树空白处双击鼠标，会在工作区根目录新建一个 MD 文件。在文件树空白处右键弹"新建文件 / 新建文件夹"两项菜单，语义对齐"在根目录操作"（不显示重命名 / 删除等对根无意义的项）。
+- **文件夹"在 Velo 中打开"右键菜单（Windows）**：首次启动自动注册 Windows 文件资源管理器中文件夹的右键菜单"在 Velo 中打开"，点击直接以该文件夹为工作区启动 Velo（或切换已运行实例的工作区）。
+- **文件树空白处双击/右键新建文件**：在文件树空白处双击鼠标，会在工作区根目录新建一个 MD 文件。在文件树空白处右键弹"新建文件 / 新建文件夹"两项菜单，语义对齐"在根目录操作"。
 - **文件树右键菜单新增"在编辑器中打开" / "作为工作区打开"**：右键 `.md` 文件可显式"在编辑器中打开"（与单击同语义）；右键子目录可"作为工作区打开"，把该目录切换为当前工作区根。
 
 ### Changed
 - **切换工作区不再强制切回大纲**：之前用户在"文件" tab 时打开新文件夹会被弹回"大纲"，现在保留用户当前 tab；启动恢复时仍按每个工作区记忆的 tab 还原。
 - **文件夹无法被拖入编辑器**：之前拖文件夹到编辑器可能把路径串当文本插入，现在目录拖拽走独立的内部信号，编辑器侧不再识别；文件树内部跨目录拖动文件夹移动仍然可用。
-- **根节点纳入文件树**：之前工作区根名显示在文件树顶部的独立 label 里，不可右键、与子节点视觉割裂；现在根节点作为文件树第一行渲染（默认展开，可点击折叠 / 展开，**折叠态不持久化** —— 切工作区或重启视觉默认展开），可右键弹与"空白处右键"相同的根上下文菜单（新建文件 / 新建文件夹）。
+- **根节点纳入文件树**：根节点作为文件树第一行渲染（默认展开，可点击折叠 / 展开，**折叠态不持久化** —— 切工作区或重启视觉默认展开），可右键弹与"空白处右键"相同的根上下文菜单（新建文件 / 新建文件夹）。
 - **文件树新建 / 重命名输入框跟随主题**：之前固定蓝色底+蓝色 ring，与暗色主题或自定义主色不一致；现在底色透明、边框跟随主题、focus 边框使用当前主色。
 - **空目录无展开箭头**：之前空子目录显示可旋转的"›"箭头，点击展开后没有内容，视觉上有误导；现在已加载且为空的目录不显示箭头，并且加载父目录时会**后台**对每个子目录探测一次空/非空，无需用户先点击就能让空目录的箭头消失。
 
 
 ## [0.5.0] — 2026-06-23
 
-### Added
-- **工作区（目录级编辑）**：可指定一个文件夹作为"工作区"，侧边栏新增"文件" tab 浏览该目录下的所有文件；切换工作区在状态间各自独立保留。
+### Breaking Changes
+- **工作区（目录级编辑）**：可指定一个文件夹作为"工作区"，侧边栏新增"文件" tab 浏览该目录下的所有文件。
 - **侧边栏 tab 切换**：原"大纲"侧栏升级为统一侧边栏，顶部 tab 在"大纲 / 文件"之间切换，互斥渲染共享同一侧栏宽度。
-- **文件树**：点击 .md 文件直接在编辑器中打开（脏盘时先弹确认）；目录子层级展开为懒加载；展开状态按工作区分别记忆，重开应用恢复。
+- **文件树**：点击 .md 文件直接在编辑器中打开；目录子层级展开为懒加载；展开状态按工作区分别记忆，重开应用恢复。
 - **工作区根目录变更感知**：工作区下任何文件 / 子目录的新增 / 删除 / 重命名都会自动反映到文件树，不需要手动刷新。
-
-### Changed
-- 顶栏左上角的"大纲"按钮改为"侧边栏"切换按钮，title 同步更新。
 
 
 ## [0.4.7] — 2026-06-22
 
 ### Added
 - **导出功能 (HTML / PDF)**：顶栏新增"导出"按钮（`Ctrl/Cmd+Shift+E`），弹原生 saveDialog 选 HTML / PDF。
-  - **HTML**：自包含文档，mermaid / KaTeX / 代码高亮 / 任务列表 / 警告框 / GFM 表格 / 脚注 / kbd / mark 全部内嵌；图片走 `asset://` 协议在 Tauri webview 内可显示；自适应 `prefers-color-scheme` 暗色；导出失败有 warnings 收集而非中断。
-  - **PDF**：经平台原生打印能力静默写盘，**不弹任何系统对话框**（与 Typora / Obsidian 同款 UX）。Windows 已实现；macOS / Linux 暂不支持。
+  - **HTML**：自包含文档，mermaid / KaTeX / 代码高亮 / 任务列表 / 警告框 / GFM 表格 / 脚注 / kbd / mark 全部内嵌。
+  - **PDF**：经平台原生打印能力静默写盘，不弹任何系统对话框。Windows 已实现；macOS / Linux 暂不支持。
 
 ### Fixed
 - 导出 HTML / PDF 中 `[TOC]` 不被识别为目录（原当普通段落输出，目录结构丢失）。
@@ -267,7 +272,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **code_block Backspace 隔离**：起点按 Backspace 不误拆 defining code_block。
 - **任务列表两阶段升级**：在已有 list_item 内键入 `[ ] ` / `[x] ` 切换状态。
 - **完整 CommonMark 主题分隔线**：`-` / `_` / `*`，无需尾随空格。
-- 源码模式禁止拖入文件 / 粘贴图片（对齐 Typora）。
+- 源码模式禁止拖入文件 / 粘贴图片。
 
 ### Changed
 - Mermaid 不再是 atom 节点：选区 / 键盘 navigation 从"整块选中"变为"逐字符编辑"。
@@ -276,13 +281,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mermaid 删除按钮范围错位（残留 open token 并把下一段并进来）。
 - Mermaid pre 首次插入后自动隐藏。
 - 查找替换切模式后找不到匹配。
-
-### Removed
-- Mermaid 旧 textarea 实时预览路径（约 250 行）。
-- `MERMAID_REFACTOR_EVAL.md`（决策已沉淀为 ADR）。
-
-### Dependencies
-- 新增 `@codemirror/commands`、`@codemirror/state`、`@codemirror/view`。
 
 
 ## [0.4.5] — 2026-06-19
@@ -301,8 +299,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`==highlight==` 高亮 mark**。
 - **`**bold**` / `__bold__` / `*italic*` 实时键入**。
 
-### Deprecated
-- 水平线快捷键（`Mod-Shift-h`）验收未生效，延期后续版本。
 
 
 ## [0.4.3] — 2026-06-18
@@ -311,7 +307,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **shiki 双主题代码高亮**：替换 CDN 加载的 highlight.js，零重渲切色。
 - **代码块工具条 + 语言选择**：20+ 常用语言，全部本地打包无 CDN。
 - **主题设置**：66 个 shiki 主题下拉选择，启动仅懒加载当前主题对。
-- **首屏零闪烁守门**。
 - **崩溃恢复草稿**：脏盘期间每 30s 自动保存，启动时提示恢复。
 - **代码块启动期预扫 + 懒加载语言**：首屏 grammar 大幅降低。
 - 工具条几何同步（修复侧边栏开合导致的工具条漂位）。
@@ -323,11 +318,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `code_block` 内 Enter 误拆段。
-- WASM 在 Tauri build 中失效（CSP 加 `'wasm-unsafe-eval'`）。
-
-### Dependencies
-- 新增 `shiki`、`@shikijs/langs`、`@shikijs/themes`、`@tauri-apps/plugin-clipboard-manager`、`tauri-plugin-clipboard-manager`。
-- Tauri 加 `devtools` feature + `open_devtools` command。
 
 
 ## [0.4.2] — 2026-06-15
@@ -338,13 +328,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **编辑器重建路径简化**：view 实例稳定，不再整体重挂。
 
 ### Fixed
-- `velo-drop-cursor` 不显示。
 - 链接 `[text](url 含内部空格)` 解析失败。
 - 锚点跳转不匹配（带空格链接）。
-
-### Removed
-- 删 `paragraph.attrs.empty` 死属性。
-- 删 `prosemirror-caret-hidden` 老 bug 代码。
 
 
 ## [0.4.1] — 2026-06-15
@@ -357,34 +342,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **键入即转化的块级语法**：heading / blockquote / bullet_list（含 task）/ ordered_list / code_block / hr / alert 共 7 类。
 - 行内语法反向输入修复（footnote / link / math / emphasis / strike "先 `]` 再补 `[^xxx`"不触发）。
 
-### Changed
-- InputRule 收敛进 syntax registry。
-
 ### Fixed
 - list_item Enter 行为错误（空 list_item 按 Enter 正确退化为普通段落）。
 - 空行保留（修复显示与 round-trip 翻倍）。
 - CRLF / CR 文件多空行识别。
 
-### Dependencies
-- 新增 `dompurify`、`@tauri-apps/plugin-shell`。
-
 
 ## [0.4.0] — 2026-06-13
 
-### Added
-- **编辑器从 Milkdown 迁移到裸 ProseMirror + remark/unified**：Milkdown 抽象层对每条自定义语法都是纯开销，迁移后净减 96 个传递依赖。
-- 自建 schema（22 节点 / 5 mark）+ unified pipeline（remark-parse + remark-gfm + remark-math）。
-
-### Changed
-- 迁移 11 个 nodes / findreplace / image / plugins 文件。
-
-### Removed
-- 删 `src/components/MilkdownEditor/`（18 文件）。
-- 卸载 `@milkdown/*`（净 -96 传递依赖）。
-- 删 `VITE_USE_PM` feature flag，硬切到 ProseMirrorEditor。
-
-### Fixed
-- 迁移期回归（均补回归测试）：Enter 不换行、Backspace 选整段、`$x$` 不转 math_inline、Shift-Tab 非列表上下文失焦。
+### Breaking Changes
+- **编辑器从 Milkdown 迁移到 ProseMirror + remark/unified**。
 
 
 ## [0.3.3] — 2026-06-13
@@ -392,9 +359,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Mermaid 改用 `Decoration.widget`**：原 NodeView outer dom 突变触发整块 remount + 每字符闪烁。
 - **编辑器目录拆分**：拆为 `nodes/` + `findreplace/` + `image/` + `plugins/` 子目录。
-
-### Removed
-- 删 `MermaidNodeView.ts`（改走 widget 方案）。
 
 
 ## [0.3.2] — 2026-06-12
@@ -405,10 +369,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **image-inline NodeView** + Tauri `asset://` 协议代理本地图片。
 - **Atom 节点删除保护**：Backspace / Delete 紧贴 atom 节点先选中再删。
 - **图片上传插件** + 图片路径工具链。
-- **Tauri asset 协议**：CSP / 作用域 / fs 权限配置。
-
-### Fixed
-- tauri-plugin-fs watch feature 门控（修复 `Command watch not found`）。
 
 
 ## [0.3.1] — 2026-06-09
@@ -435,25 +395,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **设置持久化**：字号 / 主色 / 字体 / 暗色 / 代码块主题 / 自动保存等全部持久化。
 - **大纲折叠状态持久化**，按文件路径区分。
 - **崩溃恢复**：脏盘期间每 30s 落盘草稿，启动时检测并提示恢复。
-- **任务列表**：`[ ]` / `[x]` 编辑器内点选切换。
-- **脚注语法**：渲染、Ctrl / Cmd+点击跳转 def、def 末尾回链 ref。
+- **语法支持**：任务列表 `[ ]` / `[x]` 编辑器内点选切换；脚注渲染、Ctrl / Cmd+点击跳转 def、def 末尾回链 ref。
 - **状态栏**：字数 / 词数 / 行数。
 
-### Changed
-- **编辑器生命周期交给 `@milkdown/vue`**：删手写的 createEditor / onMounted / 守卫逻辑，改用自管挂载。
-- 抽 `outline.ts` / `plugin-common.ts` 共享逻辑。
-
 ### Fixed
-- 左侧大纲超长无滚动条。
 - 大纲标题里 `_` `*` 等符号被多余反斜杠显示。
 - 粘贴 markdown 源码不被识别为富文本。
 - Mermaid / math textarea 粘贴内容被外层 ProseMirror 抢走。
-- `save` / `saveAs` / `openPath` 失败时缺反馈，改为弹原生 message。
 - 行内公式编辑态键入抛 `ReferenceError`。
 - `recoverDraft` 后被 focus / fs:watch 静默用磁盘旧版本覆盖。
 - 切文件后编辑器不自动获取焦点。
 - `syncTitle` 在非 Tauri 浏览器环境同步抛 `TypeError` 致白屏。
-
-### Test
-- 引入 Vitest + jsdom + Tauri mock。
-- 纯函数 / Pinia store / ProseMirror 插件集成测试，共 101 个测试。

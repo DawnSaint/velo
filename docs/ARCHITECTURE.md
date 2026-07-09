@@ -52,74 +52,43 @@
 
 ## 目录结构
 
+> 只列到目录 + 关键入口文件级别，单个文件的职责在对应模块文档中描述。
+> 新增 / 删除 / 重命名目录时同步此处；加文件不需要改这里。
+
 ```
 velo/
-├── docs/
-│   ├── ARCHITECTURE.md          架构入口、技术栈、目录结构与数据流基础
-│   └── architecture/            架构模块文档（含 testing.md 测试规约）
+├── docs/                        架构文档、决策记录、变更日志
+│   └── architecture/            模块文档（editor / file-tree / export / tauri / styles / testing）
 ├── src/
-│   ├── App.vue                    外层 flex-col:全局顶栏(横跨整个窗口顶部,logo 48px + TabBar + dev 欢迎 + WindowControls;logo 段固定 48px 不绑 sidebarWidth → 标签条起点位置稳定)+ 主体 flex-row(ActivityBar + 侧栏 + 编辑器) + 底部 StatusBar
-│   ├── stores/                    editor 设置 / document 文件状态 / outline 折叠 / 块级折叠(folding) / workspace 工作区 / recentFiles 全局最近文件 / export / persistence IO
-│   ├── tauri/                     Tauri API 薄封装层(fs / dialog / path),业务侧只 import 这里
-│   ├── lib/export/                导出管线: markdown → HTML/PDF (mdast walker + shiki/KaTeX/mermaid/DOMPurify 复用)
-│   ├── utils/                     fuzzy / quickCommand / commandPalette / quickOpenIndex / workspaceSearch 等跨组件纯工具
-│   ├── styles/                    Tailwind + Sass partial
+│   ├── App.vue                  应用根组件：顶栏 + 主体（ActivityBar + 侧栏 + 编辑器）+ 状态栏
+│   ├── main.ts                  应用入口
+│   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / export / persistence）
+│   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window），业务侧只 import 这里
+│   ├── lib/export/              导出管线（mdast walker + shiki / KaTeX / mermaid / DOMPurify）
+│   ├── utils/                   跨组件纯工具（fuzzy / commandPalette / quickOpenIndex / workspaceSearch / documentStats 等）
+│   ├── composables/             shell 层通用 composable（useContextMenu）
+│   ├── styles/                  Tailwind + Sass partial
+│   ├── test/                    测试基建（vitest setup）
 │   └── components/
-│       ├── Sidebar/                左侧栏:tab 容器 + 大纲 + 文件树 + 资产面板
-│       │   ├── Sidebar.vue         大纲 / 文件 / 资产 / 搜索 tab 切换容器(per-workspace 持久化 tab 选择)
-│       │   ├── EditorOutline.vue   嵌在 Sidebar tab 内
-│       │   ├── AssetPanel.vue      图片资产面板(v0.6.4):扫描文档图片引用 + 分组展示 + 孤儿检测 + 点击定位
-│       │   ├── FileTree.vue        工作区根 + 子目录懒加载,点击 .md 打开;图片可见可拖入编辑器(v0.5.1);右键菜单 CRUD + 内部拖拽 move(v0.5.1:行内 input 新建 / 重命名 / 删除 / 在资源管理器中显示 / 跨目录拖动 rename)
-│       │   ├── FileTreeContextMenu.vue 右键菜单(纯展示 + 事件转发,v0.5.1 抽组件;v0.5.x 加复制 / 粘贴;Teleport + 暴露 rootEl 供父级全局 pointerdown handler 判定”点外部”)
-│       │   ├── useTreeData.ts       树数据 composable:rootNode + dirIndex + 懒加载 / 复用 TreeNode / 展开恢复 / 前缀清孤儿
-│       │   └── treeUtils.ts         树纯函数:basename / parentDirOfPath / isAncestorOrSelf / 文件过滤排序 / 命名校验 / fs 错误格式
-│       ├── composables/            shell 层通用 composable(v0.5.5 起)
-│       │   └── useResizeSplitter.ts  侧栏分隔条:拖拽 / 双击收起 / 窗口过窄自动收起,跑 mousedown + window listener 不走 HTML5 draggable
-│       ├── ActivityBar.vue          左贴边功能栏:文件(下拉面板,FileMenuButton 提供触发器,触发器按钮必须 `:ref="registerRef"` 不能漏,见 ActivityBar.vue:87 注释) / 工作区(Folders) / 大纲 / 全局搜索 / 设置。v0.6.1 起工作区/大纲/全局搜索 3 项可拖拽重排 + 3 项可隐藏(右键菜单 toggle;settings 固定底部不可隐藏),持久化到 velo-settings.json(全局 UI 偏好,非 per-workspace)
-│       ├── FileMenuButton.vue       「文件」下拉面板:原 FileActionsPanel 命令入口 + RecentFilesButton + 开发模式欢迎按钮三合一;`#trigger` 插槽由调用方提供视觉,FileMenuButton 自管面板状态 / 定位 / 子菜单(最近文件右侧子面板,ChevronRight 提示);纯展示 + 事件转发
-│       ├── StatusBar.vue           底部状态栏:工作区 / 文件路径 / 文档统计 / 光标 / 脏盘入口
-│       ├── QuickCommandPanel.vue 统一命令面板(v0.6.2):合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板,单浮层首字符分发模式('' = file / '>' = command;@ / # / : 后续接入),复用 fuzzy 评分
-│       ├── TabBar.vue             顶栏标签条(v0.6.0 多标签):横排 + 中键关闭 + 拖拽重排;右键菜单切到关闭其他 / 关闭已保存 / 全部关闭 / 复制路径等
-│       ├── TabContextMenu.vue   标签条右键菜单(v0.6.0):纯展示 + 事件转发,与 FileTreeContextMenu 同款 Teleport + rootEl expose 范式;App.vue 通过 emit 'reveal-in-tree' 拿到 path 后切 sidebar tab + sidebarRef.revealFile()
-│       ├── EditorSettings.vue       设置内容,由左侧功能区承载
-│       ├── Breadcrumbs.vue          编辑器顶部面包屑(v0.6.5):文件名 > 标题祖先链,点击跳转
-│       ├── DraftRecoveryDialog.vue
-│       └── ProseMirrorEditor/
-│           ├── index.vue          壳 (CSS 变量)
-│           ├── EditorInner.vue    useProseMirror() + 裸 ProseMirror EditorView
-│           ├── nodes/             自定义节点 (公式/mermaid/任务列表/脚注/代码块/TOC)
-│           │   ├── MathNodeViews.ts
-│           │   ├── MermaidSyntax.ts + MermaidDecoration.ts
-│           │   ├── TaskListNodeView.ts
-│           │   ├── FootnoteNodeViews.ts
-│           │   ├── TocDecoration.ts        TOC 目录 Decoration.widget
-│           │   ├── CodeHighlightWidget.ts
-│           │   ├── CodeLineNumberWidget.ts  code_block 行号(可选开关)v0.5.11
-│           │   ├── FoldDecoration.ts    块级折叠(heading / list_item)v0.5.12
-│           │   ├── shikiCmPlugin.ts    源代码模式 CM6 shiki 高亮 ViewPlugin
-│           │   └── TextareaEditor.ts  多行 textarea 编辑壳
-│           ├── findreplace/       查找替换 (浮层UI + PM/CM6 双后端 + 高亮 + 匹配函数)
-│           │   ├── FindReplace.vue   浮层面板(编辑器无关,经 backend 抽象驱动)
-│           │   ├── backend.ts        FindReplaceBackend 接口 + createPmBackend/createCmBackend
-│           │   ├── findIntent.ts     用户意图 provide/inject key(跨模式保留 query)
-│           │   ├── findMatches.ts    buildPattern / findMatchesInDoc / replaceInText 纯函数
-│           │   ├── findHighlight.ts  PM 高亮 Plugin (Decoration,findHighlightKey)
-│           │   └── cmFindHighlight.ts CM6 高亮 StateField + effect (镜像 PM 侧)
-│           ├── image/             图片 paste/drop 上传 + 删除保护 keymap + 树拖共享(treeDrop.ts)
-│           ├── plugins/           通用插件
-│           │   ├── linkClick.ts        链接点击/源码编辑态 session
-│           │   ├── preserveEmptyLine.ts
-│           │   ├── remarkAlert.ts      GFM alert remark 插件
-│           │   └── syntaxAutoFormat.ts 语法实时转换框架
-│           └── syntax/            实时语法注册表
-│               ├── index.ts            注册入口
-│               ├── block/              段首: heading / codeBlock / blockquote / list / hr / toc
-│               └── inline/             段内: emphasis / strike / inlineMath / footnoteRef / link
-│       ├── SourceModeEditor.vue    源代码模式 (CodeMirror 6 + shiki 高亮 + 行号)
-│       └── crossModeSync.ts        跨模式光标/滚动同步:token 序列 + LCS 对齐
+│       ├── Sidebar/             左侧栏（tab 容器 + 大纲 + 文件树 + 资产面板）
+│       ├── ProseMirrorEditor/   WYSIWYG 编辑器核心
+│       │   ├── editor/          schema / markdownIO / shortcuts / 源码编辑 session / transactionMeta
+│       │   ├── nodes/           自定义 NodeView / Decoration（公式 / mermaid / 任务列表 / 脚注 / 代码块 / TOC / HTML）
+│       │   ├── plugins/         通用插件（链接点击 / 空行保护 / remark 插件 / 语法自动转换 / 聚焦 / 打字机 / 粘贴）
+│       │   ├── syntax/          实时语法注册表（block / inline）
+│       │   ├── findreplace/     查找替换（浮层 UI + PM/CM6 双后端 + 高亮）
+│       │   ├── image/           图片 paste/drop 上传 + 删除保护 + 树拖共享
+│       │   └── composables/     useProseMirror / useResizeSplitter
+│       ├── icons/               图标资源
+│       ├── ContextMenuShell.vue 右键菜单通用壳（Teleport + 定位 + 壳样式）
+│       ├── TabBar.vue           顶栏标签条（多标签 + 拖拽重排 + 右键菜单）
+│       ├── ActivityBar.vue      左贴边功能栏（文件 / 工作区 / 大纲 / 搜索 / 设置）
+│       ├── StatusBar.vue        底部状态栏
+│       ├── SourceModeEditor.vue 源代码模式（CodeMirror 6 + shiki 高亮）
+│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / EditorSettings / DraftRecoveryDialog / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync
 └── src-tauri/
-    ├── capabilities/default.json  fs:allow-** (通用文本编辑器)
-    └── src/{main,lib}.rs          窗口主题 / CLI args / single-instance
+    ├── capabilities/            Tauri 权限配置
+    └── src/                     Rust 端（窗口主题 / CLI / single-instance）
 ```
 
 ---
@@ -140,9 +109,9 @@ velo/
 
 **状态栏**: `App.vue` 汇总 `documentStore` 的内容 / 文件 / dirty / sourceMode、`workspaceStore` 的 active root / known roots，以及当前挂载编辑器上报的光标行列，传给 `StatusBar.vue` 展示。光标行列是 UI-only 状态，不进入 `documentStore`、不持久化；文档统计直接从 `documentStore.content` 计算。源码模式切换入口放在状态栏,仍只翻转 `documentStore.sourceMode`。
 
-**面包屑(v0.6.5)**: 编辑器顶部常驻 `Breadcrumbs.vue`,显示「文件名 > 标题祖先链」。标题祖先链由当前挂载编辑器经 `heading-context-change` 事件上报(WYSIWYG 走 `headingChainFromDoc` 遍历 PM doc 节点;源码模式走 `headingChainFromMarkdown` 扫 raw markdown 行),与光标行列同属 UI-only 状态,不进 `documentStore`、不持久化。点击标题段复用 `onRevealHeading` 跳转(WYSIWYG 走 DOM `revealHeadingInDom`,源码模式走 `findHeadingRawOffset` + CM6 setSelection)。
+**面包屑**: 编辑器顶部常驻 `Breadcrumbs.vue`,显示「文件名 > 标题祖先链」。标题祖先链由当前挂载编辑器经 `heading-context-change` 事件上报(WYSIWYG 走 `headingChainFromDoc` 遍历 PM doc 节点;源码模式走 `headingChainFromMarkdown` 扫 raw markdown 行),与光标行列同属 UI-only 状态,不进 `documentStore`、不持久化。点击标题段复用 `onRevealHeading` 跳转(WYSIWYG 走 DOM `revealHeadingInDom`,源码模式走 `findHeadingRawOffset` + CM6 setSelection)。
 
-**标签持久化(v0.6.0)**: `WorkspaceState` 增 `openTabs: string[]` + `activeTab?: string`(WORKSPACES_VERSION 4),数据源 `documentStore.openFilePaths`,由 App.vue watcher 自动同步(已有 deep watch 触发 500ms debounce)。启动恢复在 `loadFrom({restoreActive:true})` 命中后异步串行 `openPathInTab(p, { silent: true })` + `switchTab`;`setActiveRoot` 切工作区**不**应用新 workspace 的 openTabs(同 sidebarWidth READ 语义)。详见 [`architecture/file-tree.md`](./architecture/file-tree.md) 工作区段。
+**标签持久化**: `WorkspaceState` 增 `openTabs: string[]` + `activeTab?: string`(WORKSPACES_VERSION 4),数据源 `documentStore.openFilePaths`,由 App.vue watcher 自动同步(已有 deep watch 触发 500ms debounce)。启动恢复在 `loadFrom({restoreActive:true})` 命中后异步串行 `openPathInTab(p, { silent: true })` + `switchTab`;`setActiveRoot` 切工作区**不**应用新 workspace 的 openTabs(同 sidebarWidth READ 语义)。详见 [`architecture/file-tree.md`](./architecture/file-tree.md) 工作区段。
 
 **文件 IO / 同步 / 持久化**: 打开 / 保存、外部改动同步、崩溃恢复草稿、持久化文件,以及写盘 / echo / fs:watch 的设计取舍与维护者注意点,见 [`architecture/document-io.md`](./architecture/document-io.md)。
 
@@ -152,5 +121,5 @@ velo/
 
 - 技术栈、目录结构、全局约定、数据流基础直接更新本文件。
 - 不要把其他模块的长篇设计记录直接写进本文件；写进对应 `docs/architecture/*.md`。
-- 新增 / 删除 / 重命名模块时，同步更新“模块路由”和“旧位置迁移速查”。
+- 新增 / 删除 / 重命名模块时，同步更新"模块路由"。
 - 文档写当前架构最终状态，不写工作日志；重大取舍用 ADR，普通用户可见变化用 CHANGELOG。

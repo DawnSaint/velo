@@ -3,6 +3,8 @@
 > Velo 的迭代规划：功能 backlog、工程化、已知问题统一在此追踪。每条 `- [ ]` 完成后改 `- [x]`；纳入某版本时在文件顶部新增 `## v<version>` 章节把条目移入，发版后整章删除，feat/fix 进 CHANGELOG、重大取舍进 DECISIONS。
 >
 > 重大架构取舍见 [DECISIONS.md](./DECISIONS.md)；用户可见变更见 [CHANGELOG.md](./CHANGELOG.md)；当前设计状态与踩坑记录见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+>
+> 复杂功能开发前先写调研文档（`docs/research/`），在对应条目以 `[调研](./research/xxx.md)` 引用；功能实现后随版本发布一并删除调研文档。
 
 ## 已知问题
 
@@ -13,27 +15,12 @@
   - 修复方向：session 期间所有 tr 跳过回写、commit 时一次性同步。link / image / markSourceEdit 三者共有此限制。
 - [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持）
 
-## v0.6.5
-
-> 项目同时使用 SCSS、Tailwind v4、Vue scoped style、TS 行内样式四种样式来源，缺乏文档化的分工边界，导致颜色值分散、暗色模式写法不统一、幽灵 class 噪音。本版本不大幅重构，以建立规约 + 清理噪音为目标。
-
-**feat**
-- [x] Breadcrumbs 面包屑：编辑器顶部常驻「文件名 > 一级标题 > 二级标题」面包屑，点任一段跳转；常驻迷你大纲，比侧栏大纲更快、比命令面板 @ 模式少一次按键（需监听光标所在 heading）
-
-**refactor**
-- [x] 建立样式分工规约：新增 `docs/architecture/styles.md`，定义 SCSS / Tailwind / scoped style / TS 行内的使用边界与暗色模式统一策略
-- [x] 清理幽灵 class：删除 7 个有 class 名无 CSS 规则的 `velo-*`（`velo-sidebar` / `velo-file-tree` / `velo-outline` / `velo-quick-command-panel` / `velo-tab-context-menu` / `velo-tree-context-menu` / `velo-asset-context-menu`），需要 JS 选择器的改用 `data-` 属性
-- [x] 补全 / 移除悬空 CSS 变量：`_editor-fold.scss` 中 `--md-text-muted` / `--md-text-muted-dark` / `--md-fold-placeholder` / `--md-fold-placeholder-dark` 从未定义，去掉 `var()` 包装直接写硬编码值
-
-**docs**
-- [x] TS NodeView class → SCSS 映射表：在 `docs/architecture/editor.md` 补充 TS 文件创建的 class 名与对应 SCSS 文件的文件级映射，降低维护查找成本
-
 ## 功能规划
 
 ### 编辑器增强
 
 - [ ] 表格增强（行列增删的浮层操作 / 单元格对齐 / 整表格拖拽）
-- [ ] 段落拖拽重排（hover gutter 拽手）
+- [ ] 段落拖拽重排（hover gutter 拽手）—— [调研](./research/block-drag-reorder.md)
 
 ### 窗口与全局体验
 
@@ -50,7 +37,7 @@
 ### 功能性
 
 - [ ] 功能更新弹窗（版本升级后首启展示 CHANGELOG 摘要）
-- [ ] Git 集成（侧栏显示 git status / commit / diff）
+- [ ] Git 集成（侧栏显示 git status / commit / diff）—— [调研](./research/git-integration.md)
 - [ ] 最近编辑位置时间线（JetBrains Ctrl+Shift+E 风格）：跨文件记光标位置而非文件，与 Git 集成一同实现
 - [ ] 导出更多格式（DOCX / EPUB）
 - [ ] 书签
@@ -58,7 +45,7 @@
 
 ### 双链
 
-把工作区里的 .md 文件相互关联起来，让 Velo 从"批量编辑 .md"上升到"知识库"。
+把工作区里的 .md 文件相互关联起来，让 Velo 从"批量编辑 .md"上升到"知识库"。[调研](./research/knowledge-graph.md)
 
 **feat**
 
@@ -81,7 +68,7 @@
 
 **feat**
 
-- [ ] [调研] 输出 `docs/Research/asset-panel-global-orphan.md`，对比 rust / JS 增量索引层方案，与 RESEARCH 知识图谱章节合并索引层讨论
+- [x] [调研](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案，与知识图谱调研合并索引层讨论
 - [ ] 模块级索引缓存：维护 `Map<assetAbsPath, Set<absPathMd>>`，每次 markdown 文件保存 / fs.watch 触发时增量刷新该文件的引用集合
 - [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
 

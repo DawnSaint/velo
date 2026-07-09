@@ -13,6 +13,7 @@
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 版本变更日志
      - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
      - [`docs/architecture/styles.md`](./docs/architecture/styles.md) — SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定；动任何样式来源或加 / 删 class 时读
+     - `docs/research/*.md` — 复杂功能的 pre-implementation 调研文档，从 ROADMAP 对应条目链接进入；开发该功能前读
 2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
 
 ## 仓库速览
@@ -52,6 +53,15 @@
 - 某版本全部 feat/fix/refactor 收口发布后：从 ROADMAP 删掉该版本整章；该版本涉及的"重大决策 / 重大重构"用写入 DECISIONS；普通 feat/fix 进 CHANGELOG
 - 实现过程中发现 ROADMAP 原计划无法落地或方案改了 → 用删除线 + `→` 注明实际走法
 - 临时新增的、原计划没列的功能 / 重要 fix → 追加到 CHANGELOG 当前版本对应分组下（不再回 ROADMAP）
+
+
+### 2.1 调研文档（docs/research/）— 复杂功能的 pre-implementation 研究
+
+- **何时写**：开发复杂功能前（涉及多模块 / 候选方案对比 / 外部依赖选型），先在 `docs/research/` 下写调研文档，作为设计参考
+- **如何引用**：在 ROADMAP.md 对应功能条目末尾加 `—— [调研](./research/xxx.md)` 链接，ROADMAP 是调研文档的唯一入口
+- **文件命名**：`docs/research/<feature-name>.md`，一个功能一篇，不设总索引文件
+- **何时删**：功能实现后随版本发布一并删除调研文档（与 ROADMAP 整章删除同步）；调研中的重大取舍沉淀到 DECISIONS ADR，最终架构同步到 `docs/architecture/*.md`
+- **调研文档写什么**：候选方案对比、第三方依赖评估、与现有架构的结合点、风险点、推荐路线；不写实现步骤（实现后进 architecture docs）
 
 
 ### 3. CHANGELOG.md — 用户可见的版本变更日志（Keep a Changelog）
