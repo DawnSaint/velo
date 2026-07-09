@@ -53,7 +53,7 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  color: var(--md-text-muted, #888);
+  color: #888;
   cursor: pointer;
   user-select: none;
   caret-color: transparent;
@@ -109,7 +109,7 @@
 }
 
 html.dark .velo-fold-toggle {
-  color: var(--md-text-muted-dark, #aaa);
+  color: #aaa;
 }
 
 html.dark .velo-fold-toggle:hover {
@@ -137,7 +137,7 @@ html.dark .velo-fold-toggle:hover {
   margin-left: 0.3em;
   padding: 0;
   font-size: 1em;
-  color: var(--md-fold-placeholder, #b0b0b0);
+  color: #b0b0b0;
   background: transparent;
   border: none;
   border-radius: 0;
@@ -152,7 +152,7 @@ html.dark .velo-fold-toggle:hover {
 }
 
 html.dark .velo-fold-placeholder {
-  color: var(--md-fold-placeholder-dark, #6a6a6a);
+  color: #6a6a6a;
 }
 
 html.dark .velo-fold-placeholder:hover {

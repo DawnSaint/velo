@@ -163,14 +163,14 @@ describe('mark 源码编辑 session', () => {
     view.destroy()
   })
 
-  it('session 内 doc 有 .velo-mark-source-edit decoration', async () => {
+  it('session 内 doc 有 [data-mark-source-edit] decoration', async () => {
     const view = makeView([
       schema.text('See '),
       schema.text('bold', [schema.marks.strong.create({ marker: '*' })]),
       schema.text(' tail'),
     ])
     await enterAt(view, 9)
-    expect(view.dom.querySelector('.velo-mark-source-edit')).not.toBeNull()
+    expect(view.dom.querySelector('[data-mark-source-edit]')).not.toBeNull()
     view.destroy()
   })
 

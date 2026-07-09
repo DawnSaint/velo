@@ -12,7 +12,8 @@
      - [`docs/DECISIONS.md`](./docs/DECISIONS.md) — 重大架构决策与重大重构的 ADR
      - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 版本变更日志
      - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 后跑 round-trip 时读
-2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
+     - [`docs/architecture/styles.md`](./docs/architecture/styles.md) — SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定；动任何样式来源或加 / 删 class 时读
+2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
 
 ## 仓库速览
 

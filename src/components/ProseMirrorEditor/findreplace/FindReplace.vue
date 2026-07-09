@@ -317,7 +317,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
   <div
     v-if="open"
     data-fr-panel
-    class="velo-find-replace absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-gray-200 bg-white shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-[#252525]/85"
+    class="absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-gray-200 bg-white shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-[#252525]/85"
     @keydown.stop
     @click.stop
   >
@@ -449,18 +449,3 @@ function onReplaceKeydown(e: KeyboardEvent) {
     </div>
   </div>
 </template>
-
-<style scoped>
-/*
- * 补 button 的鼠标光标。Tailwind preflight 不重置 button 的 cursor,UA 默认
- * 是 default(箭头),整个项目都缺,这里给本组件内的 button 补齐 —— 根
- * div 有 velo-find-replace class,后代选择器只命中本组件内的按钮,不污染
- * 外层 dialog / 表单等。disabled 态原来只降透明度,顺带把不可点语义也补上。
- */
-.velo-find-replace button {
-  cursor: pointer;
-}
-.velo-find-replace button:disabled {
-  cursor: not-allowed;
-}
-</style>

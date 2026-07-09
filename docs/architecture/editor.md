@@ -148,3 +148,36 @@
   1. **必须注册**:`syntax/index.ts` 缺 `registerInlineSyntax(htmlTagSyntax)` 等于整条语法静默失效 —— 不报任何错,用户敲完整段都不转(已踩坑:v0.5.7 之前的 syntax/index.ts 漏注册,文档里有 htmlTag 但实际不生效)。注册位置放 inline 队列最后(`highlight` 之后),不影响其他 syntax 抢匹配
   - **只匹配完整闭合**:regex 是 `PAIRED | SELF_CLOSE`,`<TAG>content</TAG>` 或 `<TAG/>` 才转。**不**做"敲到一半就转开标签"的优化 —— 用户期望边敲边编辑,过早转 atom 反而把光标锁在 atom 之后,backspace 删不掉刚敲的 `<kbd>`,体验更差
   - **`<` 在 prose text 里的反斜杠转义是正常行为**:敲到一半的 `<kbd>` 留 plain text,`toMarkdown` 走 `mdast-util-to-markdown` 的 `safe()` 加 `\<` 反斜杠转义(prose text 里的 `<` 后接字母或 `/` 属于 unsafe 模式,CommonMark 规范要求)。完整闭合转 atom 后这条转义路径自动消失。**不要**在编辑器层去对抗 round-trip 完整性(`safe` 是为重 parse 时 `<` 不被误当 HTML 起始)
+
+---
+
+## TS class → SCSS 映射表
+
+ProseMirror NodeView / Decoration / Plugin 在 TS 中命令式创建 DOM 并设 class 名,对应的 CSS 规则在 SCSS partial 中定义。改样式时先查此表定位 SCSS 文件。
+
+### NodeView / Widget DOM
+
+| TS 文件 | class 名 | SCSS 文件 |
+|---------|---------|-----------|
+| `CodeHighlightWidget.ts` | `velo-code-header-widget` / `velo-code-fold-btn` / `velo-code-fold-info` / `velo-code-wrap-btn` / `velo-code-copy-btn`(+ `velo-copy-flash-ok`) / `velo-code-lang-input-wrap` / `velo-code-lang-icon` / `velo-code-lang-input` / `velo-lang-dropdown` / `velo-lang-dropdown-item`(+ `highlighted`) / `velo-lang-match` | `_editor-code.scss` |
+| `CodeLineNumberWidget.ts` | `velo-code-lineno` | `_editor-code.scss` |
+| `MermaidDecoration.ts` | `mermaid-node` / `mermaid-widget`(+ `is-editing`) / `mermaid-svg-area` / `mermaid-toolbar` / `mermaid-btn`(+ `mermaid-btn-toggle` / `mermaid-btn-delete`) / `mermaid-placeholder` / `mermaid-loading` / `mermaid-error` / `mermaid-error-icon` / `mermaid-error-msg` | `_mermaid.scss` |
+| `MathNodeViews.ts` | `math-node`(+ `math-inline-node` / `math-block-node`) / `is-editing` / `math-inline-source` / `math-inline-display` / `math-error` / `math-empty-placeholder` | `_math.scss` |
+| `TextareaEditor.ts`(math_block 编辑壳) | `edit-textarea` / `edit-preview` | `_math.scss` |
+| `FootnoteNodeViews.ts` | `footnote-ref-node`(+ `footnote-orphan` / `footnote-flash`) / `footnote-definition` / `footnote-content` / `footnote-backref`(+ `footnote-backref-disabled`) | `_footnote.scss` |
+| `TaskListNodeView.ts` | `task-checkbox` / `task-content` | `_editor-lists.scss` |
+| `TocDecoration.ts` | `velo-toc` / `velo-toc-empty` / `velo-toc-list` / `velo-toc-item` / `velo-toc-link`(+ `velo-toc-highlight`) / `velo-toc-delete-btn` | `_editor-toc.scss` |
+| `FoldDecoration.ts` | `velo-fold-toggle`(+ `data-fold-state`) / `velo-fold-placeholder` | `_editor-fold.scss` |
+| `HtmlNodeView.ts` | `velo-html-block` / `velo-html-inline` | `_editor-html-blocks.scss` |
+| `imageEditPlugin.ts` | `velo-image-source-preview` / `velo-image-source-edit` | `_editor-image.scss` |
+
+### Decoration.inline / Decoration.node class
+
+| TS 文件 | class 名 | SCSS 文件 |
+|---------|---------|-----------|
+| `linkClick.ts` | `velo-link-source-edit` | `_editor-html-blocks.scss` |
+| `markSourceEdit.ts` | `data-mark-source-edit`(attribute 非 class,无 CSS 规则,仅测试 querySelector 用) | 无 |
+| `findHighlight.ts` | `velo-find-match` / `velo-find-current` | `_editor-base.scss` |
+| `focusMode.ts` | `velo-focus-active` | `_editor-base.scss` |
+| `codeWrapPlugin`(EditorInner.vue) | `data-velo-wrap`(attribute 非 class) | `_editor-code.scss` |
+| `foldDecoration`(FoldDecoration.ts) | `velo-folded` | `_editor-fold.scss` |

@@ -268,7 +268,7 @@ onUnmounted(detachScrollListener)
     min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px;overflow-hidden
        防止窄态时子元素溢出。p-2 pt-2 pr-0 保留 —— pr-2 由内层 pr-2 补回。
   -->
-  <div class="velo-outline flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
+  <div class="flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
     <!-- 文档完全无标题 -->
     <div v-if="isDocEmpty" class="py-8 text-center text-xs text-gray-400">
       暂无标题

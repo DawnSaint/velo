@@ -432,7 +432,7 @@ function isCollapsed(fullPath: string): boolean {
     行为符合用户直觉(像 FileTree 的 expandedDirs)。
   -->
   <div
-    class="velo-workspace-search flex h-full min-w-0 flex-col overflow-hidden"
+    class="flex h-full min-w-0 flex-col overflow-hidden"
     data-workspace-search-panel
     data-testid="workspace-search-panel"
   >
@@ -666,27 +666,11 @@ function isCollapsed(fullPath: string): boolean {
  * state(hoveredFlatIndex + selectedFlatIndex)后,hover 走 class、selected
  * 走 inline style —— 后者优先级最高,所以 selected + hover 同条时显示主色
  * (selected 优先,"hover 是预览、selected 是确认"语义)。
- *
- * 深色模式直接写 `.dark .xxx`(memory [[vue-scoped-global-dark-drops-descendant]]:
- * :global(.dark) 写法会把后代 .xxx 也变成裸选择器,scoped 属性不命中,
- * 暗色覆盖静默失效)。
  */
 .velo-ws-hovered {
   background-color: rgb(243 244 246);
 }
 .dark .velo-ws-hovered {
   background-color: rgb(55 65 81);
-}
-/*
- * 补 button 的鼠标光标。Tailwind preflight 不重置 button 的 cursor,UA 默认
- * 是 default(箭头),整个项目都缺,这里先给本组件内的 button 补齐 —— 根
- * div 有 velo-workspace-search class,后代选择器只命中本组件内的按钮,
- * 不污染外层。disabled 态原来只降透明度,顺带把不可点语义也补上。
- */
-.velo-workspace-search button {
-  cursor: pointer;
-}
-.velo-workspace-search button:disabled {
-  cursor: not-allowed;
 }
 </style>

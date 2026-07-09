@@ -94,7 +94,7 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
   <!-- min-w-0(v0.5.5):替换原 min-w-64(256px),让外层 splitter 拉到 200px 时不被截断。
        子组件 FileTree / EditorOutline 自己用 truncate 处理长文本,不需要硬最小宽度。
        overflow-hidden 防止拖到接近 200px 时内部滚动容器溢出。 -->
-  <div class="velo-sidebar flex h-full min-w-0 flex-col overflow-hidden">
+  <div class="flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 互斥内容:文件树 / 大纲 / 全局搜索(v0.6.x) -->
     <div class="min-h-0 flex-1">
       <FileTree

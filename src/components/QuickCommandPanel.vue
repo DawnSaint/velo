@@ -636,7 +636,7 @@ onBeforeUnmount(() => {
     >
       <div
         ref="panelRef"
-        class="velo-quick-command-panel mt-[4vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
+        class="mt-[4vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
         :class="mode === 'line' ? 'self-start' : ''"
         data-quick-command-panel
         data-testid="quick-command-panel"

@@ -3,7 +3,7 @@
 // 用户交互流程:
 //   1. 光标(方向键 / 点击)进入 strong/emphasis/highlight/strike 范围 → appendTransaction
 //      把整个 mark 范围换成 markdown 源码字面字符(`**bold**`),进入编辑 session。
-//      Decoration 给源码文本加 .velo-mark-source-edit 视觉提示。trigger 事务挂
+//      Decoration 给源码文本加 [data-mark-source-edit] 标记。trigger 事务挂
 //      SKIP_CONTENT_EMIT —— 这是瞬时视图切换不是内容编辑,不触发内容回写。
 //   2. 编辑态下:
 //      - 用户编辑源码 → 普通 transaction,plugin state 随位置平移
@@ -306,7 +306,7 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
       if (!pluginState?.session) return DecorationSet.empty
       const { editFrom, editTo } = pluginState.session
       return DecorationSet.create(state.doc, [
-        Decoration.inline(editFrom, editTo, { class: 'velo-mark-source-edit' }),
+        Decoration.inline(editFrom, editTo, { 'data-mark-source-edit': '' }),
       ])
     },
   },

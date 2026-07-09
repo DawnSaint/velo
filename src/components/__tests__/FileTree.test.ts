@@ -259,14 +259,14 @@ describe('FileTree', () => {
     expect(row).toBeTruthy()
     triggerContextMenu(row!)
     await nextTick()
-    return document.body.querySelector('.velo-tree-context-menu') as HTMLDivElement
+    return document.body.querySelector('[data-tree-context-menu]') as HTMLDivElement
   }
 
   /** 在指定 .group 行 wrapper 上右键(精确,同名多层级时用)。 */
   async function openContextMenuOnRowEl(row: ReturnType<typeof findRowByName>) {
     triggerContextMenu(row)
     await nextTick()
-    return document.body.querySelector('.velo-tree-context-menu') as HTMLDivElement
+    return document.body.querySelector('[data-tree-context-menu]') as HTMLDivElement
   }
 
   /** 拿 [data-inline-row] 当前活动的那一行(同时只会有一个行内编辑)。 */
@@ -322,11 +322,11 @@ describe('FileTree', () => {
   it('Escape 关闭菜单', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    expect(document.body.querySelector('.velo-tree-context-menu')).toBeTruthy()
+    expect(document.body.querySelector('[data-tree-context-menu]')).toBeTruthy()
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()
-    expect(document.body.querySelector('.velo-tree-context-menu')).toBeFalsy()
+    expect(document.body.querySelector('[data-tree-context-menu]')).toBeFalsy()
     wrapper.unmount()
   })
 
@@ -336,14 +336,14 @@ describe('FileTree', () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
 
-    const revealBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const revealBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('在资源管理器中显示')) as HTMLButtonElement
     expect(revealBtn).toBeTruthy()
     await revealBtn.click()
     await flushPromises()
 
     expect(revealItemInDir).toHaveBeenCalledWith('/test/root/note.md')
-    expect(document.body.querySelector('.velo-tree-context-menu')).toBeFalsy()
+    expect(document.body.querySelector('[data-tree-context-menu]')).toBeFalsy()
     wrapper.unmount()
   })
 
@@ -354,7 +354,7 @@ describe('FileTree', () => {
     await openContextMenuOnRow(wrapper, 'note.md')
 
     vi.mocked(confirm).mockResolvedValue(false)
-    const deleteBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
@@ -369,7 +369,7 @@ describe('FileTree', () => {
     await openContextMenuOnRow(wrapper, 'note.md')
 
     vi.mocked(confirm).mockResolvedValue(true)
-    const deleteBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
@@ -391,7 +391,7 @@ describe('FileTree', () => {
     await openContextMenuOnRow(wrapper, 'note.md')
 
     vi.mocked(confirm).mockResolvedValue(true)
-    const deleteBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
@@ -418,7 +418,7 @@ describe('FileTree', () => {
     await openContextMenuOnRow(wrapper, 'note.md')
 
     vi.mocked(confirm).mockResolvedValue(true)
-    const deleteBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
@@ -432,7 +432,7 @@ describe('FileTree', () => {
   it('点击「新建文件」→ 行内 input 出现 + 默认 "未命名文档" + 静态 ".md" 后缀', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -448,14 +448,14 @@ describe('FileTree', () => {
     const mdSuffix = row!.querySelector('span.text-gray-500')
     expect(mdSuffix?.textContent).toBe('.md')
     // 菜单关闭
-    expect(document.body.querySelector('.velo-tree-context-menu')).toBeFalsy()
+    expect(document.body.querySelector('[data-tree-context-menu]')).toBeFalsy()
     wrapper.unmount()
   })
 
   it('新建文件:改名 + Enter → writeTextFile 调用 + 行内 row 消失', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -477,7 +477,7 @@ describe('FileTree', () => {
   it('新建文件:已存在同名 → 错误显示在 input.title,row 保留', async () => {
     const wrapper = await mountWithEntries([entry('a.md', false)])
     await openContextMenuOnRow(wrapper, 'a.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -499,7 +499,7 @@ describe('FileTree', () => {
   it('新建文件:默认空值 + blur → 静默取消,不建文件', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -517,7 +517,7 @@ describe('FileTree', () => {
   it('新建文件:默认空值 + Enter → 显示空错误,row 保留', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -539,7 +539,7 @@ describe('FileTree', () => {
   it('点击「新建文件夹」→ 行内 input 出现 + 默认空值 + 无 .md 后缀', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newDirBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newDirBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件夹')) as HTMLButtonElement
     await newDirBtn.click()
     await nextTick()
@@ -557,7 +557,7 @@ describe('FileTree', () => {
   it('新建目录:改名 + Enter → mkdir 调用', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newDirBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newDirBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件夹')) as HTMLButtonElement
     await newDirBtn.click()
     await nextTick()
@@ -602,7 +602,7 @@ describe('FileTree', () => {
     triggerContextMenu(subRow)
     await nextTick()
 
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     // 目录右键触发 loadDirChildren 懒展开(子目录 children 之前 undefined),
@@ -640,7 +640,7 @@ describe('FileTree', () => {
     triggerContextMenu(subRow)
     await nextTick()
 
-    const newDirBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newDirBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件夹')) as HTMLButtonElement
     await newDirBtn.click()
     // 同上:目录右键触发 loadDirChildren 懒展开,需要 flushPromises 等异步
@@ -664,7 +664,7 @@ describe('FileTree', () => {
   it('点击「重命名」(.md)→ 行内 input 出现,value 是 baseName(无 .md),有静态 .md 后缀', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const renameBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const renameBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('重命名')) as HTMLButtonElement
     await renameBtn.click()
     await nextTick()
@@ -691,7 +691,7 @@ describe('FileTree', () => {
 
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const renameBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const renameBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('重命名')) as HTMLButtonElement
     await renameBtn.click()
     await nextTick()
@@ -715,7 +715,7 @@ describe('FileTree', () => {
   it('重命名目录:input 含完整名(无 .md 后缀)', async () => {
     const wrapper = await mountWithEntries([entry('sub', true)])
     await openContextMenuOnRow(wrapper, 'sub')
-    const renameBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const renameBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('重命名')) as HTMLButtonElement
     await renameBtn.click()
     await nextTick()
@@ -731,7 +731,7 @@ describe('FileTree', () => {
   it('重命名:与原名同名 → Enter 后 row 关闭(空操作),fsRename 未调', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const renameBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const renameBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('重命名')) as HTMLButtonElement
     await renameBtn.click()
     await nextTick()
@@ -749,7 +749,7 @@ describe('FileTree', () => {
   it('重命名:输入非法字符 / → 错误提示,row 保留', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const renameBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const renameBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('重命名')) as HTMLButtonElement
     await renameBtn.click()
     await nextTick()
@@ -772,7 +772,7 @@ describe('FileTree', () => {
   it('行内编辑:Escape → 取消,row 消失,fs 未调', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -789,7 +789,7 @@ describe('FileTree', () => {
   it('行内编辑:点外部 → 提交(对齐全平台编辑约定)', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -811,7 +811,7 @@ describe('FileTree', () => {
   it('行内编辑:点 row 内(input 自己)不提交,row 保留', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -829,7 +829,7 @@ describe('FileTree', () => {
   it('行内编辑:右键菜单打开 → 自动取消行内编辑', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -840,7 +840,7 @@ describe('FileTree', () => {
     triggerContextMenu(row)
     await nextTick()
     expect(activeInlineRow()).toBeFalsy()
-    expect(document.body.querySelector('.velo-tree-context-menu')).toBeTruthy()
+    expect(document.body.querySelector('[data-tree-context-menu]')).toBeTruthy()
     wrapper.unmount()
   })
 
@@ -848,14 +848,14 @@ describe('FileTree', () => {
 
   it('容器空白处右键 → 菜单显示 2 项(仅新建,无 重命名 / 删除 / reveal)', async () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
-    // 容器空白 = .velo-file-tree 内"min-h-0 flex-1 ..."的滚动容器 div,@contextmenu.self 在它上
+    // 容器空白 = FileTree 根 div 内"min-h-0 flex-1 ..."的滚动容器 div,@contextmenu.self 在它上
     // findAll('div').filter 找有 @drop.self 标记的可能脆;直接在 row 之外的 listing 容器派发
     const container = wrapper.find('[class*="overflow-y-auto"]').element as HTMLElement
     const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
     container.dispatchEvent(ev)
     await nextTick()
 
-    const menu = document.body.querySelector('.velo-tree-context-menu')
+    const menu = document.body.querySelector('[data-tree-context-menu]')
     expect(menu).toBeTruthy()
     const items = menu!.querySelectorAll('button')
     // 仅"新建文件" + "新建文件夹"
@@ -872,7 +872,7 @@ describe('FileTree', () => {
     container.dispatchEvent(ev)
     await nextTick()
 
-    const newFileBtn = Array.from(document.body.querySelectorAll('.velo-tree-context-menu button'))
+    const newFileBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('新建文件')) as HTMLButtonElement
     await newFileBtn.click()
     await nextTick()
@@ -940,7 +940,7 @@ describe('FileTree', () => {
     triggerContextMenu(rootRow)
     await nextTick()
 
-    const menu = document.body.querySelector('.velo-tree-context-menu')
+    const menu = document.body.querySelector('[data-tree-context-menu]')
     expect(menu).toBeTruthy()
     const items = menu!.querySelectorAll('button')
     expect(items.length).toBe(2)
@@ -1157,7 +1157,7 @@ describe('FileTree', () => {
     const rootRow = wrapper.findAll('.group')[0]
     triggerContextMenu(rootRow)
     await nextTick()
-    let menu = document.body.querySelector('.velo-tree-context-menu')!
+    let menu = document.body.querySelector('[data-tree-context-menu]')!
     expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
 
     // 容器空白处右键
@@ -1165,7 +1165,7 @@ describe('FileTree', () => {
     const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
     container.dispatchEvent(ev)
     await nextTick()
-    menu = document.body.querySelector('.velo-tree-context-menu')!
+    menu = document.body.querySelector('[data-tree-context-menu]')!
     expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
     wrapper.unmount()
   })

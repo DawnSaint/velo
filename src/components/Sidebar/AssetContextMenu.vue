@@ -43,7 +43,7 @@ defineExpose({ rootEl })
   <Teleport to="body">
     <div
       ref="rootEl"
-      class="velo-asset-context-menu fixed z-50 w-max text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800"
+      class="fixed z-50 w-max text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800"
       :style="{ left: `${x}px`, top: `${y}px` }"
       role="menu"
       @contextmenu.prevent

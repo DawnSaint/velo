@@ -152,12 +152,4 @@ function onBackdropClick(e: MouseEvent) {
 .draft-fade-leave-to {
   opacity: 0;
 }
-
-/* 内容预览:多行截断(CSS line-clamp 是较新的属性,Tailwind 自带 polyfill 不需要) */
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 </style>

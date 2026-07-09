@@ -12,7 +12,7 @@ export default defineConfig({
     port: 5273,
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: ['**/src-tauri/**', '**/__tests__/**', '**/docs/**', '**/e2e/**', '**/scripts/**'],
     },
   },
   css: {
