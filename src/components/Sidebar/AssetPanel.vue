@@ -15,7 +15,7 @@
 //
 // 未被引用图片扫描走 Tauri fs.readDir,dev web 端降级为只显示文档图片。
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Image as ImageIcon, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
@@ -27,6 +27,7 @@ import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/image
 import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
 import { writeClipboardText } from '@/utils/clipboard'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { ASSET_IMAGE_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { basename as basenameSync } from './treeUtils'
 import AssetContextMenu from './AssetContextMenu.vue'
@@ -273,13 +274,6 @@ watch(
 
 onMounted(() => {
   void scanOrphans()
-  document.addEventListener('pointerdown', onGlobalPointerDown, true)
-  document.addEventListener('keydown', onGlobalKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
-  document.removeEventListener('keydown', onGlobalKeydown)
 })
 
 // ============================================================
@@ -312,6 +306,12 @@ interface ContextMenuState {
 const contextMenu = ref<ContextMenuState | null>(null)
 const contextMenuRef = ref<InstanceType<typeof AssetContextMenu> | null>(null)
 
+useContextMenu({
+  isOpen: () => contextMenu.value !== null,
+  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
+  close: () => { contextMenu.value = null },
+})
+
 const isTauri = tauriOnly()
 
 /** 是否允许"复制/移动到工作区"：需 Tauri + 有工作区 + 有 filePath + 文档在工作区内 */
@@ -327,10 +327,7 @@ const contextMenuDocName = computed(() => {
 })
 
 function onContextMenu(event: MouseEvent, absPath: string, src: string | null) {
-  const MENU_W = 220
-  const MENU_H = 340
-  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
-  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
+  const { x, y } = clampToViewport(event.clientX, event.clientY, 220, 340)
   contextMenu.value = { x, y, absPath, src }
 }
 
@@ -488,25 +485,6 @@ async function onReveal() {
   }
   catch (e) {
     console.error('在资源管理器中显示失败', e)
-  }
-}
-
-// ============================================================
-//  全局点击 / 键盘 → 关闭菜单
-// ============================================================
-
-function onGlobalPointerDown(event: PointerEvent) {
-  if (!contextMenu.value) return
-  const target = event.target as Node | null
-  if (!target) return
-  const menuEl = contextMenuRef.value?.rootEl ?? null
-  if (menuEl && (menuEl === target || menuEl.contains(target))) return
-  closeContextMenu()
-}
-
-function onGlobalKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && contextMenu.value) {
-    closeContextMenu()
   }
 }
 

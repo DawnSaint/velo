@@ -22,10 +22,11 @@
 //  - 拖拽范式对齐 TabBar(HTML5 draggable + dropTarget={key,side});差异:
 //    纵向列表 → 用 clientY 判 before/after(TabBar 横向用 clientX)。
 
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Folders, List, Search, Settings, File, Image as ImageIcon } from '@lucide/vue'
 import FileMenuButton from './FileMenuButton.vue'
 import ActivityBarContextMenu from './ActivityBarContextMenu.vue'
+import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { useEditorStore, type ActivityBarItem } from '@/stores/editor'
 import type { RecentFileEntry } from '@/stores/persistence'
 
@@ -145,13 +146,18 @@ function resetDragState() {
   dropTarget.value = null
 }
 
-// ===== 右键菜单(v0.6.1,对齐 TabContextMenu 范式) =====
+// ===== 右键菜单(v0.6.1) =====
 //
-// 本地 ref 记坐标,Teleport 到 body,全局 pointerdown / Escape handler 关闭。
-// 菜单元件 (ActivityBarContextMenu.vue) 只展示 + emit,父级统一管「点外部关闭」,
-// 与 FileTreeContextMenu / TabContextMenu 同款 —— 不在组件内自己挂全局 listener。
+// 走 useContextMenu composable 统一管全局 listener + 视口 clamp。
+// 菜单元件 (ActivityBarContextMenu.vue) 只展示 + emit。
 const contextMenu = ref<{ x: number, y: number } | null>(null)
 const contextMenuRef = ref<InstanceType<typeof ActivityBarContextMenu> | null>(null)
+
+useContextMenu({
+  isOpen: () => contextMenu.value !== null,
+  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
+  close: () => { contextMenu.value = null },
+})
 
 /** 菜单条目:固定展示序(不随用户自定义顺序变),每项带当前显隐态。
  *  仅列可隐藏的 3 个视图入口;'settings' 固定显示,不进勾选列表。 */
@@ -164,18 +170,14 @@ const contextMenuItems = computed(() => {
   }))
 })
 
-function onActivityContextMenu(event: MouseEvent) {
-  event.preventDefault()
-  // 视口约束:菜单宽 ~176 / 高 ~210(4 行:3 勾选 + 重置);贴边留 8px 安全距
-  const MENU_W = 176
-  const MENU_H = 210
-  const x = Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_W - 8))
-  const y = Math.max(8, Math.min(event.clientY, window.innerHeight - MENU_H - 8))
-  contextMenu.value = { x, y }
-}
-
 function closeContextMenu() {
   contextMenu.value = null
+}
+
+function onActivityContextMenu(event: MouseEvent) {
+  event.preventDefault()
+  const { x, y } = clampToViewport(event.clientX, event.clientY, 176, 210)
+  contextMenu.value = { x, y }
 }
 
 function onToggleItem(key: ActivityBarItem) {
@@ -187,31 +189,6 @@ function onResetActivityBar() {
   editorStore.resetActivityBar()
   closeContextMenu()
 }
-
-// —— 全局 listener:点外部关闭 + Escape 关闭 ——
-function onGlobalPointerDown(event: PointerEvent) {
-  if (!contextMenu.value) return
-  const target = event.target as Node | null
-  if (!target) return
-  const menuEl = contextMenuRef.value?.rootEl ?? null
-  if (menuEl && (menuEl === target || menuEl.contains(target))) return
-  closeContextMenu()
-}
-
-function onGlobalKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  if (contextMenu.value) closeContextMenu()
-}
-
-onMounted(() => {
-  document.addEventListener('pointerdown', onGlobalPointerDown, true)
-  document.addEventListener('keydown', onGlobalKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
-  document.removeEventListener('keydown', onGlobalKeydown)
-})
 </script>
 
 <template>

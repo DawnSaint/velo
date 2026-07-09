@@ -33,6 +33,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
 import { TREE_DIR_PATH_MIME, TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
+import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
 import { useTreeData, type TreeNode } from './useTreeData'
 import {
@@ -397,6 +398,12 @@ interface ContextMenuState {
 const contextMenu = ref<ContextMenuState | null>(null)
 const contextMenuRef = ref<InstanceType<typeof FileTreeContextMenu> | null>(null)
 
+useContextMenu({
+  isOpen: () => contextMenu.value !== null,
+  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
+  close: () => { contextMenu.value = null },
+})
+
 // ========== 复制 / 粘贴(v0.5.x) ==========
 //
 // 单实例"剪贴板":只记源路径 + 源是否目录。粘贴时:
@@ -415,11 +422,7 @@ function isRootNode(node: TreeNode): boolean {
 
 function onRowContextMenu(event: MouseEvent, node: TreeNode) {
   event.preventDefault()
-  // 视口约束:菜单宽 ~160px / 高 ~220px;贴边留 8px 安全距
-  const MENU_W = 160
-  const MENU_H = 220
-  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
-  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
+  const { x, y } = clampToViewport(event.clientX, event.clientY, 160, 220)
   // 根节点:走"根上下文"——只显示新建项,不暴露重命名 / 删除 / reveal / 作为工作区打开
   // (与空白处右键统一)。重命名 / 删除根直接破坏工作区,reveal 根价值低于走系统标题栏。
   if (isRootNode(node)) {
@@ -444,10 +447,7 @@ function closeContextMenu() {
 function onContainerContextMenu(event: MouseEvent) {
   if (!workspace.activeRoot || !rootNode.value) return
   event.preventDefault()
-  const MENU_W = 160
-  const MENU_H = 220
-  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
-  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
+  const { x, y } = clampToViewport(event.clientX, event.clientY, 160, 220)
   contextMenu.value = { node: rootNode.value, x, y, rootContext: true }
   cancelInline()
 }
@@ -815,6 +815,7 @@ async function pasteInto(dstDir: string) {
 
 function onGlobalPointerDown(event: PointerEvent) {
   // 行内编辑激活:点外部 = 提交
+  // (菜单的「点外部关闭」由 useContextMenu composable 的独立 listener 管)
   if (inlineNew.value || inlineRename.value) {
     const target = event.target as Node | null
     if (target) {
@@ -832,19 +833,12 @@ function onGlobalPointerDown(event: PointerEvent) {
     void submitInline()
     return
   }
-  // 上下文菜单激活:点外部 = 关闭
-  if (!contextMenu.value) return
-  const target = event.target as Node | null
-  if (!target) return
-  const menuEl = contextMenuRef.value?.rootEl ?? null
-  if (menuEl && (menuEl === target || menuEl.contains(target))) return
-  closeContextMenu()
 }
 
 function onGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   if (inlineNew.value || inlineRename.value) cancelInline()
-  else if (contextMenu.value) closeContextMenu()
+  // 菜单的 Escape 关闭由 useContextMenu composable 的独立 listener 管
 }
 
 function onGlobalDragEnd() {

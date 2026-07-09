@@ -65,6 +65,7 @@ _editor-dark.scss       ← 暗色模式（非 alert / 非 image 部分）
 _math.scss              ← 数学公式 NodeView + 编辑壳
 _mermaid.scss           ← mermaid widget / toolbar / error / loading
 _footnote.scss          ← 脚注 reference / definition
+_context-menu.scss      ← 右键菜单通用项样式（.ctx-menu-item / --danger / separator），跨 4 份 *ContextMenu 组件共用
 ```
 
 按功能域拆分，`index.scss` 统一 `@forward`。新增编辑器节点样式时在 `index.scss` 加一行 `@forward`，文件名用 `_editor-<功能>.scss` 或 `_<功能>.scss`（编辑器 DOM 用 `_editor-` 前缀，独立组件如 math / mermaid / footnote 不带）。

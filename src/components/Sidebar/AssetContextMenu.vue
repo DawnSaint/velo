@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// 资产面板右键菜单 —— 与 FileTreeContextMenu 同款 Teleport + rootEl expose 范式。
-// 纯展示 + 事件转发，不持有业务状态；菜单的显示 / 隐藏 / 全局 pointerdown 关闭由 AssetPanel 管理。
+// 资产面板右键菜单 —— 壳走 ContextMenuShell,菜单项走 .ctx-menu-item 全局 class。
+// 纯展示 + 事件转发,不持有业务状态;菜单的显示 / 隐藏 / 全局 listener
+// 由 AssetPanel 通过 useContextMenu composable 管理。
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import ContextMenuShell from '../ContextMenuShell.vue'
 
 defineProps<{
   /** 视口坐标(mouseEvent.clientX/Y) */
@@ -34,98 +36,55 @@ const emit = defineEmits<{
   (e: 'reveal'): void
 }>()
 
-/** 父组件拿这个 ref 给全局 pointerdown handler 判定"点外部"。 */
-const rootEl = ref<HTMLDivElement | null>(null)
+/** 父组件拿这个 ref 给 useContextMenu 的 getMenuEl callback。 */
+const shellRef = ref<InstanceType<typeof ContextMenuShell> | null>(null)
+const rootEl = computed(() => shellRef.value?.rootEl ?? null)
 defineExpose({ rootEl })
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      ref="rootEl"
-      class="fixed z-50 w-max text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800"
-      :style="{ left: `${x}px`, top: `${y}px` }"
-      role="menu"
-      @contextmenu.prevent
-    >
-      <!-- 剪贴板操作组 -->
-      <template v-if="isTauri">
-        <button
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-copy-image"
-          @click="emit('copy-image')"
-        >
-          复制图片
-        </button>
-        <button
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-copy-path"
-          @click="emit('copy-path')"
-        >
-          复制路径
-        </button>
-      </template>
-      <button
-        v-if="hasSrc"
-        class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="ctx-copy-relative-path"
-        @click="emit('copy-relative-path')"
-      >
-        复制相对路径
+  <ContextMenuShell :x="x" :y="y" min-width-class="w-max" ref="shellRef">
+    <!-- 剪贴板操作组 -->
+    <template v-if="isTauri">
+      <button class="ctx-menu-item" data-testid="ctx-copy-image" @click="emit('copy-image')">
+        复制图片
       </button>
+      <button class="ctx-menu-item" data-testid="ctx-copy-path" @click="emit('copy-path')">
+        复制路径
+      </button>
+    </template>
+    <button v-if="hasSrc" class="ctx-menu-item" data-testid="ctx-copy-relative-path" @click="emit('copy-relative-path')">
+      复制相对路径
+    </button>
 
-      <!-- 文件操作组 -->
-      <template v-if="canReorganize || isTauri">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          v-if="canReorganize"
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-copy-to-workspace"
-          @click="emit('copy-to-workspace')"
-        >
-          复制到工作区/assets/{{ docName }}/
-        </button>
-        <button
-          v-if="canReorganize"
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-move-to-workspace"
-          @click="emit('move-to-workspace')"
-        >
-          移动到工作区/assets/{{ docName }}/
-        </button>
-        <button
-          v-if="isTauri"
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-save-as"
-          @click="emit('save-as')"
-        >
-          另存为...
-        </button>
-      </template>
+    <!-- 文件操作组 -->
+    <template v-if="canReorganize || isTauri">
+      <div class="ctx-menu-separator" />
+      <button v-if="canReorganize" class="ctx-menu-item" data-testid="ctx-copy-to-workspace" @click="emit('copy-to-workspace')">
+        复制到工作区/assets/{{ docName }}/
+      </button>
+      <button v-if="canReorganize" class="ctx-menu-item" data-testid="ctx-move-to-workspace" @click="emit('move-to-workspace')">
+        移动到工作区/assets/{{ docName }}/
+      </button>
+      <button v-if="isTauri" class="ctx-menu-item" data-testid="ctx-save-as" @click="emit('save-as')">
+        另存为...
+      </button>
+    </template>
 
-      <!-- 删除 -->
-      <template v-if="isTauri">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-          data-testid="ctx-delete"
-          @click="emit('delete')"
-        >
-          删除
-        </button>
-      </template>
+    <!-- 删除 -->
+    <template v-if="isTauri">
+      <div class="ctx-menu-separator" />
+      <button class="ctx-menu-item ctx-menu-item--danger" data-testid="ctx-delete" @click="emit('delete')">
+        删除
+      </button>
+    </template>
 
-      <!-- 在资源管理器中显示 -->
-      <template v-if="isTauri">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          class="block w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left whitespace-nowrap transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-reveal"
-          @click="emit('reveal')"
-        >
-          在资源管理器中显示
-        </button>
-      </template>
-    </div>
-  </Teleport>
+    <!-- 在资源管理器中显示 -->
+    <template v-if="isTauri">
+      <div class="ctx-menu-separator" />
+      <button class="ctx-menu-item" data-testid="ctx-reveal" @click="emit('reveal')">
+        在资源管理器中显示
+      </button>
+    </template>
+  </ContextMenuShell>
 </template>

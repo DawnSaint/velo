@@ -8,6 +8,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { message } from '@/tauri/dialog'
 import { relativePathWithinRoot } from '@/utils/statusPath'
 import { basename } from '@/components/Sidebar/treeUtils'
+import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import TabContextMenu from './TabContextMenu.vue'
 
 const documentStore = useDocumentStore()
@@ -105,14 +106,10 @@ function resetDragState() {
 
 // ===== 右键菜单(v0.6.x) =====
 //
-// 与 FileTree 右键菜单同款范式:本地 ref 记 tabId + 坐标,Teleport 到 body,
-// 全局 pointerdown / Escape handler 关闭。菜单元件 (TabContextMenu.vue) 只
-// 负责展示与 emit,父级统一管「点外部关闭」。
-//
-// 为什么不在 TabContextMenu 内自己挂全局 listener:
-//   - 同 FileTree 一样,TabBar 与菜单是兄弟,TabBar 持有 ref 列表与拖拽状态,
-//     全局 listener 应只此一处(否则 keep-alive 边界 / 拖拽状态切换会留幽灵)。
-//   - 菜单 emit 是同步事件;listener 拿 ref 判定"点内部不关闭"。
+// 走 useContextMenu composable 统一管「点外部关闭」+「Escape 关闭」的全局
+// listener + 视口 clamp。菜单元件 (TabContextMenu.vue) 只负责展示与 emit。
+// composable 不持有菜单状态——本组件自管 contextMenu ref（含 tabId + 坐标），
+// 通过 isOpen / getMenuEl / close 三个 callback 与 composable 交互。
 
 interface ContextMenuState {
   tabId: string
@@ -123,6 +120,12 @@ interface ContextMenuState {
 
 const contextMenu = ref<ContextMenuState | null>(null)
 const contextMenuRef = ref<InstanceType<typeof TabContextMenu> | null>(null)
+
+useContextMenu({
+  isOpen: () => contextMenu.value !== null,
+  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
+  close: () => { contextMenu.value = null },
+})
 
 /** 触发菜单的 tab 元数据(同时算 currentFilePath / active / dirty / readOnly),
  *  给 TabContextMenu 用 —— store 没有暴露 DocState 的入口,这里从 tabs 列表推。 */
@@ -148,18 +151,14 @@ const tabMenuIndex = computed(() => {
   return documentStore.tabs.findIndex(t => t.id === cm.tabId)
 })
 
-function onTabContextMenu(event: MouseEvent, tabId: string) {
-  event.preventDefault()
-  // 视口约束:菜单宽 ~192px(min-w-48) / 高按项数 ~280px;贴边留 8px 安全距
-  const MENU_W = 192
-  const MENU_H = 320
-  const x = Math.min(event.clientX, window.innerWidth - MENU_W - 8)
-  const y = Math.min(event.clientY, window.innerHeight - MENU_H - 8)
-  contextMenu.value = { tabId, x, y }
-}
-
 function closeContextMenu() {
   contextMenu.value = null
+}
+
+function onTabContextMenu(event: MouseEvent, tabId: string) {
+  event.preventDefault()
+  const { x, y } = clampToViewport(event.clientX, event.clientY, 192, 320)
+  contextMenu.value = { tabId, x, y }
 }
 
 // —— 菜单动作 ——
@@ -249,38 +248,17 @@ async function onRevealInExplorer() {
   }
 }
 
-// —— 全局 listener:点外部关闭 + Escape 关闭 ——
-
-function onGlobalPointerDown(event: PointerEvent) {
-  if (!contextMenu.value) return
-  const target = event.target as Node | null
-  if (!target) return
-  const menuEl = contextMenuRef.value?.rootEl ?? null
-  if (menuEl && (menuEl === target || menuEl.contains(target))) return
-  closeContextMenu()
-}
-
-function onGlobalKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  if (contextMenu.value) closeContextMenu()
-}
-
-// 拖拽源 dragstart 期间关菜单 —— 但 dragstart 自身的处理函数已经把菜单关掉,
-// 这里再挂 document 级 dragend 兜底:tab row 的 @dragend 可能丢,文档级保险。
+// 拖拽兜底:tab row 的 @dragend 可能丢,文档级 dragend 保险清拖拽状态。
+// 菜单的全局 listener 已由 useContextMenu 管理,这里只管 dragend。
 function onGlobalDragEnd() {
-  // 拖拽结束不主动关菜单(用户可能右键→拖拽取消,菜单还在),仅清拖拽状态
   resetDragState()
 }
 
 onMounted(() => {
-  document.addEventListener('pointerdown', onGlobalPointerDown, true)
-  document.addEventListener('keydown', onGlobalKeydown)
   document.addEventListener('dragend', onGlobalDragEnd)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onGlobalPointerDown, true)
-  document.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('dragend', onGlobalDragEnd)
 })
 </script>

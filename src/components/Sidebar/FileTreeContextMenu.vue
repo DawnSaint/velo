@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import ContextMenuShell from '../ContextMenuShell.vue'
 import { MD_EXT_RE } from './treeUtils'
 
 interface ContextMenuNode {
@@ -51,108 +52,56 @@ const showSearchInFolder = computed(() => !props.rootContext && props.node.isDir
 const showRenameAndDelete = computed(() => !props.rootContext)
 const showReveal = computed(() => !props.rootContext)
 
-/** 父组件(用 defineExpose)拿这个 ref 给全局 pointerdown handler 判定"点外部"。 */
-const rootEl = ref<HTMLDivElement | null>(null)
+/** 父组件(用 defineExpose)拿这个 ref 给 useContextMenu 的 getMenuEl callback。 */
+const shellRef = ref<InstanceType<typeof ContextMenuShell> | null>(null)
+const rootEl = computed(() => shellRef.value?.rootEl ?? null)
 defineExpose({ rootEl })
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      ref="rootEl"
-      class="fixed z-50 min-w-48 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800"
-      data-tree-context-menu
-      :style="{ left: `${x}px`, top: `${y}px` }"
-      role="menu"
-      @contextmenu.prevent
-    >
-      <!-- 文件:在编辑器中打开 / 目录:在新窗口中打开(顶部组) -->
-      <template v-if="showOpenInEditor || showOpenAsWorkspace">
-        <button
-          v-if="showOpenInEditor"
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-open-in-editor"
-          @click="emit('open-in-editor')"
-        >
-          在编辑器中打开
-        </button>
-        <button
-          v-if="showOpenAsWorkspace"
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-open-as-workspace"
-          @click="emit('open-as-workspace')"
-        >
-          在新窗口中打开
-        </button>
-        <button
-          v-if="showSearchInFolder"
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-search-in-folder"
-          @click="emit('search-in-folder')"
-        >
-          在此文件夹中搜索
-        </button>
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-      </template>
+  <ContextMenuShell :x="x" :y="y" data-tree-context-menu ref="shellRef">
+    <!-- 文件:在编辑器中打开 / 目录:在新窗口中打开(顶部组) -->
+    <template v-if="showOpenInEditor || showOpenAsWorkspace">
+      <button v-if="showOpenInEditor" class="ctx-menu-item" data-testid="ctx-open-in-editor" @click="emit('open-in-editor')">
+        在编辑器中打开
+      </button>
+      <button v-if="showOpenAsWorkspace" class="ctx-menu-item" data-testid="ctx-open-as-workspace" @click="emit('open-as-workspace')">
+        在新窗口中打开
+      </button>
+      <button v-if="showSearchInFolder" class="ctx-menu-item" data-testid="ctx-search-in-folder" @click="emit('search-in-folder')">
+        在此文件夹中搜索
+      </button>
+      <div class="ctx-menu-separator" />
+    </template>
 
-      <button
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="ctx-new-file"
-        @click="emit('new-file')"
-      >
-        新建文件
+    <button class="ctx-menu-item" data-testid="ctx-new-file" @click="emit('new-file')">
+      新建文件
+    </button>
+    <button class="ctx-menu-item" data-testid="ctx-new-dir" @click="emit('new-dir')">
+      新建文件夹
+    </button>
+    <button v-if="canPaste" class="ctx-menu-item" data-testid="ctx-paste" @click="emit('paste')">
+      粘贴
+    </button>
+    <!-- 复制 / 重命名 / 删除 同组(仅非根节点显示) -->
+    <template v-if="showRenameAndDelete">
+      <div class="ctx-menu-separator" />
+      <button class="ctx-menu-item" data-testid="ctx-copy" @click="emit('copy')">
+        复制
       </button>
-      <button
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="ctx-new-dir"
-        @click="emit('new-dir')"
-      >
-        新建文件夹
+      <div class="ctx-menu-separator" />
+      <button class="ctx-menu-item" data-testid="ctx-rename" @click="emit('rename')">
+        重命名
       </button>
-      <button
-        v-if="canPaste"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="ctx-paste"
-        @click="emit('paste')"
-      >
-        粘贴
+      <button class="ctx-menu-item ctx-menu-item--danger" data-testid="ctx-delete" @click="emit('delete')">
+        删除
       </button>
-      <!-- 复制 / 重命名 / 删除 同组(仅非根节点显示) -->
-      <template v-if="showRenameAndDelete">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-copy"
-          @click="emit('copy')"
-        >
-          复制
-        </button>
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-rename"
-          @click="emit('rename')"
-        >
-          重命名
-        </button>
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-          data-testid="ctx-delete"
-          @click="emit('delete')"
-        >
-          删除
-        </button>
-      </template>
-      <template v-if="showReveal">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="ctx-reveal"
-          @click="emit('reveal')"
-        >
-          在资源管理器中显示
-        </button>
-      </template>
-    </div>
-  </Teleport>
+    </template>
+    <template v-if="showReveal">
+      <div class="ctx-menu-separator" />
+      <button class="ctx-menu-item" data-testid="ctx-reveal" @click="emit('reveal')">
+        在资源管理器中显示
+      </button>
+    </template>
+  </ContextMenuShell>
 </template>

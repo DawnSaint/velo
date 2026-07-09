@@ -1,23 +1,17 @@
 <script setup lang="ts">
 // 标签条右键菜单(v0.6.x):
-//  - 视觉与 FileTreeContextMenu.vue 完全一致(同 min-w / padding / hover / separator
-//    / dark mode),不抽通用组件 —— FileTree 的菜单有按 isDir / MD 扩展名分支的项,
-//    强行抽成数据驱动会让"是否显示"的计算散到调用方,得不偿失。
-//  - 单实例菜单:父组件(TabBar)记 tabId + 坐标,Teleport 到 body 后位置定位;
-//    父级挂全局 pointerdown / Escape handler 关闭,组件本身只 emit。
+//  - 壳走 ContextMenuShell(Teleport + 定位 + 壳样式统一)，菜单项走
+//    .ctx-menu-item / .ctx-menu-separator 全局 class(见 _context-menu.scss)。
 //  - 「是否显示」分支:未命名标签(sample / 空白)没有 currentFilePath → 文件相关项
 //    全部隐藏;"在文件树中显示"额外要求 activeRoot 下,避免指向不可见子树。
-//
-// 设计要点(踩坑预防,写在这里方便后人):
-//  - 父子责任:菜单内部不挂全局监听器,全局 listener 由 TabBar 统一挂 / 卸,
-//    与 FileTree 同款范式。这样 keep-alive / 切页签 不会留下幽灵监听。
-//  - rootEl 通过 defineExpose 暴露,父级拿它判定"点内部不关闭";菜单元件自管
-//    @contextmenu.prevent 拦截右键二次弹菜单。
+//  - 父子责任:菜单内部不挂全局监听器,由父级(TabBar)通过 useContextMenu
+//    composable 统一管。rootEl 通过 defineExpose 暴露给 composable 的
+//    getMenuEl callback 判定"点内部不关闭"。
 //  - 「关闭其他 / 全部关闭 / 关闭右侧」的脏盘确认由 documentStore 复用 closeTab
 //    处理,组件内不再二次 confirm。
 
-import { computed } from 'vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import ContextMenuShell from './ContextMenuShell.vue'
 
 interface TabMenuPayload {
   /** 触发菜单的 tab id */
@@ -82,116 +76,59 @@ const isInActiveRoot = computed(() => {
   return p === r || p.startsWith(r + '/') || p.startsWith(r + '\\')
 })
 
-/** 父组件(用 defineExpose)拿这个 ref 给全局 pointerdown handler 判定"点外部"。 */
-const rootEl = ref<HTMLDivElement | null>(null)
+/** 父组件(用 defineExpose)拿这个 ref 给 useContextMenu 的 getMenuEl callback。
+ *  ContextMenuShell 是组件,ref 拿到的是组件实例;通过 computed 从实例的 rootEl
+ *  取出真正的 DOM 元素。 */
+const shellRef = ref<InstanceType<typeof ContextMenuShell> | null>(null)
+const rootEl = computed(() => shellRef.value?.rootEl ?? null)
 defineExpose({ rootEl })
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      ref="rootEl"
-      class="fixed z-50 min-w-48 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800"
-      :style="{ left: `${x}px`, top: `${y}px` }"
-      role="menu"
-      @contextmenu.prevent
-    >
-      <!-- 关闭组:关闭 / 关闭其他 / 关闭右侧 / 关闭已保存 / 全部关闭 / 保存 -->
-      <button
-        v-if="showClose"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-close"
-        @click="emit('close')"
-      >
-        关闭
+  <ContextMenuShell :x="x" :y="y" ref="shellRef">
+    <!-- 关闭组:关闭 / 关闭其他 / 关闭右侧 / 关闭已保存 / 全部关闭 / 保存 -->
+    <button v-if="showClose" class="ctx-menu-item" data-testid="tab-ctx-close" @click="emit('close')">
+      关闭
+    </button>
+    <button v-if="showCloseOthers" class="ctx-menu-item" data-testid="tab-ctx-close-others" @click="emit('close-others')">
+      关闭其他
+    </button>
+    <button v-if="showCloseRight" class="ctx-menu-item" data-testid="tab-ctx-close-right" @click="emit('close-right')">
+      关闭右侧
+    </button>
+    <button v-if="showCloseSaved" class="ctx-menu-item" data-testid="tab-ctx-close-saved" @click="emit('close-saved')">
+      关闭已保存
+    </button>
+    <button v-if="showCloseAll" class="ctx-menu-item" data-testid="tab-ctx-close-all" @click="emit('close-all')">
+      全部关闭
+    </button>
+    <button v-if="showSave" class="ctx-menu-item" data-testid="tab-ctx-save" @click="emit('save')">
+      保存
+    </button>
+
+    <template v-if="hasFile">
+      <div class="ctx-menu-separator" />
+
+      <!-- 复制组:复制路径 / 复制文件名 / 复制相对路径 -->
+      <button class="ctx-menu-item" data-testid="tab-ctx-copy-path" @click="emit('copy-path')">
+        复制路径
       </button>
-      <button
-        v-if="showCloseOthers"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-close-others"
-        @click="emit('close-others')"
-      >
-        关闭其他
+      <button class="ctx-menu-item" data-testid="tab-ctx-copy-filename" @click="emit('copy-filename')">
+        复制文件名
       </button>
-      <button
-        v-if="showCloseRight"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-close-right"
-        @click="emit('close-right')"
-      >
-        关闭右侧
-      </button>
-      <button
-        v-if="showCloseSaved"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-close-saved"
-        @click="emit('close-saved')"
-      >
-        关闭已保存
-      </button>
-      <button
-        v-if="showCloseAll"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-close-all"
-        @click="emit('close-all')"
-      >
-        全部关闭
-      </button>
-      <button
-        v-if="showSave"
-        class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-        data-testid="tab-ctx-save"
-        @click="emit('save')"
-      >
-        保存
+      <button v-if="isInActiveRoot" class="ctx-menu-item" data-testid="tab-ctx-copy-relative" @click="emit('copy-relative-path')">
+        复制相对路径
       </button>
 
-      <template v-if="hasFile">
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
+      <div class="ctx-menu-separator" />
 
-        <!-- 复制组:复制路径 / 复制文件名 / 复制相对路径 -->
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="tab-ctx-copy-path"
-          @click="emit('copy-path')"
-        >
-          复制路径
-        </button>
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="tab-ctx-copy-filename"
-          @click="emit('copy-filename')"
-        >
-          复制文件名
-        </button>
-        <button
-          v-if="isInActiveRoot"
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="tab-ctx-copy-relative"
-          @click="emit('copy-relative-path')"
-        >
-          复制相对路径
-        </button>
-
-        <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
-
-        <!-- 树 / 资源管理器组 -->
-        <button
-          v-if="isInActiveRoot"
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="tab-ctx-reveal-in-tree"
-          @click="emit('reveal-in-tree')"
-        >
-          在文件树中显示
-        </button>
-        <button
-          class="w-[calc(100%-0.5rem)] mx-1 px-2 py-2 rounded-md text-left transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          data-testid="tab-ctx-reveal-in-explorer"
-          @click="emit('reveal-in-explorer')"
-        >
-          在资源管理器中显示
-        </button>
-      </template>
-    </div>
-  </Teleport>
+      <!-- 树 / 资源管理器组 -->
+      <button v-if="isInActiveRoot" class="ctx-menu-item" data-testid="tab-ctx-reveal-in-tree" @click="emit('reveal-in-tree')">
+        在文件树中显示
+      </button>
+      <button class="ctx-menu-item" data-testid="tab-ctx-reveal-in-explorer" @click="emit('reveal-in-explorer')">
+        在资源管理器中显示
+      </button>
+    </template>
+  </ContextMenuShell>
 </template>
