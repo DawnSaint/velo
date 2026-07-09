@@ -11,16 +11,21 @@
 //     展开 → 回来(对应 #23 时机修复)
 //  2. mermaid × fold:折叠含 mermaid 的 heading → mermaid widget 不渲染;
 //     展开 → 回来(对应 #25 跨插件集合同步)
+//  3. toc × fold:折叠含 [TOC] 的 heading → toc widget 不渲染;
+//     展开 → 回来(toc widget 是 block-level sibling,不受 velo-folded 影响)
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
 import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
 import { mermaidDecoration } from '../nodes/MermaidDecoration'
 import { codeLineNumberPlugin, lineNumbersKey } from '../nodes/CodeLineNumberWidget'
+import { tocDecoration } from '../nodes/TocDecoration'
+import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
+import { history, undo } from 'prosemirror-history'
 
 function makeView(initialMd: string, plugins: any[]): EditorView {
   const container = document.createElement('div')
@@ -101,6 +106,108 @@ describe('mermaid × fold', () => {
 
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
     expect(view.dom.querySelector('.mermaid-widget')).not.toBeNull()
+
+    view.destroy()
+  })
+})
+
+describe('toc × fold', () => {
+  it('折叠含 [TOC] 的 heading → toc widget 不渲染;展开 → 渲染回来', () => {
+    const md = [
+      '# Section',
+      '',
+      '[TOC]',
+      '',
+      '## Sub',
+      '',
+      'text',
+      '',
+    ].join('\n')
+    const view = makeView(md, [foldDecoration, tocDecoration])
+    expect(view.dom.querySelector('.velo-toc')).not.toBeNull()
+
+    const contentStart = findHeadingContentStart(view, 'Section')
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
+    expect(view.dom.querySelector('.velo-toc')).toBeNull()
+
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
+    expect(view.dom.querySelector('.velo-toc')).not.toBeNull()
+
+    view.destroy()
+  })
+
+  it('点击删除按钮 → 整个 toc 节点被删除(不残留 [TOC] 文本)', () => {
+    const md = [
+      '# Section',
+      '',
+      '[TOC]',
+      '',
+      '## Sub',
+      '',
+      'text',
+      '',
+    ].join('\n')
+    const view = makeView(md, [foldDecoration, tocDecoration, syntaxAutoFormatPlugin])
+    expect(view.dom.querySelector('.velo-toc')).not.toBeNull()
+
+    const deleteBtn = view.dom.querySelector('.velo-toc-delete-btn') as HTMLButtonElement
+    expect(deleteBtn).not.toBeNull()
+    deleteBtn.click()
+
+    // toc widget 应消失
+    expect(view.dom.querySelector('.velo-toc')).toBeNull()
+    // doc 中不应还有 toc 节点
+    let hasToc = false
+    view.state.doc.descendants((node) => {
+      if (node.type.name === 'toc') hasToc = true
+    })
+    expect(hasToc).toBe(false)
+    // 不应残留 [TOC] 文本
+    expect(view.state.doc.textContent).not.toContain('[TOC]')
+
+    view.destroy()
+  })
+
+  it('删除 toc 后 undo → 光标不跳到文档开头', () => {
+    const md = [
+      '# Section',
+      '',
+      '[TOC]',
+      '',
+      '## Sub',
+      '',
+      'text',
+      '',
+    ].join('\n')
+    const view = makeView(md, [
+      foldDecoration,
+      tocDecoration,
+      syntaxAutoFormatPlugin,
+      history(),
+    ])
+    // 把光标放到末尾的 text 段落
+    const textParaEnd = view.state.doc.content.size - 1
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, textParaEnd),
+    ))
+    const cursorBefore = view.state.selection.head
+    expect(cursorBefore).toBe(textParaEnd)
+
+    // 点击删除
+    const deleteBtn = view.dom.querySelector('.velo-toc-delete-btn') as HTMLButtonElement
+    deleteBtn.click()
+    expect(view.state.doc.textContent).not.toContain('[TOC]')
+
+    // 删除后光标应在删除位置附近,不在文档开头(pos=1 之前)
+    expect(view.state.selection.head).toBeGreaterThan(1)
+
+    // undo
+    undo(view.state, (tr) => view.dispatch(tr))
+
+    // toc 节点应恢复
+    expect(view.dom.querySelector('.velo-toc')).not.toBeNull()
+    // 光标不应跳到文档开头(位置 0 或 1)
+    expect(view.state.selection.head).toBeGreaterThan(1)
 
     view.destroy()
   })

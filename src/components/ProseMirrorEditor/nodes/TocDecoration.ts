@@ -6,14 +6,15 @@
 //  2. widget 内用 doc.descendants 收集 headings，构建嵌套树
 //  3. 渲染为 <ul>/<li> 嵌套列表，每项 click → scrollIntoView 到对应 heading
 //  4. headings 变化时 widget key 变 → ProseMirror 自动重建
-//  5. hover 显示 X 按钮，点击还原为 [TOC] 段落（保留撤销）
+//  5. hover 显示 X 按钮，点击删除整个 toc 节点
 
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import { trashSvg } from '@/components/icons/widgetIcons'
+import { isTocFolded } from './FoldDecoration'
 
 // ============================================================
 //  Plugin state
@@ -95,7 +96,7 @@ function makeTocWidget(
   }
   dom.appendChild(ul)
 
-  // 删除按钮 —— hover 时可见,点击后 toc 节点还原为 [TOC] 段落
+  // 删除按钮 —— hover 时可见,点击后删除整个 toc 节点
   if (view && getPos) {
     const deleteBtn = document.createElement('button')
     deleteBtn.type = 'button'
@@ -165,11 +166,14 @@ function deleteTocNode(view: EditorView, getPos: () => number | undefined): void
   const node = view.state.doc.nodeAt(pos)
   if (!node || node.type.name !== 'toc') return
   const tr = view.state.tr
-  // 用段落([TOC]) 替换 toc 节点,保留撤销能力
-  const para = view.state.schema.nodes.paragraph.create(null, [
-    view.state.schema.text('[TOC]'),
-  ])
-  tr.replaceRangeWith(pos, pos + node.nodeSize, para)
+  tr.delete(pos, pos + node.nodeSize)
+  // 显式设置光标到删除位置附近的合法 text 位置。删除 block 节点后,
+  // 选区映射可能落到块边界(两个 block 之间),ProseMirror 无法在该位置
+  // 创建合法 TextSelection → 回退到 Selection.atStart(doc)(文档开头)。
+  // 这不仅影响删除后的光标,还会导致 Ctrl+Z undo 后光标仍停在文档开头
+  // (history 存的是失效后的 atStart 选区,逆向映射后仍在开头)。
+  const $pos = tr.doc.resolve(Math.min(pos, tr.doc.content.size))
+  tr.setSelection(TextSelection.near($pos))
   view.dispatch(tr)
 }
 
@@ -186,6 +190,10 @@ function buildDecorations(state: EditorState): DecorationSet {
 
   state.doc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'toc') return
+    // fold 范围内的 toc:widget 是 block-level sibling,不受 velo-folded
+    // display:none 影响(同 mermaid / codeBlockHeader 范式),跳过创建,
+    // 展开 → isTocFolded 翻 false → widget 重建 → TOC 回归。
+    if (isTocFolded(pos)) return
     decos.push(Decoration.widget(pos, (view, getPos) => {
       return makeTocWidget(tree, state.doc, view, getPos)
     }, {

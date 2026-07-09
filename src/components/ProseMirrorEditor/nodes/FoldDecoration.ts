@@ -105,6 +105,7 @@ export const foldKey = new PluginKey<FoldState>('foldDecoration')
 // 协作 / undo,纯运行时缓存,module-level Set 足够。
 let foldedCodeBlockPosSet: Set<number> = new Set()
 let foldedMermaidPosSet: Set<number> = new Set()
+let foldedTocPosSet: Set<number> = new Set()
 
 /** 公开:codeLineNumberPlugin 调,判断本 code_block 是否处于 fold 范围内。 */
 export function isCodeBlockFolded(codeBlockPos: number): boolean {
@@ -123,11 +124,22 @@ export function isMermaidFolded(codeBlockPos: number): boolean {
   return foldedMermaidPosSet.has(codeBlockPos)
 }
 
+/** 公开:TocDecoration 调,判断本 toc 节点是否处于 fold 范围内。
+ *  fold 范围内的 toc:节点自身 DOM(<div data-type="toc">)已被
+ *  velo-folded display:none 隐藏,但 TOC widget 是 block-level sibling
+ *  (不受 velo-folded 影响),不跳过的会浮在 fold 区间之外 → 整段
+ *  不是"折叠"视觉。跳过整个 widget 创建,展开帧 isTocFolded 翻 false
+ *  → widget 重建 → TOC 完整回归(同 isMermaidFolded 范式)。 */
+export function isTocFolded(tocPos: number): boolean {
+  return foldedTocPosSet.has(tocPos)
+}
+
 /** 从 state 算当前所有 fold 范围内 code_block / mermaid 节点 pos,更新
  *  module-level sets。 */
 function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
   const nextCode = new Set<number>()
   const nextMermaid = new Set<number>()
+  const nextToc = new Set<number>()
   for (const triggerContentStart of collapsedSet) {
     const triggerNode = doc.resolve(triggerContentStart).parent
     // code_block 折叠自身:直接加入 foldedCodeBlockPosSet
@@ -139,7 +151,7 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
       if (lang === 'mermaid') nextMermaid.add(blockPos)
       continue
     }
-    // heading / list_item:查找 fold 范围内的 code_block
+    // heading / list_item:查找 fold 范围内的 code_block / toc
     if (
       triggerNode.type.name !== 'heading'
       && triggerNode.type.name !== 'list_item'
@@ -153,14 +165,20 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
     const range = computeFoldRange(blockNode, triggerContentStart, doc)
     if (!range) continue
     doc.nodesBetween(range[0], range[1], (n, p) => {
-      if (n.type.name !== 'code_block' || p < 0 || p >= doc.content.size) return
-      nextCode.add(p)
-      const lang = (n.attrs.language as string) || ''
-      if (lang === 'mermaid') nextMermaid.add(p)
+      if (p < 0 || p >= doc.content.size) return
+      if (n.type.name === 'code_block') {
+        nextCode.add(p)
+        const lang = (n.attrs.language as string) || ''
+        if (lang === 'mermaid') nextMermaid.add(p)
+      }
+      else if (n.type.name === 'toc') {
+        nextToc.add(p)
+      }
     })
   }
   foldedCodeBlockPosSet = nextCode
   foldedMermaidPosSet = nextMermaid
+  foldedTocPosSet = nextToc
 }
 
 // ============================================================
