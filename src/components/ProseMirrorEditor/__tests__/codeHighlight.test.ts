@@ -37,6 +37,7 @@ import {
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
 import { mermaidDecoration, mermaidDecoKey } from '../nodes/MermaidDecoration'
+import { frontmatterNodeViewPlugin } from '../nodes/FrontmatterNodeView'
 
 // ★ stub mermaid:真实包 ~3MB,jsdom 执行顶层代码阻塞主线程 → 本测只关心
 // code header 联动 editNodeSet,不需要真渲染 SVG。vi.mock 工厂让 getMermaid()
@@ -94,6 +95,18 @@ function findCodeBlockPos(view: EditorView): number {
   let pos = -1
   view.state.doc.descendants((node, p) => {
     if (node.type.name === 'code_block' && pos === -1) {
+      pos = p
+      return false
+    }
+    return true
+  })
+  return pos
+}
+
+function findFrontmatterPos(view: EditorView): number {
+  let pos = -1
+  view.state.doc.descendants((node, p) => {
+    if (node.type.name === 'frontmatter' && pos === -1) {
       pos = p
       return false
     }
@@ -488,6 +501,55 @@ describe('codeHighlightPlugin', () => {
     const styledSpans = view.dom.querySelectorAll('pre code span[style*="--shiki"]')
     expect(styledSpans.length).toBeGreaterThan(0)
     view.destroy()
+  })
+
+  // Front Matter YAML 语法高亮(#frontmatter-enhance):frontmatter 节点始终走
+  // yaml grammar,复用 dual-theme --shiki-light/dark inline decoration。
+  it('18. frontmatter 节点走 yaml 高亮:复用 dual-theme inline decoration', async () => {
+    const md = '---\ntitle: Hello\ndate: 2026-07-10\ntags:\n  - markdown\n  - velo\n---\n\n# Heading'
+    // 同时装 frontmatterNodeView,让 frontmatter 渲染为 <pre><code>(跟生产一致);
+    // 纯 schema toDOM 是裸 div,没有 pre/code 容器。contentDOM 仍由 PM 接管,
+    // codeHighlightPlugin 的 inline decoration 照常在 contentDOM 内插 span。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown(md, schema),
+      plugins: [codeHighlightPlugin, frontmatterNodeViewPlugin],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+    const fmPos = findFrontmatterPos(view)
+    expect(fmPos).toBeGreaterThanOrEqual(0)
+    // frontmatter <pre> 内存在 shiki token span,同时定义 light / dark 变体
+    // (装饰落在 .velo-editor 内,SCSS `.velo-editor pre span` 自动覆盖)。
+    const fmPre = view.dom.querySelector('.velo-frontmatter pre') as HTMLElement | null
+    expect(fmPre).not.toBeNull()
+    const styledSpans = fmPre!.querySelectorAll('code span[style*="--shiki"]')
+    expect(styledSpans.length).toBeGreaterThan(0)
+    const hasDualThemes = Array.from(styledSpans).some((s) => {
+      const st = s.getAttribute('style') || ''
+      return st.includes('--shiki-light:') && st.includes('--shiki-dark:')
+    })
+    expect(hasDualThemes).toBe(true)
+    view.destroy()
+  })
+
+  it('18b. extractLangsFromDoc:frontmatter 文档预装 yaml grammar(免闪烁)', async () => {
+    const { extractLangsFromDoc } = await import('../editor/markdownIO')
+    const md = [
+      '---',
+      'title: Hello',
+      '---',
+      '',
+      '```javascript',
+      'const a = 1',
+      '```',
+    ].join('\n')
+    const langs = extractLangsFromDoc(md)
+    // frontmatter 贡献 'yaml',fenced code 贡献 'javascript'
+    expect(langs).toContain('yaml')
+    expect(langs).toContain('javascript')
   })
 })
 

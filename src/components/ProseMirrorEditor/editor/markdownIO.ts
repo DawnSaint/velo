@@ -170,6 +170,11 @@ export function extractLangsFromDoc(md: string): string[] {
     if (n.type === 'code' && n.lang) {
       seen.add(resolveShikiLang(n.lang))
     }
+    // YAML front matter(remark-frontmatter 输出的 mdast `yaml` 节点)始终走
+    // shiki yaml grammar 高亮,提前装进 seed 列表,首屏直接出 token 免闪烁。
+    if (n.type === 'yaml') {
+      seen.add('yaml')
+    }
     // mdast 节点只有 block / root / 部分 phrasing 节点带 children,统一读
     if ('children' in n && Array.isArray((n as { children?: unknown }).children)) {
       for (const c of (n as { children: RootContent[] }).children) visit(c)

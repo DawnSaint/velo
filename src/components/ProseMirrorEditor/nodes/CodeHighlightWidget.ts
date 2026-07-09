@@ -563,6 +563,42 @@ function buildDecorations(
   // 浮着一个 header,与 MermaidDecoration 的 SVG + 切换/删除 toolbar 叠两层)。
   const mermaidState = mermaidDecoKey.getState(state)
   state.doc.descendants((node: PMNode, pos: number) => {
+    // frontmatter 节点始终走 yaml grammar 高亮(视为一个 yaml 语言槽),与
+    // code_block 同结构(content:'text*'),但没有 header widget / 语言选择。
+    // 复用 getTokensCached + dual-theme inline decoration 机制,SCSS
+    // `.velo-editor pre span { color: var(--shiki-light) }` 已经覆盖
+    // frontmatter <pre>(内容在 .velo-editor 内),无需新增样式。
+    if (node.type.name === 'frontmatter') {
+      if (!hl) return
+      const blockStart = pos + 1
+      const blockEnd = pos + node.nodeSize - 1
+      if (blockStart >= blockEnd) return
+      const code = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
+      const result = getTokensCached(hl, code, 'yaml', lightTheme, darkTheme)
+      if (!result) return
+      const { tokens } = result
+      for (const line of tokens) {
+        for (const token of line) {
+          const from = blockStart + token.offset
+          const to = from + token.content.length
+          if (from >= to) continue
+          if (from < blockStart || to > blockEnd) continue
+          const light = token.variants?.light?.color
+          const dark = token.variants?.dark?.color
+          if (!light && !dark) continue
+          const parts: string[] = []
+          if (light) parts.push(`--shiki-light:${light}`)
+          if (dark) parts.push(`--shiki-dark:${dark}`)
+          if (parts.length === 0) continue
+          decos.push(
+            Decoration.inline(from, to, {
+              style: parts.join(';'),
+            }),
+          )
+        }
+      }
+      return
+    }
     if (node.type.name !== 'code_block') return
     const lang = (node.attrs.language as string) || ''
     // mermaid 收起态(显示 SVG,源码隐藏)跳过 code header,仅展开态保留 ——

@@ -12,7 +12,6 @@ import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFol
 import {
   getHighlighter,
   ensureTheme,
-  ensureMarkdownGrammar,
   BASELINE_LANGS,
   DEFAULT_LIGHT_THEME,
   DEFAULT_DARK_THEME,
@@ -115,10 +114,13 @@ void initSettings()
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
     const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
     const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
-    // 预扫 doc 用到的 lang + 5 项 BASELINE 兜底(去重)→ createHighlighter
-    // 只装这一小撮 grammar,首屏 ~5-8 个 lang × ~200KB ≈ 1-1.6MB,远小于
-    // 旧版"30 个 lang 全装" ~6MB。doc 里没出现 / 用户后续切换的 lang
-    // 由 plugin getTokensSync 走 ensureLanguage 异步追加。
+    // createHighlighter 是 singleton,本次调用的 lang 集合决定终身装哪些 grammar
+    // (ensureLanguage 只能 append,不能改这次 freeze 的集合)。首屏 ~11 项
+    // BASELINE × ~200KB ≈ 2.2MB,远小于旧版"30 个 lang 全装" ~6MB。
+    // 注意冷启动时 documentStore.content 还是空白/首屏示例,extractLangsFromDoc
+    // 扫不出真实文件 —— 首屏零闪烁全靠 BASELINE 兜底,这是 baseline 的根本意义。
+    // doc 里没出现 / 用户后续切换的 lang 由 plugin getTokensSync 走
+    // ensureLanguage 异步追加(该语言代码块首帧闪黑一次,之后缓存不再闪)。
     const usedLangs = extractLangsFromDoc(documentStore.content)
     const bootstrapLangs = [...new Set([...usedLangs, ...BASELINE_LANGS])]
     // 装用户主题 + 预扫 lang;singleton 若已被占,这里 getHighlighter 拿到旧
@@ -127,13 +129,10 @@ void initSettings()
     await getHighlighter(bootstrapLangs, light, dark)
     await ensureTheme(light)
     await ensureTheme(dark)
+    // markdown grammar 已纳入 BASELINE_LANGS,随 getHighlighter(bootstrapLangs,...)
+    // 同步装好(即使用户秒切源码模式也命中缓存无需等待),无需再 fire-and-forget 预装。
     codeBlockReady.value = true
     mark('code-block-ready')
-    // 预加载 markdown grammar(源码模式高亮用,BASELINE_LANGS 不含)。fire-and-forget
-    // 不阻塞首屏 PM mount;用户切源码模式时 grammar 大概率已装 → 首帧即染色,
-    // 无需等加载。竞态(启动后秒切源码模式,grammar 仍在加载)由 SourceModeEditor
-    // onMounted 的 await + dispatch setShikiTheme effect 兜底触发 rebuild。
-    void ensureMarkdownGrammar()
   })
   .catch((err) => {
     // shiki 加载失败也别卡白屏,翻 ready 让 PM mount,plugin 内置 catch 会

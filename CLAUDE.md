@@ -160,13 +160,13 @@
 - 根目录 `CHANGELOG.md`：自动生成英文条目（从 commit summary 提取）
 
 **发版前手动处理**（merge release PR 前，改完推到 `master`，release-please 会自动纳入 release PR）：
-- `docs/RELEASE_NOTES.md`：将 `[Unreleased]` 改为 `[X.Y.Z] — YYYY-MM-DD` 并补充中文条目
-- `docs/ROADMAP.md`：删掉该版本整章
+- `docs/RELEASE_NOTES.md`：增加 `[X.Y.Z] — YYYY-MM-DD` 章节，中文描述版本用户可见变更
+- `docs/ROADMAP.md`：删掉版本完成的条目
 - `docs/DECISIONS.md`：追加该版本的 ADR（如有重大决策）
 
 ### 强制版本号
 
-在 commit message footer 加 `Release-As: x.y.z` 可强制指定版本号（逃生口）。
+在 commit message footer 加 `Release-As: x.y.z` 可强制指定版本号。
 
 ### 手动发版（应急）
 

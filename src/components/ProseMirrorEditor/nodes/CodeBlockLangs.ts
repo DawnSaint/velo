@@ -69,14 +69,32 @@ export function resolveShikiLang(lang: string): string {
   return SHIKI_LANG_ALIASES[lower] ?? lower
 }
 
-/** 启动期最小预装 lang 清单(空 doc / 首次打开新文件时兜底用)。
- *  覆盖 markdown 编辑器最高频的 5 种:js / ts / py / bash / json。
- *  跟 LANG_OPTIONS 不重叠,LANG_OPTIONS 是浮层下拉用的全集。
- *  export 是给 App.vue 拼"doc 用到的 ∪ baseline"用。 */
+/** 启动期最小预装 lang 清单(空 doc / 首次打开新文件 / 冷启动时兜底)。
+ *
+ *  == 为什么靠它而不是每文档扫描 ==
+ *  冷启动时 App.vue 的 extractLangsFromDoc(documentStore.content) 文档还没
+ *  restore,扫的是空白 / 首屏示例,贡献为 0;运行时打开新文档也只走 ensureLanguage
+ *  懒加载(之后才着色)。所以"打开含某语言的文档,代码块首帧闪黑 ~0.5s 再上色"
+ *  这种闪烁只靠 baseline 扛 —— 它决定首屏哪些 grammar 必定在手。
+ *
+ *  == 取舍原则 ==
+ *  - 进清单 = 首屏直接出 token,不等异步,零闪烁;代价是 ~200KB/grammar 的刚需成本。
+ *    frontmatter 位于文档顶部,miss 时 fallback 到近黑的 --shiki-light 默认色,
+ *    闪烁最刺眼,因此 yaml 必须进。
+ *  - 不进 = 走运行时 ensureLanguage 懒加载,该语言的代码块首帧闪黑一次,之后缓存在
+ *    hljs 里不再闪(仅首次 miss 的代价)。C#/Go/Rust 等长尾语言归此类。
+ *  - 不消费 shiki grammar 的永远不进:mermaid 走自写 tokenizeMermaid 完全旁路
+ *    shiki(codeHighlightPlugin 注释明写"shiki mermaid grammar 是'摆设'"),
+ *    塞进 baseline 纯粹白加载。
+ *
+ *  跟 LANG_OPTIONS 不重叠,LANG_OPTIONS 是浮层下拉用的全集。export 给 App.vue
+ *  拼"doc 用到的 ∪ baseline"用。 */
 export const BASELINE_LANGS: readonly string[] = [
-  'javascript', 'typescript', 'python', 'bash', 'json',
-  'mermaid',
-] 
+  'javascript', 'typescript', 'python', 'bash', 'json',   // 最高频输入
+  'yaml',                                                 // frontmatter(文档顶部,闪黑最刺眼)
+  'c', 'cpp', 'java', 'sql',                              // 通用语言大头
+  'markdown',                                             // 源码模式一等特性,grammar 命中即亮
+]
 
 // ============================================================
 //  主题清单(给设置面板下拉用,按 displayName 字母排序)

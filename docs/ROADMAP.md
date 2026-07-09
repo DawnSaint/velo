@@ -161,7 +161,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 源码模式自然兼容（raw markdown 文本，无需额外处理）
 
 - [ ] **Front Matter 后续增强** `#frontmatter-enhance` `P2` `M` `← #frontmatter`
-  - YAML 语法高亮（复用 shiki yaml grammar）
+  - [x] YAML 语法高亮（复用 shiki yaml grammar）
   - frontmatter 块可折叠（复用 foldDecoration 框架）
   - TOML frontmatter 支持（`+++` 分隔符，remark-frontmatter toml marker）
 
