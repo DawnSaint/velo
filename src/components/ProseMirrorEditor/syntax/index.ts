@@ -17,6 +17,7 @@ import { blockquoteSyntax } from './block/blockquote'
 import { bulletListSyntax } from './block/bulletList'
 import { orderedListSyntax } from './block/orderedList'
 import { hrSyntax } from './block/hr'
+import { frontmatterSyntax } from './block/frontmatter'
 import { tocSyntax } from './block/toc'
 import { alertSyntax } from './block/alert'
 
@@ -36,6 +37,9 @@ registerBlockSyntax(codeBlockSyntax)
 registerBlockSyntax(blockquoteSyntax)
 registerBlockSyntax(bulletListSyntax)
 registerBlockSyntax(orderedListSyntax)
+// frontmatter 必须在 hr 之前:两者 pattern 重叠(---),frontmatter 仅在文档首段
+// 触发,hr 在任意位置触发;注册顺序决定优先级
+registerBlockSyntax(frontmatterSyntax)
 registerBlockSyntax(hrSyntax)
 registerBlockSyntax(tocSyntax)
 // alert 必须在 blockquote 之后:它依赖 blockquote 已成形,不抢同级触发

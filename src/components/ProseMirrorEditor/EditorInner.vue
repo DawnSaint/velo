@@ -23,6 +23,7 @@ import { fromMarkdown, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
+import { frontmatterNodeViewPlugin } from './nodes/FrontmatterNodeView'
 import { useProseMirror, findScrollAncestor } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
 import { mermaidDecoration } from './nodes/MermaidDecoration'
@@ -46,8 +47,10 @@ import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/fo
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
+import { frontmatterBackspaceCommand } from './syntax/block/frontmatter'
 import { codeBlockLangSuggestPlugin } from './plugins/codeBlockLangSuggest'
 import { hrEnterCommand } from './syntax/block/hr'
+import { frontmatterEnterCommand } from './syntax/block/frontmatter'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
 import { buildShortcutKeymap } from './editor/shortcuts'
@@ -261,13 +264,15 @@ const basePlugins: Plugin[] = [
   // (codeBlockEnterCommand) 之前拦截上下键导航和高亮条目的 Enter 提交。
   codeBlockLangSuggestPlugin,
   // 自定义 Backspace / Delete:
-  //   1. codeBlockBackspaceCommand:在 code_block 首位按 Backspace —— 有内容时
+  //   1. frontmatterBackspaceCommand:在 frontmatter 首位按 Backspace —— 有内容时
+  //      吞掉事件,空 frontmatter 删除节点(连同尾随空段)。必须排在 codeBlock 前。
+  //   2. codeBlockBackspaceCommand:在 code_block 首位按 Backspace —— 有内容时
   //      吞掉事件(不允许影响外面的行),空代码块转回 paragraph。必须排在
   //      baseKeymap 前,否则 joinBackward 会把代码块降级合并到上一段。
-  //   2. headingToParagraph:heading 前退化为段落
-  //   3. baseKeymap['Backspace']:兜底
+  //   3. headingToParagraph:heading 前退化为段落
+  //   4. baseKeymap['Backspace']:兜底
   keymap({
-    Backspace: chainCommands(codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
+    Backspace: chainCommands(frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
     Delete: chainCommands(headingToParagraph, baseKeymap['Delete']),
     // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
     'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),
@@ -280,12 +285,15 @@ const basePlugins: Plugin[] = [
   //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
   //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
   //      时的行为割裂)
-  //   4. splitBlock:兜底,普通段落里换行
+  //   4. frontmatterEnterCommand:文档首段 `---`+Enter → frontmatter 节点
+  //   5. hrEnterCommand:任意位置 `---`+Enter → hr 节点
+  //   6. splitBlock:兜底,普通段落里换行
   keymap({
     Enter: chainCommands(
       codeBlockEnter,
       dollarEnterCmd,
       codeBlockEnterCommand,
+      frontmatterEnterCommand,
       hrEnterCommand,
       splitListItem(schema.nodes.list_item),
       liftListItem(schema.nodes.list_item),
@@ -322,6 +330,7 @@ const basePlugins: Plugin[] = [
   codeLineNumberPlugin,
   imageInlineViewPlugin,
   hrNodeViewPlugin,
+  frontmatterNodeViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,
   mermaidDecoration,

@@ -1,3 +1,12 @@
+---
+title: Markdown 语法速查
+date: 2026-07-10
+tags:
+  - markdown
+  - velo
+author: Velo
+---
+
 # Markdown 语法
 
 Markdown 是一种轻量级标记语言，用于格式化纯文本。它以简单、直观的语法而著称，可以快速地生成 HTML将内容转化为漂亮的网页格式。Markdown 是写作与代码的完美结合，无论你是写作爱好者、开发者、博主，还是想要简单记录点什么的人，Markdown 都能成为你新的好伙伴。本文将全面探讨 Markdown 的基础和进阶语法，让你在这个过程中充分享受写作的乐趣！

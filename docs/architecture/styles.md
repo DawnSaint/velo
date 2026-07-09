@@ -61,6 +61,8 @@ _editor-html-blocks.scss← HTML 透传容器 + link source edit
 _editor-alerts.scss     ← GFM alert / callout
 _editor-toc.scss        ← TOC 目录 widget
 _editor-fold.scss       ← 块级折叠 toggle / placeholder
+_editor-hr.scss         ← hr 选中态
+_editor-frontmatter.scss ← YAML front matter NodeView（Typora 风格 styled code block）
 _editor-dark.scss       ← 暗色模式（非 alert / 非 image 部分）
 _math.scss              ← 数学公式 NodeView + 编辑壳
 _mermaid.scss           ← mermaid widget / toolbar / error / loading

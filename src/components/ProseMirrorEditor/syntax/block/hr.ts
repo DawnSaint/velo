@@ -27,7 +27,7 @@ export function isThematicBreakLine(text: string): boolean {
   return markers.every(ch => ch === marker)
 }
 
-function isThematicBreakSpaceTrigger(text: string): boolean {
+export function isThematicBreakSpaceTrigger(text: string): boolean {
   return /[ \t]$/.test(text) && isThematicBreakLine(text)
 }
 

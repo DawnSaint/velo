@@ -24,6 +24,7 @@ import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
+import remarkFrontmatter from 'remark-frontmatter'
 
 // ============================================================
 //  unified processor
@@ -38,6 +39,7 @@ const processor = unified()
   .use(remarkMath)
   .use(remarkAlert)
   .use(remarkHighlight)
+  .use(remarkFrontmatter)
   .use(remarkStringify, {
     bullet: '-',
     listItemIndent: 'one',
@@ -110,6 +112,11 @@ export function fromMarkdown(md: string, schema: Schema): PMNode {
   // 空文档兜底:doc 至少要一个 paragraph
   if (blocks.length === 0) {
     return schema.node('doc', null, [schema.node('paragraph')])
+  }
+  // doc content 是 'frontmatter? block+':frontmatter 后必须有至少一个 block。
+  // 文件只有 frontmatter 无正文时补一个空 paragraph。
+  if (blocks.length === 1 && blocks[0].type.name === 'frontmatter') {
+    blocks.push(schema.node('paragraph'))
   }
   return schema.node('doc', null, blocks)
 }
@@ -259,8 +266,15 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
       }
       return [schema.node('html_block', { value: node.value })]
 
+    case 'yaml': {
+      // remark-frontmatter 解析出的 YAML frontmatter 块 → frontmatter 节点。
+      // value 是 `---` 之间的原始 YAML 文本(不含分隔符)。
+      const content = node.value ? [schema.text(node.value)] : []
+      return [schema.node('frontmatter', null, content)]
+    }
+
     default:
-      // 不支持的块级节点(yaml/toml frontmatter 等)→ 静默丢弃
+      // 不支持的块级节点(toml frontmatter 等)→ 静默丢弃
       return []
   }
 }
@@ -631,6 +645,11 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
 
     case 'table':
       return pmTableToMdast(node)
+
+    case 'frontmatter':
+      // frontmatter 节点序列化回 mdast yaml 节点,remark-frontmatter 的
+      // stringify handler 会包裹 `---` 分隔符输出。
+      return { type: 'yaml', value: node.textContent } as RootContent
 
     case 'toc':
       // toc 节点序列化回 [TOC] 独占段落。

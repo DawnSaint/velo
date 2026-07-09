@@ -1,0 +1,73 @@
+// YAML Front Matter — Typora 风格 styled code block。
+//
+// NodeView 结构(见 FrontmatterNodeView.ts):
+//   <div class="velo-frontmatter" data-type="frontmatter">
+//     <div class="velo-frontmatter-header">Front Matter</div>
+//     <pre><code>...YAML...</code></pre>
+//   </div>
+//
+// 与 code_block 视觉区分:不同背景色 + 标题栏 + 等宽字体。
+// pre 不继承 .velo-editor pre 的 shiki 变量(无高亮),用自己的色板。
+// 导出 HTML 剥离 frontmatter(walker case 'yaml' → ''),不需要导出样式。
+
+.velo-editor {
+  .velo-frontmatter {
+    margin: 1em 0;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    overflow: hidden;
+
+    // header 标题栏
+    .velo-frontmatter-header {
+      padding: 4px 12px;
+      font-size: 0.8em;
+      font-weight: 600;
+      color: #666;
+      background: #f0f0f0;
+      border-bottom: 1px solid #e1e4e8;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    // contentDOM — 不继承 .velo-editor pre 的 shiki 色板
+    > pre {
+      margin: 0;
+      padding: 0.75em 1em;
+      border: none;
+      border-radius: 0;
+      background: #fafafa;
+      overflow-x: auto;
+
+      code {
+        background: none;
+        padding: 0;
+        font-size: 0.9em;
+        font-family: var(--font-mono);
+        color: #333;
+        tab-size: 4;
+        -moz-tab-size: 4;
+      }
+    }
+  }
+}
+
+// 暗色模式
+:is(.dark .velo-editor, .velo-editor.dark) {
+  .velo-frontmatter {
+    border-color: #444c56;
+
+    .velo-frontmatter-header {
+      color: #aaa;
+      background: #21262d;
+      border-bottom-color: #444c56;
+    }
+
+    > pre {
+      background: #161b22;
+
+      code {
+        color: #c9d1d9;
+      }
+    }
+  }
+}

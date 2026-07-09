@@ -19,7 +19,28 @@ import { tableNodes } from 'prosemirror-tables'
 
 const nodes: Record<string, NodeSpec> = {
   doc: {
-    content: 'block+',
+    // frontmatter 可选首子,限定只能出现在文档开头且最多一个。
+    // frontmatter 不属于 block 组,不会被 syntaxAutoFormat / setBlockType 误创建。
+    content: 'frontmatter? block+',
+  },
+
+  // YAML Front Matter:文档首部 `---` 包裹的 YAML 元数据块。
+  // remark-frontmatter 解析为 mdast `yaml` 节点,markdownIO 双向转成此 PM 节点。
+  // content:'text*' 让用户可直接在 WYSIWYG 编辑 YAML 内容(同 code_block 范式);
+  // code:true + marks:'' 同 code_block 隔离语义;defining + isolating 防跨节点合并。
+  // NodeView(FrontmatterNodeView.ts)渲染 Typora 风格:标题栏 + styled code block。
+  // 不设 group —— 不属于 block/inline,只通过 doc content 'frontmatter?' 出现。
+  frontmatter: {
+    content: 'text*',
+    marks: '',
+    defining: true,
+    isolating: true,
+    code: true,
+    parseDOM: [{
+      tag: 'div[data-type="frontmatter"]',
+      preserveWhitespace: 'full',
+    }],
+    toDOM: () => ['div', { 'data-type': 'frontmatter' }, 0],
   },
 
   text: {

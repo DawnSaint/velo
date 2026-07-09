@@ -47,6 +47,7 @@ import { remarkAlert } from '@/components/ProseMirrorEditor/plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '@/components/ProseMirrorEditor/plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '@/components/ProseMirrorEditor/plugins/remarkHighlight'
 import { remarkMathFenceGuard } from '@/components/ProseMirrorEditor/plugins/remarkMathFenceGuard'
+import remarkFrontmatter from 'remark-frontmatter'
 import {
   ensureLanguage,
   DEFAULT_LIGHT_THEME,
@@ -119,6 +120,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     .use(remarkMath)
     .use(remarkAlert)
     .use(remarkHighlight)
+    .use(remarkFrontmatter)
   // 必须走 runSync —— remarkAlert / remarkHighlight / remarkEncodeLinkUrls 是
   // transformer(返回 `tree => {...}`),在 run 阶段才执行,parse 只跑 parser。
   // 只 parse 不 run 会导致 alert 节点不被改写(仍是 blockquote)、`==高亮==`
