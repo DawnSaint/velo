@@ -695,9 +695,14 @@ export const useDocumentStore = defineStore('document', () => {
     return saveAsDoc(d)
   }
 
-  /** 指定 doc 另存为(无需切换激活)。弹 saveDialog → 写新路径 → 切换该 doc 的 path + watch。 */
+  /** 指定 doc 另存为(无需切换激活)。弹 saveDialog → 写新路径 → 切换该 doc 的 path + watch。
+   *
+   * **不**受 `userReadOnly` / `readOnlyLocked` 限制 —— 另存为写的是用户在新 dialog
+   * 里挑的路径,不会覆盖只读源文件;它恰恰是 sample(readOnlyLocked) / 只读文档唯一
+   * 的"翻回可编辑"出口(状态栏 tooltip 承诺的"另存为保存到工作区后再编辑")。
+   * 其它写盘入口(save / saveTabById / saveAllDirtyTabs)在更外层各有只读守卫,
+   * 只读文档走不到这里,所以放开守卫只影响"点另存为"这一动作。 */
   async function saveAsDoc(d: DocState): Promise<boolean> {
-    if (d.userReadOnly || d.readOnlyLocked) return false
     const target = await saveDialog({ filters: MARKDOWN_DIALOG_FILTERS })
     if (!target) return false
     const snapshot = d.content
@@ -708,6 +713,12 @@ export const useDocumentStore = defineStore('document', () => {
       await stopWatch(d)
       d.currentFilePath = target
       d.lastSavedContent = snapshot
+
+      // 已落到真实路径:sample 锁 / 用户只读态不再适用,翻为可编辑 + 清掉虚拟标题
+      // (标题由 virtualFileName 优先 → docFileName,不清则继续显示"示例.md")。
+      d.readOnlyLocked = false
+      d.userReadOnly = false
+      d.virtualFileName = null
 
       if (oldDraftId) await deleteDraftFromFs(oldDraftId)
       await clearDraftForDoc(d)

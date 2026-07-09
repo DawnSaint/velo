@@ -207,15 +207,21 @@ function buildDecorations(state: EditorState, deco: MermaidDecoState): Decoratio
     decos.push(Decoration.node(pos, pos + node.nodeSize, {
       'data-mermaid-source': isEditing ? 'visible' : 'hidden',
     }))
-    // 2) widget 锚在 block 末尾之后(side: 1)→ DOM 顺序 pre → svgArea + toolbar
-    //    视觉上 pre 在上 / SVG 在下(用户要求)
+    // 2) widget 锚在 block 末尾→ DOM 顺序 pre → svgArea + toolbar
+    //    视觉上 pre 在上 / SVG 在下(用户要求)。
+    //    side 必须小于下一个 code_block header widget 的 side(-1):
+    //    两个紧邻 block 的 SVG 与 header 会碰撞在同一文档位置(block1 末尾 =
+    //    block2 起始),PM 同位置按 side 升序绘制。若 SVG 用 side 1 > header -1,
+    //    header 会被画到 SVG 上方(用户报"header 在第一个 SVG 上面")。用 -2 使
+    //    SVG 先绘制,紧邻场景 DOM 顺序 = pre1 → SVG1 → header2 → pre2。
+    //    孤立场景(position=block 末尾无后续 block)同样正确:SVG 紧随 pre 之后。
     const widgetPos = pos + node.nodeSize
     // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
     // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
     const widget = makeMermaidWidget(source, getMermaidTheme(), deco, absolutePos, isEditing, node)
     decos.push(Decoration.widget(widgetPos, widget, {
       block: true,
-      side: 1,
+      side: -2,
       key: `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}`,
       ignoreSelection: true,
       destroy(dom) {

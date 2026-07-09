@@ -58,6 +58,7 @@ import { checkSvg, chevronDownSvg, copySvg, wrapTextSvg, nowrapSvg } from '@/com
 import { langIconSvg } from './langIcons'
 import { foldKey, isCodeBlockFolded } from './FoldDecoration'
 import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
+import { mermaidDecoKey } from './MermaidDecoration'
 
 // ============================================================
 //  Plugin state
@@ -104,6 +105,10 @@ export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight
  *  - isFolded:当前折叠状态(chevron 方向 + data-fold-state)
  *  - toggleFold:click chevron 时调,dispatch setMeta(foldKey, { toggle })
  *  - setLang:提交新语言时调,dispatch setNodeAttribute(language)
+ *  - hideFoldBtn:true 时隐藏折叠 chevron(用于 mermaid 展开态 —— 避免与
+ *    mermaid toolbar toggle 打斗,误触发 FoldDecoration 把 SVG 也吞掉;
+ *    mermaid 的"收"由 mermaid toolbar toggle 承担,这里提供一个 fold 入口
+ *    没意义)。header 本身仍渲染,语言选择 + 复制仍可用。
  *
  * header 是正常文档流 block 元素(非 absolute),视觉与 pre 连为一体:
  * header 上圆角 + pre 下圆角,共享 border / bg。折叠时 pre 被
@@ -123,6 +128,7 @@ function makeHeaderDom(
   toggleWrap: () => void,
   setLang: (lang: string) => void,
   focusCode: () => void,
+  hideFoldBtn: boolean = false,
 ): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'velo-code-header-widget'
@@ -131,23 +137,27 @@ function makeHeaderDom(
   wrap.setAttribute('data-lang', lang)
   wrap.setAttribute('data-fold-state', isFolded ? 'collapsed' : 'expanded')
 
-  // 折叠 chevron —— 始终用 chevron-down,CSS rotate(-90deg) 实现折叠态
-  const foldBtn = document.createElement('button')
-  foldBtn.type = 'button'
-  foldBtn.className = 'velo-code-fold-btn'
-  foldBtn.title = isFolded ? '展开' : '折叠'
-  foldBtn.contentEditable = 'false'
-  foldBtn.innerHTML = chevronDownSvg(14)
-  foldBtn.addEventListener('mousedown', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-  })
-  foldBtn.addEventListener('click', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    toggleFold()
-  })
-  wrap.appendChild(foldBtn)
+  // 折叠 chevron —— 始终用 chevron-down,CSS rotate(-90deg) 实现折叠态。
+  // mermaid 展开态 hideFoldBtn=true → 跳过 chevron(避免与 mermaid toolbar
+  // toggle 打斗);其余 code_block 正常渲染。
+  if (!hideFoldBtn) {
+    const foldBtn = document.createElement('button')
+    foldBtn.type = 'button'
+    foldBtn.className = 'velo-code-fold-btn'
+    foldBtn.title = isFolded ? '展开' : '折叠'
+    foldBtn.contentEditable = 'false'
+    foldBtn.innerHTML = chevronDownSvg(14)
+    foldBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+    })
+    foldBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      toggleFold()
+    })
+    wrap.appendChild(foldBtn)
+  }
 
   // 语言输入框(替代旧按钮 + 浮层方案):input 值 = lang,icon 实时跟随,
   // focus / 输入时在 body 上挂 fixed 下拉,点击候选项或 Enter 提交。
@@ -546,13 +556,29 @@ function buildDecorations(
   const decos: Decoration[] = []
   // 读 fold 状态:判断 code_block 是否折叠(chevron 方向 + widget key)
   const foldState = foldKey.getState(state)
+  // 读 mermaid 展开态:editNodeSet 含 absolutePos(pos + 1)的 mermaid 处于
+  // "展开源码"态(pre 可见);不在集合里 = "收起 / 显示 SVG"态(pre 被
+  // data-mermaid-source="hidden" 隐藏)。mermaid 的 code header 联动此态:
+  // 展开时显示 header(语言选择 + 复制可用),收起时隐藏(否则 SVG 上方孤零零
+  // 浮着一个 header,与 MermaidDecoration 的 SVG + 切换/删除 toolbar 叠两层)。
+  const mermaidState = mermaidDecoKey.getState(state)
   state.doc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'code_block') return
     const lang = (node.attrs.language as string) || ''
-    // 注意:mermaid 与普通 code_block 共用本 header(语言选择 + 复制)。
-    // MermaidDecoration 的 widget 锚在 pos + nodeSize + side: 1(pre 之后),
-    // 本 header 锚在 pos + side: -1(pre 之前)→ 两个 widget DOM 位置不冲突,
-    // mermaid 走 MermaidDecoration 的额外 SVG / 切换源码 / 删除按钮 / 关闭按钮。
+    // mermaid 收起态(显示 SVG,源码隐藏)跳过 code header,仅展开态保留 ——
+    // header 只是 UI 容器,跳过它不影响下方 token 着色旁路(仍给 mermaid 上色)。
+    // 与 CodeLineNumberWidget("mermaid code_block → 无行号")同范式。
+    const isMermaid = lang === 'mermaid'
+    // mermaid 展开态(源码可见)时 editNodeSet 含 absolutePos = pos + 1。
+    // 收起态(显示 SVG / 源码隐藏)时不渲染 code header,避免与 MermaidDecoration
+    // 的 SVG + 切换/删除 toolbar 叠两层;展开态仍保留 header(语言选择 + 复制可用)。
+    // mermaidDecoration 未加载时(纯 codeHighlightPlugin 测试场景)mermaidState 为
+    // undefined → 视为收起态 → 跳 header,下方 token 着色旁路仍 fall through。
+    const renderHeader = !isMermaid || Boolean(mermaidState?.editNodeSet.has(pos + 1))
+    // mermaid 展开态要隐藏 header 里的 fold chevron —— 避免手闲点 fold 误触发
+    // FoldDecoration 折叠 code_block → isMermaidFolded 把 SVG 也吞掉。mermaid 的
+    // "收"由 mermaid toolbar toggle 承担,header 提供一个 fold 入口只会有害。
+    const mermaidExpanded = isMermaid && Boolean(mermaidState?.editNodeSet.has(pos + 1))
     // header widget —— key 含 lang + 文本 hash + 折叠状态,lang 变 / 文本变 /
     // 折叠切换都强制重挂,否则 ProseMirror 复用旧 DOM 内容不更新。
     const blockStart = pos + 1
@@ -571,50 +597,53 @@ function buildDecorations(
     // 范式)。**自身折叠(isFolded)不跳过**:header 是自身折叠的摘要
     // (行数 + 语言 + 复制),必须保留。
     if (!isFolded && isCodeBlockFolded(pos)) return
-    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}:${isWrapped}`
-    decos.push(
-      Decoration.widget(pos, (view, _getPos) => {
-        return makeHeaderDom(
-          pos,
-          lang,
-          () => code,
-          isFolded,
-          () => {
-            if (!view || view.isDestroyed) return
-            view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
-          },
-          isWrapped,
-          () => {
-            if (!view || view.isDestroyed) return
-            view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
-          },
-          (newLang: string) => {
-            if (!view || view.isDestroyed) return
-            setCodeBlockLanguage(view.state, pos, newLang, (tr) => {
-              view.dispatch(tr)
-            })
-          },
-          () => {
-            if (!view || view.isDestroyed) return
-            view.focus()
-            const $pos = view.state.doc.resolve(blockStart)
-            view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
-          },
-        )
-      }, {
-        side: -1,
-        key,
-        ignoreSelection: true,
-        // stopEvent:true 让 PM 不拦截来自 widget 内部的事件(mousedown / keydown /
-        // input / focus 等)。不加时 PM 的 eventBelongsToView 认为 widget 内的事件
-        // "属于编辑器" → mousedown → selection 变化 → DOMObserver 反推选区 →
-        // 光标被拉出 input(与 math_block NodeView stopEvent 同源坑,见
-        // editor.md "NodeView 必须实现 stopEvent")。按钮(fold / copy)自己
-        // mousedown preventDefault + stopPropagation,不依赖 stopEvent,这里
-        // 返回 true 对它们无影响。
-        stopEvent: () => true,
-      }),
-    )
+    if (renderHeader) {
+      const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}:${isWrapped}`
+      decos.push(
+        Decoration.widget(pos, (view, _getPos) => {
+          return makeHeaderDom(
+            pos,
+            lang,
+            () => code,
+            isFolded,
+            () => {
+              if (!view || view.isDestroyed) return
+              view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
+            },
+            isWrapped,
+            () => {
+              if (!view || view.isDestroyed) return
+              view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
+            },
+            (newLang: string) => {
+              if (!view || view.isDestroyed) return
+              setCodeBlockLanguage(view.state, pos, newLang, (tr) => {
+                view.dispatch(tr)
+              })
+            },
+            () => {
+              if (!view || view.isDestroyed) return
+              view.focus()
+              const $pos = view.state.doc.resolve(blockStart)
+              view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
+            },
+            mermaidExpanded,
+          )
+        }, {
+          side: -1,
+          key,
+          ignoreSelection: true,
+          // stopEvent:true 让 PM 不拦截来自 widget 内部的事件(mousedown / keydown /
+          // input / focus 等)。不加时 PM 的 eventBelongsToView 认为 widget 内的事件
+          // "属于编辑器" → mousedown → selection 变化 → DOMObserver 反推选区 →
+          // 光标被拉出 input(与 math_block NodeView stopEvent 同源坑,见
+          // editor.md "NodeView 必须实现 stopEvent")。按钮(fold / copy)自己
+          // mousedown preventDefault + stopPropagation,不依赖 stopEvent,这里
+          // 返回 true 对它们无影响。
+          stopEvent: () => true,
+        }),
+      )
+    }
     if (!lang) return
     if (blockStart >= blockEnd) return
 

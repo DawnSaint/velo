@@ -8,6 +8,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
 import { useEditorStore } from '@/stores/editor'
 import { isCodeBlockFolded } from './FoldDecoration'
+import { mermaidDecoKey } from './MermaidDecoration'
 
 // ============================================================
 //  Plugin state
@@ -50,10 +51,14 @@ function buildDecorations(
   state.doc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'code_block') return
     const lang = (node.attrs.language as string) || ''
-    // mermaid 跳过:渲染态 SVG 取代 pre,行号与 SVG 并排视觉割裂;
-    // 源码编辑态(用户切到"看源码")SVG 隐藏,pre 显示 —— 这种状态下
-    // 仍按 mermaid 整体跳过(用户已确认 v0.5.11 始终不显示)。
-    if (lang === 'mermaid') return
+    // mermaid 联动展开态:收起态(显示 SVG / 源码隐藏)行号与 SVG 并排视觉割裂,
+    // 跳过;展开态(源码可见,SVG 在 pre 下方)行号有用,保留 —— 与 mermaid code header
+    // 同范式。mermaidDecoration 未加载时(单 plugin 测试场景)mermaidState 为
+    // undefined → 视为收起态 → 跳过,维持既有"无 mermaid 插件则无行号"行为。
+    if (lang === 'mermaid') {
+      const mermaidState = mermaidDecoKey.getState(state)
+      if (!mermaidState || !mermaidState.editNodeSet.has(pos + 1)) return
+    }
     // 在 fold 范围内的 code_block:祖先 heading/list_item 折叠时,本
     // code_block 被 ancestor `velo-folded` class 设为 display:none,
     // 行号 widget 没有可见锚点 → 跳过(同旧方案)。

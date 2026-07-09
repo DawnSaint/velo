@@ -10,12 +10,13 @@
 // 7. 主题切换:切 <html class="dark"> → CSS 变量值变 → token span DOM 的 style 不变
 // 8. CONTAINER_BLACKLIST 回归:在 code_block 内键入 ### 不应转 heading
 // 9. 复制按钮 click → CustomEvent('velo:copy-code') 冒泡,detail 包含 pos
-// 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHighlight 出 toolbar(共用);
-//     v0.4.7+:mermaid **语法高亮**走自写轻量 tokenizer(旁路 shiki,因 shiki
-//     mermaid grammar 是"摆设"全输出默认色),颜色从当前代码块主题动态提取 hex,
-//     inline decoration 写 --shiki-light/dark 局部 CSS 变量(跟 shiki token 同形,
-//     代码块主题切换 + dark/light 切换都自动生效);MermaidDecoration widget
-//     叠加 SVG 预览。两条 widget 共存不冲突(本 plugin side: -1 / mermaid widget 默认 side: 0)。
+// 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHeader 对 mermaid 跳过
+//     (由 MermaidDecoration 自带 toolbar 接管,避免双层 header);v0.4.7+:mermaid
+//     **语法高亮**走自写轻量 tokenizer(旁路 shiki,因 shiki mermaid grammar 是
+//     "摆设"全输出默认色),颜色从当前代码块主题动态提取 hex,inline decoration
+//     写 --shiki-light/dark 局部 CSS 变量(跟 shiki token 同形,代码块主题切换 +
+//     dark/light 切换都自动生效);MermaidDecoration widget 叠加 SVG 预览。
+//     两条 widget 共存不冲突(code header 跳过 / MermaidDecoration widget 默认 side: 0)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -35,6 +36,21 @@ import {
 } from '../nodes/CodeBlockLangs'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
+import { mermaidDecoration, mermaidDecoKey } from '../nodes/MermaidDecoration'
+
+// ★ stub mermaid:真实包 ~3MB,jsdom 执行顶层代码阻塞主线程 → 本测只关心
+// code header 联动 editNodeSet,不需要真渲染 SVG。vi.mock 工厂让 getMermaid()
+// 立即 resolve 一个 noop 实例,把 import 代价降到近零。
+vi.mock('mermaid', () => {
+  const noop = (): Promise<void> => Promise.resolve()
+  return {
+    default: {
+      initialize: noop,
+      parse: () => Promise.resolve(),
+      render: () => Promise.resolve({ svg: '<svg></svg>', bindFunctions: undefined }),
+    },
+  }
+})
 
 // ============================================================
 //  工具:起一个最小可工作的 EditorView,只挂 codeHighlightPlugin
@@ -47,6 +63,20 @@ function makeView(initialMd: string): EditorView {
     schema,
     doc: fromMarkdown(initialMd, schema),
     plugins: [codeHighlightPlugin],
+  })
+  const view = new EditorView(container, { state })
+  return view
+}
+
+// 双插件 view:同时挂 codeHighlight + mermaidDecoration,方能驱动 mermaid 的
+// 展开/收起态(editNodeSet)来验证 code header 联动。
+function makeViewWithMermaid(initialMd: string): EditorView {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const state = EditorState.create({
+    schema,
+    doc: fromMarkdown(initialMd, schema),
+    plugins: [codeHighlightPlugin, mermaidDecoration],
   })
   const view = new EditorView(container, { state })
   return view
@@ -243,17 +273,40 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('10. v0.4.6+ mermaid 共用 codeHighlight toolbar(语言选择 + 复制)+ MermaidDecoration 自管 SVG 切换/删除/关闭', async () => {
+  it('10. v0.4.6+ mermaid 的 code header 联动展开态:收起态隐藏,展开态显示但 fold chevron 隐藏', async () => {
     // v0.4.6+:mermaid 走 code_block { language: 'mermaid' }。
-    // 两个 widget 在不同 DOM 位置共挂:
-    //   - CodeHighlight 在 pos + side: -1(pre 前)→ 提供语言选择 + 复制按钮
-    //   - MermaidDecoration 在 pos + nodeSize + side: 1(pre 后)→ 提供 SVG + 切换/删除/关闭
-    // 验证 codeHighlight 的 toolbar 在 mermaid 上仍挂上(不再 skip)。
+    // 修复前 code header 对 mermaid 总是挂上,收起态(显示 SVG + MermaidDecoration
+    // 自带切换/删除 toolbar)上方孤零零浮一个 header,形成双层header。
+    // 修复后:header 联动 mermaid 展开态(editNodeSet)—— 收起态跳过,
+    // 展开态(源码可见)仍保留 header(语言选择 + 复制可用)。
+    // token 着色旁路(测例 10b)不受影响(跳 header 不上诉 token decoration)。
+    //
+    // 方案 A:展开态 header 的 fold chevron 隐藏 —— 避免手闲点 fold 误触发
+    // FoldDecoration 折叠 code_block → isMermaidFolded 把 SVG 也吞掉;mermaid 的
+    // "收"由 mermaid toolbar toggle 承担,header 提供 fold 入口只会有害。
     const md = '```mermaid\ngraph TD\n  A --> B\n```'
-    const view = makeView(md)
+    const view = makeViewWithMermaid(md)
     await flushHighlighter()
-    const allToolbars = view.dom.querySelectorAll('.velo-code-header-widget')
-    expect(allToolbars.length).toBe(1)
+    const pos = findCodeBlockPos(view)
+    expect(pos).toBeGreaterThanOrEqual(0)
+
+    // 1. 收起态(默认,显示 SVG,源码隐藏)→ header 隐藏
+    expect(view.dom.querySelectorAll('.velo-code-header-widget').length).toBe(0)
+
+    // 2. 展开:dispatch setMeta toggleEditAt(absolutePos = pos + 1)→ editNodeSet 加入
+    const absolutePos = pos + 1
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
+    // 展开态(源码可见)→ header 显示,但 fold chevron 必须隐藏
+    expect(view.dom.querySelectorAll('.velo-code-header-widget').length).toBe(1)
+    expect(view.dom.querySelectorAll('.velo-code-fold-btn').length).toBe(0)
+    // 语言选择 + 复制仍可用
+    expect(view.dom.querySelector('.velo-code-lang-input')).not.toBeNull()
+    expect(view.dom.querySelector('.velo-code-copy-btn')).not.toBeNull()
+
+    // 3. 收起:再次 toggle → editNodeSet 移除 → header 隐藏
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
+    expect(view.dom.querySelectorAll('.velo-code-header-widget').length).toBe(0)
+
     view.destroy()
   })
 
