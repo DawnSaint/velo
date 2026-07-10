@@ -285,8 +285,8 @@ const basePlugins: Plugin[] = [
   //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
   //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
   //      时的行为割裂)
-  //   4. frontmatterEnterCommand:文档首段 `---`+Enter → frontmatter 节点
-  //   5. hrEnterCommand:任意位置 `---`+Enter → hr 节点
+  //   4. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
+  //   5. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
   //   6. splitBlock:兜底,普通段落里换行
   keymap({
     Enter: chainCommands(

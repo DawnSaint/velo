@@ -25,6 +25,7 @@ import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import remarkFrontmatter from 'remark-frontmatter'
+import type { FrontmatterLang } from '../syntax/block/frontmatter'
 
 // ============================================================
 //  unified processor
@@ -39,7 +40,8 @@ const processor = unified()
   .use(remarkMath)
   .use(remarkAlert)
   .use(remarkHighlight)
-  .use(remarkFrontmatter)
+  // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
+  .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkStringify, {
     bullet: '-',
     listItemIndent: 'one',
@@ -166,14 +168,18 @@ export function extractLangsFromDoc(md: string): string[] {
   if (!md) return []
   const tree = processor.parse(md) as Root
   const seen = new Set<string>()
-  const visit = (n: Root | RootContent): void => {
+  // 访问器需要覆盖 frontmatter 节点(toml 不在 RootContent 联合中),故用宽的
+  // 形状类型,通过 type 字段分发。
+  type VisitNode = Root | RootContent | { type: FrontmatterLang; value: string }
+  const visit = (n: VisitNode): void => {
     if (n.type === 'code' && n.lang) {
       seen.add(resolveShikiLang(n.lang))
     }
-    // YAML front matter(remark-frontmatter 输出的 mdast `yaml` 节点)始终走
-    // shiki yaml grammar 高亮,提前装进 seed 列表,首屏直接出 token 免闪烁。
-    if (n.type === 'yaml') {
-      seen.add('yaml')
+    // frontmatter(remark-frontmatter 输出的 mdast `yaml` / `toml` 节点)始终走对应
+    // shiki grammar 高亮(yaml / toml 各自独立 grammar),提前装进 seed 列表,
+    // 首屏直接出 token 免闪烁。节点类型本身即为 shiki lang id,直接透传。
+    if (n.type === 'yaml' || n.type === 'toml') {
+      seen.add(n.type)
     }
     // mdast 节点只有 block / root / 部分 phrasing 节点带 children,统一读
     if ('children' in n && Array.isArray((n as { children?: unknown }).children)) {
@@ -193,8 +199,14 @@ export function extractLangsFromDoc(md: string): string[] {
 // 必须在 mdast → PM 的 link 分支里 decode 回可读形式。
 // 修复:mdastInlineToPM 的 case 'link' 处统一 decodeURIComponent。
 
-/** mdast 块级节点 → 0..N 个 PM 节点(0 个发生在不支持的节点被吞掉时)。 */
-function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
+/**
+ * mdast 块级节点 → 0..N 个 PM 节点(0 个发生在不支持的节点被吞掉时)。
+ *
+ * 参数覆盖 RootContent 外加 remark-frontmatter 输出的 toml 节点(type='toml',
+ * 不在 mdast 默认 RootContent 联合中)。
+ */
+type BlockContentWide = RootContent | { type: 'toml'; value: string }
+function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
   if ((node as any).type === 'alert') {
     const alertNode = node as any
     return [schema.node('alert', {
@@ -271,15 +283,20 @@ function mdastBlockToPM(node: RootContent, schema: Schema): PMNode[] {
       }
       return [schema.node('html_block', { value: node.value })]
 
-    case 'yaml': {
-      // remark-frontmatter 解析出的 YAML frontmatter 块 → frontmatter 节点。
-      // value 是 `---` 之间的原始 YAML 文本(不含分隔符)。
-      const content = node.value ? [schema.text(node.value)] : []
-      return [schema.node('frontmatter', null, content)]
+    case 'yaml':
+    case 'toml': {
+      // remark-frontmatter 解析出的 frontmatter 块(yaml / toml)→ frontmatter 节点。
+      // mdast 节点类型即种类,存入 lang 属性以驱动序列化分隔符 + shiki grammar;
+      // value 是 fence 之间的原始文本(不含分隔符)。
+      // node 类型收窄为 'yaml'|'toml',但 RootContent 联合未列出 toml —— 按
+      // 带 value 的 frontmatter 形状做局部类型断言,避免 TS2678。
+      const fmNode = node as { type: FrontmatterLang; value: string }
+      const content = fmNode.value ? [schema.text(fmNode.value)] : []
+      return [schema.node('frontmatter', { lang: fmNode.type }, content)]
     }
 
     default:
-      // 不支持的块级节点(toml frontmatter 等)→ 静默丢弃
+      // 不支持的块级节点 → 静默丢弃
       return []
   }
 }
@@ -651,10 +668,13 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
     case 'table':
       return pmTableToMdast(node)
 
-    case 'frontmatter':
-      // frontmatter 节点序列化回 mdast yaml 节点,remark-frontmatter 的
-      // stringify handler 会包裹 `---` 分隔符输出。
-      return { type: 'yaml', value: node.textContent } as RootContent
+    case 'frontmatter': {
+      // frontmatter 节点序列回 mdast 节点,lang 属性决定种类(yaml / toml);
+      // remark-frontmatter 的 stringify handler 会按节点种类包裹对应 fence
+      // (`---` / `+++`) 输出。
+      const lang = (node.attrs.lang as FrontmatterLang) || 'yaml'
+      return { type: lang, value: node.textContent } as RootContent
+    }
 
     case 'toc':
       // toc 节点序列化回 [TOC] 独占段落。

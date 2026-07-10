@@ -563,18 +563,20 @@ function buildDecorations(
   // 浮着一个 header,与 MermaidDecoration 的 SVG + 切换/删除 toolbar 叠两层)。
   const mermaidState = mermaidDecoKey.getState(state)
   state.doc.descendants((node: PMNode, pos: number) => {
-    // frontmatter 节点始终走 yaml grammar 高亮(视为一个 yaml 语言槽),与
-    // code_block 同结构(content:'text*'),但没有 header widget / 语言选择。
+    // frontmatter 节点走对应 lang grammar 高亮(视为一个语言槽),与 code_block 同
+    // 结构(content:'text*'),但没有 header widget / 语言选择。lang 属性由
+    // markdownIO 注入('yaml' / 'toml'),决定序列化 fence + shiki grammar。
     // 复用 getTokensCached + dual-theme inline decoration 机制,SCSS
     // `.velo-editor pre span { color: var(--shiki-light) }` 已经覆盖
     // frontmatter <pre>(内容在 .velo-editor 内),无需新增样式。
     if (node.type.name === 'frontmatter') {
       if (!hl) return
+      const lang = (node.attrs.lang as string) || 'yaml'
       const blockStart = pos + 1
       const blockEnd = pos + node.nodeSize - 1
       if (blockStart >= blockEnd) return
       const code = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-      const result = getTokensCached(hl, code, 'yaml', lightTheme, darkTheme)
+      const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
       if (!result) return
       const { tokens } = result
       for (const line of tokens) {

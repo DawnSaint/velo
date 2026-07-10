@@ -1,14 +1,18 @@
-// YAML Front Matter — Typora 风格 styled code block。
+// YAML / TOML Front Matter — Typora 风格 styled code block。
 //
 // NodeView 结构(见 FrontmatterNodeView.ts):
-//   <div class="velo-frontmatter" data-type="frontmatter">
-//     <div class="velo-frontmatter-header">Front Matter</div>
-//     <pre><code>...YAML...</code></pre>
+//   <div class="velo-frontmatter" data-type="frontmatter" data-lang="yaml|toml">
+//     <div class="velo-frontmatter-header">
+//       <button velo-frontmatter-fold-btn ▼>折叠 chevron</button>
+//       <span class="velo-frontmatter-title">Front Matter</span>
+//       <button velo-frontmatter-lang data-lang="yaml|toml">YAML / TOML</button>
+//     </div>
+//     <pre><code>...YAML / TOML content...</code></pre>
 //   </div>
 //
 // 与 code_block 视觉区分:不同背景色 + 标题栏 + 等宽字体。
 // pre 不继承 .velo-editor pre 的 shiki 变量(无高亮),用自己的色板。
-// 导出 HTML 剥离 frontmatter(walker case 'yaml' → ''),不需要导出样式。
+// 导出 HTML 剥离 frontmatter(walker case 'yaml'/'toml' → ''),不需要导出样式。
 
 .velo-editor {
   .velo-frontmatter {
@@ -17,10 +21,13 @@
     border-radius: 8px;
     overflow: hidden;
 
-    // header 标题栏
+    // header 标题栏 —— flex 行:chevron(绝对定位左) | title(撑满) | lang(右)
     .velo-frontmatter-header {
       position: relative; // chevron 绝对定位锚点
-      padding: 6px 12px 6px 28px; // 左侧让出 chevron 宽度
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px 6px 28px; // 左侧让出 chevron 宽度;右侧留给 lang 呼吸
       font-size: 0.8em;
       font-weight: 600;
       color: #666;
@@ -28,6 +35,33 @@
       border-bottom: 1px solid #e1e4e8;
       user-select: none;
       -webkit-user-select: none;
+
+      // 标题文本 "Front Matter" —— 占据 chevron 与 lang 之间的剩余空间
+      .velo-frontmatter-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      // 格式切换(header 右侧 "YAML"/"TOML") —— 纯文字,点击切换种类。
+      > .velo-frontmatter-lang {
+        flex: none;
+        padding: 0;
+        font: inherit; // 继承 header 字号 / 字重,融入标题栏
+        font-family: inherit;
+        color: #888;
+        background: none;
+        border: none;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        line-height: 1.2;
+        &:hover { color: var(--md-primary-color, #3b82f6); }
+      }
 
       // chevron(▼),contentEditable=false(不抢 PM 光标)
       > .velo-frontmatter-fold-btn {
@@ -107,6 +141,11 @@
       color: #aaa;
       background: #21262d;
       border-bottom-color: #444c56;
+
+      > .velo-frontmatter-lang {
+        color: #aaa;
+        &:hover { color: var(--md-primary-color, #60a5fa); }
+      }
 
       > .velo-frontmatter-fold-btn {
         color: #aaa;

@@ -120,7 +120,8 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     .use(remarkMath)
     .use(remarkAlert)
     .use(remarkHighlight)
-    .use(remarkFrontmatter)
+    // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
+    .use(remarkFrontmatter, ['yaml', 'toml'])
   // 必须走 runSync —— remarkAlert / remarkHighlight / remarkEncodeLinkUrls 是
   // transformer(返回 `tree => {...}`),在 run 阶段才执行,parse 只跑 parser。
   // 只 parse 不 run 会导致 alert 节点不被改写(仍是 blockquote)、`==高亮==`

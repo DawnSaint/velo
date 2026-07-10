@@ -24,9 +24,10 @@ const nodes: Record<string, NodeSpec> = {
     content: 'frontmatter? block+',
   },
 
-  // YAML Front Matter:文档首部 `---` 包裹的 YAML 元数据块。
-  // remark-frontmatter 解析为 mdast `yaml` 节点,markdownIO 双向转成此 PM 节点。
-  // content:'text*' 让用户可直接在 WYSIWYG 编辑 YAML 内容(同 code_block 范式);
+  // YAML / TOML Front Matter:文档首部 `---`(yaml) 或 `+++(toml)` 包裹的元数据块。
+  // remark-frontmatter(['yaml','toml']) 解析为对应 mdast 节点,markdownIO 双向转成此
+  // PM 节点,并通过 lang 属性记录种类(序列化时还原为对应 fence + shiki grammar)。
+  // content:'text*' 让用户可直接在 WYSIWYG 编辑内容(同 code_block 范式);
   // code:true + marks:'' 同 code_block 隔离语义;defining + isolating 防跨节点合并。
   // NodeView(FrontmatterNodeView.ts)渲染 Typora 风格:标题栏 + styled code block。
   // 不设 group —— 不属于 block/inline,只通过 doc content 'frontmatter?' 出现。
@@ -36,11 +37,23 @@ const nodes: Record<string, NodeSpec> = {
     defining: true,
     isolating: true,
     code: true,
+    attrs: {
+      // 种类:'yaml'(---) 或 'toml'(+++);决定序列化分隔符和 shiki 语法高亮 grammar。
+      // 默认 'yaml' —— 兼容旧版无此属性的节点。
+      lang: { default: 'yaml' },
+    },
     parseDOM: [{
       tag: 'div[data-type="frontmatter"]',
+      getAttrs: (dom: HTMLElement) => ({
+        lang: dom.dataset.lang === 'toml' ? 'toml' : 'yaml',
+      }),
       preserveWhitespace: 'full',
     }],
-    toDOM: () => ['div', { 'data-type': 'frontmatter' }, 0],
+    toDOM: (node) => [
+      'div',
+      { 'data-type': 'frontmatter', 'data-lang': node.attrs.lang as string },
+      0,
+    ],
   },
 
   text: {

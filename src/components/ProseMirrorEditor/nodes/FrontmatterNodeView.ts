@@ -40,12 +40,20 @@ export function createFrontmatterNodeView() {
     const dom = document.createElement('div')
     dom.className = 'velo-frontmatter'
     dom.setAttribute('data-type', 'frontmatter')
+    // data-lang 镜像节点的 lang 属性(yaml / toml),供导出/CSS 选择器使用。
+    dom.setAttribute('data-lang', (_node.attrs.lang as string) || 'yaml')
 
-    // header 标题栏 —— 不可编辑,折叠 chevron 也内嵌于此
+    // header 标题栏 —— 不可编辑,折叠 chevron、格式 chip 也内嵌于此
     const header = document.createElement('div')
     header.className = 'velo-frontmatter-header'
     header.contentEditable = 'false'
-    header.textContent = 'Front Matter'
+
+    // 标题文本 "Front Matter" —— 独立 span,方便 chip 与标题并排
+    const titleSpan = document.createElement('span')
+    titleSpan.className = 'velo-frontmatter-title'
+    titleSpan.textContent = 'Front Matter'
+    titleSpan.contentEditable = 'false'
+    header.appendChild(titleSpan)
 
     // == 折叠 chevron(▼) —— 独立 DOM,PM 不接管,click 走 foldKey 集中 toggle ==
     const chevron = document.createElement('button')
@@ -83,6 +91,41 @@ export function createFrontmatterNodeView() {
       // 然后 dispatch 推进 foldKey state(持久化链路 store.sync 跟 tr.mapping)
       view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
     })
+    // == 格式 chip(header 右侧 "YAML"/"TOML" 按钮) —— 点击切换 lang 种类 ==
+    // 显示节点 lang 属性,dispatch setNodeMarkup 切换 yaml ↔ toml,序列化 fence +
+    // shiki grammar 同步跟随。chip 文案 + wrapper data-lang 由 update() 跟住。
+    const langBtn = document.createElement('button')
+    langBtn.type = 'button'
+    langBtn.className = 'velo-frontmatter-lang'
+    langBtn.contentEditable = 'false'
+    function refreshLangChip(lang: string): void {
+      const kind = lang === 'toml' ? 'toml' : 'yaml'
+      langBtn.setAttribute('data-lang', kind)
+      langBtn.textContent = kind.toUpperCase() // YAML / TOML
+      langBtn.title = `当前格式: ${kind.toUpperCase()}，点击切换为 ${kind === 'toml' ? 'YAML' : 'TOML'}`
+      langBtn.setAttribute('aria-label', `当前格式 ${kind}，点击切换`)
+    }
+    refreshLangChip((_node.attrs.lang as string) || 'yaml')
+    langBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+    })
+    langBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (view.isDestroyed || typeof getPos() !== 'number') return
+      const pos = getPos()!
+      const node = view.state.doc.nodeAt(pos)
+      if (!node) return
+      const cur = node.attrs.lang === 'toml' ? 'toml' : 'yaml'
+      const next = cur === 'toml' ? 'yaml' : 'toml'
+      // 切换 lang 即改序列化 fence —— 真实内容变更,需进入 dirty/保存链路,
+      // 不设 SKIP_CONTENT_EMIT。setNodeMarkup 保留节点类型 + 位置,只改 attrs,
+      // PM 会调 update() 跟住 chip 文案 + wrapper data-lang(NodeView 不重建)。
+      view.dispatch(view.state.tr.setNodeMarkup(pos, null, { ...node.attrs, lang: next }))
+    })
+    header.appendChild(langBtn)
+
     header.prepend(chevron)
     dom.appendChild(header)
 
@@ -109,6 +152,9 @@ export function createFrontmatterNodeView() {
       update(newNode: PMNode) {
         if (newNode.type.name !== 'frontmatter') return false
         refreshChevron() // dispatch tr.mapping 跟住后 chevron 方向 + 折叠 class 同步,防非 click 路径漏同步
+        refreshLangChip((newNode.attrs.lang as string) || 'yaml') // lang 切换(setNodeMarkup)由 PM 驱动 update 跟住 chip 文案
+        // 同步 wrapper 的 data-lang(供 CSS 区分 yaml / toml 色调),同样由 update 驱动。
+        dom.setAttribute('data-lang', newNode.attrs.lang === 'toml' ? 'toml' : 'yaml')
         return true
       },
       // header(含 chevron)内事件隔离:click/mousedown 不交给 PM,chev click 自管

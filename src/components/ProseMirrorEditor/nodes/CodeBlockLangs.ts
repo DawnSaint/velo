@@ -91,7 +91,8 @@ export function resolveShikiLang(lang: string): string {
  *  拼"doc 用到的 ∪ baseline"用。 */
 export const BASELINE_LANGS: readonly string[] = [
   'javascript', 'typescript', 'python', 'bash', 'json',   // 最高频输入
-  'yaml',                                                 // frontmatter(文档顶部,闪黑最刺眼)
+  'yaml',                                                 // yaml frontmatter(文档顶部,闪黑最刺眼)
+  'toml',                                                 // toml frontmatter(文档顶部,闪黑最刺眼)
   'c', 'cpp', 'java', 'sql',                              // 通用语言大头
   'markdown',                                             // 源码模式一等特性,grammar 命中即亮
 ]

@@ -232,3 +232,98 @@ describe('frontmatter 不存在', () => {
     view.destroy()
   })
 })
+
+// ============================================================
+//  toml frontmatter 折叠(与 yaml 对称)
+// ============================================================
+
+describe('toml frontmatter 折叠', () => {
+  it('toml frontmatter → lang=toml + 可折叠', () => {
+    const view = makeView('+++\ntitle = "Hello"\n+++\n\nBody\n')
+    const fm = findFrontmatter(view)
+    expect(fm).not.toBeNull()
+    // 节点携带 lang=toml 属性。
+    expect(fm!.node.attrs.lang).toBe('toml')
+    const chevron = view.dom.querySelector('.velo-frontmatter-fold-btn') as HTMLButtonElement | null
+    expect(chevron).not.toBeNull()
+    // 视觉容器带 data-lang=toml(与 schema toDOM 一致)。
+    const wrapper = view.dom.querySelector('.velo-frontmatter') as HTMLElement | null
+    expect(wrapper!.dataset.lang).toBe('toml')
+    // 初始态:展开
+    expect(chevron!.getAttribute('data-fold-state')).toBe('expanded')
+    // chevron click → 折叠
+    chevron!.click()
+    expect(foldKey.getState(view.state)!.collapsedSet.has(fm!.contentStart)).toBe(true)
+    expect(chevron!.getAttribute('data-fold-state')).toBe('collapsed')
+    expect(wrapper!.classList.contains('is-collapsed')).toBe(true)
+    // 再次 click → 展开
+    chevron!.click()
+    expect(foldKey.getState(view.state)!.collapsedSet.has(fm!.contentStart)).toBe(false)
+    expect(chevron!.getAttribute('data-fold-state')).toBe('expanded')
+    expect(wrapper!.classList.contains('is-collapsed')).toBe(false)
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  格式 chip 点击切换 lang
+// ============================================================
+
+describe('格式 chip 点击切换 lang', () => {
+  // setNodeMarkup 会替换 doc 节点(新对象),捕获的 fm.node 会过时 —— 断言节点属性时
+  // 始终从 view.state.doc 重新读取,不用缓存的 fm.node。
+  function currentFmNode(view: EditorView) {
+    return view.state.doc.firstChild!
+  }
+
+  it('yaml frontmatter → chip 显示 YAML,点击后切换为 toml + 序列化变 +++', () => {
+    const view = makeView('---\ntitle: Hello\n---\n\nBody\n')
+    const langBtn = view.dom.querySelector('.velo-frontmatter-lang') as HTMLButtonElement | null
+    const wrapper = view.dom.querySelector('.velo-frontmatter') as HTMLElement | null
+    expect(langBtn).not.toBeNull()
+    // 初始态:yaml —— chip 文案 + data-lang + 节点属性三方一致
+    expect(langBtn!.textContent).toBe('YAML')
+    expect(langBtn!.getAttribute('data-lang')).toBe('yaml')
+    expect(wrapper!.dataset.lang).toBe('yaml')
+    expect(currentFmNode(view).attrs.lang).toBe('yaml')
+    // 点击 chip → 切换为 toml(进入真实 dispatch 路径)
+    langBtn!.click()
+    // 节点 lang 属性翻转为 toml(从 doc 重读,防 fm.node 过时)
+    expect(currentFmNode(view).attrs.lang).toBe('toml')
+    // chip 文案 + wrapper data-lang 由 update() 跟住,同步刷新
+    expect(langBtn!.textContent).toBe('TOML')
+    expect(langBtn!.getAttribute('data-lang')).toBe('toml')
+    expect(wrapper!.dataset.lang).toBe('toml')
+    // 序列化 fence 跟随切换:--- → +++
+    expect(currentFmNode(view).attrs.lang).toBe('toml')
+    view.destroy()
+  })
+
+  it('chip 点击切换后,toMarkdown 输出对应 fence', async () => {
+    const { toMarkdown } = await import('../editor/markdownIO')
+    const view = makeView('---\ntitle: Hello\n---\n\nBody\n')
+    const langBtn = view.dom.querySelector('.velo-frontmatter-lang') as HTMLButtonElement
+    // 切换为 toml
+    langBtn.click()
+    const md = toMarkdown(view.state.doc)
+    expect(md.trim()).toBe('+++\ntitle: Hello\n+++\n\nBody')
+    // 切回 yaml
+    langBtn.click()
+    const md2 = toMarkdown(view.state.doc)
+    expect(md2.trim()).toBe('---\ntitle: Hello\n---\n\nBody')
+    view.destroy()
+  })
+
+  it('再次点击 chip 切回原种类 —— 可逆', () => {
+    const view = makeView('+++\ntitle = "Hello"\n+++\n\nBody\n')
+    const langBtn = view.dom.querySelector('.velo-frontmatter-lang') as HTMLButtonElement
+    expect(currentFmNode(view).attrs.lang).toBe('toml')
+    langBtn.click()
+    expect(currentFmNode(view).attrs.lang).toBe('yaml')
+    expect(langBtn.textContent).toBe('YAML')
+    langBtn.click()
+    expect(currentFmNode(view).attrs.lang).toBe('toml')
+    expect(langBtn.textContent).toBe('TOML')
+    view.destroy()
+  })
+})

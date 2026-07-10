@@ -551,6 +551,52 @@ describe('codeHighlightPlugin', () => {
     expect(langs).toContain('yaml')
     expect(langs).toContain('javascript')
   })
+
+  // extractLangsFromDoc 也应把 toml frontmatter 的 grammar 种进 seed 列表,
+  // 避免首屏 toml 代码块闪烁。
+  it('18c. extractLangsFromDoc:toml frontmatter 文档预装 toml grammar(免闪烁)', async () => {
+    const { extractLangsFromDoc } = await import('../editor/markdownIO')
+    const md = [
+      '+++',
+      'title = "Hello"',
+      '+++',
+    ].join('\n')
+    const langs = extractLangsFromDoc(md)
+    expect(langs).toContain('toml')
+  })
+
+  // toml frontmatter 应走 toml grammar 高亮(与 yaml 对称),复用 dual-theme 机制。
+  it('18d. toml frontmatter 节点走 toml 高亮:复用 dual-theme inline decoration', async () => {
+    const md = '+++\ntitle = "Hello"\ndate = 2026-07-10\n+++\n\n# Heading'
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown(md, schema),
+      plugins: [codeHighlightPlugin, frontmatterNodeViewPlugin],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+    // frontmatter 节点带 lang=toml 属性。
+    let fmAttrs: Record<string, unknown> | null = null
+    view.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'frontmatter') { fmAttrs = { ...node.attrs, pos }; return false }
+      return true
+    })
+    expect(fmAttrs).not.toBeNull()
+    expect(fmAttrs!.lang).toBe('toml')
+    // toml <pre> 内存在 shiki token span,同时定义 light / dark 变体。
+    const fmPre = view.dom.querySelector('.velo-frontmatter pre') as HTMLElement | null
+    expect(fmPre).not.toBeNull()
+    const styledSpans = fmPre!.querySelectorAll('code span[style*="--shiki"]')
+    expect(styledSpans.length).toBeGreaterThan(0)
+    const hasDualThemes = Array.from(styledSpans).some((s) => {
+      const st = s.getAttribute('style') || ''
+      return st.includes('--shiki-light:') && st.includes('--shiki-dark:')
+    })
+    expect(hasDualThemes).toBe(true)
+    view.destroy()
+  })
 })
 
 // ============================================================

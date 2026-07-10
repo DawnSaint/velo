@@ -1,24 +1,49 @@
-// `---` 独占段落(文档首段)→ frontmatter 节点
+// `---`(yaml) / `+++(toml)` 独占段落(文档首段)→ frontmatter 节点
 //
-// 与 hr 的关键差异:hr 在文档任意位置都生效,frontmatter 只在文档首段(doc 的
-// 第一个子节点,且当前无 frontmatter)触发。frontmatterEnterCommand 插在
-// Enter keymap 链中 hrEnterCommand 之前,优先拦截首段 `---`+Enter;
-// frontmatterSyntax 插在 hrSyntax 之前,优先拦截首段 `--- `(空格触发)。
+// 与 hr 的关键差异:hr 在文档任意位置都生效(`---`/`***`/`___`),frontmatter 仅在
+// 文档首段(doc 的第一个子节点,且当前无 frontmatter)触发,且只认 `---`(yaml) 与
+// `+++(toml)` 两种 fence。frontmatterEnterCommand 插在 Enter keymap 链中
+// hrEnterCommand 之前,优先拦截首段 `---`/`+++`+Enter;frontmatterSyntax 插在
+// hrSyntax 之前,优先拦截首段 `--- `/`+++ `(空格触发)。
 //
-// 触发后:段落 → frontmatter 空节点 + 尾随 paragraph,光标进入 frontmatter
-// 内容区供用户编辑 YAML。
+// 触发后:段落 → frontmatter 空节点(带 lang 属性标记种类)+ 尾随 paragraph,
+// 光标进入 frontmatter 内容区供用户编辑。lang 决定序列化分隔符和 shiki grammar。
 
 import { TextSelection } from 'prosemirror-state'
 import type { Command, Transaction } from 'prosemirror-state'
 import type { Schema } from 'prosemirror-model'
 import type { BlockSyntax } from '../../editor/syntaxRegistry'
-import { isThematicBreakLine, isThematicBreakSpaceTrigger } from './hr'
+
+// frontmatter 种类 —— `---` → yaml,`+++` → toml。
+export type FrontmatterLang = 'yaml' | 'toml'
+
+// 与 hr 的 fence 规则差异:
+//   hr 接受 3+ 的 -/-/*(如 `----`,`***`),frontmatter 只接受恰好 3 的 `---`(yaml)
+//   或 `+++(toml)`,前导空格 ≤3,尾部可跟空白 —— 与 remark-frontmatter 的 micromark
+//   解析规则(3-char buffer,第 4 字符须为空白/eol)一致,避免 `++++` 误转 frontmatter
+//   后序列化回 `+++` 的 round-trip 丢失。
+const FRONTMATTER_FENCE_RE = /^ {0,3}(-{3}|\+{3})[ \t]*$/
+
+/** 检测段落文本是否为 frontmatter fence;是则返回种类(yaml / toml),否则 null。 */
+export function frontmatterFenceKind(text: string): FrontmatterLang | null {
+  if (!FRONTMATTER_FENCE_RE.test(text)) return null
+  return text.trim()[0] === '+' ? 'toml' : 'yaml'
+}
+
+export function isFrontmatterFenceLine(text: string): boolean {
+  return frontmatterFenceKind(text) !== null
+}
+
+export function isFrontmatterFenceSpaceTrigger(text: string): boolean {
+  return /[ \t]$/.test(text) && isFrontmatterFenceLine(text)
+}
 
 function replaceParagraphWithFrontmatter(
   tr: Transaction,
   schema: Schema,
   blockStart: number,
   blockEnd: number,
+  lang: FrontmatterLang,
 ): boolean {
   const fmType = schema.nodes.frontmatter
   if (!fmType) return false
@@ -30,8 +55,9 @@ function replaceParagraphWithFrontmatter(
   const paraOuterStart = blockStart - 1
   const paraOuterEnd = blockEnd + 1
 
-  // 创建空 frontmatter 节点 + 尾随 paragraph
-  const fmNode = fmType.create(null, [])
+  // 创建空 frontmatter 节点(带 lang 属性)+ 尾随 paragraph。
+  // lang 序列化时决定 fence 种类 + shiki grammar,不可省略。
+  const fmNode = fmType.create({ lang }, [])
   const paraNode = schema.nodes.paragraph.create(null, [])
 
   tr.replaceRangeWith(paraOuterStart, paraOuterEnd, fmNode)
@@ -45,7 +71,7 @@ function replaceParagraphWithFrontmatter(
   return true
 }
 
-/** `---` + Enter(文档首段)→ frontmatter 节点 */
+/** `---`/`+++` + Enter(文档首段)→ frontmatter 节点(yaml / toml) */
 export const frontmatterEnterCommand: Command = (state, dispatch) => {
   const { selection } = state
   if (!selection.empty) return false
@@ -67,24 +93,27 @@ export const frontmatterEnterCommand: Command = (state, dispatch) => {
   const blockStart = $from.start()
   const blockEnd = $from.end()
   const text = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-  if (!isThematicBreakLine(text)) return false
+  const lang = frontmatterFenceKind(text)
+  if (!lang) return false
 
   if (dispatch) {
     const tr = state.tr
-    replaceParagraphWithFrontmatter(tr, state.schema, blockStart, blockEnd)
+    replaceParagraphWithFrontmatter(tr, state.schema, blockStart, blockEnd, lang)
     dispatch(tr)
   }
   return true
 }
 
-/** `--- ` + 空格(文档首段)→ frontmatter 节点(block syntax,空格触发) */
+/** `--- `/`+++ ` + 空格(文档首段)→ frontmatter 节点(block syntax,空格触发) */
 export const frontmatterSyntax: BlockSyntax = {
   name: 'frontmatter',
-  // 同 hrSyntax 的 pattern,但 apply 里用位置条件区分
-  pattern: /^ {0,3}[-*_ \t]+$/,
+  // 段首快速预筛:① `-_*` 给 hr 留路(apply 内再用 frontmatterFenceKind 精确判断);
+  // ② `+` 给 toml 留路。frontmatter 仅在前导 + 恰好 3 根时触发,见 apply。
+  pattern: /^ {0,3}[-*_+ \t]+$/,
   apply(tr, { schema, blockStart, blockEnd }) {
     const text = tr.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-    if (!isThematicBreakSpaceTrigger(text)) return false
+    const lang = frontmatterFenceKind(text)
+    if (!lang) return false
 
     const $start = tr.doc.resolve(blockStart)
     if ($start.parent.type.name !== 'paragraph') return false
@@ -99,7 +128,7 @@ export const frontmatterSyntax: BlockSyntax = {
       if (doc.child(i).type.name === 'frontmatter') return false
     }
 
-    return replaceParagraphWithFrontmatter(tr, schema, blockStart, blockEnd)
+    return replaceParagraphWithFrontmatter(tr, schema, blockStart, blockEnd, lang)
   },
 }
 
