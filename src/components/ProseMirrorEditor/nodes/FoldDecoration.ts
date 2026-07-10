@@ -71,8 +71,8 @@ import { useDocumentStore } from '@/stores/document'
 // ============================================================
 
 export interface FoldState {
-  /** 折叠点绝对 pos(contentStart)集合 —— heading / list_item / code_block
-   *  这三类节点折叠时,各自的 contentStart 落进 set。 */
+  /** 折叠点绝对 pos(contentStart)集合 —— heading / list_item / code_block /
+   *  frontmatter 折叠时,各自的 contentStart 落进 set。见 FOLDABLE_TYPES。 */
   collapsedSet: Set<number>
 }
 
@@ -81,6 +81,11 @@ function initialState(): FoldState {
 }
 
 export const foldKey = new PluginKey<FoldState>('foldDecoration')
+
+// 折叠白名单 —— makeStableKey / apply / collectFoldableKeys / buildDecorations
+// 四处检查节点类型的位置统一从这里过。新增类型只加这里,不动四个方面任何一处。
+const FOLDABLE_TYPES = new Set(['heading', 'list_item', 'code_block', 'frontmatter'])
+const isFoldable = (n: PMNode) => FOLDABLE_TYPES.has(n.type.name)
 
 // ============================================================
 //  Cross-plugin 通信:当前处于 fold 范围内的 code_block 节点 pos 集合
@@ -188,6 +193,7 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
 const KEY_PREFIX_HEADING = 'h'
 const KEY_PREFIX_LI = 'li'
 const KEY_PREFIX_CB = 'cb'
+const KEY_PREFIX_FM = 'fm'
 const KEY_TEXT_LIMIT = 80
 
 /**
@@ -200,6 +206,9 @@ const KEY_TEXT_LIMIT = 80
  * 文本截断 + 简单 normalize:trim + 折叠多空格 → 减少意外抖动。
  */
 export function makeStableKey(node: PMNode): string {
+  // IIFE 抽取节点指纹文本:String(heading / list_item 首段 / code_block /
+  // frontmatter 全部内容)。返回值 trim + 多空格折叠 + 80 字符截断,供下方
+  // 各类型前缀复用。
   const text = (() => {
     if (node.type.name === 'heading') return node.textContent || ''
     if (node.type.name === 'list_item') {
@@ -207,6 +216,9 @@ export function makeStableKey(node: PMNode): string {
       return node.firstChild?.textContent || ''
     }
     if (node.type.name === 'code_block') {
+      return node.textContent || ''
+    }
+    if (node.type.name === 'frontmatter') {
       return node.textContent || ''
     }
     return ''
@@ -222,6 +234,9 @@ export function makeStableKey(node: PMNode): string {
     const lang = (node.attrs.language as string) || ''
     return `${KEY_PREFIX_CB}:${lang}:${text}`
   }
+  if (node.type.name === 'frontmatter') {
+    return `${KEY_PREFIX_FM}:${text}`
+  }
   return ''
 }
 
@@ -233,11 +248,7 @@ export function makeStableKey(node: PMNode): string {
 function makeStableKeyForPos(doc: PMNode, pos: number): string {
   const node = doc.nodeAt(pos)
   if (!node) return ''
-  if (
-    node.type.name === 'heading'
-    || node.type.name === 'list_item'
-    || node.type.name === 'code_block'
-  ) {
+  if (isFoldable(node)) {
     return makeStableKey(node)
   }
   return ''
@@ -482,6 +493,10 @@ function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
   const decos: Decoration[] = []
 
   state.doc.descendants((node, pos) => {
+    if (node.type.name === 'frontmatter') {
+      addFrontmatterDecos(node, pos, deco, decos)
+      return
+    }
     if (node.type.name === 'heading') {
       addHeadingDecos(state, node, pos, deco, decos)
       return
@@ -592,6 +607,29 @@ function addCodeBlockDecos(
   )
 }
 
+/**
+ * frontmatter 折叠渲染钩子(空实现):折叠**视觉层**由 FrontmatterNodeView 的
+ * `update()` 自管(dom.classList.toggle('is-collapsed', ...)),本函数仅作
+ * 类型钩子保留,让 buildDecorations 的 frontmatter 分支可以无遗漏地走到。
+ *
+ * 为什么不走 Decoration.node:
+ *   frontmatter schema content 是 'text*'(纯文本,无块子),外层由 NodeView 原子
+ *   渲染。Decoration.node 要么装饰整个 NodeView wrapper(整个 header+pre
+ *   一起被 velo-folded display:none,不符合"保留 header"的设计),要么因
+ *   找不到对应 DOM 节点被 PM 静默丢弃。故视觉折叠由 NodeView 自管。
+ *
+ * foldDecoration 仍集中管理折叠状态(collapsedSet + stableKey + tr.mapping
+ * 跟住 + ensureFoldExpandedAt 白名单 + file 切换灌入),本函数不做装饰推送。
+ */
+function addFrontmatterDecos(
+  _node: PMNode,
+  _pos: number,
+  _deco: FoldState,
+  _decos: Decoration[],
+) {
+  // 视觉折叠由 FrontmatterNodeView.update() 通过 dom.classList 自管
+}
+
 function applyFoldRange(
   state: EditorState,
   range: [number, number],
@@ -685,11 +723,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
           // 折叠点失效(node 已被删 / node 类型变了)→ 丢
           const node = newState.doc.nodeAt($pos.before($pos.depth))
           if (!node) continue
-          if (
-            node.type.name === 'heading'
-            || node.type.name === 'list_item'
-            || node.type.name === 'code_block'
-          ) {
+          if (isFoldable(node)) {
             mapped.add(m)
           }
         }
@@ -794,11 +828,7 @@ export function ensureFoldExpandedAt(view: EditorView, pos: number): boolean {
   const $pos = view.state.doc.resolve(pos)
   for (let depth = $pos.depth; depth > 0; depth--) {
     const node = $pos.node(depth)
-    if (
-      node.type.name !== 'heading'
-      && node.type.name !== 'list_item'
-      && node.type.name !== 'code_block'
-    ) {
+    if (!isFoldable(node)) {
       continue
     }
     const start = $pos.start(depth)
@@ -822,6 +852,11 @@ export function collectFoldableKeys(
 ): Array<{ contentStart: number, stableKey: string, type: string }> {
   const out: Array<{ contentStart: number, stableKey: string, type: string }> = []
   doc.descendants((node, pos) => {
+    if (node.type.name === 'frontmatter') {
+      const key = makeStableKey(node)
+      if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'frontmatter' })
+      return
+    }
     if (node.type.name === 'heading' && node.content.size > 0) {
       const key = makeStableKey(node)
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'heading' })

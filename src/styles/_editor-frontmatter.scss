@@ -19,7 +19,8 @@
 
     // header 标题栏
     .velo-frontmatter-header {
-      padding: 4px 12px;
+      position: relative; // chevron 绝对定位锚点
+      padding: 6px 12px 6px 28px; // 左侧让出 chevron 宽度
       font-size: 0.8em;
       font-weight: 600;
       color: #666;
@@ -27,6 +28,48 @@
       border-bottom: 1px solid #e1e4e8;
       user-select: none;
       -webkit-user-select: none;
+
+      // chevron(▼),contentEditable=false(不抢 PM 光标)
+      > .velo-frontmatter-fold-btn {
+        position: absolute;
+        left: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.4em;
+        height: 1.4em;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        user-select: none;
+        vertical-align: middle;
+        color: #888;
+        opacity: 0.7;
+        transition: color 0.12s ease, transform 0.2s ease, opacity 0.12s ease;
+        svg { transition: transform 0.2s ease; }
+        &:hover {
+          opacity: 1;
+          color: var(--md-primary-color, #3b82f6);
+        }
+      }
+
+      // 已折叠态:chevron 常驻 + svg rotate(-90deg ▼ → ▶)
+      > .velo-frontmatter-fold-btn[data-fold-state='collapsed'] {
+        opacity: 1;
+        svg { transform: rotate(-90deg); }
+      }
+    }
+
+    // 折叠态:pre display:none,header 独立卡片(全圆角)
+    &.is-collapsed {
+      > pre { display: none; }
+      // 去掉 header 的 border-bottom:展开时它是 header/pre 分隔线,
+      // 折叠时 pre 已隐,这条线会和 wrapper 底边重合 → "两层下边框"。
+      > .velo-frontmatter-header { border-bottom: none; }
     }
 
     // contentDOM — YAML 语法高亮复用 shiki dual-theme 机制(codeHighlightPlugin
@@ -64,6 +107,11 @@
       color: #aaa;
       background: #21262d;
       border-bottom-color: #444c56;
+
+      > .velo-frontmatter-fold-btn {
+        color: #aaa;
+        &:hover { color: var(--md-primary-color, #60a5fa); }
+      }
     }
 
     > pre {
