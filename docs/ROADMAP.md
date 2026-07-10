@@ -154,16 +154,6 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 可选：readability 评分、字数目标进度条
   - 复用现有 Decoration.inline + syntax registry 框架
 
-- [x] **YAML Front Matter 识别与样式适配** `#frontmatter` `P2` `M`
-  - 文档首部 `---` 包裹的 YAML 元数据块：remark-frontmatter 解析 + schema 新增 `frontmatter` 节点 + markdownIO 双向 + NodeView（Typora 风格 styled code block + "Front Matter" 标题栏，内容可直接编辑）
-  - `doc` content 改为 `'frontmatter? block+'`，限定 frontmatter 只能出现在文档首部
-  - 导出 HTML/PDF 时剥离 frontmatter（元数据非内容）
-  - 源码模式自然兼容（raw markdown 文本，无需额外处理）
-
-- [x] **Front Matter 后续增强** `#frontmatter-enhance` `P2` `M` `← #frontmatter`
-  - [x] YAML 语法高亮（复用 shiki yaml grammar）
-  - [x] frontmatter 块可折叠（复用 foldDecoration 框架）
-  - [x] TOML frontmatter 支持（`+++` 分隔符，remark-frontmatter toml marker）
 
 ### 窗口与工作流
 

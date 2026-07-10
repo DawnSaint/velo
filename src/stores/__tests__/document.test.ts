@@ -452,7 +452,7 @@ describe('document store', () => {
   describe('newDoc() 显式 focus hint(focusRequestToken)', () => {
     it('首次 newDoc:token 从 0 → 1,且 content 跟初始不同(loadContent 真跑了)', async () => {
       // 注:content 的精确值由 markdownIO canonical 决定(loadContent 走
-      // toMarkdown(fromMarkdown(c,...)),空文档会被表为 '\n\n\n' 等),
+      // toMarkdown(fromMarkdown(c,...)),空文档的 canonical 是 ''),
       // 不是 newDoc 的契约。这里用 "不等于 init 的内容" 更稳。
       const store = useDocumentStore()
       store.init('hello world')
@@ -465,17 +465,16 @@ describe('document store', () => {
       expect(store.content).not.toBe('hello world')
     })
 
-    it('连续 newDoc(content 已是 \'\n\n\' 类 canonical 不变):token 仍递增,这是 fix 的核心', async () => {
+    it('连续 newDoc(content 已是空 canonical 不变):token 仍递增,这是 fix 的核心', async () => {
       // 复现"功能栏新建后再点一次新建不 focus"的根因:
-      // 空文档 canonical 形式在 content.value 已经存在,Vue modelValue watch 因
-      // reference-equal 不触发;focusRequestToken 必须独立提供"用户明确切换"的
-      // 信号让 EditorInner 第二条 watch 能跑。
+      // init('') 后 content 已是空 canonical '',Vue modelValue watch 因 reference-equal
+      // 不触发;focusRequestToken 必须独立提供"用户明确切换"的信号让 EditorInner 第二条
+      // watch 能跑。空文档 canonical 形式在 content.value 已经存在正是前提。
       const store = useDocumentStore()
       store.init('')
-      // 把 content 设为等同于 newDoc 后的 canonical('\n\n\n' 这种)
       store.loadContent('', null)
       const baseline = store.content
-      expect(baseline).not.toBe('') // canonical ≠ raw ''
+      expect(baseline).toBe('') // 空文档 canonical 是 ''
       expect(store.focusRequestToken).toBe(0)
 
       await store.newDoc()

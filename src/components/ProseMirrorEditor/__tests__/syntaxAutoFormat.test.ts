@@ -29,6 +29,7 @@ import { blockquoteSyntax } from '../syntax/block/blockquote'
 import { bulletListSyntax } from '../syntax/block/bulletList'
 import { orderedListSyntax } from '../syntax/block/orderedList'
 import { hrEnterCommand, hrSyntax } from '../syntax/block/hr'
+import { frontmatterSyntax } from '../syntax/block/frontmatter'
 import { alertSyntax } from '../syntax/block/alert'
 import { footnoteRefSyntax } from '../syntax/inline/footnoteRef'
 import { linkSyntax } from '../syntax/inline/link'
@@ -48,6 +49,9 @@ beforeAll(() => {
   registerBlockSyntax(blockquoteSyntax)
   registerBlockSyntax(bulletListSyntax)
   registerBlockSyntax(orderedListSyntax)
+  // frontmatter 必须在 hr 之前:两者 pattern 重叠(---),frontmatter 仅在文档首段
+  // 触发,hr 在任意位置触发;注册顺序决定优先级(与 syntax/index.ts 对齐)。
+  registerBlockSyntax(frontmatterSyntax)
   registerBlockSyntax(hrSyntax)
   registerBlockSyntax(alertSyntax)
   registerInlineSyntax(linkSyntax)
@@ -244,10 +248,13 @@ describe('syntaxAutoFormat: block syntaxes', () => {
     cleanup()
   })
 
+  // hr 在 frontmatter 之后匹配:首段 `--- ` 已被 frontmatter 抢占,故 hr 测试
+  // 必须在非首段触发(第二段才是 hr 的管辖域)。
   it('"--- " 整段单独行 → 转 hr', () => {
-    const { view, cleanup } = mountView()
-    typeAt(view, 1, '--- ')
-    expect(view.state.doc.firstChild!.type.name).toBe('hr')
+    const { view, cleanup } = mountView([schema.node('paragraph'), schema.node('paragraph')])
+    // 第二段起点:doc open(1) + 首段空 paragraph(nodeSize 2) = 3
+    typeAt(view, 3, '--- ')
+    expect(view.state.doc.child(1)!.type.name).toBe('hr')
     cleanup()
   })
 
@@ -266,6 +273,36 @@ describe('syntaxAutoFormat: block syntaxes', () => {
     const block = view.state.doc.firstChild!
     expect(block.type.name).toBe('paragraph')
     expect(block.textContent).toBe('---')
+    cleanup()
+  })
+
+  // frontmatterSyntax 是空格触发(同 hr 范式):裸 `---` 不触发,留给
+  // frontmatterEnterCommand 的 Enter 通道接管;否则第三根 `-` 落下的瞬间
+  // 就被立刻解析成 frontmatter,与"--- + Enter 才解析"的需求不符。
+  it('"---" 不在第三个连字符处立即转 frontmatter,等待空格或 Enter 触发', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '---')
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('paragraph')
+    expect(block.textContent).toBe('---')
+    cleanup()
+  })
+
+  it('"--- " 空格触发 → 转 frontmatter(yaml)', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '--- ')
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('frontmatter')
+    expect(block.attrs.lang).toBe('yaml')
+    cleanup()
+  })
+
+  it('"+++ " 空格触发 → 转 frontmatter(toml)', () => {
+    const { view, cleanup } = mountView()
+    typeAt(view, 1, '+++ ')
+    const block = view.state.doc.firstChild!
+    expect(block.type.name).toBe('frontmatter')
+    expect(block.attrs.lang).toBe('toml')
     cleanup()
   })
 
@@ -982,14 +1019,18 @@ describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
     }
 
     it('"--- " 转 hr,点击选中 hr 后再按 Backspace → 删除 hr', () => {
-      const { view, cleanup } = mountViewWithKeymap()
-      typeAt(view, 1, '--- ')
-      expect(view.state.doc.firstChild!.type.name).toBe('hr')
-      expect(view.state.doc.childCount).toBe(2) // hr + 尾部段落
+      // 两段:首段空 paragraph 占位,第二段 `--- ` 转 hr(首段已被 frontmatter 抢占)。
+      const { view, cleanup } = mountViewWithKeymap([schema.node('paragraph'), schema.node('paragraph')])
+      // 第二段内容起点 = doc open(1) + 首段 nodeSize(2) = 3
+      typeAt(view, 3, '--- ')
+      expect(view.state.doc.child(1)!.type.name).toBe('hr')
+      expect(view.state.doc.childCount).toBe(3) // 首段 + hr + 尾部段落
 
       // 模拟点击 hr → NodeSelection 选中 hr 块。
-      // hr 是 block atom(nodeSize 1),其 NodeSelection 锚点在 pos 0。
-      const hrBlockPos = 0
+      // hr 是 block atom(nodeSize 1)。两段场景下 doc 结构为
+      //   paragraph[0,2) | hr[2,3) | paragraph[3,6),
+      // 故 hr 的 $before = 2(实测 NodeSelection 锚点落在 2 而非 3)。
+      const hrBlockPos = 2
       view.dispatch(view.state.tr.setSelection(
         NodeSelection.create(view.state.doc, hrBlockPos),
       ))
@@ -1002,9 +1043,9 @@ describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
 
       // 走 baseKeymap 删除:block NodeSelection 整块删掉(等价于用户按 Backspace)。
       baseKeymap['Backspace'](view.state, (t: any) => view.dispatch(t))
-      // hr 应被删,doc 只剩一个段落。
-      expect(view.state.doc.childCount).toBe(1)
-      expect(view.state.doc.firstChild!.type.name).toBe('paragraph')
+      // hr 应被删,doc 剩首段 + 尾部段落。
+      expect(view.state.doc.childCount).toBe(2)
+      expect(view.state.doc.child(1)!.type.name).toBe('paragraph')
       cleanup()
     })
 

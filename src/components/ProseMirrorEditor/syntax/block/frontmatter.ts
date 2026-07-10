@@ -112,6 +112,10 @@ export const frontmatterSyntax: BlockSyntax = {
   pattern: /^ {0,3}[-*_+ \t]+$/,
   apply(tr, { schema, blockStart, blockEnd }) {
     const text = tr.doc.textBetween(blockStart, blockEnd, '\n', '\n')
+    // 空格触发:必须尾部跟空格/制表符(与 hr.ts 同范式)。裸 `---` 不触发,
+    // 留给 frontmatterEnterCommand 的 Enter 通道接管,避免第三根 `-` 落下的
+    // 瞬间立刻被解析成 frontmatter。
+    if (!isFrontmatterFenceSpaceTrigger(text)) return false
     const lang = frontmatterFenceKind(text)
     if (!lang) return false
 

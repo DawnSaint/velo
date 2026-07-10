@@ -64,10 +64,6 @@ function nextDocId(): string {
   return `doc-${++docIdSeq}`
 }
 
-/** 空文档的 canonical 形式(toMarkdown(fromMarkdown('')))。init('') 走 raw '',
- * createTab 走 canonical —— 两者都算「空白」,判断 pristine blank 时都接受。 */
-const BLANK_CANONICAL = toMarkdown(fromMarkdown('', pmSchema))
-
 function newBlankDoc(id: string): DocState {
   return {
     id,
@@ -109,9 +105,6 @@ export const useDocumentStore = defineStore('document', () => {
     let d = activeDoc()
     if (!d) {
       d = newBlankDoc(nextDocId())
-      const canonical = toMarkdown(fromMarkdown('', pmSchema))
-      d.content = canonical
-      d.lastSavedContent = canonical
       documents.value.set(d.id, d)
       activeId.value = d.id
     }
@@ -196,13 +189,13 @@ export const useDocumentStore = defineStore('document', () => {
     return out
   })
 
-  /** 「干净的空白未命名标签」判断:活动标签无 path + 未编辑 + 内容是空白('' 或 canonical 空文档)。
+  /** 「干净的空白未命名标签」判断:活动标签无 path + 未编辑 + 内容是空白('')。
    *  开文件 / 装载 sample / newDoc 时复用它,避免留一串空标签(典型:启动 init 的空白标签)。
    *  内容必须是真空白(不是 'hello world' 这种有内容的干净未命名文档)—— 否则 newDoc 会吞掉它。 */
   function isPristineBlank(d: DocState | undefined): d is DocState {
     return !!d && !d.currentFilePath
       && d.content === d.lastSavedContent
-      && (d.content === '' || d.content === BLANK_CANONICAL)
+      && d.content === ''
   }
 
   function toggleSourceMode() {
@@ -749,13 +742,10 @@ export const useDocumentStore = defineStore('document', () => {
   // Step 2 起,打开入口改走 openPathInTab(已开则 switchTab / 未开则 createTab+load)。
 
   /** 新建一个空白标签并入集合,返回 id(不自动激活)。
-   *  内容用 canonical('') 对齐 markdownIO,避免「空白标签一挂载就 dirty」
-   *  (EditorInner emit 的 canonical 与 '' 基线不等)。 */
+   *  空文档的 markdownIO canonical 形式是 ''(WYSIWYG 单空段 ↔ 源码模式 1 行空行),
+   *  直接沿用 newBlankDoc 的 '' 基线即可,挂载不会误 dirty。 */
   function createTab(): string {
     const d = newBlankDoc(nextDocId())
-    const canonical = toMarkdown(fromMarkdown('', pmSchema))
-    d.content = canonical
-    d.lastSavedContent = canonical
     documents.value.set(d.id, d)
     return d.id
   }
