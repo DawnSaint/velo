@@ -1,11 +1,58 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { BUNDLED_THEMES } from './ProseMirrorEditor/nodes/CodeBlockLangs'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
+
+// Windows 检测:isTauri 守门桌面端,userAgent 判定 Windows(navigator.platform 已弃用)。
+// 三个控件都只在 Windows 桌面端显示;其它平台整个分组隐藏。
+const isWindows = isTauri() && /Win/.test(navigator.userAgent)
+
+// Windows 右键菜单启用状态:启动时从 Rust 读偏好,用户切换时写回。
+const folderMenuOn = ref(true)
+const mdMenuOn = ref(true)
+
+async function refreshShellState() {
+  if (!isWindows) return
+  try {
+    const state = await invoke<{ folder_menu: boolean, md_menu: boolean }>('shell_integration_state')
+    folderMenuOn.value = state.folder_menu
+    mdMenuOn.value = state.md_menu
+  } catch (e) {
+    console.warn('[settings] 读取 shell 状态失败', e)
+  }
+}
+
+async function toggleFolderMenu() {
+  try {
+    await invoke('set_shell_integration', { kind: 'folder', enabled: folderMenuOn.value })
+  } catch (e) {
+    console.warn('[settings] 切换文件夹菜单失败', e)
+  }
+}
+
+async function toggleMdMenu() {
+  try {
+    await invoke('set_shell_integration', { kind: 'md', enabled: mdMenuOn.value })
+  } catch (e) {
+    console.warn('[settings] 切换 .md 菜单失败', e)
+  }
+}
+
+async function openDefaultApps() {
+  if (!isWindows) return
+  try {
+    await invoke('open_default_apps_settings')
+  } catch (e) {
+    console.warn('[settings] 打开默认应用设置失败', e)
+  }
+}
+
+onMounted(refreshShellState)
 
 const lightThemes = computed(() =>
   BUNDLED_THEMES.filter(t => t.type === 'light'),
@@ -93,7 +140,7 @@ function endDrag(e: PointerEvent) {
 </script>
 
 <template>
-  <div class="flex h-full min-w-0 flex-col p-4">
+  <div class="flex h-full min-w-0 flex-col p-4 overflow-y-auto">
     <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">设置</h2>
 
     <!-- 统一的"行"样式:left-label right-control。
@@ -227,6 +274,49 @@ function endDrag(e: PointerEvent) {
           >
         </label>
       </div>
+
+      <!-- Windows 集成分组:整套控件只在 Windows 桌面端显示。
+           包含"设为 Markdown 默认程序"入口 + 文件夹/ .md 右键菜单开关,
+           给安装时没勾选的用户一个开启途径。 -->
+      <div v-if="isWindows" class="space-y-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+        <span class="block text-xs font-medium uppercase tracking-wider text-gray-400">Windows 集成</span>
+
+        <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
+        <div class="setting-row h-8">
+          <span class="setting-label">Markdown 默认程序</span>
+          <button
+            type="button"
+            class="velo-text-btn"
+            @click="openDefaultApps"
+          >
+            设为默认…
+          </button>
+        </div>
+
+        <!-- 文件夹右键菜单 -->
+        <label class="setting-row h-8 cursor-pointer">
+          <span class="setting-label">文件夹右键"在 Velo 中打开"</span>
+          <input
+            v-model="folderMenuOn"
+            type="checkbox"
+            role="switch"
+            class="velo-switch"
+            @change="toggleFolderMenu"
+          >
+        </label>
+
+        <!-- .md 右键菜单 -->
+        <label class="setting-row h-8 cursor-pointer">
+          <span class="setting-label">.md 文件右键"在 Velo 中编辑"</span>
+          <input
+            v-model="mdMenuOn"
+            type="checkbox"
+            role="switch"
+            class="velo-switch"
+            @change="toggleMdMenu"
+          >
+        </label>
+      </div>
     </div>
   </div>
 </template>
@@ -243,6 +333,27 @@ function endDrag(e: PointerEvent) {
 }
 .dark .top-label {
   color: rgb(209 213 219); /* gray-300 */
+}
+
+/* 文本按钮:"设为默认…"等次要操作入口,字号 / 字重与 setting-label 一致,
+   激活色走主题色,无边框无背景(与顶栏 / 侧栏 text button 风格统一)。 */
+.velo-text-btn {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--md-primary-color, #1F71D9);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.velo-text-btn:hover {
+  text-decoration: underline;
+}
+.velo-text-btn:focus-visible {
+  outline: 2px solid var(--md-primary-color, #1F71D9);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* 统一"行"容器:左右排列、居中对齐。 */

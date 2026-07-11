@@ -8,6 +8,17 @@
 > - **只写用户可见的事项本身，不写背后的实现细节**：不出现函数名 / 行号 / 内部机制 / 代码级步骤；实现取舍进 DECISIONS，踩坑进 ARCHITECTURE
 
 
+## [0.7.0] — 2026-07-11
+
+### Breaking Changes
+- **Windows 安装器从 MSI 切换为 NSIS**：安装路径从 `Program Files` 迁至 `%LOCALAPPDATA%\Velo`（per-user only）；新安装器内置自定义界面与选项页。
+- **右键菜单改为 opt-in**：安装时可勾选「文件夹右键显示"在 Velo 中打开"」「.md 文件右键显示"用 Velo 编辑"」两项。Windows 注册表写入的 ProgID `Velo.md` 保证"打开方式"列表中始终能看到 Velo。
+
+### Added
+- **设置面板新增「Windows 集成」分组**：可在设置面板开关「文件夹右键"在 Velo 中打开"」和「Markdown 文件右键"在 Velo 中编辑"」;提供「设为 Markdown 默认程序」入口,跳转到 Windows 默认应用页面由用户手动选择。
+- **Markdown 右键菜单覆盖范围扩大**：除 `.md` / `.markdown` / `.mdown` 外,新增 `.mkd` / `.mkdown` / `.mdwn` / `.mdtxt` / `.mdtext` 共 8 个常见 Markdown 扩展名。
+
+
 ## [0.6.7] — 2026-07-10
 
 ### Added

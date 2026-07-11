@@ -28,6 +28,8 @@ npm run test:e2e
 
 `wdio.conf.ts::onPrepare` 会自动：① 平台守门(非 Windows exit 0) ② 杀残留 `velo.exe` ③ `npm run tauri:build:debug` 构建 `src-tauri/target/debug/velo.exe`。
 
-## 主链路覆盖
+## 实拍场景
 
-`specs/workspace-crud.spec.ts` 覆盖 CLI 启动 + 临时工作区 root、新建、编辑保存、重命名、删除。详细约束见 [`docs/architecture/testing.md`](../docs/architecture/testing.md)。
+`specs/multi-window.spec.ts` 覆盖二次启动经 `tauri-plugin-single-instance` 路由 → 创建独立工作区窗口。新 / 重命名 / 删除的组件级行为由 `src/components/__tests__/FileTree.test.ts` vitest 覆盖,不重复走 E2E。
+
+详细约束见 [`docs/architecture/testing.md`](../docs/architecture/testing.md)。

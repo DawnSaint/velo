@@ -90,6 +90,16 @@
 
 ---
 
+## v0.7.0 — 收尾 per-user 安装体验
+
+### ADR-20260711-001: 移除安装器残留强制默认 + 补全 Markdown 扩展名 + 加运行时控件
+
+- **Context**: 此前已完成 MSI→NSIS 切换(per-user only,不弹 UAC)。但安装器仍有一个"将 .md 设为默认使用 Velo 打开"checkbox —— 用户不勾选也会在后台改写默认关联,与 per-user 定位不符;右键菜单仅覆盖 3 个扩展名(.md/.markdown/.mdown),无法惠及 .mkd/.mdtext 等常见 Markdown 变体用户;且安装时没勾选右键菜单的用户之后也无法在运行时重新开启。需要一个既能收掉残留强制默认、又能让用户在装好之后仍可自选的方案。候选:A 保留"设默认"checkbox(简单但残留强制);B 移除 checkbox 并禁止安装时改写默认,改为运行时在主设置面板提供三个控件 + 补全 8 个扩展名;C 仅移除 checkbox,不加运行时控件(用户装完就定型)。
+- **Decision**: 选 B。安装器 sandbox 再收紧 —— 删除"设默认"checkbox,禁止安装阶段改写 .md 默认关联(不强拆已有,也不强加于人);ProgID `Velo.md` 仍注册进"打开方式"列表,但默认权交给用户自己在 Windows 设置里点;设置面板新增"Windows 集成"分组,提供"设为 Markdown 默认程序 / 文件夹右键 / .md 右键"三个运行时控件,装完还能改;右键覆盖扩展名从 3 个扩到 8 个(.md .markdown .mdown .mkd .mkdown .mdwn .mdtxt .mdtext),与 GitHub Linguist 公认全集对齐。
+- **Consequences**: 安装器彻底 opt-in —— 不再强改默认、不再强加右键;运行时控件让装时没勾的用户后来也能随时调整,不再"一装定终身";扩展名覆盖与主流 Markdown 生态对齐(用户用 .mkd/.mdtext 等变体也不再漏挂右键)。代价:用户若真想把 Velo 设默认,需要自己在 Windows 设置里多点一下(这是取舍本身,不是缺陷)。
+
+---
+
 ## v0.5.0 — 工作区与文件树
 
 ### ADR-20260623-001: 工作区根走 recursive 单 watch 句柄

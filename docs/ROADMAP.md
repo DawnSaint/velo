@@ -87,7 +87,10 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
    - Tauri Updater plugin + `latest.json` 上传到 GitHub Release / S3 / 自有服务器
    - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
 4. CHANGELOG 自动注入 Release body：release-please 已生成的 CHANGELOG 片段直接传给 `tauri-action` 的 `releaseBody`
-5. 首次跑通后在 README 加 download badge / install 说明
+5. **`#e2e-ship-gate` E2E 验收（Windows，消费刚构建的产物）** — vitest 在 `ci.yml` 当每个 PR 的廉价门；E2E 是二进制冷启动 /  WebView2 /  fs round-trip /  single-instance 路由的集成链，跑不快且只需验一次 → 挂到 `release.yml` 的 `windows-latest` 作业上，等 macOS / Linux / Windows 构建全部完成后，下载 Windows 产物起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`。
+  - **Phase 1：`continue-on-error`（report 结果，不阻塞 release attach；WebView2 + msedgedriver 链路历史上偶发 flaky —— contextmenu 不触发 / interactability 偶报 / driver 版本强匹配 —— 先观测通过率再做 gate）；
+  - Phase 2：稳定后移除 `continue-on-error`，纯实拍门**。前置外部二进制：`cargo install tauri-driver`（tauri-driver.exe，WebDriver Classic 代理）+ **与 runner WebView2 Runtime 匹配的 msedgedriver.exe**（放进 runner PATH）。appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore，同一次 runner 不串扰
+6. 首次跑通后在 README 加 download badge / install 说明
 
 **风险点 / 注意**：
 

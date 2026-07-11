@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const MD_EXTS: &[&str] = &["md", "markdown", "mdown"];
+const MD_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdown", "mdwn", "mdtxt", "mdtext"];
 const MAIN_WINDOW_LABEL: &str = "main";
 const APP_WINDOW_LABEL_PREFIX: &str = "velo-window-";
 static APP_WINDOW_ID: AtomicU64 = AtomicU64::new(0);
@@ -155,9 +155,50 @@ async fn export_pdf(
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod pdf;
 
+/// 打开 Windows 设置 > 默认应用页面,供前端设置面板按钮调用。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn open_default_apps_settings() {
+    file_assoc::open_settings();
+}
+
+/// 前端设置面板:读取文件夹 / .md 右键菜单的当前启用状态。
+/// 两个 bool 分别对应 FolderMenu / MdMenu 偏好("1" = 启用,"0" = 禁用,
+/// 未设置 → true 向后兼容)。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn shell_integration_state() -> ShellIntegrationState {
+    ShellIntegrationState {
+        folder_menu: folder_menu::folder_menu_enabled(),
+        md_menu: folder_menu::md_menu_enabled(),
+    }
+}
+
+/// 前端设置面板:运行时切换文件夹或 .md 右键菜单。
+/// `kind` = "folder" | "md";`enabled` = 启用/禁用。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_shell_integration(kind: String, enabled: bool) {
+    match kind.as_str() {
+        "folder" => folder_menu::set_folder_menu(enabled),
+        "md" => folder_menu::set_md_menu(enabled),
+        other => log::warn!("[shell_integration] 未知的菜单种类: {other}"),
+    }
+}
+
+#[derive(serde::Serialize)]
+struct ShellIntegrationState {
+    folder_menu: bool,
+    md_menu: bool,
+}
+
 /// Windows 文件夹右键菜单注册(v0.5.1)。
 #[cfg(target_os = "windows")]
 mod folder_menu;
+
+/// Windows 默认程序:打开系统设置页面引导用户完成 .md 关联。
+#[cfg(target_os = "windows")]
+mod file_assoc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -187,6 +228,12 @@ pub fn run() {
             new_app_window,
             open_devtools,
             export_pdf,
+            #[cfg(target_os = "windows")]
+            open_default_apps_settings,
+            #[cfg(target_os = "windows")]
+            shell_integration_state,
+            #[cfg(target_os = "windows")]
+            set_shell_integration,
         ])
         .setup(|app| {
             // 首次启动:argv 解析后按 main label 暂存,等前端 onMounted 主动来拉
