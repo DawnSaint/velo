@@ -52,21 +52,19 @@
       "deb",
       "app",
       "dmg",
-      "msi"
-    ],
-    "fileAssociations": [
-      {
-        "ext": [
-          "md",
-          "markdown",
-          "mdown"
-        ],
-        "description": "Markdown 文档"
-      }
+      "nsis"
     ],
     "windows": {
-      "wix": {
-        "language": "zh-CN"
+      "allowDowngrades": true,
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "languages": [
+          "SimpChinese"
+        ],
+        "template": "nsis/installer.nsi",
+        "installerHooks": "nsis/installer-hooks.nsh"
       }
     }
   },

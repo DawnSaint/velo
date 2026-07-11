@@ -1,11 +1,17 @@
 //! Windows 注册表:文件夹右键菜单"在 Velo 中打开"(v0.5.1)
 //!
-//! 写入 HKCU(Current User)分支无需管理员权限,启动期 best-effort 跑一次,
-//! 失败仅 warn,不阻塞应用。每次启动都重写,自动跟随 exe 路径变化(用户
-//! 把 Velo 拖到别处的场景)。注册表写 HKCU 是同步快速 op,每次重写无可
-//! 感知开销。
+//! 安装器(NSIS)在安装时询问用户是否注册右键菜单,并将偏好写入
+//! `HKCU\Software\com.velo.editor\ShellIntegration\FolderMenu`("1" = 注册,
+//! "0" = 不注册)。运行时 `ensure_registered` 读取该标志:
+//! - "1": 刷新注册表(重写 exe 路径,跟随用户移动 exe 的场景)
+//! - "0": 跳过(用户安装时选择了不注册)
+//! - 未设置(便携模式 / 旧版升级): 照常注册,保持向后兼容
 //!
-//! 注册路径:
+//! `installMode` 为 `currentUser`(per-user only),安装器 shell 集成项
+//! 写 `HKCU`(SHCTX=HKCU),偏好标志也写 HKCU。运行时刷新始终写 HKCU。
+//! 卸载时由 NSIS 卸载器自动删除 HKCU 的全部注册表项,运行时无需做注销。
+//!
+//! 注册路径(运行时刷新写 HKCU,安装器写 HKCU):
 //!   HKCU\Software\Classes\Directory\shell\OpenInVelo
 //!     (Default) = "在 Velo 中打开"
 //!     Icon      = "<exe>,0"
@@ -27,8 +33,28 @@ const MENU_KEY_PATH: &str = r"Software\Classes\Directory\shell\OpenInVelo";
 const COMMAND_KEY_PATH: &str = r"Software\Classes\Directory\shell\OpenInVelo\command";
 const MENU_LABEL: &str = "在 Velo 中打开";
 
+const PREF_KEY_PATH: &str = r"Software\com.velo.editor\ShellIntegration";
+const PREF_FOLDER_MENU: &str = "FolderMenu";
+
 /// 注册文件夹右键菜单。best-effort:失败仅 warn,不抛错给调用方。
+///
+/// 读取安装偏好标志决定是否注册:
+/// - "1": 用户安装时选择了注册 → 刷新(重写 exe 路径)
+/// - "0": 用户安装时选择了不注册 → 跳过
+/// - 未设置: 便携模式或旧版升级 → 照常注册(向后兼容)
 pub fn ensure_registered() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+
+    // 检查安装偏好标志
+    if let Ok(prefs) = hkcu.open_subkey(PREF_KEY_PATH) {
+        if let Ok(val) = prefs.get_value::<String, _>(PREF_FOLDER_MENU) {
+            if val == "0" {
+                log::info!("[folder_menu] 用户安装时未选择注册右键菜单,跳过");
+                return;
+            }
+        }
+    }
+
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {

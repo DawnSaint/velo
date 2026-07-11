@@ -194,9 +194,10 @@ pub fn run() {
             let payload = parse_cli_args(&args);
             store_window_payload(app.handle(), MAIN_WINDOW_LABEL, payload);
 
-            // 注册"在 Velo 中打开"文件夹右键菜单(v0.5.1)。
-            // best-effort:失败仅 warn,不阻塞应用启动。每次启动都重写,
-            // 自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景)。
+            // 注册/刷新"在 Velo 中打开"文件夹右键菜单。
+            // 安装器会写入偏好标志;ensure_registered 读取标志决定
+            // 是否注册:"1"→刷新,"0"→跳过(用户安装时选了不注册),未设置→照常
+            // 注册(便携模式/旧版升级)。best-effort,不阻塞应用启动。
             #[cfg(target_os = "windows")]
             folder_menu::ensure_registered();
 
