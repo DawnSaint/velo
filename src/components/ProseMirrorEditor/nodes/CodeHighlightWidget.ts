@@ -102,7 +102,8 @@ export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight
  *  - pos:code_block 节点 pos(本 widget 在 pos 之前,side: -1)
  *  - lang:当前语言
  *  - getCode:同步拿 code_block 文本(切 lang 时变 → widget key 变)
- *  - isFolded:当前折叠状态(chevron 方向 + data-fold-state)
+ *  - isFolded:当前折叠状态(初始 chevron 方向 + data-fold-state;fold toggle
+ *    依赖 click handler 手翻 attribute,key 不含此值,见下方 key 注释)
  *  - toggleFold:click chevron 时调,dispatch setMeta(foldKey, { toggle })
  *  - setLang:提交新语言时调,dispatch setNodeAttribute(language)
  *  - hideFoldBtn:true 时隐藏折叠 chevron(用于 mermaid 展开态 —— 避免与
@@ -154,6 +155,19 @@ function makeHeaderDom(
     foldBtn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
+      // 与 heading / frontmatter fold 同范式(FoldDecoration.makeToggleButton /
+      // FrontmatterNodeView):widget key 不含折叠状态,fold toggle 复用旧 header
+      // DOM,factory 不重跑 → chevron 方向 + data-fold-state 不会自动翻。手动翻
+      // data-fold-state + title,让 CSS transition 察觉属性变化,播放 0↔-90deg
+      // 旋转;否则新 DOM 一开始就是终态(rotate -90deg),只会"闪烁一下直接变"。
+      // 仅本 chevron 会切换 code_block 折叠(heading/list 走各自 contentStart),
+      // wrap 的 data-fold-state 与 plugin state 一致,读它即当前态。
+      const next = wrap.getAttribute('data-fold-state') === 'collapsed'
+        ? 'expanded'
+        : 'collapsed'
+      wrap.setAttribute('data-fold-state', next)
+      foldBtn.title = next === 'collapsed' ? '展开' : '折叠'
+      foldBtn.setAttribute('aria-label', foldBtn.title)
       toggleFold()
     })
     wrap.appendChild(foldBtn)
@@ -617,8 +631,14 @@ function buildDecorations(
     // FoldDecoration 折叠 code_block → isMermaidFolded 把 SVG 也吞掉。mermaid 的
     // "收"由 mermaid toolbar toggle 承担,header 提供一个 fold 入口只会有害。
     const mermaidExpanded = isMermaid && Boolean(mermaidState?.editNodeSet.has(pos + 1))
-    // header widget —— key 含 lang + 文本 hash + 折叠状态,lang 变 / 文本变 /
-    // 折叠切换都强制重挂,否则 ProseMirror 复用旧 DOM 内容不更新。
+    // header widget —— key 含 lang + 文本 hash + wrap 状态,isWrapped 变时重挂
+    // (wrap 按钮 icon/title 跟随新值)。**折叠状态(isFolded)不放 key**:
+    // 与 heading / frontmatter fold 同范式——fold toggle 复用旧 header DOM +
+    // click handler 手翻 data-fold-state,让 CSS transition 播放 chevron 旋转
+    // (0↔-90deg);若 fold 写进 key → toggle 销毁旧 DOM 新建 → 新 DOM 一开始就
+    // 是终态 → 只会"闪烁一下直接变"。fold-info 可见性由 CSS
+    // `[data-fold-state="expanded"] > .velo-code-fold-info { display:none }`
+    // 随 attribute 翻转,无需重挂。
     const blockStart = pos + 1
     const blockEnd = pos + node.nodeSize - 1
     const code = blockStart < blockEnd
@@ -636,7 +656,7 @@ function buildDecorations(
     // (行数 + 语言 + 复制),必须保留。
     if (!isFolded && isCodeBlockFolded(pos)) return
     if (renderHeader) {
-      const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isFolded}:${isWrapped}`
+      const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
       decos.push(
         Decoration.widget(pos, (view, _getPos) => {
           return makeHeaderDom(

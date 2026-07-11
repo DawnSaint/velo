@@ -658,7 +658,8 @@ describe('codeHighlight helpers', () => {
     // 折叠后:pre 挂 velo-folded class
     const preAfter = view.dom.querySelector('pre')
     expect(preAfter?.classList.contains('velo-folded')).toBe(true)
-    // header data-fold-state = collapsed(新 widget 被创建)
+    // header data-fold-state = collapsed(widget key 不含折叠状态 → fold toggle
+    // 复用旧 header DOM,click handler 手翻 data-fold-state 驱动 CSS 过渡)
     const headerAfter = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
     expect(headerAfter?.getAttribute('data-fold-state')).toBe('collapsed')
     // 再次 click → 展开
