@@ -61,42 +61,23 @@
     outline-width: 0.1em;
   }
 
-  // 悬浮编辑按钮:常驻 DOM,默认隐藏,选中(.selected)时显现。
-  // 严格对齐代码块工具条复制按钮(.velo-code-copy-btn):透明底、继承色、
-  // hover 浅灰底,尺寸 height:1.6em / padding:0 .4em / font-size:.9em ——
-  // 不带独立背景色 / 强调色,否则会变成"长方形带颜色的色块"与复制按钮割裂。
+  // 悬浮编辑按钮:.velo-icon-btn + .velo-icon-btn--hidden 提供基础
+  // (含隐藏态),这里只写差异——绝对定位、选中态显现。
   > .image-frame > .image-edit-btn {
     position: absolute;
     top: 4px;
     right: 4px;
     z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    gap: .2em;
-    height: 1.6em;
-    padding: 0 .4em;
-    font-size: .9em;
-    line-height: 1;
-    border: none;
-    background: transparent;
-    border-radius: 4px;
-    cursor: pointer;
-    user-select: none;
-    vertical-align: middle;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.12s ease, visibility 0.12s ease;
-
-    &:hover {
-      background: rgba(0, 0, 0, 0.06);
-    }
   }
 
   &.selected > .image-frame > .image-edit-btn {
-    opacity: 1;
+    opacity: 0.5;
     visibility: visible;
     pointer-events: auto;
+
+    &:hover {
+      opacity: 0.8;
+    }
   }
 
   // 空态 input 框/上传按钮/预览图——跟 image-inline 提供的默认 UI 配套
@@ -204,9 +185,6 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-.dark .velo-image-inline > .image-frame > .image-edit-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
 
 // 图片源码编辑态:Decoration.inline 在源码文本上加视觉指示(浅底 + 等宽字体),
 // 提示当前是"编辑源码"而非渲染态。同 .velo-link-source-edit 的处理思路。

@@ -169,30 +169,6 @@ html.dark .velo-editor code {
   border-bottom: none;
   border-radius: 8px 8px 0 0;
 
-  > .velo-code-fold-btn,
-  > .velo-code-copy-btn,
-  > .velo-code-wrap-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: .2em;
-    height: 1.6em;
-    padding: 0 .3em;
-    font-size: .85em;
-    line-height: 1;
-    border: none;
-    background: transparent;
-    border-radius: 4px;
-    cursor: pointer;
-    user-select: none;
-    vertical-align: middle;
-    color: inherit;
-    opacity: 0.5;
-    transition: opacity 0.12s ease, background 0.12s ease;
-    &:hover {
-      opacity: 1;
-      background: rgba(0, 0, 0, 0.06);
-    }
-  }
 
   // 语言输入框:只保留下 border,icon + input 横排
   > .velo-code-lang-input-wrap {
@@ -207,6 +183,12 @@ html.dark .velo-editor code {
       align-items: center;
       flex: 0 0 auto;
       opacity: 0.7;
+      // 语言图标跟随字号(容器继承 --md-font-size),
+      // 覆盖 makeSvg() 写入的固定 px width/height 属性。
+      svg {
+        width: 1em;
+        height: 1em;
+      }
     }
 
     > .velo-code-lang-input {
@@ -247,10 +229,6 @@ html.dark .velo-editor code {
   // (copy 按钮紧随其后)。
   > .velo-code-wrap-btn {
     margin-left: auto;
-    &[data-wrap-active="true"] {
-      opacity: 1;
-      color: var(--md-primary-color, #0F4C81);
-    }
   }
 
   // copy button:紧随 wrap 按钮(wrap 按钮 margin-left:auto 已推到右侧)
@@ -273,11 +251,7 @@ html.dark .velo-code-header-widget,
 .velo-editor.dark .velo-code-header-widget {
   background-color: var(--shiki-dark-bg);
   border-color: var(--shiki-dark-border);
-  > .velo-code-fold-btn:hover,
-  > .velo-code-copy-btn:hover,
-  > .velo-code-wrap-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-  }
+  // 按钮 hover 浅灰底已由 .velo-icon-btn 暗色规则统一覆盖,无需逐条声明
   > .velo-code-lang-input-wrap > .velo-code-lang-input {
     border-bottom-color: var(--shiki-dark-border);
   }

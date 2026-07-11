@@ -58,30 +58,6 @@
   opacity: 1;
 }
 
-.velo-editor .mermaid-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: rgb(156 163 175);
-  border-radius: 4px;
-  cursor: pointer;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
-}
-
-.velo-editor .mermaid-btn:hover {
-  background: rgba(128, 128, 128, 0.12);
-  color: rgb(75 85 99);
-}
-
-.velo-editor .mermaid-btn-delete:hover {
-  color: rgb(220 38 38);
-}
 
 .velo-editor .mermaid-btn.velo-copy-flash-ok {
   color: rgb(34 197 94);
@@ -155,6 +131,8 @@
 }
 
 
+// mermaid 按钮浮在暗色 SVG 图上调灰色调可见;亮色 color gray-400 已由公共类覆盖,
+// 暗色 hover 浅灰底已由公共类暗色规则覆盖,这里只写颜色差异。
 .dark .mermaid-btn,
 .dark .velo-editor .mermaid-btn {
   color: rgb(156 163 175);
@@ -162,11 +140,5 @@
 
 .dark .mermaid-btn:hover,
 .dark .velo-editor .mermaid-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
   color: rgb(229 231 235);
-}
-
-.dark .mermaid-btn-delete:hover,
-.dark .velo-editor .mermaid-btn-delete:hover {
-  color: rgb(248 113 113);
 }

@@ -58,7 +58,7 @@ export function createFrontmatterNodeView() {
     // == 折叠 chevron(▼) —— 独立 DOM,PM 不接管,click 走 foldKey 集中 toggle ==
     const chevron = document.createElement('button')
     chevron.type = 'button'
-    chevron.className = 'velo-frontmatter-fold-btn'
+    chevron.className = 'velo-icon-btn velo-frontmatter-fold-btn'
     chevron.contentEditable = 'false'
     chevron.title = '展开'
     chevron.setAttribute('aria-label', '展开')

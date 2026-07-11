@@ -174,6 +174,51 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 
 ---
 
+## 公共 icon 按钮
+
+编辑器内的纯图标交互按钮（代码块 header 的 fold/copy/wrap、mermaid 工具栏、TOC 删除、图片编辑、fold toggle、frontmatter 折叠等）共享公共类 `velo-icon-btn`，定义在 `_editor-base.scss`。
+
+### 变体
+
+| 变体类 | 语义 | 效果 |
+|--------|------|------|
+| `velo-icon-btn` | 基础按钮 | flex 居中、1.75em × 1.75em、透明底、SVG 跟随字号（1em）、统一过渡（opacity/visibility/background/color/transform 全部 0.12s ease）、hover 浅灰底 |
+| `velo-icon-btn--danger` | 删除类按钮（覆盖 hover） | hover 红色（亮色 `#cf222e` / 暗色 `#f85149`）+ 浅红底 |
+| `velo-icon-btn--hidden` | 默认隐藏、由父 hover / `.selected` 显现 | `opacity: 0` + `visibility: hidden`（opacity 做过渡，visibility 禁止交互直到显现） |
+
+暗色规则：`.velo-icon-btn:hover` 浅灰底 → `rgba(255,255,255,0.08)`；danger 暗色红 — 统一写在公共类里，不需要各按钮单独声明。
+
+### 使用规则
+
+- **新增纯图标按钮**：`className` 加 `velo-icon-btn` + 内嵌 svg，SCSS 只写自己的差异（尺寸 override、颜色、定位、显现机制、折叠旋转）。
+- **不再重复声明的基础属性**：display、align-items、justify-content、padding、border、border-radius、background、cursor、user-select、line-height、vertical-align、width/height（1.75em）、transition、svg 尺寸。这些都由公共类提供。
+- **尺寸需 override 时**：在各自的按钮类里写 `width`/`height`（如 fold-toggle 固定 24px、frontmatter-fold 1.4em）。公共类用的是 `em` 单位，override 成 `px` 或别的 `em` 值即可覆盖。
+- **颜色需差异化时**：给该按钮写 `color` + 可能的 `:hover` color（如 fold toggle / frontmatter fold 的 hover 主色）。danger 红色不需要自行声明，加 `--danger` 变体即可。
+- **SVG 跟随字号是默认行为**：因为公共类设了 `svg { width: 1em; height: 1em }`。只有 `velo-icon-btn` 本身字号链入 `--md-font-size` 才生效——大多数按钮都已经通过容器继承链完成链接。
+- **暗色 hover 不需要逐条声明**：所有按钮的暗色 hover 浅灰底和 danger 暗色红都由公共类的暗色规则覆盖。
+
+### 示例
+
+新增一个纯图标按钮的正确姿势：
+
+```ts
+// TS: className 加 velo-icon-btn
+btn.className = 'velo-icon-btn my-comp-btn'
+```
+
+```scss
+// SCSS: 只写差异
+.my-comp-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  // 无需声明 display/flex/border/cursor/尺寸/transition/svg 1em
+  // 它们全部由 .velo-icon-btn 提供
+}
+```
+
+---
+
 ## class 命名约定
 
 ### 前缀

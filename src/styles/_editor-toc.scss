@@ -6,7 +6,6 @@
 //       li.velo-toc-item (--toc-level CSS 变量控制缩进)
 //         span.velo-toc-link
 //         ul.velo-toc-list (children)
-//   button.velo-toc-delete-btn (hover 显示,右上角,点击还原为 [TOC] 段落)
 //
 // 动画:
 //   .velo-toc-highlight — 点击 TOC 项跳转后 heading 闪烁反馈(1.5s)
@@ -55,31 +54,22 @@
     margin: 0;
   }
 
-  // 删除按钮 —— hover 时右上角显示
+  // 删除按钮 —— .velo-icon-btn + .velo-icon-btn--danger(红色 hover)
+  // + .velo-icon-btn--hidden(默认隐藏)提供全部基础,这里只写差异——
+  // 绝对定位、父级 hover 显现。
   .velo-toc-delete-btn {
     position: absolute;
     top: 0.5em;
     right: 0.5em;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5em;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: #aaa;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
   }
 
   .velo-toc:hover .velo-toc-delete-btn {
-    opacity: 1;
-  }
+    opacity: 0.5;
+    visibility: visible;
 
-  .velo-toc-delete-btn:hover {
-    color: #cf222e;
-    background: rgba(207, 34, 46, 0.1);
+    &:hover {
+      opacity: 1;
+    }
   }
 }
 
@@ -116,12 +106,4 @@
     color: #666;
   }
 
-  .velo-toc-delete-btn {
-    color: #666;
-  }
-
-  .velo-toc-delete-btn:hover {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-  }
 }

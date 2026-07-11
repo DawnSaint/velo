@@ -143,7 +143,7 @@ function makeHeaderDom(
   if (!hideFoldBtn) {
     const foldBtn = document.createElement('button')
     foldBtn.type = 'button'
-    foldBtn.className = 'velo-code-fold-btn'
+    foldBtn.className = 'velo-icon-btn velo-code-fold-btn'
     foldBtn.title = isFolded ? '展开' : '折叠'
     foldBtn.contentEditable = 'false'
     foldBtn.innerHTML = chevronDownSvg(14)
@@ -383,10 +383,9 @@ function makeHeaderDom(
   // click stopPropagation(防 index.vue onCardClick 抣焦点)。
   const wrapBtn = document.createElement('button')
   wrapBtn.type = 'button'
-  wrapBtn.className = 'velo-code-wrap-btn'
+  wrapBtn.className = 'velo-icon-btn velo-code-wrap-btn'
   wrapBtn.title = isWrapped ? '取消自动换行' : '自动换行'
   wrapBtn.contentEditable = 'false'
-  wrapBtn.setAttribute('data-wrap-active', String(isWrapped))
   wrapBtn.innerHTML = isWrapped ? wrapTextSvg(14) : nowrapSvg(14)
   wrapBtn.addEventListener('mousedown', (e) => {
     e.preventDefault()
@@ -402,7 +401,8 @@ function makeHeaderDom(
   // 复制按钮 —— widget 内部直接 await,避免跨组件 async 时序问题
   const copyBtn = document.createElement('button')
   copyBtn.type = 'button'
-  copyBtn.className = 'velo-code-copy-btn'
+  copyBtn.className = 'velo-icon-btn'
+  copyBtn.setAttribute('data-testid', 'code-copy-btn')
   copyBtn.title = '复制代码'
   copyBtn.contentEditable = 'false'
   copyBtn.innerHTML = copySvg(12)

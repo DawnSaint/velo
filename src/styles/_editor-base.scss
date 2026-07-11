@@ -97,3 +97,74 @@
   opacity: 0.25;
   transition: opacity 200ms ease;
 }
+
+// ============================================================
+//  公共 icon 按钮 —— 编辑器内所有纯图标交互按钮的基础样式
+//
+//  使用规则(见 docs/architecture/styles.md「公共 icon 按钮」):
+//  - 按钮加 class="velo-icon-btn",删除类按钮再加
+//    class="velo-icon-btn--danger"
+//  - 默认尺寸 1.75em × 1.75em、SVG 自动跟随容器字号(width/height: 1em)
+//  - 默认 hover 浅灰底; danger hover 红色
+//  - 各按钮只需写自己的差异(尺寸 override / 颜色 / 定位 / 显现机制 / 折叠旋转)
+//  - 尺寸需 override 时(如 fold-toggle 24px 固定、frontmatter-fold 1.4em)
+//    在各自的按钮类里覆盖 width/height 即可
+// ============================================================
+.velo-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  // 图标默认灰色调(inherit 会落到编辑器 #333 近黑,太深),统一用 gray-400。
+  // 需要特定灰色的按钮可在各自规则里 override(如 frontmatter fold 的 #888)。
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  vertical-align: middle;
+  width: 1.75em;
+  height: 1.75em;
+  opacity: 0.5;
+  transition: opacity 0.12s ease, visibility 0.12s ease,
+    background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+  // SVG 跟随容器字号(覆盖 makeSvg() 写入的固定 px width/height 属性)
+  svg {
+    width: 1em;
+    height: 1em;
+  }
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    opacity: 0.8;
+  }
+}
+
+// 隐藏变体 —— 默认不可见(opacity 0 + visibility hidden 组合:opacity 做过渡,
+// visibility 禁止交互直到显现),由父级 hover / .selected 等规则翻回可见。
+// 适用:TOC 删除按钮(hover 容器显现)、图片编辑按钮(.selected 显现)。
+.velo-icon-btn--hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+// danger 变体 —— 删除按钮(mermaid / TOC)
+.velo-icon-btn--danger:hover {
+  opacity: 1;
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.1);
+}
+
+// 暗色模式:底灰换成浅灰底,hover 换成浅灰底,图标默认浅色(亮色 #888)
+:is(.dark .velo-editor, .velo-editor.dark) {
+  .velo-icon-btn {
+    color: #888;
+  }
+  .velo-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .velo-icon-btn--danger:hover {
+    color: #f85149;
+    background: rgba(248, 81, 73, 0.1);
+  }
+}

@@ -314,7 +314,7 @@ function makeMermaidWidget(
 function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
-  btn.className = 'mermaid-btn mermaid-btn-toggle'
+  btn.className = 'velo-icon-btn mermaid-btn mermaid-btn-toggle'
   // 折叠态(SVG 显示 / pre 隐藏)→ chevron-up(向上,点击展开 code block)
   // 展开态(pre 显示)→ chevron-down(向下,点击收起 code block)
   // (避免叉号歧义;后续要做可缩放/拖动,这是唯一切换入口)
@@ -340,7 +340,7 @@ function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
 function makeDeleteBtn(pos: number, node: PMNode): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
-  btn.className = 'mermaid-btn mermaid-btn-delete'
+  btn.className = 'velo-icon-btn velo-icon-btn--danger mermaid-btn mermaid-btn-delete'
   btn.title = '删除 mermaid 块'
   btn.setAttribute('aria-label', '删除 mermaid 块')
   btn.innerHTML = trashSvg(14)

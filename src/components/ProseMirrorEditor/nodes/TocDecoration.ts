@@ -100,7 +100,7 @@ function makeTocWidget(
   if (view && getPos) {
     const deleteBtn = document.createElement('button')
     deleteBtn.type = 'button'
-    deleteBtn.className = 'velo-toc-delete-btn'
+    deleteBtn.className = 'velo-icon-btn velo-icon-btn--danger velo-icon-btn--hidden velo-toc-delete-btn'
     deleteBtn.title = '删除目录'
     deleteBtn.contentEditable = 'false'
     deleteBtn.innerHTML = trashSvg(16)

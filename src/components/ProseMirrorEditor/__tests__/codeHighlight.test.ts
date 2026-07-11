@@ -279,7 +279,7 @@ describe('codeHighlightPlugin', () => {
     // Tauri webview 环境才需要 mock,jsdom 测默认静默 swallow)。
     const view = makeView('```js\nconst x = 1\n```')
     await flushHighlighter()
-    const copyBtn = view.dom.querySelector('.velo-code-copy-btn') as HTMLElement | null
+    const copyBtn = view.dom.querySelector('[data-testid="code-copy-btn"]') as HTMLElement | null
     expect(copyBtn).not.toBeNull()
     // click 不会抛错(内部 import 失败 / clipboard 不可用都被 swallow)
     expect(() => copyBtn!.click()).not.toThrow()
@@ -314,7 +314,7 @@ describe('codeHighlightPlugin', () => {
     expect(view.dom.querySelectorAll('.velo-code-fold-btn').length).toBe(0)
     // 语言选择 + 复制仍可用
     expect(view.dom.querySelector('.velo-code-lang-input')).not.toBeNull()
-    expect(view.dom.querySelector('.velo-code-copy-btn')).not.toBeNull()
+    expect(view.dom.querySelector('[data-testid="code-copy-btn"]')).not.toBeNull()
 
     // 3. 收起:再次 toggle → editNodeSet 移除 → header 隐藏
     view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: absolutePos }))
@@ -364,7 +364,7 @@ describe('codeHighlightPlugin', () => {
     const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
     const langInputWrap = view.dom.querySelector('.velo-code-lang-input-wrap') as HTMLElement | null
     const wrapBtn = view.dom.querySelector('.velo-code-wrap-btn') as HTMLElement | null
-    const copyBtn = view.dom.querySelector('.velo-code-copy-btn') as HTMLElement | null
+    const copyBtn = view.dom.querySelector('[data-testid="code-copy-btn"]') as HTMLElement | null
     expect(header).not.toBeNull()
     expect(foldBtn).not.toBeNull()
     expect(langInputWrap).not.toBeNull()
