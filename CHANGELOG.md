@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.0](https://github.com/DawnSaint/velo/compare/v0.6.7...v0.7.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tauri:** installer format changes from MSI to NSIS; installation path moves from Program Files to LocalAppData; .md default handler is no longer set unconditionally (opt-in via checkbox). Existing MSI installation is not auto-uninstalled.
+
+### Features
+
+* **tauri:** per-user NSIS installer with opt-in shell integration + runtime controls ([105fa62](https://github.com/DawnSaint/velo/commit/105fa627bb8da333acedbb51fb886f33f378e9e6))
+* **tauri:** switch windows installer from MSI to NSIS with per-user only and optional shell integration ([1f48877](https://github.com/DawnSaint/velo/commit/1f4887761d80189fa5b2f6c16290ab3364780f7d))
+
+
+### Bug Fixes
+
+* **editor:** animate code-block fold chevron on toggle ([dc0f674](https://github.com/DawnSaint/velo/commit/dc0f67455837a31d8853ae423d2be3271d6246e3))
+
 ## [0.6.7](https://github.com/DawnSaint/velo/compare/v0.6.6...v0.6.7) (2026-07-10)
 
 
