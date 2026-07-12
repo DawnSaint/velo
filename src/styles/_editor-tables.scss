@@ -1,21 +1,132 @@
-// 表格
+﻿// 表格 —— 飞书风:极淡边框 / 白底 / 灰 hover / 选中态蓝遮罩。
+// 布局走 table-layout: fixed + width: 100%(内联在 <table> 上由 columnResizing 的
+// TableView 设置),横向溢出交给外层 .tableWrapper 滚动,不撑开编辑器视区。
 
 .velo-editor {
+  // 表格滚动外壳(columnResizing 的 TableView 渲染时自动创建)
+  .tableWrapper {
+    overflow-x: auto;
+    margin: 1em 0;
+    position: relative;
+    cursor: default;
+
+    // 对齐 code_block 滚动条:小可见 + hover 更大触发范围 + default 指针
+    &::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+      cursor: default;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+      cursor: default;
+    }
+    &::-webkit-scrollbar-thumb {
+      background-color: rgba(144, 146, 152, 0.15);
+      border-radius: 4px;
+      border-top: 2px solid transparent;
+      border-bottom: 2px solid transparent;
+      background-clip: padding-box;
+      cursor: default;
+      &:hover {
+        background-color: rgba(144, 146, 152, 0.25);
+      }
+    }
+  }
+
   table {
     border-collapse: collapse;
-    margin: 1em 0;
+    table-layout: fixed;
     width: 100%;
+    overflow: hidden;
+    margin: 0; // 由 .tableWrapper 接管 margin
+    word-break: break-word;
   }
 
   th,
   td {
-    border: 1px solid #ddd;
-    padding: 0.5em 1em;
-    text-align: left;
+    border: 1px solid var(--velo-table-border, #eceef1);
+    padding: 6px 12px;
+    vertical-align: top;
+    box-sizing: border-box;
+    position: relative;
+    min-width: var(--default-cell-min-width, 60px);
   }
 
   th {
-    background: #f5f5f5;
-    font-weight: bold;
+    background: var(--velo-table-header-bg, #f5f6f7);
+    font-weight: 600;
+    color: var(--velo-table-header-text, #646a73);
+    font-size: 0.92em;
+    text-align: left;
   }
+
+  // 行 hover(排除表头行)
+  tr:hover > td {
+    background: var(--velo-table-row-hover, #f8f9fa);
+  }
+  // 表头行也加 hover,颜色更轻
+  tr[data-is-header]:hover > th {
+    background: var(--velo-table-row-hover, #f0f1f3);
+  }
+
+  // 列宽拖拽手柄(columnResizing 渲染 .column-resize-handle)
+  .column-resize-handle {
+    position: absolute;
+    right: -1px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    z-index: 20;
+    background-color: var(--md-primary-color, var(--velo-table-resize-handle, #3370ff));
+    pointer-events: none;
+  }
+
+  .resize-cursor {
+    cursor: ew-resize;
+    cursor: col-resize;
+  }
+
+  // 单元格选中态蓝遮罩(tableEditing 的 CellSelection 给 cell 加 .selectedCell)
+  .selectedCell:after {
+    z-index: 2;
+    position: absolute;
+    content: "";
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--velo-table-selection, rgba(51, 112, 255, 0.12));
+    pointer-events: none;
+  }
+
+  // 空单元格占位符(提示用户可输入)
+  td:empty::after,
+  th:empty::after {
+    content: "";
+    display: inline-block;
+    min-height: 1.2em;
+  }
+
+  // colgroup —— columnResizing 用它定位列宽;隐藏本身的视觉影响
+  colgroup {
+    display: table-column-group;
+  }
+}
+
+// ============ 暗色模式 ============
+
+:is(.dark .velo-editor, .velo-editor.dark) {
+  // 暗色滚动条对齐 code_block
+  .tableWrapper::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+  }
+  --velo-table-border: #3a3a3a;
+  --velo-table-header-bg: #2a2a2a;
+  --velo-table-header-text: #b0b0b0;
+  --velo-table-row-hover: rgba(255, 255, 255, 0.04);
+  --velo-table-selection: rgba(51, 112, 255, 0.2);
+  --velo-table-resize-handle: #4d8eff;
 }

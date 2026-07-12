@@ -101,7 +101,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 
 
-## P1 — 核心差异化
+## P1 — 核心功能
 
 ### 设置面板重做 `#settings-panel` `P1` `M`
 
@@ -151,23 +151,6 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 复用 fold / lineNumber / toc 的 Decoration.widget 范式，不造 NodeView
   - 注意与 fold chevron 共享 gutter 空间
 
-- [ ] **Markdown Lint / 写作质量检查** `#md-lint` `P2` `M`
-  - 基于 markdownlint 规则集，编辑器内以 Decoration 标记问题（波浪线 / 边距提示）
-  - 可配置规则开关（放在设置面板中）
-  - 可选：readability 评分、字数目标进度条
-  - 复用现有 Decoration.inline + syntax registry 框架
-
-
-### 窗口与工作流
-
-- [ ] **系统托盘** `#system-tray` `P2` `S` `→ #daily-note`
-  - 系统托盘图标 + 右键菜单（新建 / 打开最近文件 / 退出）
-  - 最小化到托盘 / 关闭按钮行为可选
-
-- [ ] **Daily Note / 快速捕获** `#daily-note` `P2` `M` `← #system-tray`
-  - 快捷键 / 系统托盘一键打开今日笔记（`YYYY-MM-DD.md`），不存在则自动创建
-  - 全局快捷键（系统级，Velo 在后台时）弹出小输入框，快速记一句话追加到今日笔记
-  - 与系统托盘配合做，是知识库工作流的核心习惯入口
 
 - [ ] **功能更新弹窗** `#changelog-popup` `P2` `S`
   - 版本升级后首启展示 CHANGELOG 摘要

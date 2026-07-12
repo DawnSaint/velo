@@ -15,6 +15,7 @@ import { keymap } from 'prosemirror-keymap'
 import { history, undo, redo } from 'prosemirror-history'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
+import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
 import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-commands'
 import { convertFileSrc } from '@tauri-apps/api/core'
@@ -125,6 +126,12 @@ const selectInsideCodeBlock: import('prosemirror-state').Command = (state, dispa
 const tabIndent = keymap({
   Tab: (state, dispatch) => {
     const { $from } = state.selection
+
+    // 表格内不消费 Tab —— 让 tableEditing 的 goToNextCell 接管
+    for (let d = $from.depth; d > 0; d--) {
+      const role = $from.node(d).type.spec.tableRole
+      if (role) return false
+    }
 
     // 列表项:先 sink,失败退化为段落 Tab
     const isInListItem = (() => {
@@ -306,6 +313,10 @@ const basePlugins: Plugin[] = [
   gapCursor(),
   history(),
   tabIndent,
+  // 表格:列宽拖拽 + 单元格选中/Tab 导航/复制粘贴。
+  // columnResizing 必须在 tableEditing 之前(列宽拖柄优先响应鼠标事件)。
+  columnResizing({ handleWidth: 4, cellMinWidth: 24, lastColumnResizable: false }),
+  tableEditing(),
   dollarEnterToMathBlock,
   imageKeymapPlugin,
   imageUploadPlugin,

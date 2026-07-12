@@ -44,7 +44,8 @@
   - **运行时 `folder_menu::ensure_registered` 读偏好标志**: 安装时用户选择写入 `HKCU\Software\com.velo.editor\ShellIntegration\FolderMenu`。运行时读取该标志:`"1"` → 刷新注册表(重写 exe 路径);`"0"` → 跳过(用户选择了不注册);未设置 → 照常注册(便携模式 / 旧版升级,向后兼容)。
   - **运行时 `file_assoc` 模块**: 不再在启动时自动操作。仅提供 `open_settings()` 供 Tauri command `open_default_apps_settings` 调用,前端设置面板可通过按钮主动打开 Windows 设置 > 默认应用页面。
   - **从旧版 MSI 升级**: NSIS 安装器内置 WiX 检测逻辑(`PageReinstall` 函数中遍历 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` 匹配 `ProductName` + `Publisher`),检测到旧版 MSI 安装会提示用户先卸载,卸载后继续正常 NSIS 安装流程。非 WiX 模式直接跳过 PageReinstall 页面(`allowDowngrades: true` 覆盖安装,无需先卸载)。
-  - **`release-please-config.json` 的 `extra-files` 配置**: Cargo.toml 必须用显式 `{"type":"toml","path":"...","jsonpath":"$.package.version"}`,不能用纯字符串 `"src-tauri/Cargo.toml"`。release-please 的 `GenericToml` updater 要求 `jsonpath` 参数,纯字符串虽检测到 `.toml` 扩展名但 `jsonpath` 为空 → JSONPath 查询返回 0 结果 → 文件不被修改(v0.6.6 release 时 Cargo.toml 未被 bump 就是这个原因)。Cargo.lock 也已纳入 extra-files,用过滤器 jsonpath `$.package[?(@.name == "velo")].version` 精准定位锁文件里 velo 自己的那一节(打得到深层的 `[[package]]` 数组)——这与 `cargo build` 自动同步语义一致(无论哪种方式都在发版时把锁文件 velo 版本拉到与 Cargo.toml 一致)。
+  - **`release-please-config.json` 的 `extra-files` 配置**: Cargo.toml 必须用显式 `{"type":"toml","path":"...","jsonpath":"$.package.version"}`,不能用纯字符串 `"src-tauri/Cargo.toml"`。release-please 的 `GenericToml` updater 要求 `jsonpath` 参数,纯字符串虽检测到 `.toml` 扩展名但 `jsonpath` 为空 → JSONPath 查询返回 0 结果 → 文件不被修改。
+  - **Cargo.lock 不进 release-please 的 extra-files**: 锁文件里 velo 自己的 `[[package]]` 节在数组深层,想精准 bump 需要 filter 表达式 `$.package[?(@.name == "velo")].version`,但 `GenericToml` 底层走 `node-jsonpath`,只支持 `.` / `[*]` / `[0]`,**不支持 `?(...)`**——配了也只会静默返回 0 结果、锁文件原封不动。
   - **`CheckIfAppIsRunning` 替换为内联代码**: Tauri 默认的 `utils.nsh` 中 `CheckIfAppIsRunning` 宏在用户点"取消"时调用 `Abort`(在 Section 中只停止当前 Section,不关闭安装器窗口 → 安装页面卡住)。替换为内联代码,取消路径改为 `Quit`(直接关闭安装器),安装在 Install 和 Uninstall 两个 Section 中各内联一份(标签前缀 `velo_` / `un_velo_` 避免冲突)。
 
 
