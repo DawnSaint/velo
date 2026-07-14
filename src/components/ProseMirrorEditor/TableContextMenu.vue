@@ -15,6 +15,8 @@ const props = defineProps<{
   /** 视口坐标(mouseEvent.clientX/Y，已由父级 clamp) */
   x: number
   y: number
+  /** 右键点中 header(th)且非多格拖蓝 → 隐藏"删除行"(header 行不可删) */
+  hideDeleteRow: boolean
 }>()
 
 const emit = defineEmits<{
@@ -54,7 +56,7 @@ function fire(action: TableAction) {
     <button class="ctx-menu-item" data-testid="table-add-row-after" @click="fire('add-row-after')">
       下方插入行
     </button>
-    <button class="ctx-menu-item" data-testid="table-delete-row" @click="fire('delete-row')">
+    <button v-if="!hideDeleteRow" class="ctx-menu-item" data-testid="table-delete-row" @click="fire('delete-row')">
       删除行
     </button>
 

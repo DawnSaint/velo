@@ -484,9 +484,11 @@ const nodes: Record<string, NodeSpec> = {
 
 // tableNodes 默认 content 是 'table_row+',需要替换成头行优先。
 // 同时新增 table_header_row 节点(prosemirror-tables 默认无)。
+// 注意:改为 table_row*(而非 table_row+),允许"仅保留 header + 0 body 行"的表格
+// (对齐 Typora 行为)。所有命令对 body 行的操作须兼容 bodyCount === 0 的场景。
 nodes.table = {
   ...nodes.table,
-  content: 'table_header_row table_row+',
+  content: 'table_header_row table_row*',
   isolating: true,
 }
 

@@ -112,6 +112,30 @@ describe('markdownIO round-trip', () => {
     })
   }
 
+  // 表格列对齐走 GFM 分隔行 `|:---:|`,整列同值才能 round-trip 闭合。
+  // 列级对齐命令(setCellAlignment)保证同列所有行 alignment 一致,这是该
+  // round-trip 成立的前提——pmTableToMdast 只从首行推导 align[]。
+  // v0.7.1:列级对齐(setCellAlignment)的前提是同列所有行 alignment 一致,
+  // 这样 pmTableToMdast 才能从首行推出完整 align[]。本测试锁定该前提下的
+  // 保存/加载状态 round-trip:对齐语义经 toMarkdown → fromMarkdown 后必须保留。
+  // (注意:remark-stringify 会对分隔符语法做规范化,如 :--- → -,所以比较 attrs 而非原始字符串)
+  it('v0.7.1:表格列对齐经保存/加载后 alignment 语义保留', () => {
+    const md = '| 左 | 中 | 右 |\n|:---|:---:|---:|\n| a | b | c |\n| d | e | f |'
+    const doc1 = fromMarkdown(md, schema)
+    const aligns1: string[] = []
+    doc1.descendants((n) => {
+      if (n.type.name === 'table_cell') aligns1.push((n.attrs.alignment as string) || 'left')
+    })
+    // 保存后再加载,body 6 个 cell 的 alignment 语义应与原来一致。
+    const doc2 = fromMarkdown(toMarkdown(doc1), schema)
+    const aligns2: string[] = []
+    doc2.descendants((n) => {
+      if (n.type.name === 'table_cell') aligns2.push((n.attrs.alignment as string) || 'left')
+    })
+    expect(aligns1).toEqual(['left', 'center', 'right', 'left', 'center', 'right'])
+    expect(aligns2).toEqual(aligns1)
+  })
+
   // v0.5.11:WYSIWYG 代码块行号是纯视觉装饰(Decoration.widget),不进
   // schema attrs、不进 markdown 序列化。round-trip 必须严格 idempotent。
   it('v0.5.11:code_block 行号不污染 markdown 文本', () => {

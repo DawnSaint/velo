@@ -54,14 +54,14 @@ import {
   cmdDeleteColumn,
   cmdDeleteTable,
 } from './editor/shortcuts/commands/tableCommands'
-// Pre-bind commands with schema
-const addRowAfter = cmdAddRowAfter(veloSchema)
-const addRowBefore = cmdAddRowBefore(veloSchema)
-const deleteRow = cmdDeleteRow(veloSchema)
-const addColumnAfter = cmdAddColumnAfter(veloSchema)
-const addColumnBefore = cmdAddColumnBefore(veloSchema)
-const deleteColumn = cmdDeleteColumn(veloSchema)
-const deleteTable = cmdDeleteTable(veloSchema)
+// Pre-bind commands with schema(anchorPos 保留给菜单注入)。
+const addRowAfter = (anchorPos?: number) => cmdAddRowAfter(veloSchema, anchorPos)
+const addRowBefore = (anchorPos?: number) => cmdAddRowBefore(veloSchema, anchorPos)
+const deleteRow = (anchorPos?: number) => cmdDeleteRow(veloSchema, anchorPos)
+const addColumnAfter = (anchorPos?: number) => cmdAddColumnAfter(veloSchema, anchorPos)
+const addColumnBefore = (anchorPos?: number) => cmdAddColumnBefore(veloSchema, anchorPos)
+const deleteColumn = (anchorPos?: number) => cmdDeleteColumn(veloSchema, anchorPos)
+const deleteTable = (anchorPos?: number) => cmdDeleteTable(veloSchema, anchorPos)
 import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 
@@ -69,39 +69,47 @@ import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 const showTableMenu = ref(false)
 const tableMenuX = ref(0)
 const tableMenuY = ref(0)
+// 右键点中的 cell 的 descendants pos(与 doc.descendants 同语义),作为命令锚点。
+// 单个 cell 右键 = 该 cell 位置;CellSelection 矩形内右键 = 右键点中那格位置。
+const tableMenuAnchorPos = ref<number | null>(null)
+// 右键点中的 cell 是否为 header(th)。header 行不可删除,且上方插行逻辑特殊。
+const tableMenuInHeader = ref(false)
+// 触发右键时是否存在 CellSelection(多格拖蓝)。
+const tableMenuIsCellSelection = ref(false)
 
 function onTableMenuAction(action: string) {
   if (!hasTableEditorView()) return
+  const anchor: number | undefined = tableMenuAnchorPos.value ?? undefined
   switch (action) {
     case 'add-row-after':
-      runTableCommand(addRowAfter)
+      runTableCommand(addRowAfter(anchor))
       break
     case 'add-row-before':
-      runTableCommand(addRowBefore)
+      runTableCommand(addRowBefore(anchor))
       break
     case 'delete-row':
-      runTableCommand(deleteRow)
+      runTableCommand(deleteRow(anchor))
       break
     case 'add-column-left':
-      runTableCommand(addColumnBefore)
+      runTableCommand(addColumnBefore(anchor))
       break
     case 'add-column-right':
-      runTableCommand(addColumnAfter)
+      runTableCommand(addColumnAfter(anchor))
       break
     case 'delete-column':
-      runTableCommand(deleteColumn)
+      runTableCommand(deleteColumn(anchor))
       break
     case 'align-left':
-      runSetCellAlignment('left')
+      runSetCellAlignment('left', anchor)
       break
     case 'align-center':
-      runSetCellAlignment('center')
+      runSetCellAlignment('center', anchor)
       break
     case 'align-right':
-      runSetCellAlignment('right')
+      runSetCellAlignment('right', anchor)
       break
     case 'delete-table':
-      runTableCommand(deleteTable)
+      runTableCommand(deleteTable(anchor))
       break
   }
 }
@@ -390,7 +398,10 @@ const basePlugins: Plugin[] = [
   tableEditing(),
   createTableResizeCursorPlugin(),
   createTableContextMenuPlugin({
-    onTableContextMenu: (_cellPos, x, y) => {
+    onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
+      tableMenuAnchorPos.value = clickCellPos
+      tableMenuInHeader.value = inHeader
+      tableMenuIsCellSelection.value = isCellSelection
       tableMenuX.value = x
       tableMenuY.value = y
       showTableMenu.value = true
@@ -739,6 +750,7 @@ onBeforeUnmount(() => {
     ref="tableMenuRef"
     :x="tableMenuX"
     :y="tableMenuY"
+    :hide-delete-row="tableMenuInHeader && !tableMenuIsCellSelection"
     @action="onTableMenuAction"
     @close="showTableMenu = false"
   />

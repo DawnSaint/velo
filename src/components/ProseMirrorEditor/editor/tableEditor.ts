@@ -2,13 +2,13 @@
 //
 // 设计:
 // - EditorInner.vue mount 时注册 view,unmount 时注销
-// - 表格操作命令(prosemirror-tables)签名是 Command = (state, dispatch?, view?) => boolean
+// - 表格操作命令(tableCommands.ts)签名是 Command = (state, dispatch?, view?) => boolean
 //   runTableCommand 解包 view + 自动 focus
-// - 对齐使用 setCellAttr 直接内联,避免与 tableCommands.ts 循环依赖
+// - 对齐接本地 setCellAlignment(列级整表替换),与右键菜单 / 快捷键同路径
 
 import type { Command } from "prosemirror-state"
 import type { EditorView } from "prosemirror-view"
-import { setCellAttr } from "prosemirror-tables"
+import { setCellAlignment } from "./shortcuts/commands/tableCommands"
 import type { Alignment } from "./shortcuts/commands/tableCommands"
 
 let _view: EditorView | null = null
@@ -30,7 +30,7 @@ export function hasTableEditorView(): boolean {
 
 /**
  * 运行一个表格命令(自动解包 view + focus)。
- * @param cmd  prosemirror-tables 的 Command 函数(addRowAfter / deleteColumn / …)
+ * @param cmd  tableCommands.ts 的 Command 函数(addRowAfter / deleteColumn / …)
  * @returns 命令是否已执行(未注册 view / 命令返回 false = false)
  */
 export function runTableCommand(
@@ -47,14 +47,15 @@ export function runTableCommand(
 }
 
 /**
- * 在光标所在单元格设置对齐方式。
+ * 把 anchorPos 所在列(或 CellSelection 矩形覆盖的所有列)整体设为对齐方式。
+ * anchorPos = 右键点中 cell 的 descendants pos;为空 → 退到 selection.$from。
  * 不在表格内 → noop(false)。
+ * 接本地的 setCellAlignment(列级 / 矩形整表替换),与右键菜单 / 快捷键同路径。
  */
-export function runSetCellAlignment(align: Alignment): boolean {
+export function runSetCellAlignment(align: Alignment, anchorPos?: number): boolean {
   const view = _view
   if (!view || view.isDestroyed) return false
-  const cmd = setCellAttr("alignment", align)
-  const ok = cmd(view.state, view.dispatch, view)
+  const ok = setCellAlignment(align, anchorPos)(view.state, view.dispatch, view)
   if (!view.hasFocus()) view.focus()
   return ok
 }

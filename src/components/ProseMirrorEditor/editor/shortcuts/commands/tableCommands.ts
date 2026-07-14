@@ -22,6 +22,7 @@
 
 import type { Node as PMNode, Schema } from "prosemirror-model"
 import type { ShortcutCommand } from "../registry"
+import { CellSelection, TableMap } from "prosemirror-tables"
 import { TextSelection } from "prosemirror-state"
 
 export type Alignment = "left" | "center" | "right"
@@ -31,6 +32,36 @@ const BODY_ROW = "table_row"
 const HEADER_CELL = "table_header"
 const BODY_CELL = "table_cell"
 const TABLE = "table"
+
+// 计算 CellSelection 矩形覆盖到的所有列 index(去重、升序)。
+// 以右键点中的 cell 所在列为主列加入,并把矩形内其他列一并纳入,
+// 达成「矩形内任意格右键 = 覆盖的所有列一起对齐」。
+function columnsOfCellSelection(sel: CellSelection): number[] {
+  const cols = new Set<number>()
+  const table = sel.$anchorCell.node(-1)
+  const tableStart = sel.$anchorCell.start(-1)
+  const map = TableMap.get(table)
+  sel.forEachCell((_cell: PMNode, pos: number) => {
+    const cellRect = map.findCell(pos - tableStart)
+    cols.add(cellRect.left)
+  })
+  return Array.from(cols).sort((a, b) => a - b)
+}
+
+// 取 CellSelection 覆盖的矩形 { left, top, right, bottom } (left/top 含, right/bottom 不含)。
+// 行号 = table child 行号(0 = header 行);列号 = 列序号。
+function rectOfCellSelection(sel: CellSelection) {
+  const table = sel.$anchorCell.node(-1)
+  const tableStart = sel.$anchorCell.start(-1)
+  return TableMap.get(table).rectBetween(sel.$anchorCell.pos - tableStart, sel.$headCell.pos - tableStart)
+}
+
+// 构造一个 body 行table_row(含 N 个空 cell)——用于批量插行。
+function createEmptyBodyRow(schema: Schema, numCols: number): PMNode {
+  const cells = Array.from({ length: numCols }, () =>
+    schema.nodes[BODY_CELL].create(null, schema.nodes.paragraph.create()))
+  return schema.nodes[BODY_ROW].create(null, cells)
+}
 
 // 沿 $from 树向上找最近的 table 节点,返回 { table, pos }。
 //
@@ -77,7 +108,9 @@ function rowIndexForSelection($from: import("prosemirror-model").ResolvedPos, ta
 // 这里必须用第三个参数 index,不能用 offset。
 function findColIndex($from: import("prosemirror-model").ResolvedPos): number {
   let cell = null, cellDepth = -1
-  for (let d = $from.depth - 1; d > 0; d--) {
+  // 从 $from.depth(含最深节点)起向上找 cell。真实 anchorPos 来自 posAtDOM(cellDom,0)
+  // = cell 的 content 起点(=descendants pos + 1),此时最深节点即为 cell。
+  for (let d = $from.depth; d > 0; d--) {
     const n = $from.node(d)
     if (n.type.name === BODY_CELL || n.type.name === HEADER_CELL) { cell = n; cellDepth = d; break }
   }
@@ -147,91 +180,221 @@ function dispatchReplaceWithCursor(
   dispatch(tr.setSelection(TextSelection.near(newDoc.resolve(clamped))).scrollIntoView())
 }
 
-export function cmdAddRowAfter(schema: Schema): ShortcutCommand {
-  return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
-    if (!info) return false
-    const { table, pos: tablePos } = info
-    const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
-    if (rowIdx < 0 || table.child(rowIdx).type.name !== BODY_ROW) return false
-    const newRow = cloneRowSchema(schema, table.child(rowIdx))
-    const children = tableChildren(table)
-    children.splice(rowIdx + 1, 0, newRow)
-    const newTable = schema.nodes[TABLE].create(table.attrs, children)
-    if (dispatch) {
-      const offsetInContent = cellOffsetInNewTableContent(newTable, rowIdx + 1, 0)
-      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
-    }
-    return true
-  }
+// 由 anchorPos(右键点中的 cell descendants pos)解析出 $from。
+// anchorPos 为空 → 退到 selection.$from(兼容非菜单触发场景)。
+function resolveAnchor(state: import("prosemirror-state").EditorState, anchorPos?: number) {
+  return anchorPos != null ? state.doc.resolve(anchorPos) : state.selection.$from
 }
 
-export function cmdAddRowBefore(schema: Schema): ShortcutCommand {
-  return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
-    if (!info) return false
-    const { table, pos: tablePos } = info
-    const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
-    if (rowIdx < 0 || table.child(rowIdx).type.name !== BODY_ROW) return false
-    const newRow = cloneRowSchema(schema, table.child(rowIdx))
-    const children = tableChildren(table)
-    children.splice(rowIdx, 0, newRow)
-    const newTable = schema.nodes[TABLE].create(table.attrs, children)
-    if (dispatch) {
-      const offsetInContent = cellOffsetInNewTableContent(newTable, rowIdx, 0)
-      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
-    }
-    return true
-  }
-}
+// 所有表格命令统一签名:cmd(schema, anchorPos?) => ShortcutCommand。
+// anchorPos = 右键点中 cell 的 descendants pos(与 doc.descendants 同语义);
+// 为空 → 退到 selection.$from(兼容快捷键 / 测试等无锚点触发)。
+// 此签名让 bindings.ts / 现有测试调用 cmdAddRowAfter(schema) 完全不变。
 
-export function cmdDeleteRow(_schema: Schema): ShortcutCommand {
+export function cmdAddRowAfter(schema: Schema, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
-    if (!info) return false
-    const { table, pos: tablePos } = info
-    const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
-    if (rowIdx < 0 || table.child(rowIdx).type.name !== BODY_ROW) return false
-    let bodyCount = 0
-    table.forEach((c) => { if (c.type.name === BODY_ROW) bodyCount++ })
-    if (bodyCount <= 1) {
-      if (dispatch) dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize - 1))
-    } else {
+    const sel = state.selection
+    // 矩形内右键:在最下面那格的下方插 1 行(锚定矩形下边界 rect.bottom)。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const baseRowIndex = Math.max(rect.bottom - 1, 1) // 以底边界上一行宽度为基准(>=1 保 body)
+      const numCols = table.child(baseRowIndex).childCount
       const children = tableChildren(table)
-      children.splice(rowIdx, 1)
-      const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+      children.splice(rect.bottom, 0, createEmptyBodyRow(schema, numCols))
+      const newTable = schema.nodes[TABLE].create(table.attrs, children)
       if (dispatch) {
-        // 光标落点:被删行的位置由后续行上移填补。
-        //   rowIdx 是被删 body 在旧表里的 index(0-based,从 0 起,0=header)= 旧表视角。
-        //   删后,新表里同一「逻辑行」位置 = clamp(rowIdx, 1, newTable.childCount - 1);
-        //   - 删中间行:rowIdx 不变,下一行上移填补 → 光标落在原下一行(同列感)
-        //   - 删最后一行:rowIdx > 最后 body index → 回落到上一行
-        //   - 原 bodyCount=2 删到 1:clamp 到 1 = 唯一剩余的 body
-        //   newTable.childCount - 1 = 最后一个 body 的 index。
-        const newRowIdx = Math.min(rowIdx, newTable.childCount - 1)
-        const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, newRowIdx), 0)
+        const offsetInContent = cellOffsetInNewTableContent(newTable, rect.bottom, rect.left)
         dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
       }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+    const rowIdx = rowIndexForSelection($from, table, tablePos)
+    if (rowIdx < 0) return false
+    const children = tableChildren(table)
+    // header 行(rowIdx === 0):下方插行 = 在 header 后(index 1)插 1 个空 body 行。
+    if (rowIdx === 0 && table.child(0).type.name === HEADER_ROW) {
+      const numCols = table.child(0).childCount
+      children.splice(1, 0, createEmptyBodyRow(schema, numCols))
+    } else {
+      const newRow = cloneRowSchema(schema, table.child(rowIdx))
+      children.splice(rowIdx + 1, 0, newRow)
+    }
+    const newTable = schema.nodes[TABLE].create(table.attrs, children)
+    if (dispatch) {
+      const cursorRow = rowIdx === 0 ? 1 : rowIdx + 1
+      const offsetInContent = cellOffsetInNewTableContent(newTable, cursorRow, 0)
+      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
     return true
   }
 }
 
-export function cmdDeleteTable(_schema: Schema): ShortcutCommand {
+export function cmdAddRowBefore(schema: Schema, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
+    const sel = state.selection
+    // 矩形内右键:在最上面那格的上方插 1 行(锚定矩形上边界 rect.top)。
+    // 特殊:矩形触及 header(rect.top === 0)时,新行应为 header 行,旧 header 降级为 body 行。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const numCols = table.child(0).childCount
+      const children = tableChildren(table)
+      if (rect.top === 0) {
+        // 在 index 0 插入新 header 行,并把旧 header(row 0)降级为 body 行。
+        const oldHeader = children[0]
+        const newHeaderCells = Array.from({ length: numCols }, () =>
+          schema.nodes[HEADER_CELL].create(null, schema.nodes.paragraph.create()))
+        const newHeader = schema.nodes[HEADER_ROW].create(null, newHeaderCells)
+        // 旧 header cells 由 table_header → table_cell(保 content),body 行数据保留。
+        const demotedBodyCells = tableChildren(oldHeader).map((cell) =>
+          schema.nodes[BODY_CELL].create(cell.attrs, cell.content))
+        const demotedBody = schema.nodes[BODY_ROW].create(oldHeader.attrs, demotedBodyCells)
+        children.splice(0, 1, newHeader, demotedBody)
+      } else {
+        const baseRowIndex = rect.top
+        const widthCols = table.child(baseRowIndex).childCount
+        children.splice(rect.top, 0, createEmptyBodyRow(schema, widthCols))
+      }
+      const newTable = schema.nodes[TABLE].create(table.attrs, children)
+      if (dispatch) {
+        const cursorRow = rect.top === 0 ? 0 : rect.top
+        const offsetInContent = cellOffsetInNewTableContent(newTable, cursorRow, rect.left)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+    const rowIdx = rowIndexForSelection($from, table, tablePos)
+    if (rowIdx < 0) return false
+    const children = tableChildren(table)
+    // header 行(rowIdx === 0):上方插行 = 新 header + 旧 header 降级为 body 行。
+    if (rowIdx === 0 && table.child(0).type.name === HEADER_ROW) {
+      const oldHeader = children[0]
+      const numCols = oldHeader.childCount
+      const newHeaderCells = Array.from({ length: numCols }, () =>
+        schema.nodes[HEADER_CELL].create(null, schema.nodes.paragraph.create()))
+      const newHeader = schema.nodes[HEADER_ROW].create(null, newHeaderCells)
+      const demotedBodyCells = tableChildren(oldHeader).map((cell) =>
+        schema.nodes[BODY_CELL].create(cell.attrs, cell.content))
+      const demotedBody = schema.nodes[BODY_ROW].create(oldHeader.attrs, demotedBodyCells)
+      children.splice(0, 1, newHeader, demotedBody)
+    } else {
+      const newRow = cloneRowSchema(schema, table.child(rowIdx))
+      children.splice(rowIdx, 0, newRow)
+    }
+    const newTable = schema.nodes[TABLE].create(table.attrs, children)
+    if (dispatch) {
+      const cursorRow = rowIdx === 0 ? 0 : rowIdx
+      const offsetInContent = cellOffsetInNewTableContent(newTable, cursorRow, 0)
+      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+    }
+    return true
+  }
+}
+
+export function cmdDeleteRow(_schema: Schema, anchorPos?: number): ShortcutCommand {
+  return (state, dispatch) => {
+    const sel = state.selection
+    // 矩形内右键:删掉矩形覆盖到的所有 body 行;若全删 → 删整张表。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const children = tableChildren(table)
+      let bodyCount = 0
+      children.forEach((c) => { if (c.type.name === BODY_ROW) bodyCount++ })
+      // 要删的行号 = [max(rect.top,1), rect.bottom) 中实际存在的(跳过 header=0)。
+      const removeFrom = Math.max(rect.top, 1)
+      const removedBodyRows = Math.max(0, Math.min(rect.bottom, children.length) - removeFrom)
+      if (removedBodyRows <= 0) return false
+      // 矩形同时覆盖 header(rect.top === 0)且向下覆盖到底 → 全表拖蓝,直接删整张表。
+      if (rect.top === 0 && rect.bottom >= children.length) {
+        if (dispatch) dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize - 1))
+        return true
+      }
+      const removeIdx = new Set<number>()
+      for (let i = removeFrom; i < Math.min(rect.bottom, children.length); i++) removeIdx.add(i)
+      // schema 允许 0 body 行(table_row*),矩形可删光所有 body 行仅留 header。
+      const newChildren = children.filter((_, i) => !removeIdx.has(i))
+      const newTable = state.schema.nodes[TABLE].create(table.attrs, newChildren)
+      if (dispatch) {
+        // 光标 clamp 到最后一个有效行(兼容删光 body 行后 childCount=1 仅 header 的情况)。
+        const newRowIdx = Math.max(0, Math.min(removeFrom, newTable.childCount - 1))
+        const offsetInContent = cellOffsetInNewTableContent(newTable, newRowIdx, Math.min(rect.left, newTable.child(0).childCount - 1))
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+    const rowIdx = rowIndexForSelection($from, table, tablePos)
+    if (rowIdx < 0 || table.child(rowIdx).type.name !== BODY_ROW) return false
+    // schema 允许 0 body 行(table_row*);仅删该行,保留 header(即便只剩 1 body 行)。
+    const children = tableChildren(table)
+    children.splice(rowIdx, 1)
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+    if (dispatch) {
+      const newRowIdx = Math.max(0, Math.min(rowIdx, newTable.childCount - 1))
+      const offsetInContent = cellOffsetInNewTableContent(newTable, newRowIdx, 0)
+      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+    }
+    return true
+  }
+}
+
+export function cmdDeleteTable(_schema: Schema, anchorPos?: number): ShortcutCommand {
+  return (state, dispatch) => {
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
     if (!info) return false
     if (dispatch) dispatch(state.tr.delete(info.pos, info.pos + info.table.nodeSize - 1))
     return true
   }
 }
 
-export function cmdAddColumnAfter(schema: Schema): ShortcutCommand {
+export function cmdAddColumnAfter(schema: Schema, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
+    const sel = state.selection
+    // 矩形内右键:在最右边那格的右边插 1 列(锚定矩形右边界 rect.right)。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const colIdx = rect.right // 右边界(不含)即插入位置
+      const children: PMNode[] = []
+      table.forEach((row) => {
+        const cells = tableChildren(row)
+        cells.splice(colIdx, 0, createCell(schema, row.type.name))
+        children.push(row.type.create(row.attrs, cells))
+      })
+      const newTable = schema.nodes[TABLE].create(table.attrs, children)
+      if (dispatch) {
+        const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(rect.top, 1), colIdx)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
     if (!info) return false
     const { table, pos: tablePos } = info
-    const colIdx = findColIndex(state.selection.$from)
+    const colIdx = findColIndex($from)
     if (colIdx < 0) return false
     const children: PMNode[] = []
     table.forEach((row) => {
@@ -241,7 +404,7 @@ export function cmdAddColumnAfter(schema: Schema): ShortcutCommand {
     })
     const newTable = schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
-      const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
+      const rowIdx = rowIndexForSelection($from, table, tablePos)
       const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, rowIdx), colIdx + 1)
       dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
@@ -249,12 +412,34 @@ export function cmdAddColumnAfter(schema: Schema): ShortcutCommand {
   }
 }
 
-export function cmdAddColumnBefore(schema: Schema): ShortcutCommand {
+export function cmdAddColumnBefore(schema: Schema, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
+    const sel = state.selection
+    // 矩形内右键:在最左边那格的左边插 1 列(锚定矩形左边界 rect.left)。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const colIdx = rect.left // 左边界(含)即插入位置
+      const children: PMNode[] = []
+      table.forEach((row) => {
+        const cells = tableChildren(row)
+        cells.splice(colIdx, 0, createCell(schema, row.type.name))
+        children.push(row.type.create(row.attrs, cells))
+      })
+      const newTable = schema.nodes[TABLE].create(table.attrs, children)
+      if (dispatch) {
+        const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(rect.top, 1), colIdx)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
     if (!info) return false
     const { table, pos: tablePos } = info
-    const colIdx = findColIndex(state.selection.$from)
+    const colIdx = findColIndex($from)
     if (colIdx < 0) return false
     const children: PMNode[] = []
     table.forEach((row) => {
@@ -264,7 +449,7 @@ export function cmdAddColumnBefore(schema: Schema): ShortcutCommand {
     })
     const newTable = schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
-      const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
+      const rowIdx = rowIndexForSelection($from, table, tablePos)
       const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, rowIdx), colIdx)
       dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
@@ -272,13 +457,50 @@ export function cmdAddColumnBefore(schema: Schema): ShortcutCommand {
   }
 }
 
-export function cmdDeleteColumn(schema: Schema): ShortcutCommand {
+export function cmdDeleteColumn(schema: Schema, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const info = findTableWrapper(state.selection.$from)
+    const sel = state.selection
+    // 矩形内右键:删掉矩形覆盖到的所有列;保底留 1 列。
+    if (anchorPos != null && sel instanceof CellSelection) {
+      const rect = rectOfCellSelection(sel)
+      const table = sel.$anchorCell.node(-1)
+      const tableStart = sel.$anchorCell.start(-1)
+      const tablePos = tableStart - 1
+      const numCols = table.child(0).childCount
+      const removeFrom = rect.left
+      const removeTo = Math.min(rect.right, numCols)
+      const removedCols = removeTo - removeFrom
+      if (removedCols <= 0) return false
+      // 矩形覆盖全部列 → 删整张表(无列表格无意义);否则删覆盖列并保底留 1 列。
+      if (numCols - removedCols < 1) {
+        if (dispatch) dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize - 1))
+        return true
+      }
+      const removeIdx = new Set<number>()
+      for (let i = removeFrom; i < removeTo; i++) removeIdx.add(i)
+      const children: PMNode[] = []
+      table.forEach((row) => {
+        const cells = tableChildren(row).filter((_, i) => !removeIdx.has(i))
+        children.push(row.type.create(row.attrs, cells))
+      })
+      const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+      if (dispatch) {
+        const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(rect.top, 1), removeFrom)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
+      return true
+    }
+    const $from = resolveAnchor(state, anchorPos)
+    const info = findTableWrapper($from)
     if (!info) return false
     const { table, pos: tablePos } = info
-    const colIdx = findColIndex(state.selection.$from)
-    if (colIdx < 0 || countCells(table.child(0)) <= 1) return false
+    const colIdx = findColIndex($from)
+    if (colIdx < 0) return false
+    // 仅 1 列(最后一列)→ 删整张表。
+    if (countCells(table.child(0)) <= 1) {
+      if (dispatch) dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize - 1))
+      return true
+    }
     const children: PMNode[] = []
     table.forEach((row) => {
       const cells: PMNode[] = []
@@ -287,7 +509,7 @@ export function cmdDeleteColumn(schema: Schema): ShortcutCommand {
     })
     const newTable = schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
-      const rowIdx = rowIndexForSelection(state.selection.$from, table, tablePos)
+      const rowIdx = rowIndexForSelection($from, table, tablePos)
       const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, rowIdx), colIdx)
       dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
@@ -314,18 +536,48 @@ export function insertTable2x2(schema: Schema): ShortcutCommand {
   }
 }
 
-export function setCellAlignment(alignment: Alignment): ShortcutCommand {
+// 列级对齐。若 anchorPos 存在且为 CellSelection → 把矩形覆盖到的所有列一起对齐;
+// 否则把 anchor(或其所在 $from)的列对齐。两种路径都走整表 replaceWith,保 round-trip。
+// anchorPos 语义 = 右键点中 cell 的 descendants pos(与 doc.descendants 同语义)。
+export function setCellAlignment(alignment: Alignment, anchorPos?: number): ShortcutCommand {
   return (state, dispatch) => {
-    const $from = state.selection.$from
-    for (let d = $from.depth; d > 0; d--) {
-      const node = $from.node(d)
-      if (node.type.name === BODY_CELL || node.type.name === HEADER_CELL) {
-        const cellPos = $from.before(d)
-        const tr = state.tr.setNodeMarkup(cellPos, null, { ...node.attrs, alignment })
-        if (dispatch) dispatch(tr)
-        return true
-      }
+    const $from = anchorPos != null ? state.doc.resolve(anchorPos) : state.selection.$from
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+
+    // 决定要改哪些列:CellSelection 覆盖的所有列,否则只看锚点所在列。
+    let targetCols: number[]
+    const sel = state.selection
+    if (anchorPos != null && sel instanceof CellSelection) {
+      targetCols = columnsOfCellSelection(sel)
+    } else {
+      const colIdx = findColIndex($from)
+      if (colIdx < 0) return false
+      targetCols = [colIdx]
     }
-    return false
+    if (targetCols.length === 0) return false
+
+    const children: PMNode[] = []
+    table.forEach((row) => {
+      const cells: PMNode[] = []
+      row.forEach((cell, _offset, i) => {
+        // 目标列一起改 alignment,非目标列原样复用(保持 content + 其他 attrs)。
+        cells.push(
+          targetCols.includes(i)
+            ? cell.type.create({ ...cell.attrs, alignment }, cell.content)
+            : cell,
+        )
+      })
+      children.push(row.type.create(row.attrs, cells))
+    })
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+    if (dispatch) {
+      const rowIdx = rowIndexForSelection($from, table, tablePos)
+      const offsetCol = targetCols[0]
+      const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(0, rowIdx), offsetCol)
+      dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+    }
+    return true
   }
 }

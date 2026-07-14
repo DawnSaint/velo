@@ -40,6 +40,7 @@ import {
   cmdDeleteColumn,
   setCellAlignment,
 } from '../editor/shortcuts/commands/tableCommands'
+import { CellSelection } from 'prosemirror-tables'
 import { createTableResizeCursorPlugin } from '../plugins/tableResizeCursor'
 import { triggerLinkEdit } from '../editor/shortcuts/commands/linkCommands'
 
@@ -687,29 +688,89 @@ describe("shortcuts: tableResizeCursor plugin", () => {
 })
 
 describe("shortcuts: setCellAlignment", () => {
-  it("设置对齐 → cell attrs.alignment 更新", () => {
-    const { view, cleanup } = mountTable()
-    const cellPos = firstBodyCellPos(view)
+  // 收集整表每列的 alignment,按列优先(外层=列、内层=行,含 header)。
+  // 返回 align[colIdx][rowIdx],方便断言"整列生效、其他列不变"。
+  function collectAlignByColumn(view: EditorView): string[][] {
+    const cols: string[][] = []
+    view.state.doc.descendants((n) => {
+      if (n.type.name === "table") {
+        n.forEach((row) => {
+          row.forEach((_cell, _off, colIdx) => {
+            if (!cols[colIdx]) cols[colIdx] = []
+            cols[colIdx].push((row.child(colIdx).attrs.alignment as string) || "left")
+          })
+        })
+        return false
+      }
+      return true
+    })
+    return cols
+  }
+
+  // 找第 rowIdx 行(0-based,含 header)第 colIdx 列 cell 的"paragraph content start"位置,
+  // 作为 TextSelection 光标落点。沿 table → rowOffset / cellOffset 算绝对位置:
+  //   row descendantsPos = tablePos + 1(open token) + rowOffset
+  //   cell paragraph content start = row descendantsPos + 1(row open) + cellOffset + 1(cell open)
+  // 收集首个 table 的所有 cell 位置,按文档顺序(row-major)。
+  // 返回第 index 个 cell 的 descendants pos(open token 前的 gap position)。
+  // 注:descendants 回调返回 false 会停止下钻;只在 cell 叶子返回 false 跳过其 paragraph 子树。
+  // 收集首个 table 所有 cell 的 descendants pos(open token 前 gap position),按文档顺序(row-major)。
+  function collectCellDescendantsPos(view: EditorView): number[] {
+    const cells: number[] = []
+    view.state.doc.descendants((n, pos) => {
+      if (n.type.name === "table_cell" || n.type.name === "table_header") {
+        cells.push(pos)
+        return false // cell 无需下钻到 paragraph
+      }
+      return true // doc / table / row 继续下钻
+    })
+    return cells
+  }
+
+  // 把光标放到第 index 个 cell 的 paragraph 内容位置(cellPos+2)。
+  function setCursorInCell(view: EditorView, index: number): void {
+    const cells = collectCellDescendantsPos(view)
+    const cellPos = cells[index]
     view.dispatch(
-      view.state.tr.setSelection(
-        TextSelection.create(view.state.doc, cellPos + 1)
-      )
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, cellPos + 2))
     )
+  }
+  it("列级对齐 → 光标所在列(header + body)一起变,其他列不变", () => {
+    const { view, cleanup } = mountTable() // 1 header + 1 body,各 2 cell
+    // cell 文档顺序:h0,h1,b0,b1 → index 2 = body row0 col0
+    setCursorInCell(view, 2)
+
     const result = setCellAlignment("center")(view.state, view.dispatch)
     expect(result).toBe(true)
-    // 找到第一个 cell,检查 attrs
-    let tablePos = -1
-    view.state.doc.descendants((n, pos) => {
-      if (n.type.name === "table" && tablePos === -1) tablePos = pos
-      return true
-    })
-    let targetCellPos = -1
-    view.state.doc.descendants((n, pos) => {
-      if (n.type.name === "table_cell" && targetCellPos === -1) targetCellPos = pos
-      return true
-    })
-    const cell = view.state.doc.nodeAt(targetCellPos!)!
-    expect(cell.attrs.alignment).toBe("center")
+
+    const cols = collectAlignByColumn(view)
+    // 第 1 列整列(1 header + 1 body)= center;第 2 列不变(默认 left)
+    expect(cols[0]).toEqual(["center", "center"])
+    expect(cols[1]).toEqual(["left", "left"])
+    cleanup()
+  })
+
+  it("对齐多行多列的末列 → 仅该列全部行变,两侧列不动", () => {
+    // 1 header + 2 body,各 3 cell,各列预设不同 alignment。
+    const makeCell = (a: string) =>
+      schema.nodes.table_cell.create({ alignment: a }, schema.nodes.paragraph.create())
+    const makeHeader = (a: string) =>
+      schema.nodes.table_header.create({ alignment: a }, schema.nodes.paragraph.create())
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [makeHeader("left"), makeHeader("center"), makeHeader("right")]),
+      schema.nodes.table_row.create(null, [makeCell("left"), makeCell("center"), makeCell("right")]),
+      schema.nodes.table_row.create(null, [makeCell("left"), makeCell("center"), makeCell("right")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // cell 文档顺序:h0,h1,h2,b00,b01,b02,b10,b11,b12 → index 8 = body row1 col2(当前 right)
+    setCursorInCell(view, 8)
+
+    setCellAlignment("center")(view.state, view.dispatch)
+
+    const cols = collectAlignByColumn(view)
+    expect(cols[0]).toEqual(["left", "left", "left"])      // 第 1 列不动
+    expect(cols[1]).toEqual(["center", "center", "center"]) // 第 2 列不动(本来就是 center)
+    expect(cols[2]).toEqual(["center", "center", "center"]) // 第 3 列整列翻成 center
     cleanup()
   })
 
@@ -717,6 +778,42 @@ describe("shortcuts: setCellAlignment", () => {
     const { view, cleanup } = mountView()
     const result = setCellAlignment("center")(view.state, view.dispatch)
     expect(result).toBe(false)
+    cleanup()
+  })
+
+  // CellSelection 矩形内右键对齐:以右键点中格的 descendants pos 为 anchorPos 传入,
+  // 矩形覆盖的所有列一起对齐(选项 A),非覆盖列不动。
+  it("CellSelection 矩形内右键对齐 → 覆盖的所有列一起变,非覆盖列不动", () => {
+    const makeCell = () => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create())
+    const makeHeader = () => schema.nodes.table_header.create(null, schema.nodes.paragraph.create())
+    // 1 header + 3 body,各 4 cell。
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [makeHeader(), makeHeader(), makeHeader(), makeHeader()]),
+      schema.nodes.table_row.create(null, [makeCell(), makeCell(), makeCell(), makeCell()]),
+      schema.nodes.table_row.create(null, [makeCell(), makeCell(), makeCell(), makeCell()]),
+      schema.nodes.table_row.create(null, [makeCell(), makeCell(), makeCell(), makeCell()]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    const cells = collectCellDescendantsPos(view) // h0..h3,b00..b33,共 16
+
+    // 构造 CellSelection:anchor = b00 (index 4),head = b21 (index 13) → 覆盖 col0, col1 的 3 行。
+    const anchorCellPos = cells[4]
+    const headCellPos = cells[13]
+    const anchor = view.state.doc.resolve(anchorCellPos)
+    const head = view.state.doc.resolve(headCellPos)
+    view.dispatch(view.state.tr.setSelection(new CellSelection(anchor, head)))
+
+    // 右键点中矩形内 b10 (index 8) → anchorPos = 它的 descendants pos。
+    const clickCellPos = cells[8]
+    const ok = setCellAlignment("center", clickCellPos)(view.state, view.dispatch)
+    expect(ok).toBe(true)
+
+    const cols = collectAlignByColumn(view)
+    // col0 / col1 = center(被矩形覆盖); col2 / col3 = left(未覆盖,默认)。
+    expect(cols[0]).toEqual(["center", "center", "center", "center"])
+    expect(cols[1]).toEqual(["center", "center", "center", "center"])
+    expect(cols[2]).toEqual(["left", "left", "left", "left"])
+    expect(cols[3]).toEqual(["left", "left", "left", "left"])
     cleanup()
   })
 })
