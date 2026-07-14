@@ -1,4 +1,5 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
+
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
 // - 历史 / dropCursor / gapCursor 走 prosemirror-* 官方插件
@@ -8,7 +9,7 @@
 // - modelValue 外部变化时(切文件 / CLI 打开 / fs:watch 同步)→ 直接 view.updateState
 //   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
-import { nextTick, onBeforeUnmount, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorState, Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import { inputRules, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
@@ -36,6 +37,74 @@ import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
 import { createImageEditPlugin, imageEditEscapeKeymap } from './image/imageEditPlugin'
+import {
+  registerTableEditorView,
+  unregisterTableEditorView,
+  hasTableEditorView,
+  runTableCommand,
+  runSetCellAlignment,
+} from './editor/tableEditor'
+import { schema as veloSchema } from './editor/schema'
+import {
+  cmdAddRowAfter,
+  cmdAddRowBefore,
+  cmdDeleteRow,
+  cmdAddColumnAfter,
+  cmdAddColumnBefore,
+  cmdDeleteColumn,
+  cmdDeleteTable,
+} from './editor/shortcuts/commands/tableCommands'
+// Pre-bind commands with schema
+const addRowAfter = cmdAddRowAfter(veloSchema)
+const addRowBefore = cmdAddRowBefore(veloSchema)
+const deleteRow = cmdDeleteRow(veloSchema)
+const addColumnAfter = cmdAddColumnAfter(veloSchema)
+const addColumnBefore = cmdAddColumnBefore(veloSchema)
+const deleteColumn = cmdDeleteColumn(veloSchema)
+const deleteTable = cmdDeleteTable(veloSchema)
+import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
+import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
+
+// ============ 表格上下文菜单状态 + handler ============
+const showTableMenu = ref(false)
+const tableMenuX = ref(0)
+const tableMenuY = ref(0)
+
+function onTableMenuAction(action: string) {
+  if (!hasTableEditorView()) return
+  switch (action) {
+    case 'add-row-after':
+      runTableCommand(addRowAfter)
+      break
+    case 'add-row-before':
+      runTableCommand(addRowBefore)
+      break
+    case 'delete-row':
+      runTableCommand(deleteRow)
+      break
+    case 'add-column-left':
+      runTableCommand(addColumnBefore)
+      break
+    case 'add-column-right':
+      runTableCommand(addColumnAfter)
+      break
+    case 'delete-column':
+      runTableCommand(deleteColumn)
+      break
+    case 'align-left':
+      runSetCellAlignment('left')
+      break
+    case 'align-center':
+      runSetCellAlignment('center')
+      break
+    case 'align-right':
+      runSetCellAlignment('right')
+      break
+    case 'delete-table':
+      runTableCommand(deleteTable)
+      break
+  }
+}
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
@@ -55,7 +124,9 @@ import { frontmatterEnterCommand } from './syntax/block/frontmatter'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
 import { buildShortcutKeymap } from './editor/shortcuts'
+import TableContextMenu from './TableContextMenu.vue'
 import { useDocumentStore } from '@/stores/document'
+import { useContextMenu } from '../../composables/useContextMenu'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromDoc, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
@@ -315,8 +386,16 @@ const basePlugins: Plugin[] = [
   tabIndent,
   // 表格:列宽拖拽 + 单元格选中/Tab 导航/复制粘贴。
   // columnResizing 必须在 tableEditing 之前(列宽拖柄优先响应鼠标事件)。
-  columnResizing({ handleWidth: 4, cellMinWidth: 24, lastColumnResizable: false }),
+  columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }),
   tableEditing(),
+  createTableResizeCursorPlugin(),
+  createTableContextMenuPlugin({
+    onTableContextMenu: (_cellPos, x, y) => {
+      tableMenuX.value = x
+      tableMenuY.value = y
+      showTableMenu.value = true
+    },
+  }),
   dollarEnterToMathBlock,
   imageKeymapPlugin,
   imageUploadPlugin,
@@ -581,6 +660,8 @@ onReady: () => {
 mounted = true
 emitCursorPosition()
 emitHeadingContext()
+    const view = getView()
+    if (view) registerTableEditorView(view)
   },
 })
 
@@ -619,7 +700,33 @@ function focusEditor() {
 
 defineExpose({ focusEditor, getEditorView: getView, containerRef })
 
+// 表格右键菜单:点击外部/滚动时关闭
+const tableMenuRef = ref<InstanceType<typeof TableContextMenu> | null>(null)
+useContextMenu({
+  isOpen: () => showTableMenu.value,
+  getMenuEl: () => tableMenuRef.value?.rootEl ?? null,
+  close: () => { showTableMenu.value = false },
+})
+
+// 滚动/滚轮时关闭表格菜单(避免菜单与表格脱节)
+function closeTableMenuOnScroll() {
+  if (showTableMenu.value) showTableMenu.value = false
+}
+onMounted(() => {
+  // 监听编辑器根容器的 wheel/scroll 事件,滚动时关闭菜单
+  const el = containerRef.value
+  if (el) {
+    el.addEventListener('wheel', closeTableMenuOnScroll, { passive: true })
+    el.addEventListener('scroll', closeTableMenuOnScroll, { passive: true })
+  }
+})
 onBeforeUnmount(() => {
+  const el = containerRef.value
+  if (el) {
+    el.removeEventListener('wheel', closeTableMenuOnScroll)
+    el.removeEventListener('scroll', closeTableMenuOnScroll)
+  }
+  unregisterTableEditorView()
   // useProseMirror 内部已 destroy
 })
 </script>
@@ -627,4 +734,12 @@ onBeforeUnmount(() => {
 <template>
   <!-- 挂载容器:ref 拿给 useProseMirror 内部 EditorView 挂 contentDOM 用 -->
   <div ref="containerRef" class="velo-editor-mount h-full w-full" data-testid="pm-editor" />
+  <TableContextMenu
+    v-if="showTableMenu"
+    ref="tableMenuRef"
+    :x="tableMenuX"
+    :y="tableMenuY"
+    @action="onTableMenuAction"
+    @close="showTableMenu = false"
+  />
 </template>

@@ -8,7 +8,6 @@
     overflow-x: auto;
     margin: 1em 0;
     position: relative;
-    cursor: default;
 
     // 对齐 code_block 滚动条:小可见 + hover 更大触发范围 + default 指针
     &::-webkit-scrollbar {
@@ -82,8 +81,8 @@
   }
 
   .resize-cursor {
-    cursor: ew-resize;
     cursor: col-resize;
+    cursor: ew-resize;
   }
 
   // 单元格选中态蓝遮罩(tableEditing 的 CellSelection 给 cell 加 .selectedCell)

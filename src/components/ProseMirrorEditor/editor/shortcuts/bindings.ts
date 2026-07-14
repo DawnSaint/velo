@@ -15,7 +15,13 @@ import { registerShortcut } from './registry'
 import { toggleMarkWithWrap } from './commands/markCommands'
 import { setHeading, setParagraph } from './commands/blockCommands'
 import { wrapInBulletList, wrapInOrderedList, wrapInBlockquote, wrapInCodeBlock } from './commands/listCommands'
-import { insertTable2x2 } from './commands/tableCommands'
+import {
+  insertTable2x2,
+  cmdAddRowAfter,
+  cmdAddRowBefore,
+  cmdDeleteRow,
+  cmdDeleteColumn,
+} from './commands/tableCommands'
 import { triggerLinkEdit } from './commands/linkCommands'
 import { schema } from '../schema'
 
@@ -118,5 +124,31 @@ registerShortcut({
   key: 'Mod-t',
   command: insertTable2x2(schema),
   label: '插入 2x2 表格',
+  group: 'table',
+})
+
+// —— 表格操作快捷键(仅在表格内生效) ——
+registerShortcut({
+  key: 'Mod-Enter',
+  command: cmdAddRowAfter(schema),
+  label: '表格:下方插入行',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Mod-Shift-Enter',
+  command: cmdAddRowBefore(schema),
+  label: '表格:上方插入行',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Mod-Backspace',
+  command: cmdDeleteRow(schema),
+  label: '表格:删除当前行',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Mod-Shift-Backspace',
+  command: cmdDeleteColumn(schema),
+  label: '表格:删除当前列',
   group: 'table',
 })
