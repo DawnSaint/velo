@@ -1,4 +1,4 @@
-﻿// 表格 —— 极淡边框 / 白底 / 灰 hover / 选中态蓝遮罩。
+// 表格 —— 极淡边框 / 白底 / 灰 hover / 选中态蓝遮罩。
 // 布局走 table-layout: fixed + width: 100%(内联在 <table> 上由 columnResizing 的
 // TableView 设置),横向溢出交给外层 .tableWrapper 滚动,不撑开编辑器视区。
 
@@ -6,7 +6,7 @@
   // 表格滚动外壳(columnResizing 的 TableView 渲染时自动创建)
   .tableWrapper {
     overflow-x: auto;
-    margin: 1em 0;
+    margin: 1.8em 0 1em 0;
     position: relative;
 
     // 对齐 code_block 滚动条:小可见 + hover 更大触发范围 + default 指针
@@ -112,6 +112,63 @@
   }
 }
 
+// ============ 行列插入浮层(挂 document.body,全局选择器) ============
+// 飞书风格:鼠标在表格内时,每条行/列分割线外侧显示灰色小圆点;
+// hover 圆点时圆点变蓝放大 + 显示 "+" 图标 + 高亮引导线。
+// 圆点 20px 命中区(固定),内含 6px 灰点(::before) + "+" SVG(默认隐藏)。
+
+.velo-t-insert-dot {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+
+  // 灰色小圆点(6px) — 默认形态
+  &::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #c0c4cc;
+    transition: width 0.15s ease, height 0.15s ease, background 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  // "+" 图标 — 默认隐藏,hover 时显示
+  svg {
+    position: absolute;
+    opacity: 0;
+    color: #ffffff;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+
+  // hover:圆点变蓝放大 + 显示 "+"
+  &:hover::before {
+    width: 20px;
+    height: 20px;
+    background: #3370ff;
+    box-shadow: 0 1px 4px rgba(51, 112, 255, 0.35);
+  }
+
+  &:hover svg {
+    opacity: 1;
+  }
+}
+
+.velo-t-insert-guide {
+  position: fixed;
+  z-index: 999;
+  display: none; // JS 控制显示
+  pointer-events: none;
+  background: #3370ff;
+}
+
 // ============ 暗色模式 ============
 
 :is(.dark .velo-editor, .velo-editor.dark) {
@@ -128,4 +185,18 @@
   --velo-table-row-hover: rgba(255, 255, 255, 0.04);
   --velo-table-selection: rgba(51, 112, 255, 0.2);
   --velo-table-resize-handle: #4d8eff;
+}
+
+// 暗色模式:插入浮层在 document.body 上,读不到 .velo-editor 的 CSS 变量,
+// 用全局 .dark 选择器覆盖。
+:is(.dark) .velo-t-insert-dot::before {
+  background: #5c6066;
+}
+
+:is(.dark) .velo-t-insert-dot:hover::before {
+  background: #4d8eff;
+}
+
+:is(.dark) .velo-t-insert-guide {
+  background: #4d8eff;
 }

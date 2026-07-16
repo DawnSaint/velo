@@ -142,9 +142,8 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 ### 编辑器增强
 
 - [ ] **表格增强** `#table-enhance` `P2` `L` `?`
-  - 行列增删的浮层操作（hover 行/列头出现 + / 删除按钮）
-  - 单元格对齐（left / center / right 切换）
-  - 整表格拖拽（移动表格在文档中的位置）
+  - [x] 单元格对齐（left / center / right 切换）
+  - [ ] 整表格拖拽（移动表格在文档中的位置）
 
 - [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [RESEARCH](./research/block-drag-reorder.md)
   - 调研结论：中偏高复杂度，建议先做 PoC（仅 paragraph 之间），验证几何同步 + drop preview 再扩到列表语义

@@ -128,27 +128,33 @@ registerShortcut({
 })
 
 // —— 表格操作快捷键(仅在表格内生效) ——
+// tableAction 与 TableContextMenu.vue 的 TableAction 枚举对齐,同条目会
+// 在右键菜单中展示快捷键;未加 tableAction 的表快捷键(如 Mod-t 插入表格)不在菜单显示。
 registerShortcut({
   key: 'Mod-Enter',
   command: cmdAddRowAfter(schema),
   label: '表格:下方插入行',
   group: 'table',
+  tableAction: 'add-row-after',
 })
 registerShortcut({
   key: 'Mod-Shift-Enter',
   command: cmdAddRowBefore(schema),
   label: '表格:上方插入行',
   group: 'table',
+  tableAction: 'add-row-before',
 })
 registerShortcut({
   key: 'Mod-Backspace',
   command: cmdDeleteRow(schema),
   label: '表格:删除当前行',
   group: 'table',
+  tableAction: 'delete-row',
 })
 registerShortcut({
   key: 'Mod-Shift-Backspace',
   command: cmdDeleteColumn(schema),
   label: '表格:删除当前列',
   group: 'table',
+  tableAction: 'delete-column',
 })

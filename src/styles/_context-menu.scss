@@ -6,6 +6,8 @@
 
 .ctx-menu-item {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: calc(100% - 0.5rem);
   margin: 0 0.25rem;
   padding: 0.5rem;
@@ -22,6 +24,26 @@
     &:hover {
       background: rgb(55 65 81); // gray-700
     }
+  }
+}
+
+.ctx-menu-item__label {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+// 菜单项右侧快捷键提示:等宽小字、灰色(label)、与文本留间隙。
+.ctx-menu-item__key {
+  flex: 0 0 auto;
+  margin-left: 1.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.65rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: rgb(156 163 175); // gray-400
+
+  html.dark & {
+    color: rgb(107 114 128); // gray-500
   }
 }
 

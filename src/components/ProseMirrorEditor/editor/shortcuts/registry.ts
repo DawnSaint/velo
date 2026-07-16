@@ -35,6 +35,12 @@ export interface ShortcutSpec {
   label: string
   /** 分组(text / block / table / system),仅作 UI 展示 */
   group: 'text' | 'block' | 'table' | 'system'
+  /**
+   * 可选 -- 与一个 TableAction 值绑定。右键表格菜单依此在当前菜单项旁展示该快捷键,
+   * 未绑定 / 未注册的表格快捷键不在菜单里出现("如果有的话")。
+   * 串型用 TableAction 魔术字符串,registry 不依赖 TableContextMenu 避免循环导入。
+   */
+  tableAction?: string
 }
 
 const _registry: ShortcutSpec[] = []
@@ -48,6 +54,43 @@ export function registerShortcut(spec: ShortcutSpec): void {
 
 export function getShortcuts(): readonly ShortcutSpec[] {
   return _registry
+}
+
+/**
+ * 读取注册表,返回 tableAction → prosemirror-key 字符串的映射。
+ * 仅含声明了 tableAction 的表格快捷键("如果有的话"的权威来源)。
+ */
+export function getTableActionShortcutMap(): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const s of _registry) {
+    if (s.tableAction) map[s.tableAction] = s.key
+  }
+  return map
+}
+
+// 平台判定:Mac 走 ⌘  glyphs,其它平台走 Ctrl / Shift 字样(与 FootnoteNodeViews 一致)。
+let _isMac: boolean | null = null
+function isMac(): boolean {
+  if (_isMac === null) {
+    const p = (typeof navigator !== 'undefined' && (navigator.platform || navigator.userAgent)) || ''
+    _isMac = /Mac|iPhone|iPad/.test(p)
+  }
+  return _isMac
+}
+
+/**
+ * 把 prosemirror-keymap 字符串 (如 'Mod-Shift-Enter') 格式化成菜单展示串。
+ *   Mac → '⌘+⇧+Enter'    非 Mac → 'Ctrl+Shift+Enter'
+ * 仅处理 Mod / Shift 两个 modifier,'-' 作为 token 分隔符,未知 token 首字母大写。
+ */
+export function formatShortcutKey(key: string): string {
+  const tokens = key.split('-')
+  const labels = tokens.map((tok) => {
+    if (tok === 'Mod') return isMac() ? '⌘' : 'Ctrl'
+    if (tok === 'Shift') return isMac() ? '⇧' : 'Shift'
+    return tok.charAt(0).toUpperCase() + tok.slice(1)
+  })
+  return labels.join('+')
 }
 
 /**

@@ -53,8 +53,12 @@ import {
   cmdAddColumnBefore,
   cmdDeleteColumn,
   cmdDeleteTable,
+  cmdMoveRow,
+  cmdMoveColumn,
 } from './editor/shortcuts/commands/tableCommands'
-// Pre-bind commands with schema(anchorPos 保留给菜单注入)。
+// Pre-bind commands with schema。
+// add/delete/align/deleteTable 仍靠 tableMenuAnchorPos 注入锚点;
+// moveRow/moveColumn 改读 state.selection(CellSelection 矩形),不再传 anchor。
 const addRowAfter = (anchorPos?: number) => cmdAddRowAfter(veloSchema, anchorPos)
 const addRowBefore = (anchorPos?: number) => cmdAddRowBefore(veloSchema, anchorPos)
 const deleteRow = (anchorPos?: number) => cmdDeleteRow(veloSchema, anchorPos)
@@ -62,8 +66,13 @@ const addColumnAfter = (anchorPos?: number) => cmdAddColumnAfter(veloSchema, anc
 const addColumnBefore = (anchorPos?: number) => cmdAddColumnBefore(veloSchema, anchorPos)
 const deleteColumn = (anchorPos?: number) => cmdDeleteColumn(veloSchema, anchorPos)
 const deleteTable = (anchorPos?: number) => cmdDeleteTable(veloSchema, anchorPos)
+const moveRowUp = () => cmdMoveRow(-1)
+const moveRowDown = () => cmdMoveRow(1)
+const moveColLeft = () => cmdMoveColumn(-1)
+const moveColRight = () => cmdMoveColumn(1)
 import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
+import { createTableInsertHandlePlugin } from './plugins/tableInsertHandle'
 
 // ============ 表格上下文菜单状态 + handler ============
 const showTableMenu = ref(false)
@@ -76,6 +85,10 @@ const tableMenuAnchorPos = ref<number | null>(null)
 const tableMenuInHeader = ref(false)
 // 触发右键时是否存在 CellSelection(多格拖蓝)。
 const tableMenuIsCellSelection = ref(false)
+// 隐藏"上/下移该行":header 行不可移动。
+const tableMenuHideMoveRow = ref(false)
+// 隐藏"左/右移该列":单列表格无列移动意义。
+const tableMenuHideMoveColumn = ref(false)
 
 function onTableMenuAction(action: string) {
   if (!hasTableEditorView()) return
@@ -87,6 +100,12 @@ function onTableMenuAction(action: string) {
     case 'add-row-before':
       runTableCommand(addRowBefore(anchor))
       break
+    case 'move-row-up':
+      runTableCommand(moveRowUp())
+      break
+    case 'move-row-down':
+      runTableCommand(moveRowDown())
+      break
     case 'delete-row':
       runTableCommand(deleteRow(anchor))
       break
@@ -95,6 +114,12 @@ function onTableMenuAction(action: string) {
       break
     case 'add-column-right':
       runTableCommand(addColumnAfter(anchor))
+      break
+    case 'move-column-left':
+      runTableCommand(moveColLeft())
+      break
+    case 'move-column-right':
+      runTableCommand(moveColRight())
       break
     case 'delete-column':
       runTableCommand(deleteColumn(anchor))
@@ -113,6 +138,21 @@ function onTableMenuAction(action: string) {
       break
   }
 }
+
+// 从 anchorPos 解析出所在 table 的列数;列数 ≤ 1 → 隐藏列移动。
+function computeTableMenuHideMoveColumn(anchorPos: number): boolean {
+  const view = getView()
+  if (!view) return true
+  const $from = view.state.doc.resolve(anchorPos)
+  for (let d = $from.depth; d > 0; d--) {
+    const n = $from.node(d)
+    if (n.type.name === 'table') {
+      return n.child(0).childCount <= 1
+    }
+  }
+  return true
+}
+
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
@@ -397,6 +437,16 @@ const basePlugins: Plugin[] = [
   columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }),
   tableEditing(),
   createTableResizeCursorPlugin(),
+  createTableInsertHandlePlugin({
+    onInsert: (cellPos, type, dir) => {
+      if (!hasTableEditorView()) return
+      if (type === 'row') {
+        runTableCommand(dir === 'before' ? addRowBefore(cellPos) : addRowAfter(cellPos))
+      } else {
+        runTableCommand(dir === 'before' ? addColumnBefore(cellPos) : addColumnAfter(cellPos))
+      }
+    },
+  }),
   createTableContextMenuPlugin({
     onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
       tableMenuAnchorPos.value = clickCellPos
@@ -404,6 +454,10 @@ const basePlugins: Plugin[] = [
       tableMenuIsCellSelection.value = isCellSelection
       tableMenuX.value = x
       tableMenuY.value = y
+      // 计算移动按钮的隐藏标志
+      tableMenuHideMoveRow.value = inHeader
+      // 单列表格隐藏列移动
+      tableMenuHideMoveColumn.value = computeTableMenuHideMoveColumn(clickCellPos)
       showTableMenu.value = true
     },
   }),
@@ -751,6 +805,8 @@ onBeforeUnmount(() => {
     :x="tableMenuX"
     :y="tableMenuY"
     :hide-delete-row="tableMenuInHeader && !tableMenuIsCellSelection"
+    :hide-move-row="tableMenuHideMoveRow"
+    :hide-move-column="tableMenuHideMoveColumn"
     @action="onTableMenuAction"
     @close="showTableMenu = false"
   />

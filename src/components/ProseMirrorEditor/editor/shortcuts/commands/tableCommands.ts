@@ -180,6 +180,42 @@ function dispatchReplaceWithCursor(
   dispatch(tr.setSelection(TextSelection.near(newDoc.resolve(clamped))).scrollIntoView())
 }
 
+// 新表中 (rowIdx,colIdx) cell 在外部 doc 的 descendants pos(open token 前的 gap position)。
+// 算法:tablePos(= table descendants pos)+ table open token(1)+ 前序所有行 nodeSize 之和
+//   + row open token(1)+ 前序所有 cell nodeSize 之和。与 rowIndexForSelection 同语义。
+function cellOpenGapAbs(newTable: PMNode, tablePos: number, rowIdx: number, colIdx: number): number {
+  let rel = 0
+  for (let i = 0; i < rowIdx && i < newTable.childCount; i++) rel += newTable.child(i).nodeSize
+  const row = newTable.child(rowIdx)
+  const safeCol = row ? Math.max(0, Math.min(colIdx, row.childCount - 1)) : 0
+  for (let i = 0; i < safeCol; i++) rel += row.child(i).nodeSize
+  return tablePos + rel + 2
+}
+
+// 移动专用 dispatch:replaceWith 整表后,在新 doc 重建 CellSelection,覆盖「移动后块」。
+//   行块原 [top,bottom) 移动方向 ±1 → 新 [top+d,bottom+d);anchor 取块首格(newTop,newLeft),
+//   head 取块末格(newBottom-1,newRight-1)。列块对称:newLeft/newRight,newTop/newBottom 不变。
+function dispatchReplaceKeepingCellSelection(
+  state: import("prosemirror-state").EditorState,
+  dispatch: (tr: import("prosemirror-state").Transaction) => void,
+  tablePos: number,
+  oldTableSize: number,
+  newTable: PMNode,
+  // 移动后块的新矩形(含/不含边界同 rect 语义)。
+  newTop: number,
+  newBottom: number,
+  newLeft: number,
+  newRight: number,
+) {
+  const tr = state.tr.replaceWith(tablePos, tablePos + oldTableSize, newTable)
+  const newDoc = tr.doc
+  const anchorAbs = cellOpenGapAbs(newTable, tablePos, newTop, newLeft)
+  const headAbs = cellOpenGapAbs(newTable, tablePos, Math.max(0, newBottom - 1), Math.max(0, newRight - 1))
+  const anchor = newDoc.resolve(Math.max(1, Math.min(anchorAbs, newDoc.content.size - 1)))
+  const head = newDoc.resolve(Math.max(1, Math.min(headAbs, newDoc.content.size - 1)))
+  dispatch(tr.setSelection(new CellSelection(anchor, head)).scrollIntoView())
+}
+
 // 由 anchorPos(右键点中的 cell descendants pos)解析出 $from。
 // anchorPos 为空 → 退到 selection.$from(兼容非菜单触发场景)。
 function resolveAnchor(state: import("prosemirror-state").EditorState, anchorPos?: number) {
@@ -405,7 +441,8 @@ export function cmdAddColumnAfter(schema: Schema, anchorPos?: number): ShortcutC
     const newTable = schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
       const rowIdx = rowIndexForSelection($from, table, tablePos)
-      const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, rowIdx), colIdx + 1)
+      const cursorRow = rowIdx === 0 ? 0 : Math.max(1, rowIdx)
+      const offsetInContent = cellOffsetInNewTableContent(newTable, cursorRow, colIdx + 1)
       dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
     return true
@@ -450,7 +487,8 @@ export function cmdAddColumnBefore(schema: Schema, anchorPos?: number): Shortcut
     const newTable = schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
       const rowIdx = rowIndexForSelection($from, table, tablePos)
-      const offsetInContent = cellOffsetInNewTableContent(newTable, Math.max(1, rowIdx), colIdx)
+      const cursorRow = rowIdx === 0 ? 0 : Math.max(1, rowIdx)
+      const offsetInContent = cellOffsetInNewTableContent(newTable, cursorRow, colIdx)
       dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
     }
     return true
@@ -580,4 +618,113 @@ export function setCellAlignment(alignment: Alignment, anchorPos?: number): Shor
     }
     return true
   }
+}
+
+// 移动行:direction = -1 上移, +1 下移。
+//
+// 当 state.selection 为 CellSelection 时,把矩形覆盖的所有行 [rect.top,rect.bottom) 当作
+// 一个整块,与相邻行做块 swap(不是逐行独立 swap,保时块内行顺序)。
+//   - 上移:抽出 rect.top-1 那行(邻居),插到块尾之后 → 块整体上移一位。
+//   - 下移:抽出 rect.bottom 那行(邻居),插到块头之前 → 块整体下移一位。
+// 边界整块 noop(false):块触 header(rect.top < 1);上移时邻居 rect.top-1 < 1;
+// 下移时邻居 rect.bottom 不存在(>= children.length)。
+//
+// 非 CellSelection(光标在单 cell 内,非矩形拖蓝)→ noop(false):移动命令依赖矩形锚定块范围。
+export function cmdMoveRow(direction: number): ShortcutCommand {
+  return (state, dispatch) => {
+    const sel = state.selection
+    if (!(sel instanceof CellSelection)) return false
+    const rect = rectOfCellSelection(sel)
+    const top = rect.top, bottom = rect.bottom
+    // 矩形必须落在 body 区内(rect.top >= 1),否则 noop。
+    if (top < 1) return false
+    const table = sel.$anchorCell.node(-1)
+    const tableStart = sel.$anchorCell.start(-1)
+    const tablePos = tableStart - 1
+    const children = tableChildren(table)
+    if (direction === -1) {
+      // 上移:邻居 = top-1,要求 >= 1(不可越过 header)。
+      if (top - 1 < 1) return false
+      const [neighbor] = children.splice(top - 1, 1)
+      children.splice(bottom - 1, 0, neighbor)
+    } else {
+      // 下移:邻居 = bottom,要求 < children.length(不可越过末行)。
+      if (bottom >= children.length) return false
+      const [neighbor] = children.splice(bottom, 1)
+      children.splice(top, 0, neighbor)
+    }
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+    if (dispatch) {
+      // 行块移动后矩形仍覆盖 [top+d,bottom+d),左/右界不变。
+      dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, top + direction, bottom + direction, rect.left, rect.right)
+    }
+    return true
+  }
+}
+
+// 移动列:direction = -1 左移, +1 右移。
+//
+// 当 state.selection 为 CellSelection 时,把矩形覆盖的所有列 [rect.left,rect.right) 当作
+// 一个整块,在每一行内与相邻列做块 splice,保块内列顺序。
+//   - 左移:抽出 rect.left-1 那列(邻居),插到 block 尾之后。
+//   - 右移:抽出 rect.right 那列(邻居),插到 block 头之前。
+// 边界 noop:rect.left <= 0 不可左;rect.right >= numCols 不可右。
+//
+// 非 CellSelection → noop(false)。
+export function cmdMoveColumn(direction: number): ShortcutCommand {
+  return (state, dispatch) => {
+    const sel = state.selection
+    if (!(sel instanceof CellSelection)) return false
+    const rect = rectOfCellSelection(sel)
+    const left = rect.left, right = rect.right
+    const numCols = right - left
+    const table = sel.$anchorCell.node(-1)
+    const tableStart = sel.$anchorCell.start(-1)
+    const tablePos = tableStart - 1
+    // 矩形必须至少含 1 列;左移不可越过首列,右移不可越过末列。
+    if (left < 0 || numCols < 1) return false
+    const maxCol = table.child(0).childCount
+    if (direction === -1) {
+      if (left < 1) return false
+    } else {
+      if (right >= maxCol) return false
+    }
+
+    const newChildren: PMNode[] = []
+    table.forEach((row) => {
+      const cells = tableChildren(row)
+      const swapped = swapColumns(cells, left, right, direction)
+      if (!swapped) return false as never
+      newChildren.push(row.type.create(row.attrs, swapped))
+    })
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, newChildren)
+    if (dispatch) {
+      // 列块移动后矩形仍覆盖 [left+d,right+d),上/下界不变。
+      dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, rect.top, rect.bottom, left + direction, right + direction)
+    }
+    return true
+  }
+}
+
+// 单步列交换:单列 rect 直接 swap 相邻两列;多列 rect 抽出相邻列、插到块另一端(块旋转保序)。
+//   - 左移(-1):抽出 cells[left-1](左邻),插到 right-1(块尾)。
+//   - 右移(+1):抽出 cells[right](右邻),插到 left(块头)。
+function swapColumns(cells: PMNode[], left: number, right: number, direction: number): PMNode[] | false {
+  if (right - left === 1) {
+    // 单列:单步相邻 swap。
+    const a = direction === -1 ? left - 1 : left
+    const b = direction === -1 ? left : right
+    if (a < 0 || b >= cells.length) return false
+    const tmp = cells[a]; cells[a] = cells[b]; cells[b] = tmp
+    return cells
+  }
+  // 多列块:抽出相邻列,插到块另一端。
+  if (direction === -1) {
+    const [neighbor] = cells.splice(left - 1, 1)
+    cells.splice(right - 1, 0, neighbor)
+  } else {
+    const [neighbor] = cells.splice(right, 1)
+    cells.splice(left, 0, neighbor)
+  }
+  return cells
 }
