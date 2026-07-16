@@ -31,6 +31,19 @@
   .ProseMirror ::selection {
     background: #b4d5ff;
   }
+
+  // CellSelection(prosemirror-tables 拖蓝多选 / 行列拾取条整行整列选中)时,
+  // PM 给 .ProseMirror 加 .ProseMirror-hideselection class(selection.visible=false)。
+  // 该 class 须把 ::selection 透明化 + 隐藏 caret,否则拖拽产生的原生文本选区
+  // 仍高亮在最后一个 cell 上(看起来像文字被选中,而非 cell 被选中)。
+  // 正常应由 prosemirror-view/style/prosemirror.css 提供,但本项目未引入该 CSS,
+  // 在此补齐等价规则。特异性高于上面的 .ProseMirror ::selection,优先生效。
+  .ProseMirror.ProseMirror-hideselection ::selection {
+    background: transparent;
+  }
+  .ProseMirror.ProseMirror-hideselection {
+    caret-color: transparent;
+  }
 }
 
 // 查找替换高亮(PM findHighlightPlugin / CM6 cmFindHighlightField 加的 Decoration)。

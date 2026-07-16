@@ -61,6 +61,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
 
 - [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持） `P2` `S` `← #ci-pipeline`
+- [ ] **表格操作 + Ctrl+Z 后文档仍为脏(dirty),即便内容视觉上回到原始状态** `P2` `M`  **复现**:打开 `sample.md`(含表格以外的其他语法块,如 math / footnote / image / html inline 等),在表格内做加行/加列等任一变异操作后再 `Ctrl+Z` 撤销 —— 表格视觉回到原样,但标签页仍显示"已修改未保存"。**暂未定位根因**(纯 ProseMirror 历史 undo 本身已探针验证能一字不差回到操作前内容 `undo_probe.txt`,因此脏位不归零的路径在 store 同步 / markdownIO round-trip / checkExternalChange 链路,而非 PM 历史)。**触发条件猜测**:markdownIO 对某些节点(非表格)round-trip 不稳定(`toMarkdown(fromMarkdown(s))` 的"稳态 canonical"≠用户 undo 后再序列化的结果),字节不等 → `dirty = content !== lastSavedContent` 永不归零。**所需样例**:一份能复现的最小 `sample.md`(业务数据可隐去,但须保留"触发该缺陷的非表格语法 + 一个表格"的组合)。拿到后跑 `toMarkdown(fromMarkdown(s))` vs undo 后再序列化的首个字节分叉点一次性回填修复
 
 
 
@@ -143,7 +144,12 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 - [ ] **表格增强** `#table-enhance` `P2` `L` `?`
   - [x] 单元格对齐（left / center / right 切换）
-  - [ ] 整表格拖拽（移动表格在文档中的位置）
+  - [x] 行/列移动（整块 block-swap；触边/触顶静默取消；移动后保持 CellSelection 以连续移动）
+  - [x] 撤销光标落点（新增列后光标落到新增列 header；Ctrl+Z 不再跳文档顶部）
+  - [x] 插入行列灰点（selection-in-table 驱动显隐；横向滚动跟随/裁切到容器可见区）
+  - [x] 右键菜单快捷键展示（已注册的 4 个 table 快捷键右对齐等宽小字提示,Mod- → Ctrl/⌘）
+  - [x] **飞书式选中行/列**（行左/列顶灰条 `position:fixed`,click `CellSelection` 整行/整列,`.is-active` 主题色高亮；灰点范式：`document.body` + 滚动容器参考点可见性裁切 + selection-in-table 显隐）
+  - [ ] handler 拖拽可选中多行/多列，选中状态的 handler 可实现多行/多列拖拽
 
 - [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [RESEARCH](./research/block-drag-reorder.md)
   - 调研结论：中偏高复杂度，建议先做 PoC（仅 paragraph 之间），验证几何同步 + drop preview 再扩到列表语义

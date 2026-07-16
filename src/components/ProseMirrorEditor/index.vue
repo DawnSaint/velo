@@ -85,7 +85,7 @@ defineExpose({ getEditorView })
 <template>
   <div
     :style="editorStyle"
-    class="relative flex-1 bg-white dark:bg-[#1e1e1e]"
+    class="relative flex-1 min-w-0 bg-white dark:bg-[#1e1e1e]"
     @click="onCardClick"
   >
     <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">
@@ -94,7 +94,7 @@ defineExpose({ getEditorView })
           'dark': props.darkMode,
           'focus-mode': props.focusMode,
         }"
-        class="velo-editor h-full w-full max-w-[64vw]"
+        class="velo-editor h-full w-full min-w-0 max-w-[64vw]"
       >
         <!--
           modelValue 外部变化(切文件 / CLI 打开 / fs:watch 同步)→ EditorInner

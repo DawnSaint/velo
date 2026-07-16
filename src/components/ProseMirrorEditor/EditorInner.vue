@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -73,6 +73,7 @@ const moveColRight = () => cmdMoveColumn(1)
 import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 import { createTableInsertHandlePlugin } from './plugins/tableInsertHandle'
+import { createTableCellInputGuardPlugin } from './plugins/tableCellInputGuard'
 
 // ============ 表格上下文菜单状态 + handler ============
 const showTableMenu = ref(false)
@@ -436,6 +437,7 @@ const basePlugins: Plugin[] = [
   // columnResizing 必须在 tableEditing 之前(列宽拖柄优先响应鼠标事件)。
   columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }),
   tableEditing(),
+  createTableCellInputGuardPlugin(),
   createTableResizeCursorPlugin(),
   createTableInsertHandlePlugin({
     onInsert: (cellPos, type, dir) => {

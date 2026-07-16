@@ -169,6 +169,49 @@
   background: #3370ff;
 }
 
+// ============ 行列拾取条(飞书风格,挂 document.body) ============
+// 行条:紧贴表格左外边框,高度 = 整行高;列条:紧贴表格顶外边框,宽度 = 整列宽。
+// 中间条矩形贴合(无圆角);只有首/末条在靠表格外侧的一侧加圆角(整齐+柔和)。
+// hover 仅微深(不变大、不变蓝);当前被选中行/列才把对应条主题色实色高亮(.is-active)。
+.velo-t-pick-handle {
+  position: fixed;
+  z-index: 999; // 低于 .velo-t-insert-dot 的 1000,hover 时 "+" 圆点完整浮在拾取条之上
+  cursor: pointer;
+  // 底色取 header 背景色(和表头视觉一致),::before 默认形态(无 border-radius,矩形贴合)
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--velo-table-header-bg, #f5f6f7);
+    transition: background-color 0.15s ease;
+  }
+  // 行条:首个加左上圆角,末个加左下圆角(左外侧圆角)
+  &.velo-t-pick-handle-row[data-edge="first"]::before {
+    border-top-left-radius: 3px;
+  }
+  &.velo-t-pick-handle-row[data-edge="last"]::before {
+    border-bottom-left-radius: 3px;
+  }
+  // 列条:首个加左上圆角,末个加右上圆角(顶外侧圆角)
+  &.velo-t-pick-handle-col[data-edge="first"]::before {
+    border-top-left-radius: 3px;
+  }
+  &.velo-t-pick-handle-col[data-edge="last"]::before {
+    border-top-right-radius: 3px;
+  }
+  // hover:换成和表格分隔线同色(亮色=#eceef1),不变大不变蓝(选中态才蓝)。
+  // 默认底色=header-bg;hover=table-border(=可见分隔线色);active=主题色实色。
+  // 注意:handler 挂在 document.body 上,读不到 .velo-editor 的 --velo-table-border,
+  // 所以这里直接写死亮色值;暗色在下面的 :is(.dark) 块里覆盖。
+  &:hover::before {
+    background: #eceef1;
+  }
+  // 当前整行/整列选中:主题色实色(取 activity 主题色),无外圈光晕
+  &.is-active::before {
+    background: var(--md-primary-color, #3370ff);
+  }
+}
+
 // ============ 暗色模式 ============
 
 :is(.dark .velo-editor, .velo-editor.dark) {
@@ -199,4 +242,15 @@
 
 :is(.dark) .velo-t-insert-guide {
   background: #4d8eff;
+}
+
+// 拾取条在 document.body 上,读不到 .velo-editor 的 CSS 变量,用全局 .dark 选择器覆盖。
+// 暗色:hover 换成表格分隔线暗色(#3a3a3a);active 仍为主题色。
+:is(.dark) .velo-t-pick-handle {
+  &:hover::before {
+    background: #3a3a3a;
+  }
+  &.is-active::before {
+    background: var(--md-primary-color, #4d8eff);
+  }
 }

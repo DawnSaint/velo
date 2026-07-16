@@ -2019,7 +2019,7 @@ watch(editorRef, (v) => {
           <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->
           <div
             v-else-if="codeBlockReady && !documentStore.activeId"
-            class="flex flex-1 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
+            class="flex flex-1 min-w-0 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
           >
             <span class="text-sm">没有打开的文档</span>
             <div class="flex gap-2">

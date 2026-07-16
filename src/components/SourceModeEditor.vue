@@ -572,7 +572,7 @@ defineExpose({
 
 <template>
   <div
-    class="velo-cm-source relative flex-1 bg-white dark:bg-[#1e1e1e]"
+    class="velo-cm-source relative flex-1 min-w-0 bg-white dark:bg-[#1e1e1e]"
     :class="{ 'dark': props.darkMode, 'focus-mode': props.focusMode }">
 
     <div ref="hostRef" class="velo-cm-host" />

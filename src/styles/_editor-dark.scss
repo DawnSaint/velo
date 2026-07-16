@@ -14,6 +14,11 @@
     background: #264f78;
   }
 
+  // CellSelection 激活时隐藏原生文本选区(同 _editor-base.scss,暗色版)。
+  .ProseMirror.ProseMirror-hideselection ::selection {
+    background: transparent;
+  }
+
   blockquote {
     color: #999;
   }
