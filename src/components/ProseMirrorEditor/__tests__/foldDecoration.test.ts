@@ -580,7 +580,7 @@ describe('placeholder 交互 (v0.7.2)', () => {
     // 模拟 handleClickOn(真实节点由 PM handleClickOn prop 处理)
     const ph = findFoldPlaceholder(view)!
     view.someProp('handleClickOn', (handler) => {
-      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as MouseEvent, true)
       return false
     })
 
@@ -606,7 +606,7 @@ describe('placeholder 交互 (v0.7.2)', () => {
     // 模拟 handleClickOn 点击 `...` 展开
     const ph = findFoldPlaceholder(view)!
     view.someProp('handleClickOn', (handler) => {
-      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as MouseEvent, true)
       return false
     })
 
@@ -629,7 +629,7 @@ describe('placeholder 交互 (v0.7.2)', () => {
 
     const ph = findFoldPlaceholder(view)!
     view.someProp('handleClickOn', (handler) => {
-      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as MouseEvent, true)
       return false
     })
 
