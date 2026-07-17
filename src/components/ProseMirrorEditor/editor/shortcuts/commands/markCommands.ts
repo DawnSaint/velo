@@ -24,11 +24,18 @@ import type { ShortcutCommand } from '../registry'
 import { linkClickPluginKey } from '../../../plugins/linkClick'
 import { markSourceEditKey } from '../../../plugins/markSourceEdit'
 import { htmlSourceEditKey } from '../../../plugins/htmlSourceEdit'
+import { syntaxAutoFormatPlugin } from '../../../plugins/syntaxAutoFormat'
 
 export function toggleMarkWithWrap(
   markType: MarkType,
   openMarker: string,
   closingMarker: string | null = openMarker,
+  /**
+   * skipSyntaxAutoFormat:空选区插入 marker+closingMarker 后,syntaxAutoFormat
+   * 不要抢着转换这批刚插入的文本。underline 的 `<u></u>` 会被 htmlTag 抢转
+   * 成 html_inline atom —— 加粗 / 斜体等不需要(markers 是 `*`/`~`/`=`,htmlTag 不匹配)。
+   */
+  opts?: { skipSyntaxAutoFormat?: boolean },
 ): ShortcutCommand {
   return (state, dispatch, _view) => {
     const { from, empty } = state.selection
@@ -58,6 +65,9 @@ export function toggleMarkWithWrap(
     const storedActive = stored.some(m => m.type === markType)
 
     let tr = state.tr
+    if (opts?.skipSyntaxAutoFormat) {
+      tr = tr.setMeta(syntaxAutoFormatPlugin, false)
+    }
     if (hasMark || storedActive) {
       // 已在 mark 内或 storedMark 激活 → 移除这一个 mark 的 storedMark
       tr = tr.removeStoredMark(markType)

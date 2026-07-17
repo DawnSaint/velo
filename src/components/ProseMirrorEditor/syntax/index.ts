@@ -29,6 +29,7 @@ import { inlineMathSyntax } from './inline/inlineMath'
 import { footnoteRefSyntax } from './inline/footnoteRef'
 import { linkSyntax } from './inline/link'
 import { highlightSyntax } from './inline/highlight'
+import { underlineSyntax } from './inline/underline'
 import { inlineCodeSyntax } from './inline/code'
 import { htmlTagSyntax } from './inline/htmlTag'
 
@@ -58,6 +59,9 @@ registerInlineSyntax(strongSyntax)
 registerInlineSyntax(strikeSyntax)
 registerInlineSyntax(emphasisUnderscoreSyntax)
 registerInlineSyntax(highlightSyntax)
+// underline 必须在 htmlTag 之前:<u>text</u> 完整闭合时优先转 underline mark,
+// 而非 html_inline atom。空 <u></u> 不匹配(快捷键通过 skipSyntaxAutoFormat 防御)
+registerInlineSyntax(underlineSyntax)
 // inline code(`` `code` ``):backtick 围栏。独占 mark(excludes:'_'),不与上面 mark
 // 抢匹配;放 htmlTag 之前 —— backtick 与 `<...>` 无交集,顺序非关键但保持靠后
 registerInlineSyntax(inlineCodeSyntax)

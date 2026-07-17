@@ -69,13 +69,13 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - 块级 HTML 右上角加 Typora 风格源码切换按钮，点击才进入源码编辑（不走光标驱动 click-to-expand）
   - 源码编辑态用 textarea / contentDOM 隔离，避免 PM 段落切分破坏多行 HTML 结构
 
-- [ ] **Ctrl+U 下划线** `#underline-mark` `P2` `M`
-  - schema 新增 `underline` mark（parseDOM `<u>` / toDOM `<u>`）
-  - remark 插件把 mdast 中的 `<u>text</u>` html 节点对重写为 `underline` 节点
-  - markdownIO 双向：fromMarkdown 把 `underline` 节点转成 text + underline mark；toMarkdown 把 underline mark 序列化为 `<u>text</u>` html 节点
-  - syntax/inline/underline 注册（匹配 `<u>text</u>` → underline mark），排在 htmlTag 之前
-  - Ctrl+U 快捷键（toggleMarkWithWrap，openMarker `<u>` / closingMarker `</u>`）
-  - markSourceEdit 纳入 underline（TARGET_MARKS + markerText 改为 { open, close } 支持 asym 分隔符）
+- [x] **Ctrl+U 下划线** `#underline-mark` `P2` `M`
+  - [x] schema 新增 `underline` mark（parseDOM `<u>` / toDOM `<u>`）
+  - [x] remark 插件把 mdast 中的 `<u>text</u>` html 节点对重写为 `underline` 节点
+  - [x] markdownIO 双向：fromMarkdown 把 `underline` 节点转成 text + underline mark；toMarkdown 把 underline mark 序列化为 `<u>text</u>` html 节点
+  - [x] syntax/inline/underline 注册（匹配 `<u>text</u>` → underline mark），排在 htmlTag 之前
+  - [x] Ctrl+U 快捷键（toggleMarkWithWrap，openMarker `<u>` / closingMarker `</u>`，额外传 `skipSyntaxAutoFormat` 防 htmlTag 抢转空 `<u></u>`）
+  - [x] markSourceEdit 纳入 underline（TARGET_MARKS + markerText 改为 { open, close } 支持 asym 分隔符）
 
 - [ ] **图片 HTML 节点适配** `#html-image-adapt` `P2` `S`
   - HtmlNodeView 渲染后扫描内部 `<img>` 元素，src 走 resolveImageSrc（与 image NodeView 同款 Tauri asset:// 代理），让 HTML 块内的图片路径正确解析

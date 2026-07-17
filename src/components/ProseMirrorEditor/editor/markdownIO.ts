@@ -22,6 +22,7 @@ import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
+import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import remarkFrontmatter from 'remark-frontmatter'
@@ -40,6 +41,7 @@ const processor = unified()
   .use(remarkMath)
   .use(remarkAlert)
   .use(remarkHighlight)
+  .use(remarkUnderline)
   // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
   .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkStringify, {
@@ -60,6 +62,15 @@ const processor = unified()
           state.all(node)
         }
         state.write('==')
+      },
+      // <u>text</u> 下划线。与 highlight 同范式:state.write 原样输出 <u> / </u>,
+      // 内层 children 走 state.all 让 remark-stringify 自己序列化。
+      underline(state: any, node: any) {
+        state.write('<u>')
+        if (Array.isArray(node.children) && node.children.length > 0) {
+          state.all(node)
+        }
+        state.write('</u>')
       },
       // 行内公式:覆盖 remark-math 的 inlineMath handler,根据 delimiterCount
       // 决定输出 `$value$`(单 $)还是 `$$value$$`(双 $)。remark-math 默认总用
@@ -469,6 +480,13 @@ function inlineNodeToPM(
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.highlight })))
 
+    case 'underline':
+      // remarkUnderline 注入的自定义节点,无 GFM 原生对应物。
+      // children 复用 inlineNodeToPM 递归 + 把 underline mark push 到 activeMarks。
+      return n.children.flatMap((c: PhrasingContent) =>
+        inlineNodeToPM(c, schema,
+          activeMarks.concat({ type: schema.marks.underline })))
+
     case 'delete':
       return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
@@ -750,17 +768,18 @@ function stripMathDelimiters(s: string): string {
   return s.replace(/^\$+/, '').replace(/\$+$/, '')
 }
 
-function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
-  // 第一步:把每个 PM 子节点扁平化成 { kind, marks, ... } 描述
-  type Span =
-    | { kind: 'text'; marks: ReadonlyArray<{ name: string; attrs: Record<string, unknown> }>; value: string }
-    | { kind: 'image'; marks: never[]; src: string; alt: string; title: string }
-    | { kind: 'break'; marks: never[] }
-    | { kind: 'inlineMath'; marks: never[]; value: string; delimiterCount: number }
-    | { kind: 'footnoteRef'; marks: never[]; label: string }
-    | { kind: 'htmlInline'; marks: never[]; value: string }
+// PM 行内子节点扁平化描述 —— pmInlineToMdast 第一步产出,processSpans 消费。
+type InlineSpan =
+  | { kind: 'text'; marks: ReadonlyArray<{ name: string; attrs: Record<string, unknown> }>; value: string }
+  | { kind: 'image'; marks: never[]; src: string; alt: string; title: string }
+  | { kind: 'break'; marks: never[] }
+  | { kind: 'inlineMath'; marks: never[]; value: string; delimiterCount: number }
+  | { kind: 'footnoteRef'; marks: never[]; label: string }
+  | { kind: 'htmlInline'; marks: never[]; value: string }
 
-  const spans: Span[] = []
+function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
+  // 第一步:把每个 PM 子节点扁平化成 InlineSpan
+  const spans: InlineSpan[] = []
   parent.forEach(child => {
     const name = child.type.name
     const markList = child.marks.map(m => ({ name: m.type.name, attrs: m.attrs as Record<string, unknown> }))
@@ -799,24 +818,57 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     }
   })
 
-  // 第二步:先抽 highlight run(==xxx==),再走剩余 spans 的 wrapWithMarks。
-  //
-  // 为什么要先抽 highlight:highlight 不是 GFM 的原生 mark,wrapWithMarks 不知道
-  // 它,会丢 mark。所以这里把"连续 text span 都含 highlight mark"的那一段
-  // 抽出来,strip highlight mark(保留其他 mark),输出成 `[html '==', ...内层 mdast..., html '==']`
-  // 三个兄弟节点 —— mdast html 节点原样输出,不会被 escape(`=` 在 start-of-inline
-  // 位置会被 remark-stringify 当 setext heading 前缀 escape 成 `\=`,改用 html 节点避开)。
-  //
-  // 不抽 atom(image / math_inline / footnoteRef / hardbreak / html_inline):
-  // 这些跨节点的 highlight 在规范上本就不该支持(round-trip 后断)。
-  // 实测 schema 里 highlight 不带在 atom 上,所以 typeAt 的输入只会让
-  // 文本节点带 highlight mark,这段逻辑对简单场景足够。
+  // 第二步:提取非原生 mark run(underline / highlight),再走 wrapWithMarks。
+  return processSpans(spans)
+}
+
+/**
+ * 把 InlineSpan 数组转成 mdast PhrasingContent 数组。
+ *
+ * underline / highlight 不是 GFM 原生 mark,wrapWithMarks 不知道它们,会丢 mark。
+ * 所以先抽"连续 text span 都含该 mark"的 run,strip 该 mark(保留其他 mark),
+ * 递归调 processSpans 处理内层(支持 underline 套 highlight 等嵌套),最后用
+ * html 节点作边界包裹输出 —— mdast html 节点原样输出,不会被 escape。
+ *
+ * 先抽 underline(最外层,HTML 包裹语义)再抽 highlight。
+ * underline+highlight 嵌套时,round-trip 后嵌套顺序可能交换(==<u>x</u>==
+ * → <u>==x==</u>),但 marks 语义保留。
+ *
+ * 不抽 atom(image / math_inline / footnoteRef / hardbreak / html_inline):
+ * 这些跨节点的 mark 在规范上本就不该支持(round-trip 后断)。
+ * 实测 schema 里 underline/highlight 不带在 atom 上。
+ */
+function processSpans(spans: InlineSpan[]): PhrasingContent[] {
   const out: PhrasingContent[] = []
   let i = 0
   while (i < spans.length) {
     const span = spans[i]
+
+    // 抽 underline run(<u>text</u>)
+    if (span.kind === 'text' && span.marks.some(m => m.name === 'underline')) {
+      let end = i
+      while (
+        end < spans.length
+        && spans[end].kind === 'text'
+        && spans[end].marks.some(m => m.name === 'underline')
+      ) {
+        end++
+      }
+      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
+        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'underline') } : s
+      )
+      const inner = processSpans(innerSpans)
+      if (inner.length > 0) {
+        out.push({ type: 'html', value: '<u>' } as PhrasingContent)
+        out.push(...inner)
+        out.push({ type: 'html', value: '</u>' } as PhrasingContent)
+      }
+      i = end
+      continue
+    }
+
+    // 抽 highlight run(==text==)
     if (span.kind === 'text' && span.marks.some(m => m.name === 'highlight')) {
-      const start = i
       let end = i
       while (
         end < spans.length
@@ -825,24 +877,21 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       ) {
         end++
       }
-      const inner: PhrasingContent[] = []
-      for (let j = start; j < end; j++) {
-        const sub = spans[j]
-        if (sub.kind !== 'text') continue // TS narrow 兜底,while 已保证是 text
-        const noHighlight = sub.marks.filter(m => m.name !== 'highlight')
-        inner.push(wrapWithMarks(sub.value, noHighlight))
-      }
+      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
+        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'highlight') } : s
+      )
+      const inner = processSpans(innerSpans)
       if (inner.length > 0) {
         // 用 html 节点作 `==` 边界 —— 不会被 escape
         out.push({ type: 'html', value: '==' } as PhrasingContent)
         out.push(...inner)
         out.push({ type: 'html', value: '==' } as PhrasingContent)
       }
-      // else: 极端情况,跳过(空 highlight run 不输出 `====`)
       i = end
       continue
     }
-    // 非 highlight span:照旧
+
+    // 非 underline/highlight span:atom 节点 + 纯文本(走 wrapWithMarks)
     if (span.kind === 'image') {
       out.push({
         type: 'image',

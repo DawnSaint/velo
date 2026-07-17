@@ -582,6 +582,15 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ tag: 'mark' }],
     toDOM: () => ['mark', 0],
   },
+
+  // <u>text</u> 下划线。parseDOM/toDOM 走原生 <u> 标签。
+  // mdast 阶段由 remarkUnderline 把 <u> html 节点对重写为 underline 节点;
+  // markdownIO 双向:fromMarkdown underline 节点 → text + underline mark;
+  // toMarkdown underline mark → <u> html 节点(同 highlight 走 html 边界)。
+  underline: {
+    parseDOM: [{ tag: 'u' }],
+    toDOM: () => ['u', 0],
+  },
 }
 
 // ============================================================

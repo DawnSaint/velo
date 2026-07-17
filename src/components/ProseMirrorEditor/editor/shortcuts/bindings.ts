@@ -60,6 +60,13 @@ registerShortcut({
 })
 
 registerShortcut({
+  key: 'Mod-u',
+  command: toggleMarkWithWrap(schema.marks.underline, '<u>', '</u>', { skipSyntaxAutoFormat: true }),
+  label: '下划线',
+  group: 'text',
+})
+
+registerShortcut({
   key: 'Mod-k',
   command: triggerLinkEdit,
   label: '链接',

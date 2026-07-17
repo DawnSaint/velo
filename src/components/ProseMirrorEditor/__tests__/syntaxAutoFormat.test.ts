@@ -38,6 +38,7 @@ import { emphasisStarSyntax } from '../syntax/inline/emphasisStar'
 import { strongSyntax } from '../syntax/inline/strong'
 import { strikeSyntax } from '../syntax/inline/strike'
 import { highlightSyntax } from '../syntax/inline/highlight'
+import { underlineSyntax } from '../syntax/inline/underline'
 import { inlineCodeSyntax } from '../syntax/inline/code'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
 import { htmlTagSyntax } from '../syntax/inline/htmlTag'
@@ -63,6 +64,7 @@ beforeAll(() => {
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
   registerInlineSyntax(highlightSyntax)
+  registerInlineSyntax(underlineSyntax)
   registerInlineSyntax(inlineCodeSyntax)
   registerInlineSyntax(htmlTagSyntax)
 })
@@ -624,6 +626,18 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
     cleanup()
   })
 
+  it('"<u>u</u>" 段中键入 → 加 underline mark', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('See ')]),
+    ])
+    typeAt(view, 5, '<u>u</u>')
+    const para = view.state.doc.firstChild!
+    const underlined = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'u')
+    expect(underlined?.marks.find(m => m.type.name === 'underline')).toBeDefined()
+    cleanup()
+  })
+
   it('"`code`" 段中键入 → 加 code mark(行内代码实时转换)', () => {
     const { view, cleanup } = mountView([
       schema.node('paragraph', null, [schema.text('See ')]),
@@ -969,6 +983,10 @@ describe('syntaxAutoFormat: 闭合后继续输入不继承 mark', () => {
 
   it('"==hl==" 闭合后继续输入不继承 highlight', () => {
     expect(continueTypingHasMark('==hl==', 'highlight')).toBe(false)
+  })
+
+  it('"<u>u</u>" 闭合后继续输入不继承 underline', () => {
+    expect(continueTypingHasMark('<u>u</u>', 'underline')).toBe(false)
   })
 
   it('"`code`" 闭合后继续输入不继承 code', () => {

@@ -45,19 +45,24 @@ export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceE
 // 单 EditorView 实例场景安全(view spec 设置,destroy 清 null)。
 let editorView: EditorView | null = null
 
-// 目标 mark:strong / emphasis / highlight / strike / code(行内代码;link 自有 session)。
-const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'strike_through', 'code'])
+// 目标 mark:strong / emphasis / highlight / underline / strike / code(行内代码;link 自有 session)。
+const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'underline', 'strike_through', 'code'])
 
 // 标记嵌套顺序(开:外→内;闭:内→外)。照 markdownIO wrapWithMarks 的外→内序反转得开序,
 // 闭序为开序的反转。highlight 单独处理(其无 marker attr,且 wrapWithMarks 不含它)。
 // code 排最末(最内)—— 它 excludes:'_' 独占,实际不会与其他 mark 并存,位置无副作用。
-const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'code'] as const
+const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'underline', 'code'] as const
 const CLOSE_ORDER = [...OPEN_ORDER].reverse() as readonly string[]
 
 interface MarkSourceEditSession {
   editFrom: number
   editTo: number
   originalSource: string
+  /** session 对应的 mark 类型名,decorations 据此决定视觉样式:
+   *  underline 展开态是 HTML 源码(`<u>text</u>`),复用 .velo-html-source-edit
+   *  底色 + 等宽字体;其余 mark(`**`/`==`/`~~` 等)展开态是 markdown 标点,
+   *  不加底色(Obsidian Live Preview 范式)。 */
+  markName: string
 }
 
 interface MarkSourceEditState {
@@ -71,15 +76,17 @@ function emptyState(): MarkSourceEditState {
   return { session: null, pendingCommit: null }
 }
 
-/** mark → 分隔符文本。strong/emphasis 的 marker attr 决定 `*` vs `_`。code 用单个 backtick
- *  (多 backtick 代码 `` `` .. `` `` 重建时降级为单 backtick,已知限制;源文件加载不受影响)。 */
-function markerText(mark: Mark): string | null {
+/** mark → 开/闭分隔符文本。strong/emphasis 的 marker attr 决定 `*` vs `_`。code 用单个 backtick
+ *  (多 backtick 代码 `` `` .. `` `` 重建时降级为单 backtick,已知限制;源文件加载不受影响)。
+ *  underline 的开/闭分隔符不对称(`<u>` / `</u>`),故返回 { open, close }。 */
+function markerText(mark: Mark): { open: string, close: string } | null {
   switch (mark.type.name) {
-    case 'strong': return mark.attrs.marker === '_' ? '__' : '**'
-    case 'emphasis': return mark.attrs.marker === '_' ? '_' : '*'
-    case 'highlight': return '=='
-    case 'strike_through': return '~~'
-    case 'code': return '`'
+    case 'strong': return mark.attrs.marker === '_' ? { open: '__', close: '__' } : { open: '**', close: '**' }
+    case 'emphasis': return mark.attrs.marker === '_' ? { open: '_', close: '_' } : { open: '*', close: '*' }
+    case 'highlight': return { open: '==', close: '==' }
+    case 'underline': return { open: '<u>', close: '</u>' }
+    case 'strike_through': return { open: '~~', close: '~~' }
+    case 'code': return { open: '`', close: '`' }
     default: return null
   }
 }
@@ -172,14 +179,14 @@ function buildMarkSource(doc: PMNode, from: number, to: number): string {
     for (const name of CLOSE_ORDER) {
       if (prevMarks.some(byName(name)) && !cur.some(byName(name))) {
         const m = prevMarks.find(byName(name))!
-        out += markerText(m) ?? ''
+        out += markerText(m)?.close ?? ''
       }
     }
     // 开:外→内,在 cur 有 prev 没有的 mark 处插开分隔符
     for (const name of OPEN_ORDER) {
       if (cur.some(byName(name)) && !prevMarks.some(byName(name))) {
         const m = cur.find(byName(name))!
-        out += markerText(m) ?? ''
+        out += markerText(m)?.open ?? ''
       }
     }
     out += node.isText ? (node.text ?? '') : ''
@@ -189,7 +196,7 @@ function buildMarkSource(doc: PMNode, from: number, to: number): string {
   for (const name of CLOSE_ORDER) {
     if (prevMarks.some(byName(name))) {
       const m = prevMarks.find(byName(name))!
-      out += markerText(m) ?? ''
+      out += markerText(m)?.close ?? ''
     }
   }
   return out
@@ -307,9 +314,15 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
     decorations(state) {
       const pluginState = markSourceEditKey.getState(state)
       if (!pluginState?.session) return DecorationSet.empty
-      const { editFrom, editTo } = pluginState.session
+      const { editFrom, editTo, markName } = pluginState.session
+      // underline 展开态是 HTML 源码(`<u>text</u>`),视觉上与 htmlSourceEdit
+      // 点击展开的 `<kbd>text</kbd>` 一致 —— 复用 .velo-html-source-edit 底色 +
+      // 等宽字体,避免同为 HTML 标签却视觉不一致。其余 mark(`**`/`==`/`~~`)
+      // 展开态是 markdown 标点,不加底色(Obsidian Live Preview 范式)。
+      const attrs: Record<string, string> = { 'data-mark-source-edit': '' }
+      if (markName === 'underline') attrs.class = 'velo-html-source-edit'
       return DecorationSet.create(state.doc, [
-        Decoration.inline(editFrom, editTo, { 'data-mark-source-edit': '' }),
+        Decoration.inline(editFrom, editTo, attrs),
       ])
     },
   },
@@ -339,7 +352,7 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
 
     const source = buildMarkSource(newState.doc, markStart, markEnd)
     if (!source) return null
-    const openDelim = markerText(mark) ?? ''
+    const openDelim = markerText(mark)?.open ?? ''
     const delimLen = openDelim.length
 
     // 光标在源码内的落点:右边界(markEnd)→ 源码末尾过闭分隔符(typing 落 mark 外不继承);
@@ -358,6 +371,7 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
         editFrom: markStart,
         editTo: markStart + source.length,
         originalSource: source,
+        markName: mark.type.name,
       },
     })
     return tr

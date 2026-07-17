@@ -39,6 +39,10 @@ const samples: Array<{ name: string, md: string }> = [
     md: '**bold** _italic_ ~~strike~~',
   },
   {
+    name: '下划线 underline',
+    md: '<u>underlined</u> and <u>nested **bold**</u>',
+  },
+  {
     name: '行内 code 与链接',
     md: 'Use `npm install` to add [the package](https://example.com).',
   },
@@ -248,6 +252,56 @@ describe('markdownIO - HTML 节点直接行为', () => {
       if (n.type.name === 'html_block' || n.type.name === 'html_inline') htmlCount++
     })
     expect(htmlCount).toBe(0)
+  })
+})
+
+describe('markdownIO - underline', () => {
+  it('<u>text</u> 解析为带 underline mark 的 text 节点', () => {
+    const doc = fromMarkdown('<u>hello</u>', schema)
+    const para = doc.firstChild!
+    expect(para.type.name).toBe('paragraph')
+    const textNode = para.firstChild!
+    expect(textNode.type.name).toBe('text')
+    expect(textNode.text).toBe('hello')
+    expect(textNode.marks.some(m => m.type.name === 'underline')).toBe(true)
+  })
+
+  it('<u>**bold**</u> 解析为 underline + strong 嵌套 mark', () => {
+    const doc = fromMarkdown('<u>**bold**</u>', schema)
+    const para = doc.firstChild!
+    const textNode = para.firstChild!
+    expect(textNode.text).toBe('bold')
+    expect(textNode.marks.some(m => m.type.name === 'underline')).toBe(true)
+    expect(textNode.marks.some(m => m.type.name === 'strong')).toBe(true)
+  })
+
+  it('underline mark 序列化为 <u>text</u>', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.text('hi', [schema.marks.underline.create()]),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('<u>hi</u>')
+  })
+
+  it('<u>text</u> round-trip 闭合', () => {
+    const md = 'prefix <u>underlined</u> suffix'
+    const back = toMarkdown(fromMarkdown(md, schema))
+    expect(normalize(back)).toEqual(normalize(md))
+  })
+
+  it('多个 <u> 不混淆,各自独立配对', () => {
+    const md = '<u>a</u> and <u>b</u>'
+    const back = toMarkdown(fromMarkdown(md, schema))
+    expect(normalize(back)).toEqual(normalize(md))
+  })
+
+  it('<u> 带属性也被识别为 underline mark', () => {
+    const doc = fromMarkdown('<u class="x">text</u>', schema)
+    const para = doc.firstChild!
+    const textNode = para.firstChild!
+    expect(textNode.text).toBe('text')
+    expect(textNode.marks.some(m => m.type.name === 'underline')).toBe(true)
   })
 })
 
