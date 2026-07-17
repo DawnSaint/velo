@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.2](https://github.com/DawnSaint/velo/compare/v0.7.1...v0.7.2) (2026-07-17)
+
+
+### Features
+
+* **editor:** adapt HTML img tags as native image nodes ([adebd65](https://github.com/DawnSaint/velo/commit/adebd65eaaedd33efd41d0d65a66aa9c8ca2b51b))
+* **editor:** add inline HTML click-to-expand source edit ([fafbfe8](https://github.com/DawnSaint/velo/commit/fafbfe8a1c2ff8924ddfe6af9f43f312d9ea72b3))
+* **editor:** add underline mark with ctrl-u shortcut ([3c923e5](https://github.com/DawnSaint/velo/commit/3c923e57755f90e621eede5cbed3cded4ed806a9))
+* **editor:** fold placeholder as real node + 0.7.2 docs wrap-up ([593f88b](https://github.com/DawnSaint/velo/commit/593f88bdca7d985779f99e1991cf09bac3123159))
+
+
+### Bug Fixes
+
+* **editor:** cast handleClickOn event to MouseEvent in fold test ([daf048c](https://github.com/DawnSaint/velo/commit/daf048cfc6428b17ff683ba3a58885cf5f436dad))
+* **editor:** use code_block replacement for html_block source edit ([58a0a3e](https://github.com/DawnSaint/velo/commit/58a0a3eb63c70aad90077af21a5c91c22b29e980))
+
 ## [0.7.1](https://github.com/DawnSaint/velo/compare/v0.7.0...v0.7.1) (2026-07-17)
 
 
