@@ -17,6 +17,8 @@
 
 import { Plugin } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model'
+import { schema as veloSchema } from '../editor/schema'
 import { saveImageAsset } from '@/utils/imageStorage'
 import { useDocumentStore } from '@/stores/document'
 import { handleTreePathDrop, pickImageFile, parseAssetImageMime } from './treeDrop'
@@ -65,6 +67,56 @@ function insertImageNode(view: EditorView, src: string, alt: string, dropPos: nu
   catch {
     // view 已销毁,忽略
   }
+}
+
+/**
+ * 从 HTML 字符串解析第一个 <table>,构造 PM table 节点。
+ *
+ * 背景:Excel / Sheets / 浏览器复制表格时,剪贴板同时有 text/html(<table>)、
+ * text/plain(TSV)和一张 PNG 图片文件(选区渲染图)。
+ * imageUploadPlugin 优先拦截图片文件 → 表格被插图。检测到 HTML 含表格时
+ * 应改为插 table 节点。
+ *
+ * 不能走 ProseMirror 默认 HTML 路径:浏览器解析 <table> 时会自动插入 <tbody>,
+ * 而 prosemirror-tables 的 table parseDOM 期望 <tr> 是 <table> 的直接子节点
+ * (content: 'table_header_row table_row*'),<tbody> 导致 parseSlice 断裂成
+ * 两个 table 节点(第一个空)。这里手动从 DOM 解析出规整的 table 节点。
+ *
+ * 行内含 th → table_header_row(table_header),否则 table_row(table_cell)。
+ * 单元格只取 textContent(忽略行内格式),与 buildTsvSlice 的 TSV 路径对齐。
+ * 解析失败 / 无表格 → 返回 null,让调用方 fallback。
+ */
+function parseTableFromHTML(html: string): PMNode | null {
+  let doc: Document
+  try {
+    doc = new DOMParser().parseFromString(html, 'text/html')
+  }
+  catch {
+    return null
+  }
+  const tableEl = doc.querySelector('table')
+  if (!tableEl) return null
+
+  const rowEls = Array.from(tableEl.querySelectorAll('tr'))
+  if (rowEls.length === 0) return null
+
+  const rows: PMNode[] = []
+  for (const tr of rowEls) {
+    const cellEls = Array.from(tr.querySelectorAll(':scope > th, :scope > td'))
+    if (cellEls.length === 0) continue
+    // 行内含 th → 整行作为 table_header_row,否则 table_row。
+    const isHeader = cellEls.some(el => el.tagName === 'TH')
+    const cellType = isHeader ? veloSchema.nodes.table_header : veloSchema.nodes.table_cell
+    const rowType = isHeader ? veloSchema.nodes.table_header_row : veloSchema.nodes.table_row
+    const cells = cellEls.map((el) => {
+      const t = (el.textContent ?? '').trim()
+      const p = veloSchema.nodes.paragraph.create(null, t ? veloSchema.text(t) : undefined)
+      return cellType.create(null, p)
+    })
+    rows.push(rowType.create(null, cells))
+  }
+  if (rows.length === 0) return null
+  return veloSchema.nodes.table.create(null, rows)
 }
 
 export const imageUploadPlugin = new Plugin({
@@ -122,6 +174,32 @@ export const imageUploadPlugin = new Plugin({
     },
     handlePaste: (view, event) => {
       const cb = event.clipboardData
+
+      // Excel / Sheets / 浏览器复制表格时,剪贴板同时有 text/html(<table>)、
+      // text/plain(TSV)和一张 PNG 图片文件(选区渲染图)。
+      // imageUploadPlugin 会优先拦截图片文件 → 表格被插图。检测到 HTML 含表格时
+      // 改为手动解析 <table> 成规整的 table 节点插入,而不是插图。
+      //
+      // 不能走 ProseMirror 默认 HTML 路径:浏览器解析 <table> 时会自动插入 <tbody>,
+      // 而 prosemirror-tables 的 table parseDOM 期望 <tr> 是 <table> 的直接子节点,
+      // <tbody> 导致 parseSlice 断裂成两个 table 节点(第一个空)。详见 parseTableFromHTML。
+      //
+      // 纯图片粘贴(截图 / 浏览器复制图)无 text/html → 不受影响,走下方图片分支。
+      const html = cb?.getData('text/html')
+      if (html && /<table[\s>]/i.test(html)) {
+        const table = parseTableFromHTML(html)
+        if (table) {
+          event.preventDefault()
+          // paste 走光标处:构造封闭 slice(0/0)让 ProseMirror 走标准
+          // "join 前后 paragraph" 路径把 table 作为 block 插入文档顶层。
+          const slice = new Slice(Fragment.from(table), 0, 0)
+          view.dispatch(view.state.tr.replaceSelection(slice))
+          return true
+        }
+        // 解析失败 → fall through 走默认路径(不接管)。
+        return false
+      }
+
       const file = pickImageFile(cb?.files ?? null)
       if (!file) return false
       event.preventDefault()

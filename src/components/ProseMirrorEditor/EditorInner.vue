@@ -447,9 +447,13 @@ const basePlugins: Plugin[] = [
   tabIndent,
   // 表格:列宽拖拽 + 单元格选中/Tab 导航/复制粘贴。
   // columnResizing 必须在 tableEditing 之前(列宽拖柄优先响应鼠标事件)。
+  // tableCellInputGuard 必须在 tableEditing 之前(其 handlePaste 需先于
+  //   tableEditing 的 handlePaste 被试:HTML 路径粘贴时 DOMParser 用 table_cell
+  //   context 剥离 <tr>/<td> → pastedCells 返回 null → tableEditing 走 1×1 fallback
+  //   → 行列错乱;guard 检测到无表格结构时从 clipboard text 重建 TSV slice 再委托)。
   columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }),
-  tableEditing(),
   createTableCellInputGuardPlugin(),
+  tableEditing(),
   createTableResizeCursorPlugin(),
   createTableInsertHandlePlugin({
     onInsert: (cellPos, type, dir) => {

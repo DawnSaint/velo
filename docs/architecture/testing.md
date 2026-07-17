@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / 表格右键菜单 contextmenu plugin)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 release.yml，见 ROADMAP `#ci-pipeline`。
 
@@ -91,6 +91,8 @@ src/
         │   ├── foldDecoration.test.ts    折叠 plugin(makeStableKey / collectFoldableKeys / apply / 跨 plugin 同步)
         │   └── foldCrossPlugins.test.ts   跨 plugin 集成(codeLineNumber × fold / mermaid × fold),**必须独立成文件**(module-level Set 泄漏源)
         │   └── tableCellSelection.test.ts CellSelection 拖蓝多选:矩形内右键锚定点击格 / 上/下插行锚定矩形外边界(触 header 时新行变 header + 旧 header 降级为 body) / 左/右插列锚定矩形外边界 / 删行删覆盖 body 行(保底 1 body 行,全在 header 内=noop) / 删列删覆盖列(保底 1 列) / 多列对齐覆盖列一起变 / header 行为 th 时菜单隐藏删除行
+        │   └── tableClipboard.test.ts CellSelection 剪贴板:content() 矩形 rows slice / clipboardTextSerializer tab 分隔文本 / cut deleteSelection 清空选中 cell / paste handlePaste 整块填充(2×2 覆盖、1×1 clipCells 扩展、纯文本塞首 cell、单 cell 光标填充) / copy→paste round-trip / text/plain 路径(无 HTML):clipboardTextParser tab 分隔文本→表格行(列复制→纵向填充、行复制→横向填充、纯单行/非表格→null) / HTML 路径(slice 无表格结构):handlePaste 检测→从 clipboard text 重建 TSV slice→委托 tableHandlePaste(列/行、2×2 矩形、已有表格结构→不重建、非 CellSelection→false) / 含表头列复制粘贴(text/plain、HTML 有表格结构、HTML 无表格结构→重建) / 真实 HTML round-trip(DOMSerializer→innerHTML→DOMParser.parseSlice→handlePaste:含表头列、不含表头列;验证 hasValidTableStructure 检测 openStart>1 和空行损坏)
+        │   └── imageUploadPaste.test.ts imageUploadPlugin.handlePaste 表格粘贴:Excel/浏览器复制表格(HTML <table> + 图片文件)→检测表格→手动解析成规整 table 节点插入(非插图);纯图片粘贴(无 text/html)→仍拦截插图;HTML 无表格 + 图片→仍拦截;空剪贴板→不接管
         ├── nodes/__tests__/
         ├── plugins/__tests__/
         └── findreplace/__tests__/

@@ -42,6 +42,14 @@ export const markdownPastePlugin = new Plugin({
       // 代码类容器内粘贴 → 走 ProseMirror 默认 inCode fallback(整段塞 code 节点)
       if ($context.parent.type.spec.code) return null
 
+      // 表格 cell 内粘贴 → 不接管,让 tableCellInputGuardPlugin 的 clipboardTextParser
+      // 解析 tab 分隔文本为表格行,或让 handlePaste 走 HTML 路径。
+      // 否则 fromMarkdown 会把 "A\nB\nC"(列复制的 tab 分隔文本)解析成段落,
+      // pastedCells 返回 null,handlePaste 退化到单 cell fallback,行列错乱。
+      for (let d = $context.depth; d > 0; d--) {
+        if ($context.node(d).type.spec.tableRole === 'row') return null
+      }
+
       const trimmed = text.trim()
       if (!trimmed) return null
 

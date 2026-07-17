@@ -142,15 +142,6 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 ### 编辑器增强
 
-- [ ] **表格增强** `#table-enhance` `P2` `L` `?`
-  - [x] 单元格对齐（left / center / right 切换）
-  - [x] 行/列移动（整块 block-swap；触边/触顶静默取消；移动后保持 CellSelection 以连续移动）
-  - [x] 撤销光标落点（新增列后光标落到新增列 header；Ctrl+Z 不再跳文档顶部）
-  - [x] 插入行列灰点（selection-in-table 驱动显隐；横向滚动跟随/裁切到容器可见区）
-  - [x] 右键菜单快捷键展示（已注册的 4 个 table 快捷键右对齐等宽小字提示,Mod- → Ctrl/⌘）
-  - [x] **飞书式选中行/列**（行左/列顶灰条 `position:fixed`,click `CellSelection` 整行/整列,`.is-active` 主题色高亮；灰点范式：`document.body` + 滚动容器参考点可见性裁切 + selection-in-table 显隐）
-  - [ ] handler 拖拽可选中多行/多列，选中状态的 handler 可实现多行/多列拖拽
-
 - [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [RESEARCH](./research/block-drag-reorder.md)
   - 调研结论：中偏高复杂度，建议先做 PoC（仅 paragraph 之间），验证几何同步 + drop preview 再扩到列表语义
   - 复用 fold / lineNumber / toc 的 Decoration.widget 范式，不造 NodeView

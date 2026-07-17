@@ -102,6 +102,12 @@
 
 ## 0.7.1 — 表格编辑
 
+### ADR-20260717-002: CellSelection 剪贴板走 tab 分隔文本 + HTML 路径 TSV 重建
+
+- **Context**: CellSelection 复制 / 粘贴需要"矩形块"语义(列对齐 / 整块填充),但 PM 默认 `clipboardTextSerializer` 用 `textBetween` 把 cell 文本用 `\n\n` 连接 —— 粘贴到 Excel 时所有 cell 挤成一列,行列结构丢失。候选:A 沿用 PM 默认(简单但行列错位);B 自定义 `clipboardTextSerializer` 输出 tab 分隔列 + 换行分隔行(对齐 Excel/Sheets 粘贴格式),`clipboardTextParser` 在表格内把 tab 文本解析回 `table_row` slice 走 `pastedCells` 整块填充。
+- **Decision**: 选 B。`clipboardTextSerializer` 仅对 CellSelection 的 rows slice(openStart=1/openEnd=1 + 首子节点 `tableRole='row'`)生效,其他选区返回 undefined 走 PM 默认;`clipboardTextParser` 仅在 tab/换行存在且光标位于 `table_row` 内时重建 slice,纯单行 / 非表格上下文返回 null 走默认。含表头列粘贴时按目标行类型(`rectTop + i`)选 `table_header` / `table_cell`,避免把 `table_cell` 插入 `table_header_row`(只接受 `table_header`)破坏结构。
+- **Consequences**: Excel / Sheets / 浏览器跨应用拷贝表格保持行列结构。**HTML 路径的同类坑**:copy 时 `serializeForClipboard` 把 bare `<tr>` 用 `wrapMap` 包成 `<table><br data-pm-slice>`;paste 在表格 cell 内时 `DOMParser.parseSlice(context=$context)` 用 `table_cell` 作 context,`<tr>`/`<td>` 在 cell content 模型下无效被剥离 → 产出段落而非表格行 → `pastedCells` 返回 null → `tableEditing.handlePaste` 走 1×1 fallback,行列错乱。`tableCellInputGuardPlugin` 必须在 `tableEditing` 之前注册,其 `handlePaste` 检测 slice 无 `tableRole` / 结构损坏 / cell 类型不匹配时,从 `event.clipboardData.getData('text/plain')` 读 tab 文本,`buildTsvSlice` 重建后委托 `tableHandlePaste`。判定 `hasValidTableStructure`(子节点全 `row`、每行至少 1 cell、`openStart<=1 && openEnd<=1`)与 `cellTypesMatchTarget` 把"可安全交给 tableEditing"与"需重建"两条路径分开。**含表头列**是高频场景,单独验证(`H0\nS0/C0\n…` 重建后 header 行得 `table_header`)。
+
 ### ADR-20260717-001: 表格操作统一走整表 `replaceWith`
 
 - **Context**: 表操作(增删行列 / 列对齐 / 行/列移动)需要把新 doc 写回。A 逐 cell `setNodeMarkup` / 局部 step；B 整表 clone + splice + `replaceWith(tablePos, tablePos + oldTableSize, newTable)`。`prosemirror-tables` 官方推荐 A，但我们的 schema 定制过（`table_header_row table_row*` + `isolating: true`），A 路径在 GFM 对齐列时会让 `toMarkdown` 从首行推导 `align[]`，列内值不一致就 round-trip 跳变；B 路径整表一次性替换，`markdownIO` 把新表整体序列化，天然闭合。
