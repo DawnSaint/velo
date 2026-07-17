@@ -21,9 +21,14 @@
 //   该位置正确映射到真实 doc。
 
 import type { Node as PMNode, Schema } from "prosemirror-model"
+import type { EditorState } from "prosemirror-state"
 import type { ShortcutCommand } from "../registry"
-import { CellSelection, TableMap } from "prosemirror-tables"
+import { CellSelection, TableMap, goToNextCell, isInTable } from "prosemirror-tables"
 import { TextSelection } from "prosemirror-state"
+
+// 表格内矩形 { left, top, right, bottom }(left/top 含,right/bottom 不含)。
+// 与 prosemirror-tables 的 Rect 同构,这里内联定义避免类型导出问题。
+interface TableRect { left: number; top: number; right: number; bottom: number }
 
 export type Alignment = "left" | "center" | "right"
 
@@ -620,27 +625,47 @@ export function setCellAlignment(alignment: Alignment, anchorPos?: number): Shor
   }
 }
 
+// 获取移动操作的矩形和表信息。支持 CellSelection(矩形拖蓝)和 TextSelection-in-cell(单格光标)。
+// TextSelection 时构造单 cell 矩形 { left:col, top:row, right:col+1, bottom:row+1 }。
+function getMoveRect(state: EditorState): { rect: TableRect; table: PMNode; tablePos: number } | null {
+  const sel = state.selection
+  if (sel instanceof CellSelection) {
+    const table = sel.$anchorCell.node(-1)
+    const tablePos = sel.$anchorCell.start(-1) - 1
+    return { rect: rectOfCellSelection(sel), table, tablePos }
+  }
+  // TextSelection in cell
+  const $from = sel.$from
+  if (!isInTableCell($from)) return null
+  const info = findTableWrapper($from)
+  if (!info) return null
+  const { table, pos: tablePos } = info
+  const rowIdx = rowIndexForSelection($from, table, tablePos)
+  const colIdx = findColIndex($from)
+  if (rowIdx < 0 || colIdx < 0) return null
+  return {
+    rect: { left: colIdx, top: rowIdx, right: colIdx + 1, bottom: rowIdx + 1 },
+    table, tablePos,
+  }
+}
+
 // 移动行:direction = -1 上移, +1 下移。
 //
-// 当 state.selection 为 CellSelection 时,把矩形覆盖的所有行 [rect.top,rect.bottom) 当作
-// 一个整块,与相邻行做块 swap(不是逐行独立 swap,保时块内行顺序)。
+// 支持 CellSelection(矩形拖蓝整块移动)和 TextSelection-in-cell(单行移动)。
+// 矩形覆盖的所有行 [rect.top,rect.bottom) 当作一个整块,与相邻行做块 swap:
 //   - 上移:抽出 rect.top-1 那行(邻居),插到块尾之后 → 块整体上移一位。
 //   - 下移:抽出 rect.bottom 那行(邻居),插到块头之前 → 块整体下移一位。
 // 边界整块 noop(false):块触 header(rect.top < 1);上移时邻居 rect.top-1 < 1;
 // 下移时邻居 rect.bottom 不存在(>= children.length)。
-//
-// 非 CellSelection(光标在单 cell 内,非矩形拖蓝)→ noop(false):移动命令依赖矩形锚定块范围。
 export function cmdMoveRow(direction: number): ShortcutCommand {
   return (state, dispatch) => {
-    const sel = state.selection
-    if (!(sel instanceof CellSelection)) return false
-    const rect = rectOfCellSelection(sel)
+    const wasCellSel = state.selection instanceof CellSelection
+    const moveInfo = getMoveRect(state)
+    if (!moveInfo) return false
+    const { rect, table, tablePos } = moveInfo
     const top = rect.top, bottom = rect.bottom
     // 矩形必须落在 body 区内(rect.top >= 1),否则 noop。
     if (top < 1) return false
-    const table = sel.$anchorCell.node(-1)
-    const tableStart = sel.$anchorCell.start(-1)
-    const tablePos = tableStart - 1
     const children = tableChildren(table)
     if (direction === -1) {
       // 上移:邻居 = top-1,要求 >= 1(不可越过 header)。
@@ -655,8 +680,15 @@ export function cmdMoveRow(direction: number): ShortcutCommand {
     }
     const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
     if (dispatch) {
-      // 行块移动后矩形仍覆盖 [top+d,bottom+d),左/右界不变。
-      dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, top + direction, bottom + direction, rect.left, rect.right)
+      const newTop = top + direction
+      if (wasCellSel) {
+        // CellSelection → 移动后保持 CellSelection 覆盖移动后的块。
+        dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, newTop, bottom + direction, rect.left, rect.right)
+      } else {
+        // TextSelection → 移动后恢复光标到移动后的行同列。
+        const offsetInContent = cellOffsetInNewTableContent(newTable, newTop, rect.left)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
     }
     return true
   }
@@ -664,23 +696,19 @@ export function cmdMoveRow(direction: number): ShortcutCommand {
 
 // 移动列:direction = -1 左移, +1 右移。
 //
-// 当 state.selection 为 CellSelection 时,把矩形覆盖的所有列 [rect.left,rect.right) 当作
-// 一个整块,在每一行内与相邻列做块 splice,保块内列顺序。
+// 支持 CellSelection(矩形拖蓝整块移动)和 TextSelection-in-cell(单列移动)。
+// 矩形覆盖的所有列 [rect.left,rect.right) 当作一个整块,在每一行内与相邻列做块 splice:
 //   - 左移:抽出 rect.left-1 那列(邻居),插到 block 尾之后。
 //   - 右移:抽出 rect.right 那列(邻居),插到 block 头之前。
 // 边界 noop:rect.left <= 0 不可左;rect.right >= numCols 不可右。
-//
-// 非 CellSelection → noop(false)。
 export function cmdMoveColumn(direction: number): ShortcutCommand {
   return (state, dispatch) => {
-    const sel = state.selection
-    if (!(sel instanceof CellSelection)) return false
-    const rect = rectOfCellSelection(sel)
+    const wasCellSel = state.selection instanceof CellSelection
+    const moveInfo = getMoveRect(state)
+    if (!moveInfo) return false
+    const { rect, table, tablePos } = moveInfo
     const left = rect.left, right = rect.right
     const numCols = right - left
-    const table = sel.$anchorCell.node(-1)
-    const tableStart = sel.$anchorCell.start(-1)
-    const tablePos = tableStart - 1
     // 矩形必须至少含 1 列;左移不可越过首列,右移不可越过末列。
     if (left < 0 || numCols < 1) return false
     const maxCol = table.child(0).childCount
@@ -699,8 +727,15 @@ export function cmdMoveColumn(direction: number): ShortcutCommand {
     })
     const newTable = state.schema.nodes[TABLE].create(table.attrs, newChildren)
     if (dispatch) {
-      // 列块移动后矩形仍覆盖 [left+d,right+d),上/下界不变。
-      dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, rect.top, rect.bottom, left + direction, right + direction)
+      const newLeft = left + direction
+      if (wasCellSel) {
+        // CellSelection → 移动后保持 CellSelection 覆盖移动后的块。
+        dispatchReplaceKeepingCellSelection(state, dispatch, tablePos, table.nodeSize, newTable, rect.top, rect.bottom, newLeft, right + direction)
+      } else {
+        // TextSelection → 移动后恢复光标到移动后的列同行。
+        const offsetInContent = cellOffsetInNewTableContent(newTable, rect.top, newLeft)
+        dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+      }
     }
     return true
   }
@@ -727,4 +762,121 @@ function swapColumns(cells: PMNode[], left: number, right: number, direction: nu
     cells.splice(left, 0, neighbor)
   }
   return cells
+}
+
+// ============================================================
+//  表格内 Enter / Shift+Enter
+// ============================================================
+
+// 判定 TextSelection 是否在 table cell 内(header/body 均可)。
+function isInTableCell($from: import("prosemirror-model").ResolvedPos): boolean {
+  for (let d = $from.depth; d > 0; d--) {
+    const name = $from.node(d).type.name
+    if (name === BODY_CELL || name === HEADER_CELL) return true
+  }
+  return false
+}
+
+// 表格内 Enter:光标在 cell 内(TextSelection.empty)时,跳到下一行同列 cell。
+// 最后一行(header-only 表或 body 末行)→ 追加空 body 行再跳转(Typora 行为)。
+// CellSelection 时由 tableCellInputGuard 已 preventDefault,不会进入此命令。
+export function cmdTableCellEnter(): ShortcutCommand {
+  return (state, dispatch) => {
+    const sel = state.selection
+    if (!(sel instanceof TextSelection) || !sel.empty) return false
+    const { $from } = sel
+    if (!isInTableCell($from)) return false
+
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+    const rowIdx = rowIndexForSelection($from, table, tablePos)
+    const colIdx = findColIndex($from)
+    if (rowIdx < 0 || colIdx < 0) return false
+
+    // 有下一行 → 跳到下一行同列
+    if (rowIdx + 1 < table.childCount) {
+      if (dispatch) {
+        const offsetInContent = cellOffsetInNewTableContent(table, rowIdx + 1, colIdx)
+        const cursorAbs = tablePos + offsetInContent + 1
+        const clamped = Math.max(1, Math.min(Math.trunc(cursorAbs), state.doc.content.size - 1))
+        dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(clamped))).scrollIntoView())
+      }
+      return true
+    }
+
+    // 最后一行 → 追加空 body 行并跳转
+    if (!dispatch) return true
+    const numCols = table.child(rowIdx).childCount
+    const newRow = createEmptyBodyRow(state.schema, numCols)
+    const children = tableChildren(table)
+    children.push(newRow)
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+    const newRowIdx = table.childCount
+    const offsetInContent = cellOffsetInNewTableContent(newTable, newRowIdx, colIdx)
+    dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+    return true
+  }
+}
+
+// 表格内 Shift+Enter:插入 hardbreak(<br>)实现 cell 内换行。
+// 仅在 table cell 内生效;CellSelection 由 tableCellInputGuard 阻拦。
+export function cmdTableCellHardBreak(): ShortcutCommand {
+  return (state, dispatch) => {
+    const sel = state.selection
+    if (!(sel instanceof TextSelection)) return false
+    if (!isInTableCell(sel.$from)) return false
+
+    const hardBreakType = state.schema.nodes.hardbreak
+    if (!hardBreakType) return false
+
+    if (dispatch) {
+      dispatch(state.tr.replaceSelectionWith(hardBreakType.create()).scrollIntoView())
+    }
+    return true
+  }
+}
+
+// ============================================================
+//  表格内 Tab / Shift+Tab(cell 导航)
+// ============================================================
+
+// 表格内 Tab(direction=1)/Shift+Tab(direction=-1):在 cell 间导航。
+//   - 调 prosemirror-tables 的 goToNextCell(行优先遍历,到末行折回首列下一行)。
+//   - Tab 到表格最后一个 cell → 追加空 body 行并跳到新行同列(Excel/Typora 行为)。
+//   - Shift+Tab 到第一个 cell → 消费事件但不做事(不在 header 前面新增行)。
+//   - 不在表格内 → return false(让 tabIndent 的列表/代码/段落逻辑接管)。
+//   - CellSelection 也支持:goToNextCell 内部用 selectionCell 兼容 CellSelection。
+export function cmdTableTab(direction: 1 | -1): ShortcutCommand {
+  return (state, dispatch) => {
+    if (!isInTable(state)) return false
+    // 先试 goToNextCell(支持 TextSelection 和 CellSelection)
+    if (goToNextCell(direction)(state, dispatch)) return true
+
+    // goToNextCell 返回 false = 在末尾(Tab)或开头(Shift-Tab)
+    if (direction === -1) {
+      // Shift+Tab 在第一个 cell → 消费但不做事
+      return true
+    }
+
+    // Tab 在最后一个 cell → 追加空 body 行并跳到新行同列
+    if (!dispatch) return true
+    const $from = state.selection.$from
+    const info = findTableWrapper($from)
+    if (!info) return false
+    const { table, pos: tablePos } = info
+    const rowIdx = rowIndexForSelection($from, table, tablePos)
+    const colIdx = findColIndex($from)
+    if (rowIdx < 0 || colIdx < 0) return false
+
+    const numCols = table.child(rowIdx).childCount
+    const newRow = createEmptyBodyRow(state.schema, numCols)
+    const children = tableChildren(table)
+    children.push(newRow)
+    const newTable = state.schema.nodes[TABLE].create(table.attrs, children)
+    const newRowIdx = table.childCount
+    const offsetInContent = cellOffsetInNewTableContent(newTable, newRowIdx, colIdx)
+    dispatchReplaceWithCursor(state, dispatch, tablePos, table.nodeSize, newTable, offsetInContent)
+    return true
+  }
 }

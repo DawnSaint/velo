@@ -274,6 +274,13 @@ watch(
   { immediate: true },
 )
 
+// 字号变化时通知表格浮层重定位 —— dot/handle 挂在 document.body 上,
+// 不继承编辑器 font-size,字号变化后表格行高/列宽撑大但浮层不跟,需主动触发 repositionDots。
+watch(
+  () => store.fontSize,
+  () => window.dispatchEvent(new CustomEvent('velo:font-size-change')),
+)
+
 // 简单 debounce：用于自动保存
 function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -1732,6 +1739,15 @@ onMounted(async () => {
     { deep: true },
   )
 
+  // 主题色同步到 document.documentElement:表格拾取条 / insert dot / guide line 等
+  // position:fixed 浮层挂在 document.body 上,是 App 根 div 的兄弟节点,无法继承
+  // 根 div 上设置的 --md-primary-color。提到 <html> 后全页面所有元素都能读到。
+  watch(
+    () => store.primaryColor,
+    (color) => { document.documentElement.style.setProperty('--md-primary-color', color) },
+    { immediate: true },
+  )
+
   watch(
     () => foldStore.collapsedByPath,
     () => { debouncedFoldSave() },
@@ -1866,7 +1882,6 @@ watch(editorRef, (v) => {
 <template>
   <div
     :class="{ 'dark': store.darkMode }"
-    :style="{ '--md-primary-color': store.primaryColor }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
     <header class="flex h-9 shrink-0 items-stretch bg-white text-gray-700 dark:bg-[#111] dark:text-gray-300">
@@ -1991,7 +2006,6 @@ watch(editorRef, (v) => {
               :model-value="documentStore.content"
               :font-family="store.fontFamily"
               :font-size="store.fontSize"
-              :primary-color="store.primaryColor"
               :dark-mode="store.darkMode"
               :read-only="documentStore.readOnly"
               :focus-mode="focusMode"

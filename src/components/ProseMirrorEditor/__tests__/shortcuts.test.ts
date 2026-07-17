@@ -39,6 +39,11 @@ import {
   cmdDeleteRow,
   cmdDeleteColumn,
   setCellAlignment,
+  cmdTableCellEnter,
+  cmdTableCellHardBreak,
+  cmdTableTab,
+  cmdMoveRow,
+  cmdMoveColumn,
 } from '../editor/shortcuts/commands/tableCommands'
 import { CellSelection } from 'prosemirror-tables'
 import { createTableResizeCursorPlugin } from '../plugins/tableResizeCursor'
@@ -483,9 +488,9 @@ describe("shortcuts: table row/column operations", () => {
   it("cmdDeleteColumn 后光标落在同行相邻 cell 内(不漂离表格)", () => {
     // 构造 1 header + 1 body,各 3 cell,cell 内 paragraph 含一个文字(TextSelection 要求 inline)
     const headerCells = Array.from({ length: 3 },
-      () => schema.nodes.table_header.create(null, schema.nodes.paragraph.create([schema.text("h")])))
+      () => schema.nodes.table_header.create(null, schema.nodes.paragraph.create(null, [schema.text("h")])))
     const bodyCells = Array.from({ length: 3 },
-      (_, i) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create([schema.text(String(i + 1))])))
+      (_, i) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(String(i + 1))])))
     const table = schema.nodes.table.create(null, [
       schema.nodes.table_header_row.create(null, headerCells),
       schema.nodes.table_row.create(null, bodyCells),
@@ -641,6 +646,142 @@ describe("shortcuts: table row/column operations", () => {
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_cell")
     expect(names).toContain("table_row")
+    cleanup()
+  })
+})
+
+// ============================================================
+//  表格内 Enter / Shift+Enter
+// ============================================================
+
+describe("shortcuts: cmdTableCellEnter", () => {
+  // 辅助:收集 table 内所有 cell 的 descendants pos(row-major,含 header)。
+  function collectAllCellPos(view: EditorView): number[] {
+    const cells: number[] = []
+    view.state.doc.descendants((n, pos) => {
+      if (n.type.name === "table_cell" || n.type.name === "table_header") {
+        cells.push(pos)
+        return false
+      }
+      return true
+    })
+    return cells
+  }
+
+  // 把光标放到第 index 个 cell 的 paragraph 内容位置(cellPos+2)。
+  function setCursorInCellByIndex(view: EditorView, index: number): void {
+    const cells = collectAllCellPos(view)
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, cells[index] + 2))
+    )
+  }
+
+  it("Enter 在 body cell 内 → 光标跳到下一行同列 cell", () => {
+    // 1 header + 2 body,各 2 cell。body cell 文档顺序: index 2=b00, 3=b01, 4=b10, 5=b11
+    const headerCells = [
+      schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+    ]
+    const bodyRow0 = [
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+    ]
+    const bodyRow1 = [
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+    ]
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, headerCells),
+      schema.nodes.table_row.create(null, bodyRow0),
+      schema.nodes.table_row.create(null, bodyRow1),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 2)
+    setCursorInCellByIndex(view, 2)
+    const cmd = cmdTableCellEnter()
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 光标应跳到 body row1 col0(index 4)
+    const cellsAfter = collectAllCellPos(view)
+    const expectedPos = cellsAfter[4] + 2
+    expect(view.state.selection.from).toBe(expectedPos)
+    cleanup()
+  })
+
+  it("Enter 在最后一行 → 追加空 body 行并跳到新行同列", () => {
+    // 1 header + 1 body,各 2 cell
+    const { view, cleanup } = mountTable()
+    // 光标在 body row0 col1(index 3)
+    setCursorInCellByIndex(view, 3)
+    const cmd = cmdTableCellEnter()
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 表格应从 1 header + 1 body → 1 header + 2 body
+    let bodyRowCount = 0
+    view.state.doc.descendants((n) => { if (n.type.name === "table_row") bodyRowCount++ })
+    expect(bodyRowCount).toBe(2)
+    // 光标应在新行(原最后行 + 1)的 col1 内
+    const $head = view.state.selection.$head
+    let names: string[] = []
+    for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
+    expect(names).toContain("table_cell")
+    expect(names).toContain("table_row")
+    cleanup()
+  })
+
+  it("Enter 在 header cell 内 → 跳到第一个 body row 同列", () => {
+    // 1 header + 1 body,各 2 cell
+    const { view, cleanup } = mountTable()
+    // 光标在 header col0(index 0)
+    setCursorInCellByIndex(view, 0)
+    const cmd = cmdTableCellEnter()
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 光标应在 body row0 col0(index 2)
+    const cellsAfter = collectAllCellPos(view)
+    const expectedPos = cellsAfter[2] + 2
+    expect(view.state.selection.from).toBe(expectedPos)
+    cleanup()
+  })
+
+  it("Enter 不在表格内 → noop(false)", () => {
+    const { view, cleanup } = mountView()
+    const cmd = cmdTableCellEnter()
+    expect(cmd(view.state, view.dispatch)).toBe(false)
+    cleanup()
+  })
+
+  it("Enter 在 CellSelection 中 → noop(false)", () => {
+    const { view, cleanup } = mountTable()
+    const cellPos = firstBodyCellPos(view)
+    const anchor = view.state.doc.resolve(cellPos)
+    const head = view.state.doc.resolve(cellPos)
+    view.dispatch(view.state.tr.setSelection(new CellSelection(anchor, head)))
+    const cmd = cmdTableCellEnter()
+    expect(cmd(view.state, undefined)).toBe(false)
+    cleanup()
+  })
+})
+
+describe("shortcuts: cmdTableCellHardBreak", () => {
+  it("Shift+Enter 在 table cell 内 → 插入 hardbreak 节点", () => {
+    const { view, cleanup } = mountTable()
+    const cellPos = firstBodyCellPos(view)
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, cellPos + 2))
+    )
+    const cmd = cmdTableCellHardBreak()
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // cell 内应出现 hardbreak 节点
+    let foundHardBreak = false
+    view.state.doc.descendants((n) => {
+      if (n.type.name === "hardbreak") foundHardBreak = true
+    })
+    expect(foundHardBreak).toBe(true)
+    cleanup()
+  })
+
+  it("Shift+Enter 不在表格内 → noop(false)", () => {
+    const { view, cleanup } = mountView()
+    const cmd = cmdTableCellHardBreak()
+    expect(cmd(view.state, view.dispatch)).toBe(false)
     cleanup()
   })
 })
@@ -861,6 +1002,293 @@ describe('shortcuts: triggerLinkEdit', () => {
       if (n.marks.some((m: any) => m.type.name === 'link')) hasLinkMark = true
     })
     expect(hasLinkMark).toBe(false)
+    cleanup()
+  })
+})
+
+// ============================================================
+//  表格内 Tab / Shift+Tab(cell 导航)
+// ============================================================
+
+describe("shortcuts: cmdTableTab", () => {
+  // 辅助:收集 table 内所有 cell 的 descendants pos(row-major,含 header)。
+  function collectAllCellPos(view: EditorView): number[] {
+    const cells: number[] = []
+    view.state.doc.descendants((n, pos) => {
+      if (n.type.name === "table_cell" || n.type.name === "table_header") {
+        cells.push(pos)
+        return false
+      }
+      return true
+    })
+    return cells
+  }
+
+  // 把光标放到第 index 个 cell 的 paragraph 内容位置(cellPos+2)。
+  function setCursorInCellByIndex(view: EditorView, index: number): void {
+    const cells = collectAllCellPos(view)
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, cells[index] + 2))
+    )
+  }
+
+  it("Tab 在表格内 → 跳到下一个 cell", () => {
+    // 1 header + 1 body,各 2 cell。文档顺序: index 0=h0, 1=h1, 2=b0, 3=b1
+    const { view, cleanup } = mountTable()
+    // 光标在 header col0(index 0)
+    setCursorInCellByIndex(view, 0)
+    const cmd = cmdTableTab(1)
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 应跳到 header col1(index 1)
+    const cellsAfter = collectAllCellPos(view)
+    expect(view.state.selection.from).toBe(cellsAfter[1] + 2)
+    cleanup()
+  })
+
+  it("Tab 在表格内 → 跳到下一个 cell(阅读顺序)", () => {
+    // 1 header + 2 body,各 2 cell。index: 0=h0,1=h1,2=b00,3=b01,4=b10,5=b11
+    const headerCells = [
+      schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+    ]
+    const bodyRow0 = [
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+    ]
+    const bodyRow1 = [
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create()),
+    ]
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, headerCells),
+      schema.nodes.table_row.create(null, bodyRow0),
+      schema.nodes.table_row.create(null, bodyRow1),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 2)
+    setCursorInCellByIndex(view, 2)
+    const cmd = cmdTableTab(1)
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // goToNextCell 按阅读顺序:下一个 = body row0 col1(index 3)
+    const cellsAfter = collectAllCellPos(view)
+    expect(view.state.selection.from).toBe(cellsAfter[3] + 2)
+    cleanup()
+  })
+
+  it("Tab 在最后一个 cell → 追加空 body 行并跳到新行同列", () => {
+    // 1 header + 1 body,各 2 cell
+    const { view, cleanup } = mountTable()
+    // 光标在 body col1(最后一个 cell,index 3)
+    setCursorInCellByIndex(view, 3)
+    const cmd = cmdTableTab(1)
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 表格应从 1 header + 1 body → 1 header + 2 body
+    let bodyRowCount = 0
+    view.state.doc.descendants((n) => { if (n.type.name === "table_row") bodyRowCount++ })
+    expect(bodyRowCount).toBe(2)
+    // 光标应在新行(原末行 + 1)的 col1 内
+    const $head = view.state.selection.$head
+    let names: string[] = []
+    for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
+    expect(names).toContain("table_cell")
+    expect(names).toContain("table_row")
+    cleanup()
+  })
+
+  it("Shift+Tab 在表格内 → 跳到前一个 cell", () => {
+    // 1 header + 1 body,各 2 cell
+    const { view, cleanup } = mountTable()
+    // 光标在 body col1(index 3)
+    setCursorInCellByIndex(view, 3)
+    const cmd = cmdTableTab(-1)
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 应跳到 body col0(index 2)
+    const cellsAfter = collectAllCellPos(view)
+    expect(view.state.selection.from).toBe(cellsAfter[2] + 2)
+    cleanup()
+  })
+
+  it("Shift+Tab 在第一个 cell → 消费但不做事", () => {
+    // 1 header + 1 body,各 2 cell
+    const { view, cleanup } = mountTable()
+    // 光标在 header col0(index 0,第一个 cell)
+    setCursorInCellByIndex(view, 0)
+    const beforeDoc = view.state.doc.toString()
+    const beforeSel = view.state.selection.from
+    const cmd = cmdTableTab(-1)
+    expect(cmd(view.state, view.dispatch)).toBe(true)
+    // 文档和光标不变
+    expect(view.state.doc.toString()).toBe(beforeDoc)
+    expect(view.state.selection.from).toBe(beforeSel)
+    cleanup()
+  })
+
+  it("Tab 不在表格内 → noop(false)", () => {
+    const { view, cleanup } = mountView()
+    const cmd = cmdTableTab(1)
+    expect(cmd(view.state, view.dispatch)).toBe(false)
+    cleanup()
+  })
+})
+
+// ============================================================
+//  Alt+方向键:移动当前行/列(TextSelection-in-cell)
+// ============================================================
+
+describe("shortcuts: cmdMoveRow/cmdMoveColumn (TextSelection-in-cell)", () => {
+  // 辅助:收集 table 内所有 cell 的 descendants pos(row-major,含 header)。
+  function collectAllCellPos(view: EditorView): number[] {
+    const cells: number[] = []
+    view.state.doc.descendants((n, pos) => {
+      if (n.type.name === "table_cell" || n.type.name === "table_header") {
+        cells.push(pos)
+        return false
+      }
+      return true
+    })
+    return cells
+  }
+
+  // 把光标放到第 index 个 cell 的 paragraph 内容位置(cellPos+2)。
+  function setCursorInCellByIndex(view: EditorView, index: number): void {
+    const cells = collectAllCellPos(view)
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, cells[index] + 2))
+    )
+  }
+
+  // 收集 body 行每行的 cell 文本(用 cell 内 paragraph 的 textContent)。
+  function bodyRowTexts(view: EditorView): string[] {
+    const rows: string[] = []
+    view.state.doc.descendants((n) => {
+      if (n.type.name === "table_row") {
+        const texts: string[] = []
+        n.forEach((cell) => { texts.push(cell.textContent) })
+        rows.push(texts.join("|"))
+      }
+    })
+    return rows
+  }
+
+  it("cmdMoveRow(1) 光标在 body cell 内 → 下移当前行", () => {
+    // 1 header + 3 body,各 2 cell。body cell 文本: row0=a|b, row1=c|d, row2=e|f
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b")]),
+      schema.nodes.table_row.create(null, [mk("c"), mk("d")]),
+      schema.nodes.table_row.create(null, [mk("e"), mk("f")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 2)
+    setCursorInCellByIndex(view, 2)
+    expect(cmdMoveRow(1)(view.state, view.dispatch)).toBe(true)
+    // 移动后:row0=c|d, row1=a|b, row2=e|f
+    expect(bodyRowTexts(view)).toEqual(["c|d", "a|b", "e|f"])
+    cleanup()
+  })
+
+  it("cmdMoveRow(-1) 光标在 body cell 内 → 上移当前行", () => {
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b")]),
+      schema.nodes.table_row.create(null, [mk("c"), mk("d")]),
+      schema.nodes.table_row.create(null, [mk("e"), mk("f")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row1 col0(index 4: h0,h1,b00,b01,b10,b11 → index 4)
+    setCursorInCellByIndex(view, 4)
+    expect(cmdMoveRow(-1)(view.state, view.dispatch)).toBe(true)
+    // 移动后:row0=c|d, row1=a|b, row2=e|f
+    expect(bodyRowTexts(view)).toEqual(["c|d", "a|b", "e|f"])
+    cleanup()
+  })
+
+  it("cmdMoveRow(-1) 光标在第一行 body → noop(header 不可越过)", () => {
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b")]),
+      schema.nodes.table_row.create(null, [mk("c"), mk("d")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 2)
+    setCursorInCellByIndex(view, 2)
+    expect(cmdMoveRow(-1)(view.state, view.dispatch)).toBe(false)
+    cleanup()
+  })
+
+  it("cmdMoveColumn(1) 光标在 body cell 内 → 右移当前列", () => {
+    // 1 header + 2 body,各 3 cell。body row0=a|b|c, row1=d|e|f
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b"), mk("c")]),
+      schema.nodes.table_row.create(null, [mk("d"), mk("e"), mk("f")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 3: h0,h1,h2,b00,b01,b02,b10,b11,b12 → index 3)
+    setCursorInCellByIndex(view, 3)
+    expect(cmdMoveColumn(1)(view.state, view.dispatch)).toBe(true)
+    // 移动后:row0=b|a|c, row1=e|d|f
+    expect(bodyRowTexts(view)).toEqual(["b|a|c", "e|d|f"])
+    cleanup()
+  })
+
+  it("cmdMoveColumn(-1) 光标在 body cell 内 → 左移当前列", () => {
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b"), mk("c")]),
+      schema.nodes.table_row.create(null, [mk("d"), mk("e"), mk("f")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col1(index 4)
+    setCursorInCellByIndex(view, 4)
+    expect(cmdMoveColumn(-1)(view.state, view.dispatch)).toBe(true)
+    // 移动后:row0=b|a|c, row1=e|d|f
+    expect(bodyRowTexts(view)).toEqual(["b|a|c", "e|d|f"])
+    cleanup()
+  })
+
+  it("cmdMoveColumn(-1) 光标在首列 → noop(false)", () => {
+    const mk = (t: string) => schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text(t)]))
+    const table = schema.nodes.table.create(null, [
+      schema.nodes.table_header_row.create(null, [
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+        schema.nodes.table_header.create(null, schema.nodes.paragraph.create()),
+      ]),
+      schema.nodes.table_row.create(null, [mk("a"), mk("b")]),
+    ])
+    const { view, cleanup } = mountView([table, schema.nodes.paragraph.create()])
+    // 光标在 body row0 col0(index 2)
+    setCursorInCellByIndex(view, 2)
+    expect(cmdMoveColumn(-1)(view.state, view.dispatch)).toBe(false)
+    cleanup()
+  })
+
+  it("cmdMoveRow 不在表格内 → noop(false)", () => {
+    const { view, cleanup } = mountView()
+    expect(cmdMoveRow(1)(view.state, view.dispatch)).toBe(false)
+    expect(cmdMoveColumn(1)(view.state, view.dispatch)).toBe(false)
     cleanup()
   })
 })

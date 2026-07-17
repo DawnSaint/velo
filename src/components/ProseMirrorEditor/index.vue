@@ -11,7 +11,6 @@ const props = withDefaults(defineProps<{
   modelValue: string
   fontFamily?: string
   fontSize?: string
-  primaryColor?: string
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有。 */
   findOpen?: boolean
@@ -24,7 +23,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   fontFamily: '-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif',
   fontSize: '16px',
-  primaryColor: '#0F4C81',
   darkMode: false,
   findOpen: false,
   readOnly: false,
@@ -43,9 +41,8 @@ const emit = defineEmits<{
   'open-global-search': []
 }>()
 
-// CSS 自定义属性,响应式注入到容器上
+// CSS 自定义属性,响应式注入到容器上(--md-primary-color 由 App.vue 统一设在 <html>)
 const editorStyle = computed(() => ({
-  '--md-primary-color': props.primaryColor,
   '--md-font-family': props.fontFamily,
   '--md-font-size': props.fontSize,
 }))
@@ -88,7 +85,7 @@ defineExpose({ getEditorView })
     class="relative flex-1 min-w-0 bg-white dark:bg-[#1e1e1e]"
     @click="onCardClick"
   >
-    <div class="flex justify-center h-full w-full overflow-auto px-8 py-6">
+    <div class="flex justify-center h-full w-full overflow-auto px-8 py-6 relative">
       <div
         :class="{
           'dark': props.darkMode,

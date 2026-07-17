@@ -1,4 +1,4 @@
-﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -55,6 +55,9 @@ import {
   cmdDeleteTable,
   cmdMoveRow,
   cmdMoveColumn,
+  cmdTableCellEnter,
+  cmdTableCellHardBreak,
+  cmdTableTab,
 } from './editor/shortcuts/commands/tableCommands'
 // Pre-bind commands with schema。
 // add/delete/align/deleteTable 仍靠 tableMenuAnchorPos 注入锚点;
@@ -247,11 +250,8 @@ const tabIndent = keymap({
   Tab: (state, dispatch) => {
     const { $from } = state.selection
 
-    // 表格内不消费 Tab —— 让 tableEditing 的 goToNextCell 接管
-    for (let d = $from.depth; d > 0; d--) {
-      const role = $from.node(d).type.spec.tableRole
-      if (role) return false
-    }
+    // 表格内 → cell 导航(Tab 往后一格,末尾新增行)
+    if (cmdTableTab(1)(state, dispatch)) return true
 
     // 列表项:先 sink,失败退化为段落 Tab
     const isInListItem = (() => {
@@ -283,6 +283,9 @@ const tabIndent = keymap({
     return false
   },
   'Shift-Tab': (state, dispatch) => {
+    // 表格内 → cell 导航(Shift+Tab 往前一格)
+    if (cmdTableTab(-1)(state, dispatch)) return true
+
     const { $from } = state.selection
     const isInListItem = (() => {
       for (let d = $from.depth; d > 0; d--) {
@@ -298,7 +301,7 @@ const tabIndent = keymap({
     // 留在编辑器里。
     //
     // 之前返回 false → keymap 不消费 → 浏览器接管 → 焦点逃离编辑器,
-    // 用户感知"光标丢失"。
+    // 用户感知“光标丢失”。
     return true
   },
 })
@@ -406,18 +409,26 @@ const basePlugins: Plugin[] = [
   }),
   keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
   // Enter 链:
-  //   1. dollarEnterCmd:`$$` + Enter → math_block 编辑态
-  //   2. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
-  //   3. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
+  //   1. codeBlockEnter:code_block 内只插 \n(保持一个 block)
+  //   2. cmdTableCellEnter:table cell 内 Enter → 跳下一行同列(末行追加行)
+  //      放在 dollarEnterCmd / frontmatterEnterCommand / hrEnterCommand 之前 ——
+  //      这些命令会在 cell 内尝试创建 block 节点(math_block / frontmatter / hr),
+  //      但 cell schema 只允许 paragraph,会导致无效文档。
+  //   3. dollarEnterCmd:`$$` + Enter → math_block 编辑态
+  //   4. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
+  //   5. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
   //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
   //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
   //      时的行为割裂)
-  //   4. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
-  //   5. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
-  //   6. splitBlock:兜底,普通段落里换行
+  //   6. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
+  //   7. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
+  //   8. splitBlock:兜底,普通段落里换行
+  // Shift-Enter:table cell 内 → 插入 hardbreak(<br>)实现 cell 内换行;
+  //   cell 外 return false(不消费,保持原有无 Shift-Enter 行为)。
   keymap({
     Enter: chainCommands(
       codeBlockEnter,
+      cmdTableCellEnter(),
       dollarEnterCmd,
       codeBlockEnterCommand,
       frontmatterEnterCommand,
@@ -426,6 +437,7 @@ const basePlugins: Plugin[] = [
       liftListItem(schema.nodes.list_item),
       splitBlock,
     ),
+    'Shift-Enter': cmdTableCellHardBreak(),
   }),
   // baseKeymap 装在最后:接管未自定义的所有键(Enter, Backspace-after-failed, ...)
   keymap(baseKeymap),

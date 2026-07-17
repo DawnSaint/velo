@@ -21,6 +21,8 @@ import {
   cmdAddRowBefore,
   cmdDeleteRow,
   cmdDeleteColumn,
+  cmdMoveRow,
+  cmdMoveColumn,
 } from './commands/tableCommands'
 import { triggerLinkEdit } from './commands/linkCommands'
 import { schema } from '../schema'
@@ -157,4 +159,61 @@ registerShortcut({
   label: '表格:删除当前列',
   group: 'table',
   tableAction: 'delete-column',
+})
+
+// —— 表格行/列移动快捷键(CellSelection 矩形整块单步 swap,触边 noop) ——
+registerShortcut({
+  key: 'Mod-Shift-ArrowUp',
+  command: cmdMoveRow(-1),
+  label: '表格:上移行',
+  group: 'table',
+  tableAction: 'move-row-up',
+})
+registerShortcut({
+  key: 'Mod-Shift-ArrowDown',
+  command: cmdMoveRow(1),
+  label: '表格:下移行',
+  group: 'table',
+  tableAction: 'move-row-down',
+})
+registerShortcut({
+  key: 'Mod-Shift-ArrowLeft',
+  command: cmdMoveColumn(-1),
+  label: '表格:左移列',
+  group: 'table',
+  tableAction: 'move-column-left',
+})
+registerShortcut({
+  key: 'Mod-Shift-ArrowRight',
+  command: cmdMoveColumn(1),
+  label: '表格:右移列',
+  group: 'table',
+  tableAction: 'move-column-right',
+})
+
+// —— Alt+方向键:移动当前行/列(光标在 cell 内即可,无需 CellSelection) ——
+// 与 Mod-Shift-Arrow 共用 cmdMoveRow/cmdMoveColumn,后者已支持 TextSelection-in-cell。
+registerShortcut({
+  key: 'Alt-ArrowUp',
+  command: cmdMoveRow(-1),
+  label: '表格:上移行',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Alt-ArrowDown',
+  command: cmdMoveRow(1),
+  label: '表格:下移行',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Alt-ArrowLeft',
+  command: cmdMoveColumn(-1),
+  label: '表格:左移列',
+  group: 'table',
+})
+registerShortcut({
+  key: 'Alt-ArrowRight',
+  command: cmdMoveColumn(1),
+  label: '表格:右移列',
+  group: 'table',
 })

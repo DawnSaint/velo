@@ -100,6 +100,16 @@
 
 ---
 
+## 0.7.1 — 表格编辑
+
+### ADR-20260717-001: 表格操作统一走整表 `replaceWith`
+
+- **Context**: 表操作(增删行列 / 列对齐 / 行/列移动)需要把新 doc 写回。A 逐 cell `setNodeMarkup` / 局部 step；B 整表 clone + splice + `replaceWith(tablePos, tablePos + oldTableSize, newTable)`。`prosemirror-tables` 官方推荐 A，但我们的 schema 定制过（`table_header_row table_row*` + `isolating: true`），A 路径在 GFM 对齐列时会让 `toMarkdown` 从首行推导 `align[]`，列内值不一致就 round-trip 跳变；B 路径整表一次性替换，`markdownIO` 把新表整体序列化，天然闭合。
+- **Decision**: 选 B。所有表操作命令统一签名 `cmd(schema, anchorPos?) => ShortcutCommand`，splice 后整表 replaceWith + 光标定位补丁（`dispatchReplaceWithCursor`）。矩形批量语义（rect.top/rect.bottom/rect.left/rect.right 锚外边界）沿用同套路。
+- **Consequences**: 表操作 undo 粒度 = 整笔替换（非逐 cell），可接受；markdownIO round-trip 闭合，列对齐 / 增删行列 / 移动全部零额外适配。**后续表功能（列宽持久化 / 表头行开关等）强制复用此范式**，新增命令 = 写一个文件 + 注册一行，不引入第二条写回路径。
+
+---
+
 ## v0.5.0 — 工作区与文件树
 
 ### ADR-20260623-001: 工作区根走 recursive 单 watch 句柄
