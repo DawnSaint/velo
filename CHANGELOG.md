@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.1](https://github.com/DawnSaint/velo/compare/v0.7.0...v0.7.1) (2026-07-17)
+
+
+### Features
+
+* **editor:** add table drag-to-resize, overflow fix and modern styling ([6f7e515](https://github.com/DawnSaint/velo/commit/6f7e5157381eeb40760d81ff5c2bb07b9fe9d4c0))
+* **editor:** add table operations via shortcuts, context menu and column-resize cursor ([2d4d08c](https://github.com/DawnSaint/velo/commit/2d4d08cc4422aaad517f301f71898962014facbf))
+* **editor:** add table pick handles, cell input guard, and fix sidebar layout ([49f13d6](https://github.com/DawnSaint/velo/commit/49f13d6a47eac37fdcdf750981ac27e5fde07e1f))
+* **editor:** CellSelection batch operations and header-aware table editing ([64abc0b](https://github.com/DawnSaint/velo/commit/64abc0bf03b17c77d1fba7686b650b6cdbe81e0e))
+* **editor:** table cell tab/enter navigation and pick-handle drag-select ([eed5787](https://github.com/DawnSaint/velo/commit/eed57872bbbdc88d34a97e9dfbedce61d58630e2))
+* **editor:** table clipboard block-semantics, image-table detection, and 0.7.1 docs wrap-up ([9767d03](https://github.com/DawnSaint/velo/commit/9767d037291c844b892afb85fb1116e66ca1d5c2))
+* **editor:** table editing — move/select/undo-cursor/insert-dots/context-menu shortcuts ([1e3950b](https://github.com/DawnSaint/velo/commit/1e3950b96769e0121fce5d09c88e032bc028007a))
+
 ## [0.7.0](https://github.com/DawnSaint/velo/compare/v0.6.7...v0.7.0) (2026-07-11)
 
 
