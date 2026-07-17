@@ -11,6 +11,9 @@
 //   后续放宽默认也不会被绕过。
 // - **stopEvent / ignoreMutation**:atom 节点要把内部 DOM 突变 / 事件与 ProseMirror
 //   隔离,否则用户在 details 里点 summary 折叠会被 ProseMirror 当 selection 操作。
+// - **img src 代理**:sanitize 后扫描内部 <img>,src 走 proxyDomURL(与 image NodeView
+//   同款 resolveImageSrc → Tauri asset:// 代理),让 HTML 块内的相对 / 绝对路径图片
+//   在编辑器内正确显示。只接管渲染层 —— HTML 源码与 round-trip 都不变。
 //
 // 不在这里:
 // - schema 节点定义(在 editor/schema.ts)
@@ -36,18 +39,38 @@ const PURIFY_CONFIG: PurifyConfig = {
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|ftp|asset|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
 }
 
-/** 用 DOMPurify 清洗 HTML 字符串后写到目标元素。 */
-function safeRender(target: HTMLElement, raw: string): void {
+/** 把 HTML 块内的 <img> src 转成浏览器可展示 url —— 与 image NodeView 同款
+ *  resolveImageSrc(Tauri asset:// 代理)。sanitize 后再代理:DOMPurify 已过滤
+ *  危险 URI,这里只把本地相对 / 绝对路径转成 asset:// 协议。 */
+function proxyImageSrcs(target: HTMLElement, proxyDomURL: (url: string) => string): void {
+  target.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+    const original = img.getAttribute('src')
+    if (original) img.src = proxyDomURL(original)
+  })
+}
+
+/** 用 DOMPurify 清洗 HTML 字符串后写到目标元素;有 proxyDomURL 时代理内部 img src。 */
+function safeRender(
+  target: HTMLElement,
+  raw: string,
+  proxyDomURL?: (url: string) => string,
+): void {
   // dompurify 默认返回 string;ts 类型有几种重载,这里强制为 string
   target.innerHTML = DOMPurify.sanitize(raw, PURIFY_CONFIG) as unknown as string
+  if (proxyDomURL) proxyImageSrcs(target, proxyDomURL)
 }
 
 /** 块级 HTML NodeView。dom = <div class="velo-html-block">,内容 sanitize 后写入。 */
-function createHtmlBlockView(node: PMNode, view: EditorView, getPos: () => number): NodeView {
+function createHtmlBlockView(
+  node: PMNode,
+  view: EditorView,
+  getPos: () => number,
+  proxyDomURL: (url: string) => string,
+): NodeView {
   const dom = document.createElement('div')
   dom.className = 'velo-html-block'
   dom.setAttribute('data-type', 'html_block')
-  safeRender(dom, node.attrs.value as string)
+  safeRender(dom, node.attrs.value as string, proxyDomURL)
 
   // 选中态同步:与 image / hr / math_block 同范式,抽取到 selectionSync.ts 共用。
   const selectionSync = createSelectionSync({
@@ -78,11 +101,14 @@ function createHtmlBlockView(node: PMNode, view: EditorView, getPos: () => numbe
 }
 
 /** 行内 HTML NodeView。dom = <span class="velo-html-inline">。 */
-function createHtmlInlineView(node: PMNode): NodeView {
+function createHtmlInlineView(
+  node: PMNode,
+  proxyDomURL: (url: string) => string,
+): NodeView {
   const dom = document.createElement('span')
   dom.className = 'velo-html-inline'
   dom.setAttribute('data-type', 'html_inline')
-  safeRender(dom, node.attrs.value as string)
+  safeRender(dom, node.attrs.value as string, proxyDomURL)
   return {
     dom,
     update: (newNode) => {
@@ -95,17 +121,25 @@ function createHtmlInlineView(node: PMNode): NodeView {
   }
 }
 
+export interface HtmlNodeViewOptions {
+  /** 把 markdown 里的 img src(可能是相对 / 绝对路径)转成浏览器能展示的 url。
+   *  与 image NodeView 同款 resolveImageSrc(Tauri asset:// 代理)。 */
+  proxyDomURL: (url: string) => string
+}
+
 export const htmlNodeViewPluginKey = new PluginKey('htmlNodeView')
 
-export const htmlNodeViewPlugin = new Plugin({
-  key: htmlNodeViewPluginKey,
-  props: {
-    nodeViews: {
-      html_block: (node, view, getPos) => createHtmlBlockView(node, view, getPos as () => number),
-      html_inline: (node) => createHtmlInlineView(node),
+export function createHtmlNodeViewPlugin(opts: HtmlNodeViewOptions): Plugin {
+  return new Plugin({
+    key: htmlNodeViewPluginKey,
+    props: {
+      nodeViews: {
+        html_block: (node, view, getPos) => createHtmlBlockView(node, view, getPos as () => number, opts.proxyDomURL),
+        html_inline: (node) => createHtmlInlineView(node, opts.proxyDomURL),
+      },
     },
-  },
-})
+  })
+}
 
 // 测试用导出 —— 让单测直接调 sanitize 不用挂 view
 export const __test_safeRender = safeRender

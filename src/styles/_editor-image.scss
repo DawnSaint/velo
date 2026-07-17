@@ -31,13 +31,19 @@
   text-align: center;
 
   // 内层 frame:inline-block 收缩到图片宽度,作按钮 containing block。
+  // outline 画在 frame 而非 img 上 —— 避免 img 上的内联 style(如 zoom:33%)
+  // 缩放 outline 宽度,导致选中框线变细。
   > .image-frame {
     display: inline-block;
     position: relative;
     vertical-align: middle;
+    border-radius: 4px;
+    outline: 1px solid transparent;
+    outline-offset: 2px;
+    transition: outline-color 0.12s;
   }
 
-  // 有图态:img 居中,outline 透明(默认)
+  // 有图态:img 居中
   > .image-frame > img.image-inline {
     display: inline-block;
     vertical-align: middle;
@@ -45,18 +51,15 @@
     max-height: 400px;
     height: auto;
     border-radius: 4px;
-    outline: 1px solid transparent;
-    outline-offset: 2px;
-    transition: outline-color 0.12s;
   }
 
-  // hover:低调灰边
-  &:hover > .image-frame > img.image-inline {
+  // hover:低调灰边(画在 frame 上,不受 img zoom 影响)
+  &:hover > .image-frame {
     outline-color: rgba(0, 0, 0, 0.2);
   }
 
   // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected
-  &.selected > .image-frame > img.image-inline {
+  &.selected > .image-frame {
     outline-color: var(--md-primary-color, #1F71D9);
     outline-width: 0.1em;
   }
@@ -167,7 +170,7 @@
 
 // image-inline 暗色态——只用 .dark 祖先(没配对 .velo-editor.dark),
 // 保持原行为不动。
-.dark .velo-image-inline:hover > .image-frame > img.image-inline {
+.dark .velo-image-inline:hover > .image-frame {
   outline-color: rgba(255, 255, 255, 0.25);
 }
 
@@ -204,7 +207,7 @@ img.velo-image-source-preview {
   display: block;
   margin: 8px auto 0;
   max-width: 100%;
-  max-height: 300px;
+  max-height: 400px;
   height: auto;
   border-radius: 4px;
   user-select: none;

@@ -77,7 +77,7 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
   - [x] Ctrl+U 快捷键（toggleMarkWithWrap，openMarker `<u>` / closingMarker `</u>`，额外传 `skipSyntaxAutoFormat` 防 htmlTag 抢转空 `<u></u>`）
   - [x] markSourceEdit 纳入 underline（TARGET_MARKS + markerText 改为 { open, close } 支持 asym 分隔符）
 
-- [ ] **图片 HTML 节点适配** `#html-image-adapt` `P2` `S`
+- [x] **图片 HTML 节点适配** `#html-image-adapt` `P2` `S`
   - HtmlNodeView 渲染后扫描内部 `<img>` 元素，src 走 resolveImageSrc（与 image NodeView 同款 Tauri asset:// 代理），让 HTML 块内的图片路径正确解析
 
 

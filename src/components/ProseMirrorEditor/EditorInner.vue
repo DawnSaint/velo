@@ -1,4 +1,4 @@
-﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -32,7 +32,7 @@ import { mermaidDecoration } from './nodes/MermaidDecoration'
 import { taskListPlugin } from './nodes/TaskListNodeView'
 import { footnoteEditPlugin } from './nodes/FootnoteNodeViews'
 import { tocDecoration } from './nodes/TocDecoration'
-import { htmlNodeViewPlugin } from './nodes/HtmlNodeView'
+import { createHtmlNodeViewPlugin } from './nodes/HtmlNodeView'
 import { findHighlight } from './findreplace/findHighlight'
 import { imageKeymapPlugin } from './image/imageKeymap'
 import { imageUploadPlugin } from './image/imageUploadPlugin'
@@ -361,6 +361,7 @@ function resolveImageSrc(url: string): string {
 
 const imageNodeView = createImageNodeView({ proxyDomURL: resolveImageSrc })
 const imageEditPlugin = createImageEditPlugin({ proxyDomURL: resolveImageSrc })
+const htmlNodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: resolveImageSrc })
 
 // image_inline NodeView 接到 mathEditPlugin 同一个 Plugin 里。
 const imageInlineViewPlugin = new Plugin({

@@ -288,6 +288,13 @@ const nodes: Record<string, NodeSpec> = {
       src: { default: '' },
       alt: { default: '' },
       title: { default: '' },
+      // true = 来源于 HTML `<img>` 标签,序列化时写回 `<img>` 而非 `![]()`。
+      // 不进 toDOM(纯序列化元数据,不影响渲染)。
+      htmlSource: { default: false },
+      // htmlSource=true 时存储 src/alt/title 之外的额外 HTML 属性(width/style 等),
+      // toDOM 展开到 img 标签让 width 等视觉效果生效;序列化时写回 <img>。
+      // null = 无额外属性(markdown image 或纯 src/alt/title 的 html image)。
+      htmlAttrs: { default: null },
     },
     parseDOM: [{
       tag: 'img[src]',
@@ -295,9 +302,16 @@ const nodes: Record<string, NodeSpec> = {
         src: dom.getAttribute('src') || '',
         alt: dom.getAttribute('alt') || '',
         title: dom.getAttribute('title') || dom.getAttribute('alt') || '',
+        htmlSource: false,
+        htmlAttrs: null,
       }),
     }],
-    toDOM: (node) => ['img', { ...node.attrs }],
+    toDOM: (node) => {
+      // htmlSource / htmlAttrs 是序列化元数据,htmlAttrs 需展开到 DOM
+      const { htmlSource: _, htmlAttrs, ...domAttrs } = node.attrs
+      if (htmlAttrs) Object.assign(domAttrs, htmlAttrs)
+      return ['img', domAttrs]
+    },
   },
 
   // ============================================================

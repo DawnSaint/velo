@@ -105,6 +105,24 @@ const samples: Array<{ name: string, md: string }> = [
     name: '分割线 hr',
     md: 'above\n\n---\n\nbelow',
   },
+  {
+    // 独立 <img> 标签(仅 src/alt/title)→ image 节点(htmlSource),
+    // 序列化写回 <img> 而非 ![](),不规范化为 markdown 语法
+    name: 'HTML 独立 img → image 节点 round-trip',
+    md: '<img src="pic.png" alt="图片">',
+  },
+  {
+    name: 'HTML 独立 img 带 title round-trip',
+    md: '<img src="pic.png" alt="图片" title="标题">',
+  },
+  {
+    name: 'HTML 独立 img 无 alt round-trip',
+    md: '<img src="pic.png">',
+  },
+  {
+    name: 'HTML img 含 width round-trip',
+    md: '<img src="pic.png" alt="图片" width="100">',
+  },
 ]
 
 describe('markdownIO round-trip', () => {
@@ -252,6 +270,91 @@ describe('markdownIO - HTML 节点直接行为', () => {
       if (n.type.name === 'html_block' || n.type.name === 'html_inline') htmlCount++
     })
     expect(htmlCount).toBe(0)
+  })
+})
+
+describe('markdownIO - HTML img 接管为 image 节点', () => {
+  it('独立 <img src alt> → image 节点(htmlSource=true)', () => {
+    const doc = fromMarkdown('<img src="pic.png" alt="图片">', schema)
+    const para = doc.firstChild!
+    expect(para.type.name).toBe('paragraph')
+    const img = para.firstChild!
+    expect(img.type.name).toBe('image')
+    expect(img.attrs.src).toBe('pic.png')
+    expect(img.attrs.alt).toBe('图片')
+    expect(img.attrs.htmlSource).toBe(true)
+  })
+
+  it('独立 <img src alt title> → image 节点,title 保留', () => {
+    const doc = fromMarkdown('<img src="x.png" alt="a" title="t">', schema)
+    const img = doc.firstChild!.firstChild!
+    expect(img.type.name).toBe('image')
+    expect(img.attrs.title).toBe('t')
+    expect(img.attrs.htmlSource).toBe(true)
+  })
+
+  it('独立 <img src> (无 alt) → image 节点,alt 空串', () => {
+    const doc = fromMarkdown('<img src="x.png">', schema)
+    const img = doc.firstChild!.firstChild!
+    expect(img.type.name).toBe('image')
+    expect(img.attrs.src).toBe('x.png')
+    expect(img.attrs.alt).toBe('')
+    expect(img.attrs.htmlSource).toBe(true)
+  })
+
+  it('<img src alt width> 含额外属性 → image 节点,htmlAttrs 存 width', () => {
+    const md = '<img src="x.png" alt="a" width="100">'
+    const doc = fromMarkdown(md, schema)
+    const img = doc.firstChild!.firstChild!
+    expect(img.type.name).toBe('image')
+    expect(img.attrs.src).toBe('x.png')
+    expect(img.attrs.alt).toBe('a')
+    expect(img.attrs.htmlSource).toBe(true)
+    expect(img.attrs.htmlAttrs).toEqual({ width: '100' })
+  })
+
+  it('<div><img></div> img 嵌套 → 保留 html_block(不接管)', () => {
+    const md = '<div><img src="x.png" alt="a"></div>'
+    const doc = fromMarkdown(md, schema)
+    const block = doc.firstChild!
+    expect(block.type.name).toBe('html_block')
+    expect(block.attrs.value).toBe(md)
+  })
+
+  it('image(htmlSource) 独占段落 → 序列化为 <img> html 块(非 ![]())', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.node('image', { src: 'x.png', alt: 'a', title: '', htmlSource: true }),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('<img src="x.png" alt="a">')
+  })
+
+  it('image(htmlSource) 带 title → 序列化含 title', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.node('image', { src: 'x.png', alt: 'a', title: 't', htmlSource: true }),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('<img src="x.png" alt="a" title="t">')
+  })
+
+  it('image(htmlSource) 含 htmlAttrs → 序列化含额外属性', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.node('image', { src: 'x.png', alt: 'a', title: '', htmlSource: true, htmlAttrs: { width: '100' } }),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('<img src="x.png" alt="a" width="100">')
+  })
+
+  it('普通 image(htmlSource=false) → 序列化为 ![]()(不变)', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.node('image', { src: 'x.png', alt: 'a', title: '', htmlSource: false }),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('![a](x.png)')
   })
 })
 

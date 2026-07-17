@@ -492,3 +492,123 @@ describe('选中图片时键入不生效(NodeSelection inert)', () => {
     view.destroy()
   })
 })
+
+describe('html 格式图片源码编辑(htmlSource=true)', () => {
+  function htmlImageNode(attrs: { src?: string; alt?: string; title?: string; htmlAttrs?: Record<string, string> } = {}): PMNode {
+    return schema.nodes.image.create({
+      src: attrs.src ?? 'a.png',
+      alt: attrs.alt ?? 'alt',
+      title: attrs.title ?? '',
+      htmlSource: true,
+      htmlAttrs: attrs.htmlAttrs ?? null,
+    })
+  }
+
+  it('triggerImageEdit 把 htmlSource image 替换成 <img> 源码文本', () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt', title: 't' }))
+    const pos = getImagePos(view.state.doc)
+    triggerImageEdit(view, pos)
+
+    expect(getTextContent(view.state.doc)).toBe('<img src="a.png" alt="alt" title="t">')
+    expect(view.state.selection).toBeInstanceOf(TextSelection)
+    view.destroy()
+  })
+
+  it('默认选中 src 属性值', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt' }))
+    await enterEditHtml(view)
+    const sel = view.state.selection
+    const selectedText = view.state.doc.textBetween(sel.from, sel.to, '\n', '\n')
+    expect(selectedText).toBe('a.png')
+    view.destroy()
+  })
+
+  it('合法 commit:不改文本光标移出 → 重建 htmlSource image,attrs 保持', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt', title: 't' }))
+    await enterEditHtml(view)
+    await moveCursorOut(view)
+
+    const img = getImageNode(view.state.doc)
+    expect(img).not.toBeNull()
+    expect(img!.attrs.src).toBe('a.png')
+    expect(img!.attrs.alt).toBe('alt')
+    expect(img!.attrs.title).toBe('t')
+    expect(img!.attrs.htmlSource).toBe(true)
+    view.destroy()
+  })
+
+  it('合法 commit:改 src 后光标移出 → 重建 htmlSource image,src 写回', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt' }))
+    await enterEditHtml(view)
+    view.dispatch(view.state.tr.insertText('X', view.state.selection.from))
+    await new Promise((r) => setTimeout(r, 5))
+    await moveCursorOut(view)
+
+    const img = getImageNode(view.state.doc)
+    expect(img).not.toBeNull()
+    expect(img!.attrs.src).toBe('Xa.png')
+    expect(img!.attrs.htmlSource).toBe(true)
+    view.destroy()
+  })
+
+  it('残缺 commit:删掉开头 < → 保留为纯文本(Obsidian 降级)', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt' }))
+    await enterEditHtml(view)
+    const session = imageEditKey.getState(view.state).session!
+    // 删掉开头的 `<` → `img src="a.png" alt="alt">` 不匹配 `^<img` → 残缺
+    view.dispatch(view.state.tr.delete(session.editFrom, session.editFrom + 1))
+    await new Promise((r) => setTimeout(r, 5))
+    await moveCursorOut(view)
+
+    expect(getImageNode(view.state.doc)).toBeNull()
+    expect(getTextContent(view.state.doc)).toBe('img src="a.png" alt="alt">')
+    view.destroy()
+  })
+
+  it('Escape 还原:改坏后 Escape → 重建原 htmlSource image', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt', title: 't' }))
+    const before = getImageNode(view.state.doc)!.attrs
+    await enterEditHtml(view)
+    const session = imageEditKey.getState(view.state).session!
+    // 改坏
+    view.dispatch(view.state.tr.delete(session.editFrom, session.editFrom + 5))
+    await new Promise((r) => setTimeout(r, 5))
+
+    view.focus()
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 10))
+
+    const img = getImageNode(view.state.doc)
+    expect(img).not.toBeNull()
+    expect(img!.attrs).toEqual(before)
+    expect(img!.attrs.htmlSource).toBe(true)
+    view.destroy()
+  })
+
+  it('含 width 的 html image:trigger 序列化含 width,commit 保留 htmlAttrs', async () => {
+    const view = makeView(htmlImageNode({ src: 'a.png', alt: 'alt', htmlAttrs: { width: '100' } }))
+    const pos = getImagePos(view.state.doc)
+    triggerImageEdit(view, pos)
+
+    // trigger 序列化含 width
+    expect(getTextContent(view.state.doc)).toBe('<img src="a.png" alt="alt" width="100">')
+
+    // 不改文本光标移出 → commit 重建,htmlAttrs 保留
+    await moveCursorOut(view)
+    const img = getImageNode(view.state.doc)
+    expect(img).not.toBeNull()
+    expect(img!.attrs.htmlAttrs).toEqual({ width: '100' })
+    view.destroy()
+  })
+})
+
+// html 格式编辑态的 enterEdit helper(同 enterEdit 但用 htmlSource image)
+async function enterEditHtml(view: EditorView): Promise<void> {
+  const pos = getImagePos(view.state.doc)
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+  await new Promise((r) => setTimeout(r, 10))
+  const btn = view.dom.querySelector('.image-edit-btn') as HTMLButtonElement
+  btn.click()
+  await new Promise((r) => setTimeout(r, 10))
+}
+

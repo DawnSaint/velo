@@ -39,7 +39,7 @@ import { NodeSelection, Plugin, PluginKey, TextSelection } from 'prosemirror-sta
 import type { EditorView } from 'prosemirror-view'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 
-import { parseImageSource, serializeImageSource } from './imageSource'
+import { parseImageSource, serializeImageSource, parseHtmlImageSource, serializeHtmlImageSource } from './imageSource'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 
 export const imageEditKey = new PluginKey('imageEdit')
@@ -55,6 +55,10 @@ interface ImageEditSession {
   editTo: number
   /** 点击瞬间的源码(Escape 还原用) */
   originalSource: string
+  /** 源码格式:markdown `![alt](src)` 或 html `<img src="...">`。
+   *  由 triggerImageEdit 根据节点 htmlSource attr 决定,commit/escape/preview
+   *  据此选对应 parse/serialize 函数。commit 重建节点时 htmlSource = format==='html'。 */
+  format: 'markdown' | 'html'
 }
 
 interface ImageEditState {
@@ -122,8 +126,11 @@ export function createImageEditPlugin(opts: ImageEditPluginOptions): Plugin<Imag
         // 实时跟随 src。key 含当前源码 → 文本变 → 重建 widget → 实时预览。
         // 残缺 → 不挂(图片隐藏)。
         const currentText = state.doc.textBetween(editFrom, editTo, '\n', '\n')
-        const parsed = parseImageSource(currentText)
+        const parsed = pluginState.session.format === 'html'
+          ? parseHtmlImageSource(currentText)
+          : parseImageSource(currentText)
         if (parsed && parsed.src) {
+          const extraAttrs = 'extraAttrs' in parsed ? parsed.extraAttrs : null
           decos.push(
             Decoration.widget(editTo, () => {
               const img = document.createElement('img')
@@ -131,6 +138,11 @@ export function createImageEditPlugin(opts: ImageEditPluginOptions): Plugin<Imag
               img.src = opts.proxyDomURL(parsed!.src)
               img.alt = parsed!.alt
               if (parsed!.title) img.title = parsed!.title
+              if (extraAttrs) {
+                for (const [k, v] of Object.entries(extraAttrs)) {
+                  img.setAttribute(k, v)
+                }
+              }
               img.draggable = false
               img.contentEditable = 'false'
               return img
@@ -195,15 +207,20 @@ export const imageEditEscapeKeymap = keymap({
     const pluginState = imageEditKey.getState(state)
     if (!pluginState?.session) return false
 
-    const { editFrom, editTo, originalSource } = pluginState.session
+    const { editFrom, editTo, originalSource, format } = pluginState.session
     if (dispatch) {
       const tr = state.tr.delete(editFrom, editTo)
-      const parsed = parseImageSource(originalSource) // 来自 serializeImageSource,必合法
+      const parsed = format === 'html'
+        ? parseHtmlImageSource(originalSource) // 来自 serializeHtmlImageSource,必合法
+        : parseImageSource(originalSource) // 来自 serializeImageSource,必合法
       if (parsed) {
+        const extraAttrs: Record<string, string> = 'extraAttrs' in parsed ? (parsed as { extraAttrs: Record<string, string> }).extraAttrs : {}
         tr.replaceWith(editFrom, editFrom, state.schema.nodes.image.create({
           src: parsed.src,
           alt: parsed.alt,
           title: parsed.title,
+          htmlSource: format === 'html',
+          htmlAttrs: format === 'html' && Object.keys(extraAttrs).length ? extraAttrs : null,
         }))
         tr.setSelection(NodeSelection.create(tr.doc, editFrom))
       }
@@ -234,13 +251,31 @@ export function triggerImageEdit(view: EditorView, pos: number): void {
   const src = node.attrs.src as string
   const alt = node.attrs.alt as string
   const title = node.attrs.title as string
-  const source = serializeImageSource({ src, alt, title })
+  const isHtml = node.attrs.htmlSource === true
+  const format: 'markdown' | 'html' = isHtml ? 'html' : 'markdown'
+  const htmlAttrs = (node.attrs.htmlAttrs as Record<string, string>) || null
+  const source = isHtml
+    ? serializeHtmlImageSource({ src, alt, title, extraAttrs: htmlAttrs || {} })
+    : serializeImageSource({ src, alt, title })
 
-  // image atom → text(source 至少 `![]()`,不会是空串,schema.text 安全)
+  // image atom → text(source 不会是空串,schema.text 安全)
   const tr = view.state.tr.replaceWith(pos, pos + node.nodeSize, view.state.schema.text(source))
-  // 默认选 `()` 内的 src:`![` + alt + `](` = 4 + alt.length → src 起点
-  const srcStart = pos + 4 + alt.length
-  const srcEnd = srcStart + src.length
+  // 默认选中 src 值(改链接是最高频操作):
+  //  - markdown `![alt](src "title")` → `()` 内的 src
+  //  - html `<img src="src" alt="...">` → src 属性值
+  let srcStart: number
+  let srcEnd: number
+  if (isHtml) {
+    // `src="` 后到下一个 `"` 之间
+    const srcAttr = `src="${src}"`
+    const idx = source.indexOf(srcAttr)
+    srcStart = pos + idx + 5 // `src="` = 5 chars
+    srcEnd = srcStart + src.length
+  } else {
+    // `![` + alt + `](` = 4 + alt.length → src 起点
+    srcStart = pos + 4 + alt.length
+    srcEnd = srcStart + src.length
+  }
   tr.setSelection(TextSelection.create(tr.doc, srcStart, srcEnd))
   // 进入编辑态是瞬时视图切换(image→源码文本),不是内容编辑 —— 跳过内容回写,
   // 否则 toMarkdown 把纯文本里的 `![...](` 转义成 `\![...](`,与渲染态 image
@@ -253,6 +288,7 @@ export function triggerImageEdit(view: EditorView, pos: number): void {
       editFrom: pos,
       editTo: pos + source.length,
       originalSource: source,
+      format,
     },
   })
   view.dispatch(tr)
@@ -264,20 +300,25 @@ function commitImageEdit(view: EditorView): void {
   const pluginState = imageEditKey.getState(view.state)
   if (!pluginState?.session) return
 
-  const { editFrom, editTo } = pluginState.session
+  const { editFrom, editTo, format } = pluginState.session
   const sourceText = view.state.doc.textBetween(editFrom, editTo, '\n', '\n')
 
   // 先用 commit meta 把 state 清掉 —— 避免 commit 自己 dispatch 的 tr 又触发 view.update
   let tr = view.state.tr.setMeta(imageEditKey, { type: 'commit' } as const)
 
-  const parsed = parseImageSource(sourceText)
+  const parsed = format === 'html'
+    ? parseHtmlImageSource(sourceText)
+    : parseImageSource(sourceText)
   if (parsed) {
     // 合法 → 重建 image 节点,NodeSelection 选中(视觉回到选中态,按钮仍在)
     const imageType = view.state.schema.nodes.image
+    const extraAttrs: Record<string, string> = 'extraAttrs' in parsed ? (parsed as { extraAttrs: Record<string, string> }).extraAttrs : {}
     tr = tr.replaceWith(editFrom, editTo, imageType.create({
       src: parsed.src,
       alt: parsed.alt,
       title: parsed.title,
+      htmlSource: format === 'html',
+      htmlAttrs: format === 'html' && Object.keys(extraAttrs).length ? extraAttrs : null,
     }))
     tr = tr.setSelection(NodeSelection.create(tr.doc, editFrom))
     view.dispatch(tr)

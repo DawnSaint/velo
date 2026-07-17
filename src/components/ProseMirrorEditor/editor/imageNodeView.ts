@@ -77,6 +77,13 @@ export function createImageNodeView(opts: ImageViewOptions) {
         img.alt = (currentNode.attrs.alt as string) || ''
         const title = currentNode.attrs.title as string
         if (title) img.title = title
+        // htmlSource image 的额外属性(width/style 等)展开到 img,让视觉效果生效
+        const htmlAttrs = currentNode.attrs.htmlAttrs as Record<string, string> | null
+        if (htmlAttrs) {
+          for (const [k, v] of Object.entries(htmlAttrs)) {
+            img.setAttribute(k, v)
+          }
+        }
         frame.appendChild(img)
       }
       // 阅读模式下不渲染编辑按钮(view.editable=false 时无编辑入口,triggerImageEdit 兜底)

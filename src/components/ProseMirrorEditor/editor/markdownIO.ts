@@ -25,6 +25,7 @@ import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
+import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
 import remarkFrontmatter from 'remark-frontmatter'
 import type { FrontmatterLang } from '../syntax/block/frontmatter'
 
@@ -291,6 +292,20 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
       // 跟"空段"语义对不上)。toMarkdown 靠 childCount=0 识别空段,无需 attr。
       if (node.value === '<br />') {
         return [schema.node('paragraph')]
+      }
+      // 独立 <img src="..." alt="..." title="..."> 标签(仅 src/alt/title 属性)
+      // → 接管为 image 节点(htmlSource=true),可选中 + 点按钮展开源码编辑。
+      // 含额外属性(width 等)或 img 嵌套在 HTML 内 → 不匹配,保留 html_block。
+      const standaloneImg = parseHtmlImageSource(node.value)
+      if (standaloneImg) {
+        const { extraAttrs, ...imgAttrs } = standaloneImg
+        return [schema.node('paragraph', null, [
+          schema.node('image', {
+            ...imgAttrs,
+            htmlSource: true,
+            htmlAttrs: Object.keys(extraAttrs).length ? extraAttrs : null,
+          }),
+        ])]
       }
       return [schema.node('html_block', { value: node.value })]
 
@@ -604,6 +619,18 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
       if (node.childCount === 0) {
         return { type: 'paragraph', children: [{ type: 'text', value: '' }] }
       }
+      // 单个 htmlSource image 独占段落 → 序列化为 html 块节点(非 paragraph),
+      // remark-stringify 原样输出 `<img ...>`,round-trip 回 html_block → image。
+      // 不规范化为 `![]()` —— HTML 图片保持 HTML 形态。
+      if (node.childCount === 1 && node.firstChild!.type.name === 'image'
+        && node.firstChild!.attrs.htmlSource) {
+        return { type: 'html', value: serializeHtmlImageSource({
+          src: node.firstChild!.attrs.src as string,
+          alt: node.firstChild!.attrs.alt as string,
+          title: node.firstChild!.attrs.title as string,
+          extraAttrs: (node.firstChild!.attrs.htmlAttrs as Record<string, string>) || {},
+        }) }
+      }
       return { type: 'paragraph', children: pmInlineToMdast(node) }
 
     case 'heading':
@@ -787,12 +814,26 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       spans.push({ kind: 'text', marks: markList, value: child.text ?? '' })
     }
     else if (name === 'image') {
-      spans.push({
-        kind: 'image', marks: [],
-        src: child.attrs.src as string,
-        alt: child.attrs.alt as string,
-        title: child.attrs.title as string,
-      })
+      if (child.attrs.htmlSource) {
+        // htmlSource image 在内联位置(非独占段落)→ 序列化为 inline html,
+        // 保持 `<img>` 形态而非 `![]()`。独占段落在 pmBlockToMdast 已拦截为 html 块。
+        spans.push({
+          kind: 'htmlInline', marks: [],
+          value: serializeHtmlImageSource({
+            src: child.attrs.src as string,
+            alt: child.attrs.alt as string,
+            title: child.attrs.title as string,
+            extraAttrs: (child.attrs.htmlAttrs as Record<string, string>) || {},
+          }),
+        })
+      } else {
+        spans.push({
+          kind: 'image', marks: [],
+          src: child.attrs.src as string,
+          alt: child.attrs.alt as string,
+          title: child.attrs.title as string,
+        })
+      }
     }
     else if (name === 'hardbreak') {
       spans.push({ kind: 'break', marks: [] })

@@ -6,12 +6,15 @@
 //  3. on* 事件属性被剥
 //  4. javascript: URL 被剥
 //  5. NodeView dom 是 div / span,attrs.value 被 sanitize 写入 innerHTML
+//  6. HTML 块内 <img> src 走 proxyDomURL 代理(与 image NodeView 同款)
 
 import { describe, expect, it } from 'vitest'
-import { __test_safeRender, htmlNodeViewPlugin } from '../HtmlNodeView'
+import { __test_safeRender, createHtmlNodeViewPlugin } from '../HtmlNodeView'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../../editor/schema'
+
+const identityProxy = (u: string): string => u
 
 function sanitize(raw: string): string {
   const div = document.createElement('div')
@@ -65,7 +68,7 @@ describe('HtmlNodeView - sanitize 行为', () => {
 })
 
 describe('HtmlNodeView - 真实 EditorView 渲染', () => {
-  function mountView(value: string, kind: 'block' | 'inline') {
+  function mountView(value: string, kind: 'block' | 'inline', proxyDomURL = identityProxy) {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const inner = kind === 'block'
@@ -74,7 +77,8 @@ describe('HtmlNodeView - 真实 EditorView 渲染', () => {
     const doc = schema.node('doc', null, [
       kind === 'block' ? inner : inner,
     ])
-    const state = EditorState.create({ doc, schema, plugins: [htmlNodeViewPlugin] })
+    const plugin = createHtmlNodeViewPlugin({ proxyDomURL })
+    const state = EditorState.create({ doc, schema, plugins: [plugin] })
     const view = new EditorView(host, { state })
     return { view, host, cleanup: () => { view.destroy(); host.remove() } }
   }
@@ -104,5 +108,82 @@ describe('HtmlNodeView - 真实 EditorView 渲染', () => {
     expect(blockDom.innerHTML).not.toContain('script')
     expect(blockDom.innerHTML).toContain('safe')
     cleanup()
+  })
+})
+
+describe('HtmlNodeView - img src 代理', () => {
+  it('html_block 内 <img> src 走 proxyDomURL', () => {
+    const proxy = (url: string) => `asset://proxy/${url}`
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = schema.node('doc', null, [
+      schema.node('html_block', { value: '<img src="assets/img.png" alt="x">' }),
+    ])
+    const plugin = createHtmlNodeViewPlugin({ proxyDomURL: proxy })
+    const state = EditorState.create({ doc, schema, plugins: [plugin] })
+    const view = new EditorView(host, { state })
+
+    const img = view.dom.querySelector('.velo-html-block img') as HTMLImageElement
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('asset://proxy/assets/img.png')
+    expect(img.alt).toBe('x')
+    view.destroy()
+    host.remove()
+  })
+
+  it('html_inline 内 <img> src 走 proxyDomURL', () => {
+    const proxy = (url: string) => `asset://proxy/${url}`
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.node('html_inline', { value: '<img src="pic.jpg">' }),
+      ]),
+    ])
+    const plugin = createHtmlNodeViewPlugin({ proxyDomURL: proxy })
+    const state = EditorState.create({ doc, schema, plugins: [plugin] })
+    const view = new EditorView(host, { state })
+
+    const img = view.dom.querySelector('.velo-html-inline img') as HTMLImageElement
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('asset://proxy/pic.jpg')
+    view.destroy()
+    host.remove()
+  })
+
+  it('http(s) / data: src 经 proxyDomURL 透传(image NodeView 同款 resolveImageSrc 已处理)', () => {
+    // resolveImageSrc 对 http(s)/data:/asset:/tauri: 原样返回;这里用 identity 模拟
+    const proxy = (url: string) => url
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = schema.node('doc', null, [
+      schema.node('html_block', { value: '<img src="https://example.com/a.png">' }),
+    ])
+    const plugin = createHtmlNodeViewPlugin({ proxyDomURL: proxy })
+    const state = EditorState.create({ doc, schema, plugins: [plugin] })
+    const view = new EditorView(host, { state })
+
+    const img = view.dom.querySelector('.velo-html-block img') as HTMLImageElement
+    expect(img.getAttribute('src')).toBe('https://example.com/a.png')
+    view.destroy()
+    host.remove()
+  })
+
+  it('无 src 的 <img> 不报错(跳过代理)', () => {
+    const proxy = (url: string) => `asset://proxy/${url}`
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = schema.node('doc', null, [
+      schema.node('html_block', { value: '<img alt="no-src">' }),
+    ])
+    const plugin = createHtmlNodeViewPlugin({ proxyDomURL: proxy })
+    const state = EditorState.create({ doc, schema, plugins: [plugin] })
+    const view = new EditorView(host, { state })
+
+    const img = view.dom.querySelector('.velo-html-block img') as HTMLImageElement
+    expect(img).not.toBeNull()
+    expect(img.alt).toBe('no-src')
+    view.destroy()
+    host.remove()
   })
 })
