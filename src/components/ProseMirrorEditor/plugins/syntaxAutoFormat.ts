@@ -31,6 +31,7 @@ import {
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
 import { markSourceEditKey } from './markSourceEdit'
+import { htmlSourceEditKey } from './htmlSourceEdit'
 
 // 容器型黑名单:整个节点跳过(包括子节点)
 const CONTAINER_BLACKLIST = new Set([
@@ -146,6 +147,8 @@ function getActiveEditRanges(state: EditorState): { from: number, to: number }[]
   if (imageSession) ranges.push({ from: imageSession.editFrom, to: imageSession.editTo })
   const markSession = markSourceEditKey.getState(state)?.session ?? null
   if (markSession) ranges.push({ from: markSession.editFrom, to: markSession.editTo })
+  const htmlSession = htmlSourceEditKey.getState(state)?.session ?? null
+  if (htmlSession) ranges.push({ from: htmlSession.editFrom, to: htmlSession.editTo })
   return ranges
 }
 

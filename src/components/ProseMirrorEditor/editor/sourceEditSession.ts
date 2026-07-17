@@ -1,11 +1,11 @@
 // 源码编辑 session 检测 —— 供 onChange 判断"当前是否处于
-// image/link/mark 源码编辑中间态",以决定是否对源码文本做转义补偿。
+// image/link/mark/html 源码编辑中间态",以决定是否对源码文本做转义补偿。
 //
-// 三个 session 插件(imageEdit / linkClick / markSourceEdit)共享同一范式:
-//   - 进入编辑态:把渲染节点替换为纯文本源码(`![alt](src)` / `[text](url)` / `**bold**`),
+// 四个 session 插件(imageEdit / linkClick / markSourceEdit / htmlSourceEdit)共享同一范式:
+//   - 进入编辑态:把渲染节点替换为纯文本源码(`![alt](src)` / `[text](url)` / `**bold**` / `<sup>2</sup>`),
 //     trigger 事务挂 SKIP_CONTENT_EMIT 跳过回写
 //   - 用户键入:普通事务,不挂 SKIP_CONTENT_EMIT → onChange 触发 toMarkdown →
-//     纯文本里的 `![`/`[`/`(` 被 remark-stringify 转义成 `\![`/`\[`/`\(` →
+//     纯文本里的 `![`/`[`/`(`/`<` 被 remark-stringify 转义成 `\![`/`\[`/`\(`/`\<` →
 //     与渲染态序列化结果不同,污染 documentStore.content
 //   - commit/Escape:重建渲染节点,session 清空 → 不挂 SKIP_CONTENT_EMIT,需回写
 //
@@ -16,13 +16,15 @@ import type { EditorState } from 'prosemirror-state'
 import { linkClickPluginKey } from '../plugins/linkClick'
 import { markSourceEditKey } from '../plugins/markSourceEdit'
 import { imageEditKey } from '../image/imageEditPlugin'
+import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 
-/** 当前是否有任何源码编辑 session 处于活跃状态(image/link/mark)。 */
+/** 当前是否有任何源码编辑 session 处于活跃状态(image/link/mark/html)。 */
 export function isInSourceEditMode(state: EditorState): boolean {
   return !!(
     imageEditKey.getState(state)?.session
     || linkClickPluginKey.getState(state)?.session
     || markSourceEditKey.getState(state)?.session
+    || htmlSourceEditKey.getState(state)?.session
   )
 }
 
@@ -35,5 +37,7 @@ export function getSourceEditRanges(state: EditorState): { from: number; to: num
   if (linkSession) ranges.push({ from: linkSession.editFrom, to: linkSession.editTo })
   const markSession = markSourceEditKey.getState(state)?.session
   if (markSession) ranges.push({ from: markSession.editFrom, to: markSession.editTo })
+  const htmlSession = htmlSourceEditKey.getState(state)?.session
+  if (htmlSession) ranges.push({ from: htmlSession.editFrom, to: htmlSession.editTo })
   return ranges
 }

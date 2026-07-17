@@ -37,6 +37,7 @@ import { fromMarkdown } from '../editor/markdownIO'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
+import { htmlSourceEditKey } from './htmlSourceEdit'
 
 export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceEdit')
 
@@ -74,8 +75,8 @@ function emptyState(): MarkSourceEditState {
  *  (多 backtick 代码 `` `` .. `` `` 重建时降级为单 backtick,已知限制;源文件加载不受影响)。 */
 function markerText(mark: Mark): string | null {
   switch (mark.type.name) {
-    case 'strong': return (mark.attrs.marker === '_' ? '__' : '**')
-    case 'emphasis': return (mark.attrs.marker === '_' ? '_' : '*')
+    case 'strong': return mark.attrs.marker === '_' ? '__' : '**'
+    case 'emphasis': return mark.attrs.marker === '_' ? '_' : '*'
     case 'highlight': return '=='
     case 'strike_through': return '~~'
     case 'code': return '`'
@@ -93,12 +94,14 @@ function isBlacklisted(state: EditorState, pos: number): boolean {
   return false
 }
 
-/** link / image edit session 退避 —— 别的 session 范围内不进 mark session。 */
+/** link / image / html edit session 退避 —— 别的 session 范围内不进 mark session。 */
 function inOtherEditSession(state: EditorState, pos: number): boolean {
   const linkSession = linkClickPluginKey.getState(state)?.session
   if (linkSession && pos >= linkSession.editFrom && pos <= linkSession.editTo) return true
   const imageSession = imageEditKey.getState(state)?.session
   if (imageSession && pos >= imageSession.editFrom && pos <= imageSession.editTo) return true
+  const htmlSession = htmlSourceEditKey.getState(state)?.session
+  if (htmlSession && pos >= htmlSession.editFrom && pos <= htmlSession.editTo) return true
   return false
 }
 

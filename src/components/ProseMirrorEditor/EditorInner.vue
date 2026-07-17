@@ -160,6 +160,7 @@ function computeTableMenuHideMoveColumn(anchorPos: number): boolean {
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
+import { htmlSourceEditPlugin, htmlSourceEditEscapeKeymap } from './plugins/htmlSourceEdit'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
@@ -497,6 +498,8 @@ const basePlugins: Plugin[] = [
   // pass 2 读到 session 自动退避(不会把用户源码 `**` 又转回 mark)。
   markSourceEditPlugin,
   markSourceEditEscapeKeymap,
+  htmlSourceEditPlugin,
+  htmlSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   codeHighlightPlugin,
   codeWrapPlugin,

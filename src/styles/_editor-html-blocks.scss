@@ -34,3 +34,18 @@
   background-color: rgba(255, 255, 255, 0.06);
   color: #aaa;
 }
+
+// html 源码编辑态视觉指示(htmlSourceEditPlugin)
+// 复用 link source edit 同款等宽字体 + 浅灰底
+.velo-html-source-edit {
+  font-family: var(--font-mono);
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  padding: 0 3px;
+  color: #555;
+}
+
+:is(.dark .velo-editor, .velo-editor.dark) .velo-html-source-edit {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #aaa;
+}

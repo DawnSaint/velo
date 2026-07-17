@@ -23,6 +23,7 @@ import type { EditorState } from 'prosemirror-state'
 import type { ShortcutCommand } from '../registry'
 import { linkClickPluginKey } from '../../../plugins/linkClick'
 import { markSourceEditKey } from '../../../plugins/markSourceEdit'
+import { htmlSourceEditKey } from '../../../plugins/htmlSourceEdit'
 
 export function toggleMarkWithWrap(
   markType: MarkType,
@@ -40,10 +41,11 @@ export function toggleMarkWithWrap(
     if ($from.parent.type.name === 'math_block') return false
     if ($from.marks().some(m => m.type.name === 'code')) return false
 
-    // linkClick / markSourceEdit 编辑态 session 内:不插包裹符,只 setStoredMark(避免改源码)
+    // linkClick / markSourceEdit / htmlSourceEdit 编辑态 session 内:不插包裹符,只 setStoredMark(避免改源码)
     const linkEditSession = linkClickPluginKey.getState(state)?.session
     const markEditSession = markSourceEditKey.getState(state)?.session
-    const forceStoredMarkOnly = linkEditSession != null || markEditSession != null
+    const htmlEditSession = htmlSourceEditKey.getState(state)?.session
+    const forceStoredMarkOnly = linkEditSession != null || markEditSession != null || htmlEditSession != null
 
     if (!empty) {
       // 选区非空:原生 toggleMark
