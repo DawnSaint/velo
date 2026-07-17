@@ -24,15 +24,23 @@
 //  4. **toggle 按钮永远渲染**(heading / list_item)。collapsed / expanded 共用
 //     同一个 widget,切到 expanded 时变 chevron-down,collapsed 时变
 //     chevron-right。code_block 的 toggle 在 CodeHighlightWidget 的 header 内。
-//  5. **placeholder widget** 极简,只是灰色 `...`,挂 fold 区段首部
-//     side:-1 上一可见 block 末尾,点击展开(仅 heading / list_item 用;
-//     code_block 不需要 placeholder,header 即摘要)。
+//  5. **placeholder 是真实 inline atom 节点**(fold_placeholder),不是
+//     Decoration.widget。v0.7.2 改为真实节点:光标可自然停在 `...` 两侧、
+//     可被 TextSelection 覆盖划选。折叠/展开时由 appendTransaction 插入/
+//     删除节点(addToHistory:false,不进 undo)。toMarkdown 跳过(不污染
+//     markdown round-trip)。点击 `...` → handleClickOn 展开(与 chevron 等效)。
+//     划选覆盖 `...` → Decoration.node 挂 is-selected 高亮;foldDeleteCommand
+//     (排在 keymap 链首)把删除范围扩展到折叠节点起点 ~ range[1](整块删除)+
+//     从 collapsedSet 移除该折叠点。
 //  6. **list_item 仅在含 block 子项时折叠**(`content: 'paragraph block*'`,
 //     折叠 = 首段之后的 block 子项)。无子项 → 不挂 toggle,避免对纯叶子
 //     列表项加冗余按钮。
 //  7. **selectable: false**。folded 区段不可被节点选中 / 鼠标拖蓝选中,
 //     防止从 folded 块外选进 hidden 文本;键盘箭头仍可越过 hidden 文本
 //     (PM 不知 CSS display,见下面"维护者注意点"一节;v1 接受)。
+//     注意:`selectable: false` 只挡 NodeSelection / 鼠标 drag,不挡
+//     `tr.delete(from, to)` 区间删除 —— foldDeleteCommand
+//     直接 `tr.delete(nodeStart, range[1])` 仍能删掉区间内的隐藏 block。
 //  8. **auto-expand on search hit**:`ensureFoldExpandedAt(view, pos)` 与
 //     mermaid 的 `ensureMermaidSourceVisibleAt` 同形态,findreplace 命中
 //     隐藏区段时幂等展开。
@@ -57,9 +65,10 @@
 
 import { Plugin, PluginKey } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
-import type { EditorState } from 'prosemirror-state'
+import type { EditorState, Transaction } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
+import { schema } from '../editor/schema'
 import { chevronDownSvg } from '@/components/icons/widgetIcons'
 import { useFoldStore } from '@/stores/folding'
 import { useDocumentStore } from '@/stores/document'
@@ -381,6 +390,8 @@ function makeToggleWidget(
   // contentEditable=false:PM 不接管按钮,keydown 不会从按钮发到 PM
   btn.contentEditable = 'false'
   btn.setAttribute('data-fold-key', stableKey)
+  // data-fold-cs:contentStart,syncToggleState 据此查 collapsedSet 同步属性
+  btn.dataset.foldCs = String(contentStart)
   btn.setAttribute('data-fold-state', isCollapsed ? 'collapsed' : 'expanded')
   const title = isCollapsed ? '展开' : '折叠'
   btn.title = title
@@ -417,72 +428,19 @@ function makeToggleWidget(
   return btn
 }
 
-function makePlaceholderWidget(
-  range: [number, number],
-  triggerPos: number,
-  stableKey: string,
-): HTMLElement {
-  // 极简:一个 `...`,点击展开。挂在 fold 区段首部 side:-1 的 inline 位置,
-  // 视觉上接在 trigger block(heading / list_item 首段)末尾同一行。
-  const wrap = document.createElement('span')
-  wrap.className = 'velo-fold-placeholder'
-  wrap.contentEditable = 'false'
-  wrap.textContent = '...'
-  wrap.title = '展开'
-  wrap.addEventListener('mousedown', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
+/** 同步所有 toggle 按钮的 data-fold-state 属性。toggle widget key 不含折叠状态,
+ *  PM 复用旧 DOM → factory 不重跑 → handleClickOn(点 `...` 展开)路径下属性不更新。
+ *  每帧 view.update 跑一次,按 collapsedSet 统一同步。 */
+function syncToggleState(view: EditorView, s: FoldState) {
+  const toggles = view.dom.querySelectorAll<HTMLElement>('.velo-fold-toggle')
+  toggles.forEach((el) => {
+    const cs = Number(el.dataset.foldCs)
+    if (!cs) return
+    const isCollapsed = s.collapsedSet.has(cs)
+    el.setAttribute('data-fold-state', isCollapsed ? 'collapsed' : 'expanded')
+    el.title = isCollapsed ? '展开' : '折叠'
+    el.setAttribute('aria-label', el.title)
   })
-  wrap.addEventListener('click', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const view = currentView
-    if (!view || view.isDestroyed) return
-    // **手动同步 toggle button**:PM toggle widget key 不依赖折叠状态
-    // (`fold-toggle:${contentStart}:${stableKey}` 不含 collapsed/expanded),
-    // collapsed↔expanded 时 PM 复用同一个 button DOM,factory 不重跑,
-    // `data-fold-state` 不会自动翻 —— 不手动同步,展开后按钮仍停在
-    // collapsed 视觉,chevron 不旋转。手动 setAttribute 让 CSS transition
-    // 看到属性变化,触发 0 ↔ -90deg 平滑动画。
-    // 这里总是展开(`isCollapsed = false`),因为 placeholder 仅在折叠态可见。
-    syncToggleButton(view, stableKey, false)
-    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: triggerPos }))
-    // scrollIntoView 到折叠区段起点
-    try {
-      const dom = view.nodeDOM(range[0]) as HTMLElement | null
-      if (dom) dom.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-    catch { /* swallow */ }
-  })
-  return wrap
-}
-
-/** 反查 view.dom 里对应 stableKey 的 toggle button。 */
-function findToggleByKey(view: EditorView, stableKey: string): HTMLElement | null {
-  // 不走 CSS attribute selector —— stableKey 是用户文本 + 类型/level,
-  // 可能含 `"` `\` 字符,直接拼进选择器会破坏 selector。改用
-  // querySelectorAll + JS 字符串比对,O(N) 代价可接受(N = 当前 doc 中
-  // foldable block 数,典型 < 100)。
-  const candidates = view.dom.querySelectorAll<HTMLElement>('.velo-fold-toggle[data-fold-key]')
-  for (const el of candidates) {
-    if (el.getAttribute('data-fold-key') === stableKey) return el
-  }
-  return null
-}
-
-/** 手动翻 toggle button 的 `data-fold-state`,触发 CSS transition 旋转。
- *  仅在 key 不变、PM 复用 DOM 的场景用(placeholder 展开路径)。 */
-function syncToggleButton(
-  view: EditorView,
-  stableKey: string,
-  isCollapsed: boolean,
-): void {
-  const el = findToggleByKey(view, stableKey)
-  if (!el) return
-  const title = isCollapsed ? '展开' : '折叠'
-  el.setAttribute('data-fold-state', isCollapsed ? 'collapsed' : 'expanded')
-  el.title = title
-  el.setAttribute('aria-label', title)
 }
 
 // ============================================================
@@ -510,6 +468,18 @@ function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
       return
     }
   })
+
+  // v0.7.2:fold_placeholder 节点在非空选区内时挂 is-selected 高亮
+  // (真实节点 contentEditable=false,浏览器原生选区蓝底不覆盖它,
+  // 用 Decoration.node 自绘蓝底对齐 ::selection)
+  const sel = state.selection
+  if (!sel.empty) {
+    state.doc.nodesBetween(sel.from, sel.to, (node, pos) => {
+      if (node.type.name === 'fold_placeholder') {
+        decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-selected' }))
+      }
+    })
+  }
 
   return DecorationSet.create(state.doc, decos)
 }
@@ -550,7 +520,7 @@ function addHeadingDecos(
   const range = computeFoldRange(node, contentStart, state.doc)
   if (!range) return
   // 折叠区段首部 placeholder + 区段内每个 block 挂 hidden class
-  applyFoldRange(state, range, contentStart, stableKey, decos)
+  applyFoldRange(state, range, contentStart, decos)
 }
 
 function addListItemDecos(
@@ -584,7 +554,7 @@ function addListItemDecos(
   if (!isCollapsed) return
   const range = computeFoldRange(node, contentStart, state.doc)
   if (!range) return
-  applyFoldRange(state, range, contentStart, stableKey, decos)
+  applyFoldRange(state, range, contentStart, decos)
 }
 
 function addCodeBlockDecos(
@@ -633,8 +603,7 @@ function addFrontmatterDecos(
 function applyFoldRange(
   state: EditorState,
   range: [number, number],
-  triggerPos: number,
-  stableKey: string,
+  _triggerPos: number,
   decos: Decoration[],
 ) {
   // 把 fold 区段内的每个 block 整块 `display: none`。
@@ -656,21 +625,10 @@ function applyFoldRange(
       selectable: false,
     }))
   })
-  // placeholder 挂到 range[0] - 1 side:1(首段/heading 末尾 close token
-  // 紧前位置的最后一个 inline 位)。这里 PM 看作 inline text 末尾,
-  // widget 作为 inline 元素紧跟首段文字同行,视觉上"首行末 + ..."。
-  //
-  // 为什么不用 side:-1 在 range[0]:range[0] 是 block 结束位置
-  // (heading close token 之后 / list_item 首段 paragraph 之后),
-  // PM 会在 block 边界换段,placeholder 视觉上在新一行 —— 用户报"占了一行"。
-  // 用 side:1 在 range[0] - 1 把它挤进 block 内部最后一个 inline 位。
-  decos.push(
-    Decoration.widget(range[0] - 1, () => makePlaceholderWidget(range, triggerPos, stableKey), {
-      key: `fold-placeholder:${range[0]}-${range[1]}`,
-      ignoreSelection: true,
-      side: 1,
-    }),
-  )
+  // v0.7.2:placeholder 不再是 Decoration.widget,而是真实 fold_placeholder
+  // 节点,由 appendTransaction 在折叠时插入到 range[0]-1 位置。
+  // 真实节点光标可停两侧、可被 TextSelection 划选,彻底解决 widget 的
+  // side 限制(光标只能停一侧)和选区覆盖问题。
 }
 
 // ============================================================
@@ -681,9 +639,8 @@ function applyFoldRange(
  * Plugin state apply。
  *  - setMeta `initCollapsed: number[]` → 覆盖整个 set(file 切换 / 启动时灌入)
  *  - setMeta `toggle: number` → 单点 toggle
- *  - setMeta `expandKey: string` → 把折叠集里这个 stable key 移除
- *    (placeholder 路径,需要先 resolve 到 contentStart —— 但本 meta 路径
- *    不直接做,留给 store 端处理:plugin 仍 dispatch toggle,store 同步翻)
+ *  - setMeta `remove: number[]`(v0.7.2)→ 从 set 批量移除(选区删除折叠内容时
+ *    清理折叠点,避免部分选中 heading 后留下指向已删内容的 stale 折叠)
  *  - docChanged → tr.mapping.map(pos, -1) 跟住,失效 pos 丢
  */
 const foldDecoPlugin = new Plugin<FoldState>({
@@ -692,7 +649,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
     init: () => initialState(),
     apply(tr, prev, _oldState, newState) {
       const meta = tr.getMeta(foldKey) as
-        | { initCollapsed?: number[], toggle?: number, expandKey?: string }
+        | { initCollapsed?: number[], toggle?: number, remove?: number[] }
         | undefined
       let collapsedSet = prev.collapsedSet
       let setMutated = false
@@ -706,6 +663,15 @@ const foldDecoPlugin = new Plugin<FoldState>({
         else next.add(meta.toggle)
         collapsedSet = next
         setMutated = true
+      }
+      // v0.7.2:批量移除折叠点(选区删除折叠内容时清理 stale 折叠)
+      else if (meta?.remove && meta.remove.length > 0) {
+        const next = new Set(prev.collapsedSet)
+        for (const r of meta.remove) next.delete(r)
+        if (next.size !== prev.collapsedSet.size) {
+          collapsedSet = next
+          setMutated = true
+        }
       }
       // doc 变化跟住折叠点(用 assoc=-1 防止 contentStart 在 insertText
       // 之后跑到文本末尾 —— mermaid 同坑)
@@ -749,6 +715,94 @@ const foldDecoPlugin = new Plugin<FoldState>({
       if (!s) return null
       return buildDecorations(state, s)
     },
+    // v0.7.2:点击 fold_placeholder 节点 → 展开(与 chevron toggle 等效)
+    handleClickOn(view, _pos, node, nodePos, _event, _direct) {
+      if (node.type.name !== 'fold_placeholder') return false
+      // 拖选结束后 click 也会触发 —— 只在选区为空(纯点击)时展开
+      if (!view.state.selection.empty) return false
+      const $pos = view.state.doc.resolve(nodePos)
+      for (let depth = $pos.depth; depth > 0; depth--) {
+        const ancestor = $pos.node(depth)
+        if (isFoldable(ancestor)) {
+          const contentStart = $pos.start(depth)
+          view.dispatch(view.state.tr.setMeta(foldKey, { toggle: contentStart }))
+          return true
+        }
+      }
+      return false
+    },
+  },
+  // v0.7.2:appendTransaction 同步 fold_placeholder 真实节点与 collapsedSet。
+  // 折叠(toggle / initCollapsed)→ 插入节点;展开 → 删除节点。
+  // 用 nodeSync meta 防无限循环(自己的 transaction 不再触发)。
+  appendTransaction(trs, _oldState, newState) {
+    const lastTr = trs[trs.length - 1]
+    if (lastTr.getMeta(foldKey)?.nodeSync) return null
+
+    const s = foldKey.getState(newState)
+    if (!s) return null
+    const set = s.collapsedSet
+    const doc = newState.doc
+
+    // 扫描 fold_placeholder 节点,找到其父 foldable 的 contentStart
+    const placeholders = new Map<number, number>() // contentStart → pos
+    const orphaned: number[] = []
+    doc.descendants((node, pos) => {
+      if (node.type.name !== 'fold_placeholder') return
+      const $pos = doc.resolve(pos)
+      let found = false
+      for (let depth = $pos.depth; depth > 0; depth--) {
+        const ancestor = $pos.node(depth)
+        if (isFoldable(ancestor)) {
+          placeholders.set($pos.start(depth), pos)
+          found = true
+          break
+        }
+      }
+      if (!found) orphaned.push(pos)
+    })
+
+    // 检查是否已同步
+    const setArr = [...set].sort((a, b) => a - b)
+    const phArr = [...placeholders.keys()].sort((a, b) => a - b)
+    const inSync = setArr.length === phArr.length && setArr.every((v, i) => v === phArr[i])
+    if (inSync && orphaned.length === 0) return null
+
+    const tr = newState.tr
+    let modified = false
+
+    // 删除孤儿节点(foldable 父节点已不存在,如 heading→paragraph)
+    for (const pos of orphaned.sort((a, b) => b - a)) {
+      tr.delete(pos, pos + 1)
+      modified = true
+    }
+    // 删除不在 set 中的 placeholder(逆序删以保持位置)
+    const toRemove = [...placeholders.entries()]
+      .filter(([cs]) => !set.has(cs))
+      .sort((a, b) => b[1] - a[1])
+    for (const [, pos] of toRemove) {
+      tr.delete(pos, pos + 1)
+      modified = true
+    }
+    // 插入 set 中没有 placeholder 的折叠点(逆序插以保持位置)
+    const toInsert = [...set]
+      .filter(cs => !placeholders.has(cs))
+      .sort((a, b) => b - a)
+    for (const contentStart of toInsert) {
+      const node = doc.nodeAt(contentStart - 1)
+      if (!node) continue
+      // code_block / frontmatter 不需要 placeholder(header 即摘要)
+      if (node.type.name !== 'heading' && node.type.name !== 'list_item') continue
+      const range = computeFoldRange(node, contentStart, doc)
+      if (!range) continue
+      tr.insert(range[0] - 1, schema.nodes.fold_placeholder.create())
+      modified = true
+    }
+
+    if (!modified) return null
+    tr.setMeta(foldKey, { nodeSync: true })
+    tr.setMeta('addToHistory', false)
+    return tr
   },
   view: (view) => {
     currentView = view
@@ -763,6 +817,11 @@ const foldDecoPlugin = new Plugin<FoldState>({
         if (updatedView.isDestroyed) return
         const s = foldKey.getState(updatedView.state)
         if (!s) return
+        // 同步 toggle 按钮的 data-fold-state 属性:toggle widget key 不含折叠状态,
+        // PM 复用旧 DOM → factory 不重跑 → 属性停在初值。handleClickOn(点 `...` 展开)
+        // 只 dispatch toggle meta,不像 chevron click handler 那样手动 setAttribute。
+        // 这里统一同步:每帧扫描所有 toggle,按 collapsedSet 更新属性 + title。
+        syncToggleState(updatedView, s)
         // 同步 store:只在 collapsedSet 实际变化时跑
         if (
           s.collapsedSet.size === prevCollapsed.size
@@ -874,4 +933,61 @@ export function collectFoldableKeys(
     }
   })
   return out
+}
+
+// ============================================================
+//  foldDeleteCommand(给 EditorInner keymap 链首用)
+// ============================================================
+
+/**
+ * v0.7.2:选区覆盖 fold_placeholder 节点时,把删除范围扩展到折叠节点起点 ~
+ * range[1](整块删除),并从 collapsedSet 移除该折叠点。
+ *
+ * 排在 Backspace/Delete keymap 链首,先于 baseKeymap['Backspace'] 执行。
+ * 不覆盖任何 fold_placeholder → return false,走正常删除链。
+ *
+ * deleteFrom 扩展到 contentStart-1(折叠节点起点):若从 sel.from 删会留
+ * heading open token 碎片,PM replace 会把它和下一个 heading 合并,吞掉
+ * 下一个 heading —— 用户报"下一行被删"。
+ */
+export function foldDeleteCommand(
+  state: EditorState,
+  dispatch?: (tr: Transaction) => void,
+): boolean {
+  const s = foldKey.getState(state)
+  if (!s || s.collapsedSet.size === 0) return false
+  const sel = state.selection
+  if (sel.empty) return false
+
+  const doc = state.doc
+  let deleteFrom = sel.from
+  let deleteEnd = sel.to
+  const toRemove: number[] = []
+
+  doc.nodesBetween(sel.from, sel.to, (node, pos) => {
+    if (node.type.name !== 'fold_placeholder') return
+    // 找到 fold_placeholder 的父 foldable 节点
+    const $pos = doc.resolve(pos)
+    for (let depth = $pos.depth; depth > 0; depth--) {
+      const ancestor = $pos.node(depth)
+      if (isFoldable(ancestor)) {
+        const contentStart = $pos.start(depth)
+        const range = computeFoldRange(ancestor, contentStart, doc)
+        if (range) {
+          const nodeStart = contentStart - 1
+          if (nodeStart < deleteFrom) deleteFrom = nodeStart
+          if (range[1] > deleteEnd) deleteEnd = range[1]
+          if (!toRemove.includes(contentStart)) toRemove.push(contentStart)
+        }
+        break
+      }
+    }
+  })
+
+  if (toRemove.length === 0) return false
+
+  if (dispatch) {
+    dispatch(state.tr.delete(deleteFrom, deleteEnd).setMeta(foldKey, { remove: toRemove }))
+  }
+  return true
 }

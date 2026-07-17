@@ -165,7 +165,7 @@ import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
-import { foldDecoration, foldKey, collectFoldableKeys } from './nodes/FoldDecoration'
+import { foldDecoration, foldKey, collectFoldableKeys, foldDeleteCommand } from './nodes/FoldDecoration'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { useFoldStore } from '@/stores/folding'
@@ -396,6 +396,9 @@ const basePlugins: Plugin[] = [
   // (codeBlockEnterCommand) 之前拦截上下键导航和高亮条目的 Enter 提交。
   codeBlockLangSuggestPlugin,
   // 自定义 Backspace / Delete:
+  //   0. foldDeleteCommand:选区覆盖 fold_placeholder 节点时扩展删除到折叠区段末尾
+  //      (必须排在最前,先于 baseKeymap['Backspace'] 否则 baseKeymap 直接删选区,
+  //      foldDeleteCommand 没机会扩展)
   //   1. frontmatterBackspaceCommand:在 frontmatter 首位按 Backspace —— 有内容时
   //      吞掉事件,空 frontmatter 删除节点(连同尾随空段)。必须排在 codeBlock 前。
   //   2. codeBlockBackspaceCommand:在 code_block 首位按 Backspace —— 有内容时
@@ -404,8 +407,8 @@ const basePlugins: Plugin[] = [
   //   3. headingToParagraph:heading 前退化为段落
   //   4. baseKeymap['Backspace']:兜底
   keymap({
-    Backspace: chainCommands(frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
-    Delete: chainCommands(headingToParagraph, baseKeymap['Delete']),
+    Backspace: chainCommands(foldDeleteCommand, frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
+    Delete: chainCommands(foldDeleteCommand, headingToParagraph, baseKeymap['Delete']),
     // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
     'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),
   }),

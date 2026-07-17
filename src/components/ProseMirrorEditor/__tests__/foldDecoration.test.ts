@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { EditorState } from 'prosemirror-state'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
@@ -26,6 +26,7 @@ import {
   ensureFoldExpandedAt,
   isCodeBlockFolded,
   isMermaidFolded,
+  foldDeleteCommand,
 } from '../nodes/FoldDecoration'
 
 // ============================================================
@@ -68,6 +69,19 @@ function findListItemByText(view: EditorView, needle: string): { node: any, pos:
       && node.firstChild?.textContent?.includes(needle)
     ) {
       out = { node, pos: p, contentStart: p + 1 }
+      return false
+    }
+    return true
+  })
+  return out
+}
+
+/** 查 doc 里第一个 fold_placeholder 节点(真实 inline atom 节点,非 widget)。 */
+function findFoldPlaceholder(view: EditorView): { node: any, pos: number } | null {
+  let out: { node: any, pos: number } | null = null
+  view.state.doc.descendants((node, p) => {
+    if (!out && node.type.name === 'fold_placeholder') {
+      out = { node, pos: p }
       return false
     }
     return true
@@ -359,24 +373,26 @@ describe('foldedCodeBlockPosSet / foldedMermaidPosSet apply-phase sync', () => {
       '',
     ].join('\n')
     const view = makeView(md)
-    // 初始:code_block 不在 fold set
-    let codePos = -1
-    view.state.doc.descendants((node, p) => {
-      if (node.type.name === 'code_block' && codePos < 0) {
-        codePos = p
-        return false
-      }
-      return true
-    })
-    expect(codePos).toBeGreaterThan(-1)
-    expect(isCodeBlockFolded(codePos)).toBe(false)
+
+    // 查找 code_block pos 的辅助(fold_placeholder 插入/删除后位置会偏移)
+    const findCodePos = () => {
+      let pos = -1
+      view.state.doc.descendants((node, p) => {
+        if (node.type.name === 'code_block' && pos < 0) { pos = p; return false }
+        return true
+      })
+      return pos
+    }
+    expect(findCodePos()).toBeGreaterThan(-1)
+    expect(isCodeBlockFolded(findCodePos())).toBe(false)
 
     const h = findHeadingByText(view, 'A')!
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
-    expect(isCodeBlockFolded(codePos)).toBe(true)
+    // fold_placeholder 插入后 code_block pos 偏移 +1,需重新查找
+    expect(isCodeBlockFolded(findCodePos())).toBe(true)
 
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
-    expect(isCodeBlockFolded(codePos)).toBe(false)
+    expect(isCodeBlockFolded(findCodePos())).toBe(false)
 
     view.destroy()
   })
@@ -392,27 +408,31 @@ describe('foldedCodeBlockPosSet / foldedMermaidPosSet apply-phase sync', () => {
       '',
     ].join('\n')
     const view = makeView(md)
-    let mermaidPos = -1
-    view.state.doc.descendants((node, p) => {
-      if (
-        node.type.name === 'code_block'
-        && (node.attrs.language as string) === 'mermaid'
-        && mermaidPos < 0
-      ) {
-        mermaidPos = p
-        return false
-      }
-      return true
-    })
-    expect(mermaidPos).toBeGreaterThan(-1)
-    expect(isMermaidFolded(mermaidPos)).toBe(false)
+    const findMermaidPos = () => {
+      let pos = -1
+      view.state.doc.descendants((node, p) => {
+        if (
+          node.type.name === 'code_block'
+          && (node.attrs.language as string) === 'mermaid'
+          && pos < 0
+        ) {
+          pos = p
+          return false
+        }
+        return true
+      })
+      return pos
+    }
+    expect(findMermaidPos()).toBeGreaterThan(-1)
+    expect(isMermaidFolded(findMermaidPos())).toBe(false)
 
     const h = findHeadingByText(view, 'A')!
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
-    expect(isMermaidFolded(mermaidPos)).toBe(true)
+    // fold_placeholder 插入后 mermaid code_block pos 偏移,需重新查找
+    expect(isMermaidFolded(findMermaidPos())).toBe(true)
 
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
-    expect(isMermaidFolded(mermaidPos)).toBe(false)
+    expect(isMermaidFolded(findMermaidPos())).toBe(false)
 
     view.destroy()
   })
@@ -434,8 +454,9 @@ describe('foldedCodeBlockPosSet / foldedMermaidPosSet apply-phase sync', () => {
     ].join('\n')
     const view = makeView(md)
     const a = findHeadingByText(view, 'A')!
-    const b = findHeadingByText(view, 'B')!
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: a.contentStart }))
+    // fold_placeholder 插入 A heading 后 B 的位置偏移,需重新查找
+    const b = findHeadingByText(view, 'B')!
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: b.contentStart }))
 
     const set = foldKey.getState(view.state)!.collapsedSet
@@ -504,6 +525,237 @@ describe('ensureFoldExpandedAt', () => {
     const view = makeView(md)
     const h = findHeadingByText(view, 'H1')!
     expect(ensureFoldExpandedAt(view, h.contentStart)).toBe(false)
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  placeholder 交互(v0.7.2)—— 真实 fold_placeholder 节点
+//
+//  占位符 `...` 是真实 inline atom 节点(非 Decoration.widget):
+//   - 光标可自然停在两侧(不再受 widget side 限制)
+//   - 可被 TextSelection 覆盖划选(原生选区能覆盖)
+//   - 点击 → handleClickOn 展开(选区为空时)
+//   - 划选覆盖 → Decoration.node 挂 is-selected 高亮
+//   - Backspace/Delete → foldDeleteCommand(排在 keymap 链首)扩展删除
+// ============================================================
+
+describe('placeholder 交互 (v0.7.2)', () => {
+  it('折叠后 fold_placeholder 节点出现在 heading 末尾', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)
+    expect(ph).not.toBeNull()
+    // fold_placeholder 在 heading 内部
+    const $pos = view.state.doc.resolve(ph!.pos)
+    expect($pos.parent.type.name).toBe('heading')
+    view.destroy()
+  })
+
+  it('展开后 fold_placeholder 节点消失', () => {
+    const md = ['# A', '', 'p1'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    expect(findFoldPlaceholder(view)).not.toBeNull()
+
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    expect(findFoldPlaceholder(view)).toBeNull()
+    view.destroy()
+  })
+
+  it('点击 heading 占位符(选区为空)→ 展开折叠', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
+
+    // 确保选区为空(纯点击场景)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)))
+
+    // 模拟 handleClickOn(真实节点由 PM handleClickOn prop 处理)
+    const ph = findFoldPlaceholder(view)!
+    view.someProp('handleClickOn', (handler) => {
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      return false
+    })
+
+    // 点击 = 展开
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    expect(findFoldPlaceholder(view)).toBeNull()
+    view.destroy()
+  })
+
+  it('点击 `...` 展开后 toggle 按钮的 data-fold-state 复原为 expanded', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    // 折叠态:toggle 按钮是 collapsed
+    const toggleCollapsed = view.dom.querySelector('.velo-fold-toggle') as HTMLElement
+    expect(toggleCollapsed.getAttribute('data-fold-state')).toBe('collapsed')
+
+    // 确保选区为空(纯点击场景)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)))
+
+    // 模拟 handleClickOn 点击 `...` 展开
+    const ph = findFoldPlaceholder(view)!
+    view.someProp('handleClickOn', (handler) => {
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      return false
+    })
+
+    // 展开后:toggle 按钮应复原为 expanded(syncToggleState 在 view.update 中同步)
+    const toggleExpanded = view.dom.querySelector('.velo-fold-toggle') as HTMLElement
+    expect(toggleExpanded.getAttribute('data-fold-state')).toBe('expanded')
+    view.destroy()
+  })
+
+  it('拖选后有选区时点击 `...` → 不展开(避免误触发)', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    // 模拟拖选后状态:非空选区
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, 1, 2),
+    ))
+
+    const ph = findFoldPlaceholder(view)!
+    view.someProp('handleClickOn', (handler) => {
+      if (handler) return handler(view, ph.pos, ph.node, ph.pos, {} as Event, true)
+      return false
+    })
+
+    // 有选区 → 不展开
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
+    view.destroy()
+  })
+
+  it('划选 head 文字到 `...` → is-selected 高亮;移开 → 取消', () => {
+    const md = ['# A', '', 'p1'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    // 划选 [head 文本起点, fold_placeholder 末尾]
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, h.pos + 1, ph.pos + 1),
+    ))
+
+    // is-selected 高亮(Decoration.node 给 fold_placeholder DOM 挂 class)
+    const phDom = view.dom.querySelector('.velo-fold-placeholder') as HTMLElement
+    expect(phDom?.classList.contains('is-selected')).toBe(true)
+
+    // 移开选区(空选区)→ 取消高亮
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)))
+    const phDom2 = view.dom.querySelector('.velo-fold-placeholder') as HTMLElement
+    expect(phDom2?.classList.contains('is-selected')).toBe(false)
+    view.destroy()
+  })
+
+  it('划选 head 到 `...` → Backspace → head+折叠内容一起删 + 折叠点清除(不串到 # B)', () => {
+    const md = ['# A', '', 'p1', '', 'p2', '', '# B', '', 'p3'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    // 划选 head 文字到 `...`:选区覆盖 fold_placeholder 节点
+    const ph = findFoldPlaceholder(view)!
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, h.pos + 1, ph.pos + 1),
+    ))
+
+    // Backspace → foldDeleteCommand 扩展删除到 range[1]
+    foldDeleteCommand(view.state, view.dispatch.bind(view))
+
+    // 折叠点已清除 —— 关键:不串到 # B
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    expect(view.state.doc.textContent).not.toContain('A')
+    expect(view.state.doc.textContent).not.toContain('p1')
+    expect(view.state.doc.textContent).not.toContain('p2')
+    expect(view.state.doc.textContent).toContain('B')
+    expect(view.state.doc.textContent).toContain('p3')
+    // 无残留折叠
+    expect(view.dom.querySelectorAll('.velo-folded').length).toBe(0)
+    view.destroy()
+  })
+
+  it('list_item:划选首段到 `...` → Delete → 子项连同删除 + 折叠点清除', () => {
+    const md = ['- top', '  - nested1', '  - nested2'].join('\n')
+    const view = makeView(md)
+    const li = findListItemByText(view, 'top')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: li.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    expect(ph).not.toBeNull()
+
+    // 划选 [首段文本起点, fold_placeholder 末尾]
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, li.contentStart + 1, ph.pos + 1),
+    ))
+
+    // Delete → foldDeleteCommand 扩展删除到 listItemEnd
+    foldDeleteCommand(view.state, view.dispatch.bind(view))
+
+    // 折叠点清除
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    expect(view.state.doc.textContent).not.toContain('top')
+    expect(view.state.doc.textContent).not.toContain('nested1')
+    expect(view.state.doc.textContent).not.toContain('nested2')
+    view.destroy()
+  })
+
+  it('选区不覆盖 fold_placeholder → foldDeleteCommand 不触发(返回 false)', () => {
+    const md = ['# Hello', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'Hello')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
+
+    const ph = findFoldPlaceholder(view)!
+    // 划选 heading 内部一段(不覆盖 fold_placeholder)
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, 2, ph.pos),
+    ))
+    const phDom = view.dom.querySelector('.velo-fold-placeholder') as HTMLElement
+    expect(phDom?.classList.contains('is-selected')).toBe(false)
+
+    // foldDeleteCommand 不触发
+    expect(foldDeleteCommand(view.state, view.dispatch.bind(view))).toBe(false)
+    // 折叠态不变
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
+    view.destroy()
+  })
+
+  it('foldDeleteCommand 直接调用(不经过 keymap)也能正确扩展删除', () => {
+    const md = ['# X', '', 'content1', '', 'content2', '', '# Y'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'X')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    // 选区覆盖 fold_placeholder
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, h.pos + 1, ph.pos + 1),
+    ))
+
+    // 直接调用 foldDeleteCommand(模拟 keymap 链首执行)
+    const result = foldDeleteCommand(view.state, view.dispatch.bind(view))
+    expect(result).toBe(true)
+
+    // X + content 被删,Y 保留
+    expect(view.state.doc.textContent).not.toContain('X')
+    expect(view.state.doc.textContent).not.toContain('content1')
+    expect(view.state.doc.textContent).not.toContain('content2')
+    expect(view.state.doc.textContent).toContain('Y')
     view.destroy()
   })
 })

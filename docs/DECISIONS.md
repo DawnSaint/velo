@@ -116,6 +116,22 @@
 
 ---
 
+## v0.7.2 — 编辑器语法增强
+
+### ADR-20260717-003: 折叠占位符从 Decoration.widget 改为真实 inline atom 节点
+
+- **Context**: 折叠后的 `...` 占位符原为 `Decoration.widget`，widget 的 `side` 属性只能让光标停在一侧（`side:0` 停前 / `side:1` 停后），无法实现"光标自然停在两侧"；widget 不参与 PM selection model，鼠标划选无法覆盖 `...`（浏览器选区绕过 widget），导致选中后删除只能删到占位符边界而非整块折叠内容。候选:A 保持 widget（接受光标 / 选区限制）；B 改为真实 `fold_placeholder` inline atom 节点（光标 / 选区 / 删除全部走 PM 原生语义）。
+- **Decision**: 选 B。schema 新增 `fold_placeholder` 节点（`inline` / `atom` / `selectable:false`），折叠 / 展开时由 `appendTransaction` 插入 / 删除节点到折叠点末尾 inline 位（`addToHistory:false` 不进 undo），`toMarkdown` 跳过（不污染 markdown round-trip）。`appendTransaction` 用 `nodeSync` meta 防无限循环，逆序扫描保持位置稳定。点击 `...` → `handleClickOn` 展开（选区为空时触发，拖选后不误触发）；划选覆盖 → `Decoration.node` 挂 `is-selected` 高亮；Backspace / Delete → `foldDeleteCommand`（排在 keymap 链首）把删除范围扩展到折叠节点起点 ~ range[1]（整块删除）+ 从 collapsedSet 移除。
+- **Consequences**: 光标可自然停在 `...` 两侧、鼠标划选可覆盖、选中后删除连同折叠内容整块删除——三项交互全部走 PM 原生语义，无 widget 限制。代价:`appendTransaction` 必须严格防循环（nodeSync meta + 扫描逻辑幂等）；`fold_placeholder` 节点不计入 markdown round-trip（`pmInlineToMdast` 跳过），测试中的位置查找需考虑节点插入导致的偏移。后续折叠相关交互（如拖拽折叠块）基于真实节点实现，不再受 widget 约束。
+
+### ADR-20260717-004: 块级 HTML 源码编辑走 code_block 替换（非 NodeView textarea）
+
+- **Context**: html_block 是 atom 节点（`contentEditable=false`），编辑其源码需要一个文本编辑面。候选:A NodeView 内嵌 textarea（math_block 范式）vs B 点击按钮把 html_block 替换成 `code_block { language:'html' }`（有 contentDOM 的普通可编辑节点）。A 的致命坑:PM 对 atom 节点自动设 `contentEditable=false`，dom 嵌在 `view.dom`（`contentEditable=true`）内；用户点击 textarea 时 mousedown 冒泡到 `view.dom`，虽然 `stopEvent:()=>true` 让 PM JS handler 提前返回，但**浏览器原生 contenteditable 行为仍被触发**（尝试在 view.dom 放光标）→ textarea 失焦 → blur → 误退出编辑 session。`stopEvent` / `stopPropagation` 都不防浏览器原生 contenteditable 焦点抢夺。
+- **Decision**: 选 B。点击按钮 dispatch 把 html_block 替换成 code_block（有 contentDOM），用户在 code_block 内编辑是 PM 原生行为，点击 / 拖选 / IME 全部正常，彻底绕开 `contentEditable=false` 问题。session 由 `htmlSourceEditPlugin` 管理（同 html_inline / imageEdit 范式：光标移出 commit / Escape 还原）。code_block `{ code:true }` 天然保留换行，Enter 只换行不拆段。
+- **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换；但 code_block 上挂 `.velo-html-block-source-edit` node decoration（虚线边框）标识"正在编辑 HTML 源码"，用户可明确感知编辑态。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
+
+---
+
 ## v0.5.0 — 工作区与文件树
 
 ### ADR-20260623-001: 工作区根走 recursive 单 watch 句柄

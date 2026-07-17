@@ -130,12 +130,15 @@ html.dark .velo-fold-toggle:hover {
 //  Placeholder(折叠区段起点,极简 `...`)
 // ============================================================
 //
-// 灰色(去斜体,色阶比 text-muted 更浅),hover 主色,inline 接在 trigger
-// block 文本末尾。点击展开。
+// v0.7.2: `...` 是真实 inline atom 节点(fold_placeholder),不是 Decoration.widget。
+// 光标可自然停在两侧,可被 TextSelection 覆盖划选。toDOM 渲染此 span,
+// Decoration.node 在选区覆盖时挂 is-selected 高亮(自绘蓝底对齐 ::selection)。
+// 折叠/展开时由 appendTransaction 插入/删除节点(addToHistory:false)。
+// 点击 → handleClickOn 展开;划选覆盖 + Backspace/Delete → foldDeleteCommand 扩展删除。
 .velo-fold-placeholder {
   display: inline-block;
   margin-left: 0.3em;
-  padding: 0;
+  padding: 0 0.15em;
   font-size: 1em;
   color: #b0b0b0;
   background: transparent;
@@ -144,11 +147,20 @@ html.dark .velo-fold-toggle:hover {
   cursor: pointer;
   user-select: none;
   caret-color: transparent;
-  transition: color 0.12s ease;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
 .velo-fold-placeholder:hover {
   color: var(--md-primary-color, #3b82f6);
+}
+
+// 选中态(v0.7.2):非空选区覆盖 fold_placeholder 节点时挂 is-selected 高亮。
+// 真实节点 contentEditable=false,浏览器原生选区蓝底不覆盖它,这里
+// 自绘蓝底对齐 ::selection(#b4d5ff),让 head 文字 + `...` 一体选中。
+// Decoration.node 在 buildDecorations 中挂/卸,选区移开自动解除。
+.velo-fold-placeholder.is-selected {
+  color: var(--md-primary-color, #3b82f6);
+  background: #b4d5ff;
 }
 
 html.dark .velo-fold-placeholder {
@@ -157,4 +169,9 @@ html.dark .velo-fold-placeholder {
 
 html.dark .velo-fold-placeholder:hover {
   color: var(--md-primary-color, #60a5fa);
+}
+
+html.dark .velo-fold-placeholder.is-selected {
+  color: var(--md-primary-color, #60a5fa);
+  background: #264f78;
 }

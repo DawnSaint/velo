@@ -857,6 +857,7 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       // atom 节点:marks 字段在 dispatch 时也硬编码为 []，与 image 一致
       spans.push({ kind: 'htmlInline', marks: [], value: child.attrs.value as string })
     }
+    // fold_placeholder:视觉节点,不序列化到 markdown(折叠态占位符)
   })
 
   // 第二步:提取非原生 mark run(underline / highlight),再走 wrapWithMarks。

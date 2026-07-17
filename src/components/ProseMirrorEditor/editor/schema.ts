@@ -248,6 +248,23 @@ const nodes: Record<string, NodeSpec> = {
     },
   },
 
+  // fold_placeholder:折叠占位符 `...`。v0.7.2 改为真实 inline atom 节点
+  // (之前是 Decoration.widget,widget 无法让光标停在两侧、无法被划选)。
+  // 作为真实节点,光标可自然停在前后、可被 TextSelection 覆盖、删除时连同
+  // 折叠内容一起删。toMarkdown 跳过(不序列化),fromMarkdown 不产出(非
+  // markdown 语法)。折叠/展开时由 FoldDecoration plugin 插入/删除,不进
+  // history(addToHistory:false)。isFoldable 节点(heading/list_item)的
+  // content 是 'inline*',fold_placeholder 属于 inline group 可自然进入。
+  fold_placeholder: {
+    inline: true,
+    group: 'inline',
+    atom: true,
+    selectable: false,
+    marks: '',
+    parseDOM: [{ tag: 'span[data-type="fold-placeholder"]' }],
+    toDOM: () => ['span', { 'data-type': 'fold-placeholder', class: 'velo-fold-placeholder', contenteditable: 'false' }, '...'],
+  },
+
   hardbreak: {
     inline: true,
     group: 'inline',

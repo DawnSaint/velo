@@ -56,31 +56,6 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 
 
-## v0.7.2 — 编辑器语法增强
-
-> 本版本聚焦四类增强：行内 HTML 标签的点击展开源码编辑、块级 HTML 源码切换按钮、Ctrl+U 下划线 mark、HTML 节点内图片路径适配。
-
-- [x] **行内 HTML 标签点击展开源码** `#html-inline-source-edit` `P2` `M`
-  - html_inline atom 节点点击后展开为原始 HTML 源码文本，光标移出 commit 重建节点，Escape 还原（复用 imageEdit session 范式）
-  - 与 markSourceEdit / linkClick / imageEdit session 互斥退避（syntaxAutoFormat + sourceEditSession + markCommands 同步纳入）
-  - 块级 HTML（html_block）不走点击展开 —— 块级 HTML 源码常含换行，替换成纯文本后 PM 段落切分 / remark 重解析会破坏节点结构；改用点击按钮替换成 code_block 编辑（光标移出 commit 重建）
-
-- [x] **块级 HTML 源码切换按钮** `#html-block-source-toggle` `P2` `M`
-  - 块级 HTML 右上角加源码切换按钮，点击替换成 code_block 进入源码编辑，光标移出自动 commit 重建为 html_block
-
-- [x] **Ctrl+U 下划线** `#underline-mark` `P2` `M`
-  - [x] schema 新增 `underline` mark（parseDOM `<u>` / toDOM `<u>`）
-  - [x] remark 插件把 mdast 中的 `<u>text</u>` html 节点对重写为 `underline` 节点
-  - [x] markdownIO 双向：fromMarkdown 把 `underline` 节点转成 text + underline mark；toMarkdown 把 underline mark 序列化为 `<u>text</u>` html 节点
-  - [x] syntax/inline/underline 注册（匹配 `<u>text</u>` → underline mark），排在 htmlTag 之前
-  - [x] Ctrl+U 快捷键（toggleMarkWithWrap，openMarker `<u>` / closingMarker `</u>`，额外传 `skipSyntaxAutoFormat` 防 htmlTag 抢转空 `<u></u>`）
-  - [x] markSourceEdit 纳入 underline（TARGET_MARKS + markerText 改为 { open, close } 支持 asym 分隔符）
-
-- [x] **图片 HTML 节点适配** `#html-image-adapt` `P2` `S`
-  - HtmlNodeView 渲染后扫描内部 `<img>` 元素，src 走 resolveImageSrc（与 image NodeView 同款 Tauri asset:// 代理），让 HTML 块内的图片路径正确解析
-
-
-
 ## 已知问题
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
