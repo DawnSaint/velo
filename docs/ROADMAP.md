@@ -58,16 +58,15 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 ## v0.7.2 — 编辑器语法增强
 
-> 本版本聚焦三类增强：行内 HTML 标签的点击展开源码编辑、Ctrl+U 下划线 mark、HTML 节点内图片路径适配。
+> 本版本聚焦四类增强：行内 HTML 标签的点击展开源码编辑、块级 HTML 源码切换按钮、Ctrl+U 下划线 mark、HTML 节点内图片路径适配。
 
 - [x] **行内 HTML 标签点击展开源码** `#html-inline-source-edit` `P2` `M`
   - html_inline atom 节点点击后展开为原始 HTML 源码文本，光标移出 commit 重建节点，Escape 还原（复用 imageEdit session 范式）
   - 与 markSourceEdit / linkClick / imageEdit session 互斥退避（syntaxAutoFormat + sourceEditSession + markCommands 同步纳入）
-  - 块级 HTML（html_block）不走点击展开 —— 块级 HTML 源码常含换行，替换成纯文本后 PM 段落切分 / remark 重解析会破坏节点结构
+  - 块级 HTML（html_block）不走点击展开 —— 块级 HTML 源码常含换行，替换成纯文本后 PM 段落切分 / remark 重解析会破坏节点结构；改用点击按钮替换成 code_block 编辑（光标移出 commit 重建）
 
-- [ ] **块级 HTML 源码切换按钮** `#html-block-source-toggle` `P2` `M`
-  - 块级 HTML 右上角加 Typora 风格源码切换按钮，点击才进入源码编辑（不走光标驱动 click-to-expand）
-  - 源码编辑态用 textarea / contentDOM 隔离，避免 PM 段落切分破坏多行 HTML 结构
+- [x] **块级 HTML 源码切换按钮** `#html-block-source-toggle` `P2` `M`
+  - 块级 HTML 右上角加源码切换按钮，点击替换成 code_block 进入源码编辑，光标移出自动 commit 重建为 html_block
 
 - [x] **Ctrl+U 下划线** `#underline-mark` `P2` `M`
   - [x] schema 新增 `underline` mark（parseDOM `<u>` / toDOM `<u>`）

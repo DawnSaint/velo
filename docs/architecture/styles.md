@@ -57,7 +57,7 @@ _editor-lists.scss      ← ul / ol / li + 任务列表 checkbox
 _editor-code.scss       ← 行内 code + shiki 双主题 + 代码块 header widget + 语言下拉 + CM6 源码模式
 _editor-tables.scss     ← 表格
 _editor-image.scss      ← image NodeView + 编辑按钮 + 源码编辑态
-_editor-html-blocks.scss← HTML 透传容器 + link source edit
+_editor-html-blocks.scss← HTML 透传容器 + link/html source edit + 块级源码切换按钮
 _editor-alerts.scss     ← GFM alert / callout
 _editor-toc.scss        ← TOC 目录 widget
 _editor-fold.scss       ← 块级折叠 toggle / placeholder

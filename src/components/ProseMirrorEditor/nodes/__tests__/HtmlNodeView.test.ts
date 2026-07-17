@@ -7,10 +7,12 @@
 //  4. javascript: URL 被剥
 //  5. NodeView dom 是 div / span,attrs.value 被 sanitize 写入 innerHTML
 //  6. HTML 块内 <img> src 走 proxyDomURL 代理(与 image NodeView 同款)
+//  7. 块级 HTML 源码切换:点击按钮 → code_block / 光标移出 commit / Escape cancel / 阅读模式
 
 import { describe, expect, it } from 'vitest'
 import { __test_safeRender, createHtmlNodeViewPlugin } from '../HtmlNodeView'
-import { EditorState } from 'prosemirror-state'
+import { htmlSourceEditPlugin, htmlSourceEditEscapeKeymap } from '../../plugins/htmlSourceEdit'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../../editor/schema'
 
@@ -185,5 +187,125 @@ describe('HtmlNodeView - img src 代理', () => {
     expect(img.alt).toBe('no-src')
     view.destroy()
     host.remove()
+  })
+})
+
+describe('HtmlNodeView - 块级 HTML 源码切换(code_block 范式)', () => {
+  function mountBlockView(value: string, editable?: () => boolean) {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    // doc = paragraph(空) + html_block + paragraph(空)
+    // 空段提供"光标移出 code_block"的着陆点
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph'),
+      schema.node('html_block', { value }),
+      schema.node('paragraph'),
+    ])
+    const nodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: identityProxy })
+    const plugins = [nodeViewPlugin, htmlSourceEditPlugin, htmlSourceEditEscapeKeymap]
+    const state = EditorState.create({ doc, schema, plugins })
+    const view = new EditorView(host, { state, editable })
+    return { view, host, cleanup: () => { view.destroy(); host.remove() } }
+  }
+
+  it('渲染态:右上角有源码切换按钮(code-xml svg)', () => {
+    const { view, cleanup } = mountBlockView('<details><summary>X</summary>Y</details>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn')
+    expect(btn).not.toBeNull()
+    expect(btn!.tagName.toLowerCase()).toBe('button')
+    expect(btn!.innerHTML).toContain('<svg')
+    cleanup()
+  })
+
+  it('点击按钮:html_block 被替换为 code_block,内容为原始 HTML 源码', () => {
+    const { view, cleanup } = mountBlockView('<details><summary>X</summary>Y</details>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
+    btn.click()
+
+    // html_block 消失,code_block 出现(doc.child(0)=空段, child(1)=code_block)
+    expect(view.dom.querySelector('.velo-html-block')).toBeNull()
+    const codeBlock = view.state.doc.child(1)
+    expect(codeBlock.type.name).toBe('code_block')
+    expect(codeBlock.attrs.language).toBe('html')
+    expect(codeBlock.textContent).toBe('<details><summary>X</summary>Y</details>')
+    cleanup()
+  })
+
+  it('光标移出 code_block → commit:code_block 替换回 html_block,值更新', () => {
+    const { view, cleanup } = mountBlockView('<p>old</p>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
+    btn.click()
+
+    // doc = paragraph(2) + code_block + paragraph(2),code_block 在 pos 2
+    const codeBlockPos = 2
+    const codeBlock = view.state.doc.nodeAt(codeBlockPos)!
+    expect(codeBlock.type.name).toBe('code_block')
+
+    // 修改 code_block 内容(替换全部文本)
+    const textStart = codeBlockPos + 1
+    const textEnd = codeBlockPos + codeBlock.nodeSize - 1
+    view.dispatch(view.state.tr.replaceWith(textStart, textEnd, view.state.schema.text('<p>new</p>')))
+
+    // 光标移出 code_block → 移到第一个空段(pos 1 = 段内)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+
+    // commit:code_block 替换回 html_block,值已更新
+    const htmlBlock = view.state.doc.nodeAt(codeBlockPos)!
+    expect(htmlBlock.type.name).toBe('html_block')
+    expect(htmlBlock.attrs.value).toBe('<p>new</p>')
+    // 渲染态恢复
+    expect(view.dom.querySelector('.velo-html-block')).not.toBeNull()
+    cleanup()
+  })
+
+  it('光标移出 code_block 值未变 → commit 仍替换回 html_block(原值)', () => {
+    const { view, cleanup } = mountBlockView('<p>x</p>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
+    btn.click()
+
+    // 不改内容,直接移出光标到第一个空段
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+
+    // commit:code_block 替换回 html_block,值不变
+    const htmlBlock = view.state.doc.nodeAt(2)!
+    expect(htmlBlock.type.name).toBe('html_block')
+    expect(htmlBlock.attrs.value).toBe('<p>x</p>')
+    cleanup()
+  })
+
+  it('Escape cancel:code_block 替换回 html_block,还原原始 HTML', () => {
+    const { view, cleanup } = mountBlockView('<p>original</p>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
+    btn.click()
+
+    // 修改 code_block 内容
+    view.dispatch(view.state.tr.insertText('<p>changed</p>', 3))
+
+    // 按 Escape(keymap 插件监听 keydown)
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    // cancel:code_block 替换回 html_block,值还原
+    const htmlBlock = view.state.doc.nodeAt(2)!
+    expect(htmlBlock.type.name).toBe('html_block')
+    expect(htmlBlock.attrs.value).toBe('<p>original</p>')
+    cleanup()
+  })
+
+  it('阅读模式:不渲染源码切换按钮', () => {
+    const { view, cleanup } = mountBlockView('<p>x</p>', () => false)
+    const btn = view.dom.querySelector('.html-source-toggle-btn')
+    expect(btn).toBeNull()
+    cleanup()
+  })
+
+  it('code_block 编辑态有 .velo-html-block-source-edit 装饰(虚线边框标识)', () => {
+    const { view, cleanup } = mountBlockView('<p>x</p>')
+    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
+    btn.click()
+
+    // code_block 的 DOM 应有 .velo-html-block-source-edit class(node decoration)
+    const codeBlockDom = view.dom.querySelector('.velo-html-block-source-edit')
+    expect(codeBlockDom).not.toBeNull()
+    cleanup()
   })
 })

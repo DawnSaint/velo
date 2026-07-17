@@ -1,26 +1,35 @@
-// 行内 HTML 源码编辑 — Obsidian 风格的 click-to-expand source edit。
+// HTML 源码编辑 — Obsidian 风格的 source edit。
 //
-// 用户交互流程:
-//   1. 点击 html_inline atom 节点 → 替换成原始 HTML 源码文本
-//      (attrs.value),光标落进源码首字符后,Decoration 加 .velo-html-source-edit
-//      视觉指示。
+// 行内 HTML (html_inline):
+//   1. 点击 html_inline atom 节点 → 替换成原始 HTML 源码文本,
+//      光标落进源码首字符后,Decoration 加 .velo-html-source-edit 视觉指示。
 //   2. 编辑态下:
 //      - 用户编辑文本 → 普通 transaction,plugin state 随位置平移
 //      - 光标移出源码范围 → apply 检测到,view.update 触发 commit
 //      - commit:把源码文本重建为 html_inline 节点(NodeSelection 选中)
 //      - Escape → keymap 还原成点击前的原始源码(放弃编辑)
 //
-// 设计要点(对照 imageEditPlugin.ts / linkClick.ts):
-//  - html_inline 是 atom 节点(同 image),走"替换成纯文本"而非
-//    linkClick 的"剥 mark";session 状态机(apply mapping + pendingCommit +
-//    view.update 触发 commit + Escape 还原)完全复用 imageEdit 骨架。
-//  - 触发用 handleDOMEvents.click(同 linkClick),检测点击目标是否在
-//    .velo-html-inline 内。
-//  - commit 后用 NodeSelection 选中重建的 HTML 节点(同 imageEdit)。
+// 块级 HTML (html_block):
+//   1. NodeView 右上角按钮点击 → 替换成 code_block { language: 'html' },
+//      光标落进 code_block 内,Decoration 加 .velo-html-block-source-edit 视觉指示。
+//   2. 编辑态下:
+//      - 用户在 code_block 内正常编辑(PM 原生 contenteditable,无 textarea 焦点问题)
+//      - 光标移出 code_block → apply 检测到,view.update 触发 commit
+//      - commit:把 code_block 文本重建为 html_block 节点(NodeSelection 选中)
+//      - Escape → keymap 还原成原始 HTML 源码(放弃编辑)
+//
+// 设计要点:
+//  - 行内走"替换成纯文本"(同 imageEdit 范式),块级走"替换成 code_block"。
+//    块级不用纯文本是因为 HTML 源码常含换行,纯文本在 paragraph 中会被 PM
+//    按 Enter 拆段;code_block { code: true } 天然保留换行,Enter 只换行不拆段。
+//  - 块级不用 NodeView 内 textarea(math_block 范式)是因为 PM 对 atom 节点
+//    自动设 contentEditable=false,textarea 嵌在 contentEditable=false 的 dom
+//    内,点击 textarea 时浏览器原生 contenteditable 行为会抢焦点导致 textarea
+//    blur → 误退出编辑。改用 code_block 彻底绕开 contentEditable=false 问题。
+//  - session 状态机(apply mapping + pendingCommit + view.update 触发 commit +
+//    Escape 还原)行内/块级各一套,互不干扰。
 //  - trigger 事务挂 SKIP_CONTENT_EMIT —— 瞬时视图切换不是内容编辑。
-//  - 块级 HTML (html_block) 不走点击展开 —— 块级 HTML 源码常含换行,
-//    替换成纯文本后 PM 段落切分 / remark 重解析会破坏节点结构。
-//    块级 HTML 的源码切换留待后续以 Typora 风格按钮实现。
+//    commit / Escape 不挂 —— 需回写以同步 content(同 imageEdit / linkClick)。
 
 import { keymap } from 'prosemirror-keymap'
 import { NodeSelection, Plugin, PluginKey, TextSelection } from 'prosemirror-state'
@@ -37,13 +46,20 @@ interface HtmlEditSession {
   originalSource: string
 }
 
+interface HtmlBlockEditSession {
+  blockPos: number
+  originalSource: string
+}
+
 interface HtmlEditState {
   session: HtmlEditSession | null
+  blockSession: HtmlBlockEditSession | null
   pendingCommit: HtmlEditSession | null
+  pendingBlockCommit: HtmlBlockEditSession | null
 }
 
 function emptyState(): HtmlEditState {
-  return { session: null, pendingCommit: null }
+  return { session: null, blockSession: null, pendingCommit: null, pendingBlockCommit: null }
 }
 
 export const htmlSourceEditPlugin = new Plugin<HtmlEditState>({
@@ -58,24 +74,59 @@ export const htmlSourceEditPlugin = new Plugin<HtmlEditState>({
       const meta = tr.getMeta(htmlSourceEditKey) as
         | { type: 'start', session: HtmlEditSession }
         | { type: 'commit' | 'cancel' }
+        | { type: 'startBlock', session: HtmlBlockEditSession }
+        | { type: 'commitBlock' | 'cancelBlock' }
         | undefined
 
+      // ---- 行内 session ----
       if (meta?.type === 'start') {
-        return { session: meta.session, pendingCommit: null }
+        return { ...value, session: meta.session, pendingCommit: null }
       }
       if (meta?.type === 'commit' || meta?.type === 'cancel') {
-        return emptyState()
+        return { ...value, session: null, pendingCommit: null }
       }
-      if (!value.session) return value
 
-      const session = value.session
-      const editFrom = tr.mapping.map(session.editFrom, 1)
-      const editTo = tr.mapping.map(session.editTo, -1)
-      const updated: HtmlEditSession = { ...session, editFrom, editTo }
+      // ---- 块级 session ----
+      if (meta?.type === 'startBlock') {
+        return { ...value, blockSession: meta.session, pendingBlockCommit: null }
+      }
+      if (meta?.type === 'commitBlock' || meta?.type === 'cancelBlock') {
+        return { ...value, blockSession: null, pendingBlockCommit: null }
+      }
 
-      const sel = newState.selection
-      const inside = sel.from >= editFrom && sel.to <= editTo
-      return { session: updated, pendingCommit: inside ? null : updated }
+      // ---- 普通事务:跟踪 session 位置 ----
+      if (!value.session && !value.blockSession) return value
+
+      let result = value
+
+      // 行内 session 跟踪
+      if (value.session) {
+        const session = value.session
+        const editFrom = tr.mapping.map(session.editFrom, 1)
+        const editTo = tr.mapping.map(session.editTo, -1)
+        const updated: HtmlEditSession = { ...session, editFrom, editTo }
+        const sel = newState.selection
+        const inside = sel.from >= editFrom && sel.to <= editTo
+        result = { ...result, session: updated, pendingCommit: inside ? null : updated }
+      }
+
+      // 块级 session 跟踪
+      if (value.blockSession) {
+        const blockPos = tr.mapping.map(value.blockSession.blockPos)
+        const node = newState.doc.nodeAt(blockPos)
+        if (!node || node.type.name !== 'code_block') {
+          // code_block 被删除/替换,清除 session
+          result = { ...result, blockSession: null, pendingBlockCommit: null }
+        } else {
+          const updated: HtmlBlockEditSession = { ...value.blockSession, blockPos }
+          const sel = newState.selection
+          const nodeEnd = blockPos + node.nodeSize
+          const inside = sel.from >= blockPos && sel.to <= nodeEnd
+          result = { ...result, blockSession: updated, pendingBlockCommit: inside ? null : updated }
+        }
+      }
+
+      return result
     },
   },
 
@@ -88,11 +139,25 @@ export const htmlSourceEditPlugin = new Plugin<HtmlEditState>({
 
     decorations(state) {
       const pluginState = htmlSourceEditKey.getState(state)
-      if (!pluginState?.session) return DecorationSet.empty
-      const { editFrom, editTo } = pluginState.session
-      return DecorationSet.create(state.doc, [
-        Decoration.inline(editFrom, editTo, { class: 'velo-html-source-edit' }),
-      ])
+      if (!pluginState) return DecorationSet.empty
+      const decos: Decoration[] = []
+
+      // 行内 session
+      if (pluginState.session) {
+        const { editFrom, editTo } = pluginState.session
+        decos.push(Decoration.inline(editFrom, editTo, { class: 'velo-html-source-edit' }))
+      }
+
+      // 块级 session:给 code_block 加 node decoration
+      if (pluginState.blockSession) {
+        const { blockPos } = pluginState.blockSession
+        const node = state.doc.nodeAt(blockPos)
+        if (node) {
+          decos.push(Decoration.node(blockPos, blockPos + node.nodeSize, { class: 'velo-html-block-source-edit' }))
+        }
+      }
+
+      return decos.length > 0 ? DecorationSet.create(state.doc, decos) : DecorationSet.empty
     },
   },
 
@@ -103,37 +168,61 @@ export const htmlSourceEditPlugin = new Plugin<HtmlEditState>({
         if (pluginState?.pendingCommit) {
           commitHtmlEdit(view)
         }
+        if (pluginState?.pendingBlockCommit) {
+          commitBlockHtmlEdit(view)
+        }
       },
     }
   },
 })
 
-/** Escape → 放弃编辑,还原成点击前的 html_inline 节点(原始 attrs.value)。 */
+/** Escape → 放弃编辑,还原成点击前的 HTML 节点(原始 attrs.value)。 */
 export const htmlSourceEditEscapeKeymap = keymap({
   Escape: (state, dispatch) => {
     const pluginState = htmlSourceEditKey.getState(state)
-    if (!pluginState?.session) return false
+    if (!pluginState?.session && !pluginState?.blockSession) return false
 
-    const { editFrom, editTo, originalSource } = pluginState.session
     if (dispatch) {
-      let tr = state.tr.delete(editFrom, editTo)
-      const type = state.schema.nodes.html_inline
-      if (type) {
-        tr = tr.replaceWith(editFrom, editFrom, type.create({ value: originalSource }))
-        tr = tr.setSelection(NodeSelection.create(tr.doc, editFrom))
-      } else {
-        tr = tr.insertText(originalSource, editFrom)
-        tr = tr.setSelection(TextSelection.create(tr.doc, editFrom + 1))
+      // ---- 行内 cancel ----
+      if (pluginState.session) {
+        const { editFrom, editTo, originalSource } = pluginState.session
+        let tr = state.tr.delete(editFrom, editTo)
+        const type = state.schema.nodes.html_inline
+        if (type) {
+          tr = tr.replaceWith(editFrom, editFrom, type.create({ value: originalSource }))
+          tr = tr.setSelection(NodeSelection.create(tr.doc, editFrom))
+        } else {
+          tr = tr.insertText(originalSource, editFrom)
+          tr = tr.setSelection(TextSelection.create(tr.doc, editFrom + 1))
+        }
+        tr = tr.setMeta(htmlSourceEditKey, { type: 'cancel' as const })
+        dispatch(tr)
+        return true
       }
-      tr = tr.setMeta(htmlSourceEditKey, { type: 'cancel' as const })
-      dispatch(tr)
+
+      // ---- 块级 cancel ----
+      if (pluginState.blockSession) {
+        const { blockPos, originalSource } = pluginState.blockSession
+        const node = state.doc.nodeAt(blockPos)
+        let tr = state.tr.setMeta(htmlSourceEditKey, { type: 'cancelBlock' as const })
+        if (node && node.type.name === 'code_block') {
+          const htmlBlockType = state.schema.nodes.html_block
+          if (htmlBlockType) {
+            const htmlBlock = htmlBlockType.create({ value: originalSource })
+            tr = tr.replaceWith(blockPos, blockPos + node.nodeSize, htmlBlock)
+            tr = tr.setSelection(NodeSelection.create(tr.doc, blockPos))
+          }
+        }
+        dispatch(tr)
+        return true
+      }
     }
     return true
   },
 })
 
 // ============================================================
-//  Click handler
+//  Click handler (行内 HTML)
 // ============================================================
 
 function handleHtmlClick(view: EditorView, event: MouseEvent): boolean {
@@ -189,6 +278,10 @@ function handleHtmlClick(view: EditorView, event: MouseEvent): boolean {
   return true
 }
 
+// ============================================================
+//  Commit handlers
+// ============================================================
+
 /** 简单校验 HTML 标签是否平衡（开/闭配对）。
  *  不平衡时 commit 退化为纯文本，避免残缺标签被 DOMPurify 容错渲染后
  *  看起来仍然有效但实际破坏 round-trip（如 `</sup>` 删成 `</sp>`）。
@@ -238,6 +331,32 @@ function commitHtmlEdit(view: EditorView): void {
   } else {
     // 标签不平衡 / type 不存在 → 保留纯文本（退化）
     tr = tr.setSelection(TextSelection.create(tr.doc, editFrom))
+  }
+  view.dispatch(tr)
+}
+
+/** 把 code_block 重建为 html_block 节点。 */
+function commitBlockHtmlEdit(view: EditorView): void {
+  const pluginState = htmlSourceEditKey.getState(view.state)
+  if (!pluginState?.blockSession) return
+
+  const { blockPos } = pluginState.blockSession
+  const node = view.state.doc.nodeAt(blockPos)
+
+  let tr = view.state.tr.setMeta(htmlSourceEditKey, { type: 'commitBlock' as const })
+
+  if (!node || node.type.name !== 'code_block') {
+    // code_block 已被删除,只清 session
+    view.dispatch(tr)
+    return
+  }
+
+  const sourceText = node.textContent
+  const htmlBlockType = view.state.schema.nodes.html_block
+  if (htmlBlockType) {
+    const htmlBlock = htmlBlockType.create({ value: sourceText })
+    tr = tr.replaceWith(blockPos, blockPos + node.nodeSize, htmlBlock)
+    tr = tr.setSelection(NodeSelection.create(tr.doc, blockPos))
   }
   view.dispatch(tr)
 }

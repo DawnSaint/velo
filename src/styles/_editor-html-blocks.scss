@@ -5,12 +5,31 @@
 
 .velo-editor {
   .velo-html-block {
+    position: relative;
     border-radius: 4px;
 
     // 选中态(NodeSelection 直接选中 + 鼠标拖蓝跨越),与 image / hr / math_block 同范式
     &.selected {
       outline: 0.1em solid var(--md-primary-color, #1F71D9);
       outline-offset: 2px;
+    }
+
+    // 源码切换按钮:code-xml 图标,hover 显现
+    > .html-source-toggle-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      z-index: 2;
+    }
+
+    &:hover > .html-source-toggle-btn {
+      opacity: 0.5;
+      visibility: visible;
+      pointer-events: auto;
+
+      &:hover {
+        opacity: 0.8;
+      }
     }
   }
 
@@ -48,4 +67,11 @@
 :is(.dark .velo-editor, .velo-editor.dark) .velo-html-source-edit {
   background-color: rgba(255, 255, 255, 0.06);
   color: #aaa;
+}
+
+// 块级 HTML 源码编辑态:html_block 被替换成 code_block,用虚线边框标识
+// "这是在编辑 HTML 源码"而非普通代码块
+.velo-html-block-source-edit {
+  border: 1px dashed var(--md-primary-color, #1F71D9);
+  border-radius: 4px;
 }

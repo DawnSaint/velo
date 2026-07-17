@@ -4,8 +4,15 @@
 // HTML 字符串。本文件提供 NodeView 把 value 渲染到真实 DOM。
 //
 // 设计要点:
-// - **atom = true**:节点不可编辑,内容来自 attrs.value,用户改 HTML 走"删了重建"
-//   的语义(后续可以加源码编辑模式,v0.4.1 不做)。
+// - **atom = true**:节点不可编辑,内容来自 attrs.value。块级 HTML 走右上角按钮
+//   切换源码编辑:点击按钮 → dispatch 把 html_block 替换成 code_block { language:
+//   'html' }(普通可编辑节点),用户在 code_block 里正常编辑;光标移出 code_block
+//   时 htmlSourceEdit 插件自动 commit(把 code_block 替换回 html_block)。行内 HTML
+//   走点击展开源码(htmlSourceEdit.ts,同 imageEdit 范式)。
+// - **不用 NodeView 内 textarea(math_block 范式)**:PM 对 atom 节点自动设
+//   contentEditable=false,textarea 嵌在 contentEditable=false 的 dom 内,点击
+//   textarea 时浏览器原生 contenteditable 行为会抢焦点 → textarea blur → 误退出
+//   编辑。改用 code_block(普通可编辑 PM 节点,有 contentDOM)彻底绕开此问题。
 // - **DOMPurify sanitize**:CSP 已开 unsafe-inline + unsafe-eval,浏览器不挡 script,
 //   必须 JS 端清洗。FORBID_TAGS / FORBID_ATTR 显式列出常见危险项,即使 dompurify
 //   后续放宽默认也不会被绕过。
@@ -18,12 +25,15 @@
 // 不在这里:
 // - schema 节点定义(在 editor/schema.ts)
 // - markdownIO 双向(在 editor/markdownIO.ts)
+// - 块级源码编辑 session 管理(在 plugins/htmlSourceEdit.ts)
 
 import DOMPurify from 'dompurify'
-import { Plugin, PluginKey } from 'prosemirror-state'
+import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
-import { createSelectionSync } from './selectionSync'
+import { codeXmlSvg } from '@/components/icons/widgetIcons'
+import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
+import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 
 // dompurify v3:Config 通过 Parameters<typeof sanitize>[1] 拿,namespace 不再导出
 type PurifyConfig = Parameters<typeof DOMPurify.sanitize>[1]
@@ -60,7 +70,9 @@ function safeRender(
   if (proxyDomURL) proxyImageSrcs(target, proxyDomURL)
 }
 
-/** 块级 HTML NodeView。dom = <div class="velo-html-block">,内容 sanitize 后写入。 */
+/** 块级 HTML NodeView。dom = <div class="velo-html-block">,内容 sanitize 后写入。
+ *  右上角 hover 显现 code-xml 按钮,点击 → dispatch 把 html_block 替换成 code_block
+ *  进入源码编辑(由 htmlSourceEdit 插件管理 session,光标移出时自动 commit)。 */
 function createHtmlBlockView(
   node: PMNode,
   view: EditorView,
@@ -70,33 +82,71 @@ function createHtmlBlockView(
   const dom = document.createElement('div')
   dom.className = 'velo-html-block'
   dom.setAttribute('data-type', 'html_block')
-  safeRender(dom, node.attrs.value as string, proxyDomURL)
 
-  // 选中态同步:与 image / hr / math_block 同范式,抽取到 selectionSync.ts 共用。
-  const selectionSync = createSelectionSync({
-    dom,
-    view,
-    getPos,
-    getNode: () => node,
+  // 源码切换按钮(code-xml 图标,同 image 编辑按钮),hover 显现。capture 阶段
+  // stopPropagation + preventDefault:不让 PM 抢 selection / 不让按钮抢焦点。
+  const toggleBtn = document.createElement('button')
+  toggleBtn.type = 'button'
+  toggleBtn.className = 'velo-icon-btn velo-icon-btn--hidden html-source-toggle-btn'
+  toggleBtn.title = '编辑 HTML 源码'
+  toggleBtn.innerHTML = codeXmlSvg(12)
+  toggleBtn.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+  }, true)
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    startBlockEdit()
   })
+
+  function showDisplay() {
+    dom.innerHTML = ''
+    safeRender(dom, node.attrs.value as string, proxyDomURL)
+    if (view.editable) dom.appendChild(toggleBtn)
+  }
+
+  /** 把 html_block 替换成 code_block,由 htmlSourceEdit 插件接管 session。
+   *  code_block 是普通可编辑 PM 节点(有 contentDOM),用户可正常点击/编辑,
+   *  不存在 textarea 在 contentEditable=false 容器内的焦点问题。 */
+  function startBlockEdit() {
+    if (!view.editable) return
+    const pos = getPos()
+    if (pos < 0) return
+    const source = node.attrs.value || ''
+    const codeBlock = view.state.schema.nodes.code_block.create(
+      { language: 'html' },
+      source ? view.state.schema.text(source) : [],
+    )
+    let tr = view.state.tr.replaceWith(pos, pos + node.nodeSize, codeBlock)
+    tr = tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)))
+    // 瞬时视图切换(html_block → code_block),不是内容编辑 —— 跳过内容回写
+    tr = tr.setMeta(SKIP_CONTENT_EMIT, true)
+    tr = tr.setMeta(htmlSourceEditKey, {
+      type: 'startBlock' as const,
+      session: { blockPos: pos, originalSource: source },
+    })
+    view.dispatch(tr)
+  }
+
+  showDisplay()
 
   return {
     dom,
-    // atom 节点不更新(value 不变就不重渲);value 变就让 ProseMirror destroy + 重建
     update: (newNode) => {
       if (newNode.type.name !== 'html_block') return false
-      if (newNode.attrs.value === node.attrs.value) { node = newNode; return true }
-      return false
+      const valueChanged = newNode.attrs.value !== node.attrs.value
+      node = newNode
+      if (valueChanged) showDisplay()
+      return true
     },
-    selectNode() { selectionSync.syncSelected() },
-    deselectNode() { selectionSync.syncSelected() },
-    // 内部 DOM 变(details 折叠等)不让 ProseMirror 知道
+    selectNode() { dom.classList.add('selected') },
+    deselectNode() { dom.classList.remove('selected') },
+    // 内部 DOM 变(details 折叠)不让 ProseMirror 知道
     ignoreMutation: () => true,
     // 内部事件不让 ProseMirror 抢(用户点 summary 时正常折叠)
     stopEvent: () => true,
-    destroy() {
-      selectionSync.destroy()
-    },
+    destroy() {},
   }
 }
 
