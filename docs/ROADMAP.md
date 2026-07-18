@@ -36,11 +36,9 @@
 
 ## 依赖链速览
 
-> 关键路径：从分发地基到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
+> 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
 
 ```
-P0  #ci-pipeline ──────────────────────────────────────────> 阻塞所有对外分发
-                                                                │
 P1  #settings-panel ──→ #dark-mode-follow · #font-ui · #theme-presets · #theme-market
     #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
@@ -50,7 +48,8 @@ P2  #system-tray ──→ #daily-note
     #block-drag · #table-enhance · #md-lint · #changelog-popup（独立）
     #dark-mode-follow · #font-ui（← #settings-panel）
                                                                 │
-P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
+P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
+    #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
     #theme-market · #theme-presets（← #settings-panel）
 ```
 
@@ -60,45 +59,8 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
 
-- [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持） `P2` `S` `← #ci-pipeline`
+- [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持） `P2` `S`
 - [ ] **表格操作 + Ctrl+Z 后文档仍为脏(dirty),即便内容视觉上回到原始状态** `P2` `M`  **复现**:打开 `sample.md`(含表格以外的其他语法块,如 math / footnote / image / html inline 等),在表格内做加行/加列等任一变异操作后再 `Ctrl+Z` 撤销 —— 表格视觉回到原样,但标签页仍显示"已修改未保存"。**暂未定位根因**(纯 ProseMirror 历史 undo 本身已探针验证能一字不差回到操作前内容 `undo_probe.txt`,因此脏位不归零的路径在 store 同步 / markdownIO round-trip / checkExternalChange 链路,而非 PM 历史)。**触发条件猜测**:markdownIO 对某些节点(非表格)round-trip 不稳定(`toMarkdown(fromMarkdown(s))` 的"稳态 canonical"≠用户 undo 后再序列化的结果),字节不等 → `dirty = content !== lastSavedContent` 永不归零。**所需样例**:一份能复现的最小 `sample.md`(业务数据可隐去,但须保留"触发该缺陷的非表格语法 + 一个表格"的组合)。拿到后跑 `toMarkdown(fromMarkdown(s))` vs undo 后再序列化的首个字节分叉点一次性回填修复
-
-
-
-## P0 — 分发地基
-
-### CI 跨平台发布流水线 `#ci-pipeline` `P0` `L`
-
-> 首次对外分发前必须做。Tauri 桌面应用的核心交付物是平台二进制，靠本地一次构建发布是反模式（缺平台、缺签名、易污染、无审计）。
-
-**目标**：tag push 触发 GitHub Actions 跨平台构建 + 自动创建 GitHub Release + attach 安装包。
-
-**落地步骤**：
-
-1. `.github/workflows/release.yml`：
-   - 触发：`push: tags: ['v*']`（与 release-please 衔接，merge release PR → 自动打 tag → 触发该 workflow）
-   - matrix：`windows-latest` / `macos-latest` / `macos-14`(arm64) / `ubuntu-22.04`
-   - 用 `tauri-apps/tauri-action@v0`，配置 `tagName: v__VERSION__` / `releaseName: 'Velo v__VERSION__'`
-   - 产物：Windows `.msi` + `.exe`、macOS `.dmg` (x64 + arm64)、Linux `.AppImage` + `.deb`
-2. 签名（可选但推荐）：
-   - Windows: code signing certificate（avoid SmartScreen 警告），证书走 GitHub Secrets
-   - macOS: Apple Developer ID + notarization（避免 Gatekeeper 拦截），需要 `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` secrets
-   - Linux 通常不需要
-3. 更新通道（可选）：
-   - Tauri Updater plugin + `latest.json` 上传到 GitHub Release / S3 / 自有服务器
-   - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
-4. CHANGELOG 自动注入 Release body：release-please 已生成的 CHANGELOG 片段直接传给 `tauri-action` 的 `releaseBody`
-5. **`#e2e-ship-gate` E2E 验收（Windows，消费刚构建的产物）** — vitest 在 `ci.yml` 当每个 PR 的廉价门；E2E 是二进制冷启动 /  WebView2 /  fs round-trip /  single-instance 路由的集成链，跑不快且只需验一次 → 挂到 `release.yml` 的 `windows-latest` 作业上，等 macOS / Linux / Windows 构建全部完成后，下载 Windows 产物起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`。
-  - **Phase 1：`continue-on-error`（report 结果，不阻塞 release attach；WebView2 + msedgedriver 链路历史上偶发 flaky —— contextmenu 不触发 / interactability 偶报 / driver 版本强匹配 —— 先观测通过率再做 gate）；
-  - Phase 2：稳定后移除 `continue-on-error`，纯实拍门**。前置外部二进制：`cargo install tauri-driver`（tauri-driver.exe，WebDriver Classic 代理）+ **与 runner WebView2 Runtime 匹配的 msedgedriver.exe**（放进 runner PATH）。appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore，同一次 runner 不串扰
-6. 首次跑通后在 README 加 download badge / install 说明
-
-**风险点 / 注意**：
-
-- macOS arm64 build runner 时长收费较高，按需开
-- Tauri build 在 CI 第一次跑会装 rust toolchain + 依赖，注意 cache `~/.cargo` 和 `src-tauri/target`，否则单次 build 20+ min
-- 签名密钥泄漏风险高，secrets 必须 environment-scoped + required reviewers
-- Apple notarization 异步，CI job 要等回执，超时设到 30+ min
 
 
 
@@ -222,6 +184,15 @@ P3  #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
 
 
 ## P3 — 远期方向
+
+- [ ] **应用自动更新通道** `#updater` `P3` `M` `?`
+  - Tauri Updater plugin + `latest.json` 上传到 GitHub Release
+  - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
+
+- [ ] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
+  - 消费 release.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
+  - Phase 1: `continue-on-error`（report 不阻塞 release attach）；Phase 2: 稳定后移除，硬门
+  - 前置：`cargo install tauri-driver` + 匹配的 `msedgedriver.exe`；appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore
 
 - [ ] **AI 辅助写作（本地 LLM 优先）** `#ai-assist` `P3` `L` `?`
   - 集成 Ollama：通过 Tauri shell 调 `ollama run`，不依赖云端，隐私零泄露

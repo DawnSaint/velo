@@ -16,12 +16,31 @@
 
 ---
 
-## 安装 / 构建
+## 下载安装
+
+[![GitHub Release](https://img.shields.io/badge/下载-GitHub_Release-blue?logo=github)](https://github.com/DawnSaint/velo/releases/latest)
+
+前往 [Releases 页面](https://github.com/DawnSaint/velo/releases/latest) 下载对应平台的安装包：
+
+| 平台 | 下载文件 | 安装方式 |
+|------|---------|--------|
+| **Windows** x64 | `Velo_x.x.x_x64-setup.exe` | 双击运行安装程序 |
+| **macOS** Apple Silicon | `Velo_x.x.x_aarch64.dmg` | 打开 dmg → 拖到 Applications |
+| **macOS** Intel | `Velo_x.x.x_x64.dmg` | 打开 dmg → 拖到 Applications |
+| **Linux** x64 (Debian 系) | `velo_x.x.x_amd64.deb` | `sudo dpkg -i velo_x.x.x_amd64.deb` |
+| **Linux** x64 (通用) | `Velo_x.x.x_amd64.AppImage` | `chmod +x Velo_x.x.x_amd64.AppImage && ./Velo_x.x.x_amd64.AppImage` |
+
+> macOS 首次打开如果提示「无法验证开发者」，前往 系统设置 → 隐私与安全性 → 点击「仍要打开」。
+> Windows 首次运行如果被 SmartScreen 拦截，点击「更多信息」→「仍要运行」。
+
+---
+
+## 从源码构建
 
 ```bash
 npm install            # 安装依赖
 npm run tauri:dev      # 桌面开发模式（推荐）
-npm run tauri:build    # 生产构建（产出 .msi / .dmg / .deb / .app）
+npm run tauri:build    # 生产构建（产出 .exe / .dmg / .deb / .AppImage / .app）
 ```
 
 仅前端开发（不起 Tauri 进程）：
