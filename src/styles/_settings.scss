@@ -1,0 +1,167 @@
+// 设置面板共享样式（#settings-panel 重做）
+//
+// 从旧 EditorSettings.vue 的 scoped style 抽出,供 SettingsPage + 各分组组件复用。
+// 跨多个分组组件共用同一套行 / 开关 / 下拉 / 滑块 / 颜色圆样式,走全局 partial
+// (同 _context-menu.scss 跨 4 份右键菜单共用的范式)。
+//
+// class 一律 velo- 前缀,避免与 Tailwind / 第三方冲突(见 styles.md 命名约定)。
+// 暗色走 .dark 父级选择器(App.vue 根 div 绑 .dark)。
+
+/* 分组内子区块标题(如「Windows 集成」分段标题) */
+.velo-setting-toplabel {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(75 85 99); /* gray-600 */
+}
+.dark .velo-setting-toplabel {
+  color: rgb(209 213 219); /* gray-300 */
+}
+
+/* 次要文本按钮(「设为默认…」等) */
+.velo-text-btn {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--md-primary-color, #1F71D9);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.velo-text-btn:hover {
+  text-decoration: underline;
+}
+.velo-text-btn:focus-visible {
+  outline: 2px solid var(--md-primary-color, #1F71D9);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 统一「行」容器:左右排列、居中对齐 */
+.velo-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* 行内 label */
+.velo-setting-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(75 85 99); /* gray-600 */
+}
+.dark .velo-setting-label {
+  color: rgb(209 213 219); /* gray-300 */
+}
+/* 行内右侧数值(如字号当前值):等宽数字避免跳动 */
+.velo-setting-value {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-feature-settings: 'tnum';
+  color: rgb(75 85 99); /* gray-600 */
+}
+.dark .velo-setting-value {
+  color: rgb(209 213 219); /* gray-300 */
+}
+
+/* select 控件 */
+.velo-select {
+  border-color: rgb(229 231 235); /* gray-200 */
+  background-color: white;
+  color: rgb(17 24 39); /* gray-900 */
+  font-size: 0.8125rem;
+}
+.dark .velo-select {
+  border-color: rgb(55 65 81); /* gray-700 */
+  background-color: rgb(37 37 37); /* #252525 */
+  color: rgb(229 231 235); /* gray-200 */
+}
+.velo-select option {
+  font-size: 0.8125rem;
+}
+
+/* 去掉 input[type=color] 默认外观,内部色块撑满整个圆 */
+.velo-color-circle {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  overflow: hidden;
+}
+.velo-color-circle::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.velo-color-circle::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+.velo-color-circle::-moz-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+
+/* ---------- 开关 ---------- */
+/* 原生 checkbox 重绘画成 switch 外观;激活色走主题色 --md-primary-color。 */
+.velo-switch {
+  --switch-w: 36px;
+  --switch-h: 20px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  position: relative;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  border-radius: 9999px;
+  background: #d1d5db; /* gray-300,未激活 */
+  cursor: pointer;
+  transition: background-color .18s ease;
+  flex-shrink: 0;
+}
+.velo-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(var(--switch-h) - 4px);
+  height: calc(var(--switch-h) - 4px);
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+  transition: transform .18s ease;
+}
+.velo-switch:checked {
+  background: var(--md-primary-color, #1F71D9);
+}
+.velo-switch:checked::after {
+  transform: translateX(calc(var(--switch-w) - var(--switch-h)));
+}
+.dark .velo-switch:not(:checked) {
+  background: #4b5563; /* gray-600 */
+}
+.velo-switch:focus-visible {
+  outline: 2px solid var(--md-primary-color, #1F71D9);
+  outline-offset: 2px;
+}
+
+/* ---------- 字号滑块 ---------- */
+.velo-slider-track {
+  cursor: pointer;
+}
+.velo-slider-track.is-dragging {
+  cursor: grabbing;
+}
+/* 拖动圆:纯白球 + 灰边;暗色下深球 + 浅边 */
+.velo-slider-knob {
+  will-change: left;
+  background: #ffffff;
+  border-color: rgb(209 213 219); /* gray-300 */
+}
+.dark .velo-slider-knob {
+  background: rgb(37 37 37); /* #252525 */
+  border-color: rgb(107 114 128); /* gray-500 */
+}
+.velo-slider-track:focus-visible {
+  outline: 2px solid var(--md-primary-color, #1F71D9);
+  outline-offset: 2px;
+  border-radius: 6px;
+}

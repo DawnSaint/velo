@@ -71,6 +71,7 @@ velo/
 │   ├── test/                    测试基建（vitest setup）
 │   └── components/
 │       ├── Sidebar/             左侧栏（tab 容器 + 大纲 + 文件树 + 资产面板）
+│       ├── settings/            设置页（分组注册表 + 整页 SettingsPage + 各分组组件）
 │       ├── ProseMirrorEditor/   WYSIWYG 编辑器核心
 │       │   ├── editor/          schema / markdownIO / shortcuts / 源码编辑 session / transactionMeta
 │       │   ├── nodes/           自定义 NodeView / Decoration（公式 / mermaid / 任务列表 / 脚注 / 代码块 / TOC / HTML）
@@ -85,7 +86,7 @@ velo/
 │       ├── ActivityBar.vue      左贴边功能栏（文件 / 工作区 / 大纲 / 搜索 / 设置）
 │       ├── StatusBar.vue        底部状态栏
 │       ├── SourceModeEditor.vue 源代码模式（CodeMirror 6 + shiki 高亮）
-│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / EditorSettings / DraftRecoveryDialog / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync
+│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / DraftRecoveryDialog / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync
 └── src-tauri/
     ├── capabilities/            Tauri 权限配置
     └── src/                     Rust 端（窗口主题 / CLI / single-instance）

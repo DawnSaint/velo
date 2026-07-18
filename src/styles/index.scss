@@ -20,6 +20,7 @@
 @forward './mermaid';
 @forward './footnote';
 @forward './context-menu';
+@forward './settings';
 
 // Tailwind v4 通过独立 .css 入口 @import "tailwindcss" 接入 (Sass 会拦截 .scss 里的 @import)
 // 真实的 base / components / utilities 由 src/main.ts 里同步引入的 tailwind.css 提供

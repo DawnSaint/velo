@@ -24,7 +24,8 @@ import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
-import EditorSettings from '@/components/EditorSettings.vue'
+import SettingsPage from '@/components/settings/SettingsPage.vue'
+import { registerBuiltinSettingsGroups } from '@/components/settings/registerGroups'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
@@ -142,8 +143,17 @@ void initSettings()
     mark('code-block-ready')
   })
 
-type LeftPanelView = 'sidebar' | 'settings' | null
+// 设置页不再挤在左侧栏(#settings-panel 重做):改为整页接管编辑器主区域。
+// leftPanelView 只剩 'sidebar'(文件树 / 大纲 / 搜索 / 资产);设置走 settingsOpen/Active。
+type LeftPanelView = 'sidebar' | null
 const leftPanelView = ref<LeftPanelView>(null)
+// 设置 tab 两态:settingsOpen = tab 是否存在于 TabBar(持久,切文档 tab 不消失);
+// settingsActive = tab 是否激活(编辑器显示设置页 vs 文档)。切换文档 tab 只失活
+// 不关闭(X / 中键 / Escape 才真正关)。像文档 tab 一样可后台保留。
+const settingsOpen = ref(false)
+const settingsActive = ref(false)
+// 注册内置设置分组(编辑器 / 外观 / 文档 / 系统);幂等,HMR 安全。
+registerBuiltinSettingsGroups()
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // ========== 侧栏可拖拽 + 自动收起(v0.5.5)==========
@@ -172,7 +182,7 @@ const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 //     解决"线从中间位置开始动"。
 //
 // drag-reopen snapshot(v0.5.5):onDragCollapse 触发时把"收起前用户正在看的视图"
-// (sidebar / settings)记到 dragCollapseRestoreView,onDragReopen 时还原。
+// (sidebar)记到 dragCollapseRestoreView,onDragReopen 时还原。
 // 关键:只在拖拽过程中还原 —— 拖拽结束后清空,避免下次普通点击 ActivityBar 误把
 // 侧栏强行重开(参见 isDragging watcher 末尾的复位)。
 // 双阈值:A = DRAG_COLLAPSE_BELOW(80,左),B = SIDEBAR_WIDTH_MIN(200,右)。
@@ -921,10 +931,11 @@ function formatReplaceStatus(result: { replacedCount: number, skippedFiles: stri
   return parts.length ? parts.join('，') : '替换完成'
 }
 
+// 设置按钮不参与 active 高亮:设置走顶栏 TabBar 的设置 tab active 态表达,
+// ActivityBar 齿轮仅作"打开/激活设置"的入口,不回显当前是否在看设置。
 const activeActivity = computed<ActivityBarItem | null>(() => {
-  if (leftPanelView.value === 'settings') return 'settings'
-  if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
-  return null
+if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
+return null
 })
 
 // 隐藏当前 active 入口时收起侧栏(v0.6.1):避免「面板还开着但无 active 按钮」的悬空态。
@@ -935,6 +946,19 @@ watch(() => {
   return a ? store.isActivityBarItemHidden(a) : false
 }, (hidden) => {
   if (hidden) leftPanelView.value = null
+})
+
+// 设置 tab 后台保留:切文档标签 / 从文件树开文件时只失活设置(不关闭 tab),
+// 让设置像文档 tab 一样可后台保留。打开设置本身不动 activeId,不会触发此 watch;
+// 只有用户主动切标签 / 开文件时才 fire。特殊:关掉最后一个文档 tab(activeId 变空)
+// 时若设置 tab 还开着,应自动激活设置(像 closeTab 激活相邻 tab 一样)。
+watch(() => documentStore.activeId, () => {
+if (documentStore.tabs.length === 0 && settingsOpen.value) {
+settingsActive.value = true
+}
+else if (settingsActive.value) {
+settingsActive.value = false
+}
 })
 
 function showSidebarTab(tab: SidebarTab) {
@@ -951,12 +975,18 @@ function toggleSidebarTab(tab: SidebarTab) {
   leftPanelView.value = 'sidebar'
 }
 
+// ActivityBar 齿轮 / 命令面板「打开设置」:只打开或激活,不负责关闭。
+// 无设置 tab → 新开并激活;已存在但失活 → 重新激活;已激活 → no-op(保持)。
+// 关闭设置只走 TabBar 设置 tab 的 X / 中键 / Escape,齿轮不参与关闭。
 function showSettingsPanel() {
-  leftPanelView.value = 'settings'
+settingsOpen.value = true
+settingsActive.value = true
 }
 
-function toggleSettingsPanel() {
-  leftPanelView.value = leftPanelView.value === 'settings' ? null : 'settings'
+// 彻底关闭设置 tab(X / 中键):tab 从 TabBar 消失,回到当前文档。
+function closeSettings() {
+settingsOpen.value = false
+settingsActive.value = false
 }
 
 function toggleWorkspaceSearchFromActivity() {
@@ -1892,7 +1922,7 @@ watch(editorRef, (v) => {
       </div>
 
       <!-- 顶栏标签栏(v0.6.0 多标签):TabBar 自己根 div 含 pl-3 + border-b -->
-      <TabBar @reveal-in-tree="revealFileInTree" />
+      <TabBar :settings-open="settingsOpen" :settings-active="settingsActive" @reveal-in-tree="revealFileInTree" @close-settings="closeSettings" @focus-settings="settingsActive = true" @focus-doc="settingsActive = false" />
 
       <!-- 右侧段:仅窗口控制(`WindowControls` 自带 pr-1 + border-b,布局不抖)。
            v0.6.x 早期曾放过 dev 模式欢迎入口(MessageSquare) + 与 WindowControls 之间的
@@ -1920,7 +1950,7 @@ watch(editorRef, (v) => {
         @select-outline="toggleSidebarTab('outline')"
         @select-search="toggleWorkspaceSearchFromActivity"
         @select-assets="toggleSidebarTab('assets')"
-        @select-settings="toggleSettingsPanel"
+        @select-settings="showSettingsPanel"
         @new-doc="documentStore.newDoc()"
         @new-window="createNewAppWindow()"
         @open-file="documentStore.open()"
@@ -1964,7 +1994,6 @@ watch(editorRef, (v) => {
 @reorganize-asset="onReorganizeAsset"
 />
           </KeepAlive>
-          <EditorSettings v-if="leftPanelView === 'settings'" />
         </div>
       </aside>
 
@@ -1991,6 +2020,14 @@ watch(editorRef, (v) => {
            decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
            setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
       <div class="flex flex-1 flex-col min-w-0">
+        <!-- 设置页(#settings-panel 重做):整页接管编辑器主区域,左导航分组 + 右内容。
+             取代旧 EditorSettings(原挤在左侧栏 ~256px)。设置 tab 后台保留:切文档 tab
+             只失活(v-if 用 settingsActive),X / 中键 / Escape 才真正关(settingsOpen)。 -->
+        <SettingsPage
+          v-if="settingsOpen && settingsActive"
+          @close="settingsActive = false"
+        />
+        <template v-else>
         <Breadcrumbs
           v-if="codeBlockReady && documentStore.activeId && store.showBreadcrumbs"
           :file-name="documentStore.fileName"
@@ -2054,6 +2091,7 @@ watch(editorRef, (v) => {
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
 
