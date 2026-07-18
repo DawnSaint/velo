@@ -1,0 +1,78 @@
+name: Release
+
+# 触发方式：
+#   1. push tag v* —— 正式发版，构建并上传到 GitHub Release（与 release-please 衔接）
+#   2. workflow_dispatch —— 手动触发，只构建，产物作为 artifact 下载验证（不打 tag、不创建 Release）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+          - platform: macos-latest
+          # 后续完整实现 #ci-pipeline 时再加 windows-latest / macos-13(x64)
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── tag push: 正式发版，构建并上传到 GitHub Release ──
+      - name: Build and publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Velo v__VERSION__'
+          releaseDraft: false
+          prerelease: false
+
+      # ── workflow_dispatch: 手动测试，只构建不上传 Release ──
+      - name: Build (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: npm run tauri:build
+
+      - name: Upload build artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: velo-${{ matrix.platform }}
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: ignore
+          retention-days: 7
