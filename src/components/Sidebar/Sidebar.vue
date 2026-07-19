@@ -13,6 +13,7 @@ import EditorOutline from './EditorOutline.vue'
 import FileTree from './FileTree.vue'
 import AssetPanel from './AssetPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
+import type { HeadingItem } from '@/utils/outline'
 import type { WorkspaceSearchHit } from '@/utils/workspaceSearch'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
@@ -20,6 +21,12 @@ import { useDocumentStore } from '@/stores/document'
 defineProps<{
   modelValue: string
   filePath: string | null
+  /** 设置 tab 是否激活。激活时大纲区域渲染设置分组(虚拟标题),而非文档大纲。 */
+  settingsActive?: boolean
+  /** 设置分组的虚拟标题列表(由 App.vue 从 registry 构造)。settingsActive 时透传给 EditorOutline。 */
+  settingsHeadings?: HeadingItem[]
+  /** 当前激活的设置分组 id;settingsActive 时作为 EditorOutline 虚拟模式的 activeKey。 */
+  settingsActiveGroupId?: string
   /** 每次切到 search tab 时由 App.vue 提供的初始 query(从选区带入) */
   workspaceSearchInitialQuery?: string
   /** 工作区搜索 scope(子目录);null 表示工作区根 */
@@ -40,6 +47,8 @@ const emit = defineEmits<{
   'locate-image': [src: string, occurrence: number]
   /** 资产面板:复制/移动图片到工作区 assets/<docName>/ → 重写编辑器内引用路径 */
   'reorganize-asset': [payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }]
+  /** 设置分组导航:点击分组 → 通知 App.vue 更新 settingsActiveGroupId(同步切换右内容) */
+  'select-settings-group': [id: string]
 }>()
 
 const workspace = useWorkspaceStore()
@@ -88,6 +97,10 @@ function onLocateImage(src: string, occurrence: number) {
 function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 'copy' | 'move' }) {
   emit('reorganize-asset', payload)
 }
+
+function onSelectSettingsGroup(id: string) {
+  emit('select-settings-group', id)
+}
 </script>
 
 <template>
@@ -95,10 +108,21 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
        子组件 FileTree / EditorOutline 自己用 truncate 处理长文本,不需要硬最小宽度。
        overflow-hidden 防止拖到接近 200px 时内部滚动容器溢出。 -->
   <div class="flex h-full min-w-0 flex-col overflow-hidden">
-    <!-- 互斥内容:文件树 / 大纲 / 全局搜索(v0.6.x) -->
+    <!-- 互斥内容:设置激活 + outline tab 时在大纲区渲染设置分组(虚拟模式);
+         设置激活 + 其他 tab 时正常渲染文件树 / 搜索 / 资产(设置保持激活)。
+         复用 EditorOutline 的虚拟模式让设置分组"借住"大纲区域显示 ——
+         点开大纲看到的就是设置分类,不再显示上一个文档的大纲造成误导。 -->
     <div class="min-h-0 flex-1">
+      <EditorOutline
+        v-if="settingsActive && workspace.sidebarTab === 'outline'"
+        model-value=""
+        :file-path="null"
+        :headings="settingsHeadings"
+        :active-key="settingsActiveGroupId ?? ''"
+        @select="onSelectSettingsGroup"
+      />
       <FileTree
-        v-if="workspace.sidebarTab === 'files'"
+        v-else-if="workspace.sidebarTab === 'files'"
         ref="fileTreeRef"
         @search-in-folder="onFileTreeSearchInFolder"
       />

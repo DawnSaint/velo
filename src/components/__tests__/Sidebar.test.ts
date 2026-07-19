@@ -14,6 +14,8 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '../Sidebar/Sidebar.vue'
 import WorkspaceSearchPanel from '../WorkspaceSearchPanel.vue'
 import AssetPanel from '../Sidebar/AssetPanel.vue'
+import EditorOutline from '../Sidebar/EditorOutline.vue'
+import { registerBuiltinSettingsGroups } from '../settings/registerGroups'
 import { readDir } from '@tauri-apps/plugin-fs'
 import * as workspaceSearch from '@/utils/workspaceSearch'
 
@@ -35,6 +37,8 @@ describe('Sidebar', () => {
       groups: [],
       progress: workspaceSearch.initialWorkspaceSearchProgress(),
     })
+    // 注册内置设置分组(编辑器 / 外观 / 文档),供虚拟大纲测试用
+    registerBuiltinSettingsGroups()
   })
 
   afterEach(() => {
@@ -142,5 +146,57 @@ describe('Sidebar', () => {
 
     const sidebarVm = wrapper.vm as unknown as { refreshDir: (p: string) => void }
     expect(() => sidebarVm.refreshDir('/test/ws/sub')).not.toThrow()
+  })
+
+  // #settings-panel 重做:设置激活时大纲区域渲染设置分组(虚拟标题),
+  // 复用 EditorOutline 虚拟模式 —— 避免"看设置时大纲还是上一个文档的"误导。
+  it('settingsActive 时大纲渲染设置分组(虚拟模式,覆盖文档大纲)', async () => {
+    const workspace = useWorkspaceStore()
+    workspace.setActiveRoot('/test/ws')
+    workspace.setSidebarTab('outline')
+
+    const headings = [{ level: 1, text: '编辑器', displayText: '编辑器', children: [], key: 'editor' }]
+    const wrapper = mount(Sidebar, {
+      props: {
+        modelValue: '# 文档标题\n\n正文',
+        filePath: '/test/ws/note.md',
+        settingsActive: true,
+        settingsHeadings: headings,
+        settingsActiveGroupId: 'editor',
+      },
+    })
+    await nextTick()
+
+    // EditorOutline 挂载(虚拟模式),FileTree 不挂载
+    const outline = wrapper.findComponent(EditorOutline)
+    expect(outline.exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'FileTree' }).exists()).toBe(false)
+    // 虚拟模式下渲染的是设置分组标题,不是文档标题
+    expect(outline.text()).toContain('编辑器')
+    expect(outline.text()).not.toContain('文档标题')
+  })
+
+  // 设置激活时侧栏遵循 sidebarTab:只有 outline tab 才渲染设置分类(虚拟模式),
+  // 其他 tab 正常渲染对应组件(设置保持激活,不因点功能按钮而离开设置)。
+  it('settingsActive + files tab 渲染 FileTree(设置保持激活,不强制虚拟大纲)', async () => {
+    const workspace = useWorkspaceStore()
+    workspace.setActiveRoot('/test/ws')
+    workspace.setSidebarTab('files')
+
+    const headings = [{ level: 1, text: '编辑器', displayText: '编辑器', children: [], key: 'editor' }]
+    const wrapper = mount(Sidebar, {
+      props: {
+        modelValue: '# 文档标题',
+        filePath: '/test/ws/note.md',
+        settingsActive: true,
+        settingsHeadings: headings,
+        settingsActiveGroupId: 'editor',
+      },
+    })
+    await nextTick()
+
+    // files tab 时渲染 FileTree,不渲染虚拟大纲
+    expect(wrapper.findComponent({ name: 'FileTree' }).exists()).toBe(true)
+    expect(wrapper.findComponent(EditorOutline).exists()).toBe(false)
   })
 })

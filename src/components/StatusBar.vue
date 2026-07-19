@@ -17,6 +17,9 @@ const props = defineProps<{
   /** 只读是否被锁(sample / 装载时锁定,用户翻不动)。 */
   readOnlyLocked: boolean
   cursor: CursorPosition
+  /** 设置页激活时隐藏文档相关区段(未保存 / 模式切换 / 字数 / 行列),
+   *  这些数据属于上一个文档,在设置页显示会误导。工作区标签仍保留。 */
+  settingsActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -134,7 +137,7 @@ onBeforeUnmount(() => {
     </div>
 
     <span
-      v-if="dirty"
+      v-if="dirty && !settingsActive"
       class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-amber-600 dark:text-amber-400"
       title="当前文档有未保存修改"
     >
@@ -144,6 +147,7 @@ onBeforeUnmount(() => {
 
     <div class="min-w-4 flex-1" />
 
+    <template v-if="!settingsActive">
     <button
       type="button"
       class="statusbar-segment"
@@ -219,6 +223,7 @@ onBeforeUnmount(() => {
     <span class="shrink-0 px-1 tabular-nums">
       行 {{ fmt.format(cursor.line) }}, 列 {{ fmt.format(cursor.column) }}
     </span>
+    </template>
   </footer>
 </template>
 

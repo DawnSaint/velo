@@ -114,4 +114,19 @@ describe('StatusBar', () => {
 
     expect(wrapper.text()).toContain('无工作区')
   })
+
+  // 设置页激活时隐藏文档相关区段(模式切换 / 字数 / 行列 / 未保存),
+  // 这些数据属于上一个文档,在设置页显示会误导;工作区标签仍保留。
+  it('hides document-specific segments when settingsActive', () => {
+    const wrapper = mountStatusBar({ settingsActive: true, dirty: true })
+
+    // 工作区标签保留
+    expect(wrapper.text()).toContain('工作区')
+    // 文档相关区段隐藏
+    expect(wrapper.text()).not.toContain('未保存')
+    expect(wrapper.text()).not.toContain('字数')
+    expect(wrapper.text()).not.toContain('行')
+    expect(wrapper.find('[aria-label="切换到源码模式"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="切换到阅读模式"]').exists()).toBe(false)
+  })
 })

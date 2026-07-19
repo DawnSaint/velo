@@ -8,9 +8,21 @@ import { revealHeadingInDom } from '@/utils/revealHeading'
 const props = defineProps<{
   modelValue: string
   filePath: string | null
+  /** 虚拟标题列表:传入即进入虚拟模式,直接渲染该列表而非 parseHeadings(modelValue)。
+   *  用于设置激活时把设置分组当作"虚拟大纲"喂给本组件渲染,避免设置页显示上一个文档的大纲。 */
+  headings?: HeadingItem[]
+  /** 虚拟模式当前高亮项 key(替代 scroll-spy 驱动的 currentKey)。 */
+  activeKey?: string
+}>()
+const emit = defineEmits<{
+  /** 虚拟模式下点击列表项触发(正常模式点击走 DOM 跳转不 emit)。 */
+  'select': [key: string]
 }>()
 
 const outlineStore = useOutlineStore()
+
+/** 虚拟模式:传入了 headings 即生效。虚拟模式下不 parse markdown、不持久化折叠、不启动 scroll-spy。 */
+const isVirtual = computed(() => props.headings !== undefined)
 
 // ========== 类型 ==========
 interface FlatItem {
@@ -23,7 +35,7 @@ interface FlatItem {
   expanded: boolean
 }
 
-const tree = ref<HeadingItem[]>(parseHeadings(props.modelValue))
+const tree = ref<HeadingItem[]>(props.headings ?? parseHeadings(props.modelValue))
 
 // ========== 折叠状态：使用 Set 追踪被折叠的 key ==========
 const collapsedKeys = ref<Set<string>>(new Set())
@@ -31,13 +43,17 @@ const collapsedKeys = ref<Set<string>>(new Set())
 // 文件路径变化:从 store 读该文件的折叠状态,避免切换文件时折叠状态串台
 // (原来的实现下,两份文档里恰好同名/同级的标题会共用同一 key,折叠会"穿越")
 // immediate: true 覆盖初始空 Set;对未保存(path 为 null)的新文档保持空
+// 虚拟模式跳过(设置分组是扁平的,不持久化折叠状态)
 watch(() => props.filePath, (path) => {
+  if (isVirtual.value) return
   collapsedKeys.value = path
     ? new Set(outlineStore.getKeysFor(path))
     : new Set()
 }, { immediate: true })
 
 function toggleExpand(key: string) {
+  // 虚拟模式不持久化折叠(设置分组无子级,不会触发;防御性 no-op)
+  if (isVirtual.value) return
   const next = new Set(collapsedKeys.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
@@ -46,7 +62,13 @@ function toggleExpand(key: string) {
   outlineStore.setKeysFor(props.filePath, next)
 }
 
+// 虚拟模式:headings 变化时更新 tree(设置分组注册变化时)
+watch(() => props.headings, (h) => {
+  if (h) tree.value = h
+}, { deep: true })
+
 watch(() => props.modelValue, (v) => {
+  if (isVirtual.value) return
   tree.value = parseHeadings(v)
   // 删除掉再也不存在的折叠键 —— 保留仍然在树里的，跨编辑保持折叠状态
   const live = new Set<string>()
@@ -124,7 +146,12 @@ const headingIndex = computed<Map<string, HeadingIndexEntry>>(() => {
 
 // ========== 滚动到标题 ==========
 // 走共享 util(与统一命令面板 @ 符号模式同款 DOM 跳转 + outline-highlight 闪烁)。
-function scrollToHeading(item: FlatItem) {
+// 虚拟模式下点击改走 emit('select'),不跳 DOM。
+function onItemClick(item: FlatItem) {
+  if (isVirtual.value) {
+    emit('select', item.key)
+    return
+  }
   revealHeadingInDom(item.level, item.displayText)
 }
 
@@ -138,6 +165,13 @@ function indentClass(depth: number): string {
 
 // ========== Scroll-spy：跟踪编辑器当前滚动到的标题，在大纲中加粗高亮 ==========
 const currentKey = ref<string | null>(null)
+
+// 虚拟模式:currentKey 由父组件通过 activeKey 控制(不 scroll-spy)。
+// 正常模式:currentKey 由下方 scroll-spy 驱动,此 watch 不介入(isVirtual false)。
+watch(() => props.activeKey, (k) => {
+  if (isVirtual.value) currentKey.value = k ?? null
+}, { immediate: true })
+
 let scrollContainer: HTMLElement | null = null
 let rafId: number | null = null
 let attachTimer: ReturnType<typeof setTimeout> | null = null
@@ -253,8 +287,8 @@ function activateScrollSpy() {
   scheduleAttachScrollListener()
 }
 
-onMounted(activateScrollSpy)
-onActivated(activateScrollSpy)
+onMounted(() => { if (!isVirtual.value) activateScrollSpy() })
+onActivated(() => { if (!isVirtual.value) activateScrollSpy() })
 onDeactivated(detachScrollListener)
 onUnmounted(detachScrollListener)
 </script>
@@ -312,7 +346,7 @@ onUnmounted(detachScrollListener)
               : undefined,
           }"
           :title="item.displayText"
-          @click="scrollToHeading(item)"
+          @click="onItemClick(item)"
         >
           {{ item.displayText }}
         </button>

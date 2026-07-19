@@ -50,29 +50,25 @@ onMounted(refreshShellState)
 </script>
 
 <template>
-  <section class="space-y-4">
+  <section class="space-y-5">
     <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">系统</h2>
 
-    <!-- Windows 集成分组:包含"设为 Markdown 默认程序"入口 + 文件夹/ .md 右键菜单开关,
-         给安装时没勾选的用户一个开启途径。 -->
-    <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-gray-700">
-      <span class="block text-xs font-medium uppercase tracking-wider text-gray-400">Windows 集成</span>
+    <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
+    <div class="velo-setting-row h-8">
+      <span class="velo-setting-label">Markdown 默认程序</span>
+      <button
+        type="button"
+        class="velo-text-btn"
+        @click="openDefaultApps"
+      >
+        设为默认…
+      </button>
+    </div>
 
-      <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
-      <div class="velo-setting-row h-8">
-        <span class="velo-setting-label">Markdown 默认程序</span>
-        <button
-          type="button"
-          class="velo-text-btn"
-          @click="openDefaultApps"
-        >
-          设为默认…
-        </button>
-      </div>
-
+    <div class="space-y-3 pt-1">
       <!-- 文件夹右键菜单 -->
       <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">文件夹右键"在 Velo 中打开"</span>
+        <span class="velo-setting-label">文件夹右键菜单增加"在 Velo 中打开"</span>
         <input
           v-model="folderMenuOn"
           type="checkbox"
@@ -84,7 +80,7 @@ onMounted(refreshShellState)
 
       <!-- .md 右键菜单 -->
       <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">.md 文件右键"在 Velo 中编辑"</span>
+        <span class="velo-setting-label">Markdown 文件右键菜单增加"在 Velo 中编辑"</span>
         <input
           v-model="mdMenuOn"
           type="checkbox"
