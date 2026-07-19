@@ -33,6 +33,7 @@ const emit = defineEmits<{
 }>()
 
 async function onClose(id: string) {
+  freezeTabWidths()
   await documentStore.closeTab(id)
 }
 
@@ -108,7 +109,41 @@ const displayTabs = computed<DisplayTab[]>(() => {
   return [...docs.slice(0, idx), settingsItem, ...docs.slice(idx)]
 })
 
+// ===== Chrome 式关闭:关 tab 时冻结当前列宽,鼠标移开 tab 区才恢复自动分配 =====
+//
+// 默认 .tab 走 flex(0 1 auto,基准 200px)等分收缩,关一个 tab 其余会立即
+// 再平分变宽 —— 想连点 X 连续关时,X 会从光标下"跑掉"。这里在关闭那一刻把
+// 当前渲染宽度锁成固定 flex(0 0 Npx),后续关闭不再重算;鼠标离开 tab 区
+// (.tab-bar 的 mouseleave)才解冻。新增 tab 会使总宽变大,冻结值可能溢出,
+// 所以 tab 数增加时也主动解冻。
+const tabStripRef = ref<HTMLElement | null>(null)
+const frozenTabWidth = ref<number | null>(null)
+
+const tabStyle = computed(() => {
+  const w = frozenTabWidth.value
+  if (w == null) return undefined
+  return { flex: `0 0 ${w}px`, width: `${w}px`, minWidth: '0' }
+})
+
+function freezeTabWidths() {
+  if (frozenTabWidth.value != null) return
+  const firstTab = tabStripRef.value?.querySelector('.tab') as HTMLElement | null
+  if (firstTab) frozenTabWidth.value = firstTab.getBoundingClientRect().width
+}
+
+function onTabStripLeave() {
+  frozenTabWidth.value = null
+}
+
+watch(
+  () => displayTabs.value.length,
+  (next, prev) => {
+    if (next > prev) frozenTabWidth.value = null
+  },
+)
+
 function onCloseSettings() {
+  freezeTabWidths()
   emit('close-settings')
 }
 
@@ -421,15 +456,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-w-0 flex-1 items-stretch pl-1 border-b border-gray-200 dark:border-gray-800">
-    <div class="tab-bar flex min-w-0 items-end">
+  <div class="flex h-full min-w-0 flex-1 items-stretch border-b border-gray-200 dark:border-gray-800">
+    <div ref="tabStripRef" class="tab-bar flex min-w-0 items-end" @mouseleave="onTabStripLeave">
       <div
         v-for="(tab, i) in displayTabs"
         :key="tab.id"
         class="tab group"
+        :style="tabStyle"
         :class="{
           'tab-active': tab.displayActive,
           'tab-divider': i > 0 && !tab.displayActive && !displayTabs[i - 1].displayActive,
+          'tab-divider-left': i === 0 && !tab.displayActive,
           'tab-divider-right': i === displayTabs.length - 1 && !tab.displayActive,
           'tab-dragging': draggingId === tab.id,
           'tab-drop-before': dropTarget?.tabId === tab.id && dropTarget.side === 'before',
@@ -554,7 +591,11 @@ onBeforeUnmount(() => {
   }
   &::before { left: 0; }
   &::after { right: 0; }
+  // 首 tab 分割线对齐到 border-box 外边缘,与激活态左边框重合
+  // (::before 默认 left:0 是 padding-box 基准,比 border 内缩 1px)
+  &.tab-divider-left::before { left: -1px; }
   &.tab-divider::before,
+  &.tab-divider-left::before,
   &.tab-divider-right::after {
     background: rgb(229 231 235);
   }
@@ -641,7 +682,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   transition: background-color 100ms ease, color 100ms ease;
   &:hover {
-    background: rgb(243 244 246);
+    background: rgb(229 231 235);
     color: rgb(55 65 81);
   }
 }
@@ -652,7 +693,9 @@ onBeforeUnmount(() => {
     background: rgb(38 38 38);
     color: rgb(209 213 219);
   }
+  &.tab-divider-left::before { left: -1px; }
   &.tab-divider::before,
+  &.tab-divider-left::before,
   &.tab-divider-right::after {
     background: rgb(55 65 81);
   }

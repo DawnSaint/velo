@@ -171,16 +171,13 @@ async function recomputeMenuPos() {
   const menuEl = menuRef.value
   const w = menuEl ? menuEl.getBoundingClientRect().width : 240
   const h = menuEl ? menuEl.getBoundingClientRect().height : 480
-  // 展开方向(用户偏好):**主菜单左边界贴 ActivityBar 的 `border-right` 那条 1px
-  // 边线** (= rect.right,0 gap),视觉上像从 ActivityBar "吐"出来的一片 panel,
-  // 与下方"按钮底下展开"的旧版不同 —— 38×42 这种窄按钮向下展开会
-  // 跟按钮脱离,语义错位。+4 gap 也算脱离,现在 0 gap 让两者**完全重合**。
-  // y 与触发器顶部对齐(rect.top),因为这是水平 popover,不需要垂直留缝。
-  // 子菜单位置仍走 (main.x + main.width + SUBMENU_GAP) 留在主菜单右侧并留 4px gap,
-  // 形成"主菜单贴 ActivityBar 右 border / 子菜单离主菜单"的视觉层次。
+  // 展开方向:触发器现在是顶栏左上角的向下箭头按钮,主菜单从按钮**正下方**
+  // 展开 —— 左边界贴触发器左缘(rect.left),顶边贴触发器底缘(rect.bottom),
+  // 语义与"向下箭头"一致。贴右/贴下留 8px 安全距 clamp。
+  // 子菜单位置仍走 (main.x + main.width + SUBMENU_GAP) 留在主菜单右侧并留 4px gap。
   menuPos.value = {
-    x: Math.min(rect.right, window.innerWidth - w - 8),
-    y: Math.min(rect.top, window.innerHeight - h - 8),
+    x: Math.min(rect.left, window.innerWidth - w - 8),
+    y: Math.min(rect.bottom, window.innerHeight - h - 8),
     width: w,
     height: h,
   }
@@ -285,20 +282,21 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <!-- 主菜单 -->
-      <div
-        v-if="open && menuPos"
-        ref="menuRef"
-        data-file-menu-panel="main"
-        class="velo-file-menu fixed z-50 min-w-48 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800 dark:text-gray-200"
-        :style="{ left: `${menuPos.x}px`, top: `${menuPos.y}px` }"
-        role="menu"
-        @contextmenu.prevent
-      >
-        <template v-for="(group, groupIndex) in groups" :key="groupIndex">
-          <div
-            v-if="groupIndex > 0"
-            class="my-1 border-t border-gray-100 dark:border-gray-700"
-          />
+      <Transition name="velo-file-menu-slide">
+        <div
+          v-if="open && menuPos"
+          ref="menuRef"
+          data-file-menu-panel="main"
+          class="velo-file-menu fixed z-50 min-w-48 border border-gray-200 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          :style="{ left: `${menuPos.x}px`, top: `${menuPos.y}px` }"
+          role="menu"
+          @contextmenu.prevent
+        >
+          <template v-for="(group, groupIndex) in groups" :key="groupIndex">
+            <div
+              v-if="groupIndex > 0"
+              class="my-1 border-t border-gray-100 dark:border-gray-700"
+            />
           <button
             v-for="row in group.rows"
             :key="row.key"
@@ -330,7 +328,8 @@ onBeforeUnmount(() => {
             >{{ row.shortcut }}</span>
           </button>
         </template>
-      </div>
+        </div>
+      </Transition>
 
       <!-- 子菜单:最近文件 -->
       <div
@@ -366,3 +365,23 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.velo-file-menu-slide-enter-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+}
+.velo-file-menu-slide-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+  transform-origin: top center;
+}
+.velo-file-menu-slide-enter-from,
+.velo-file-menu-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>

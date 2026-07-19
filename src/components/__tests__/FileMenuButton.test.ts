@@ -203,12 +203,10 @@ describe('FileMenuButton', () => {
     expect(wrapper.text()).toContain('暂无最近文件')
   })
 
-  // 守住"右侧贴 border 展开"语义:主菜单位置 x = trigger.right(0 gap,
-  // 与 ActivityBar 的 border-right 那条 1px 边线重合),y = trigger.top(贴顶)。
-  // 旧版下方展开会得到 x = trigger.left(=0 jsdom 与新版同,无法区分),
-  // y = trigger.bottom + 4(=4 jsdom) → 与新版 y=0 区分。
-  // 早期横版 +4 gap 也会得到 x=4,与新版 x=0 区分,但仍非用户最终要的"贴 border"。
-  it('主菜单左边界贴触发器右边界(0 gap,重合 ActivityBar border-right)且垂直贴顶', async () => {
+  // 守住"向下展开"语义:主菜单从触发器正下方展开,x = trigger.left(左对齐),
+  // y = trigger.bottom(贴按钮底)。jsdom 下 trigger 默认 (0,0) 宽高 0 →
+  // left = 0,bottom = 0,故 left/top 都落在 <=1 内。断言守住"不偏移过大"。
+  it('主菜单从触发器正下方展开(左对齐 + 贴按钮底)', async () => {
     const wrapper = mountMenu()
 
     await openMenuAndWaitPosition(wrapper)
@@ -216,15 +214,11 @@ describe('FileMenuButton', () => {
     const menu = wrapper.find('[data-file-menu-panel="main"]')
     expect(menu.exists()).toBe(true)
     const style = menu.attributes('style') ?? ''
-    // jsdom 下 trigger 默认 (0,0) 宽 0;right = 0,top = 0。
-    // 当前算法: x = rect.right(0 gap),y = rect.top(贴顶)。
+    // jsdom 下 trigger 默认 (0,0) 宽高 0;left = 0,bottom = 0。
+    // 当前算法: x = rect.left(左对齐),y = rect.bottom(贴按钮底)。
     const left = Number((style.match(/left:\s*(\d+(?:\.\d+)?)px/) ?? [, '-1'])[1])
     const top = Number((style.match(/top:\s*(\d+(?:\.\d+)?)px/) ?? [, '-1'])[1])
-    // x <= 1:0 gap(= rect.right = 0)。区分不开 +4 gap(= 4)与下方展开(= rect.left = 0),
-    // 但后者会让 y 跑到 4,所以 y 这条断言已经够用;x 这条作为冗余 / 守住"不偏移过大"。
     expect(left).toBeLessThanOrEqual(1)
-    // y <= 1:贴顶对齐 rect.top(=0)。**核心断言** —— 下方展开会得到 y = rect.bottom + 4 = 4,
-    // 失败即旧版本逻辑被改回去了。
     expect(top).toBeLessThanOrEqual(1)
   })
 })

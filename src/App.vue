@@ -35,6 +35,8 @@ import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
 import TabBar from '@/components/TabBar.vue'
 import Breadcrumbs from '@/components/Breadcrumbs.vue'
 import ActivityBar, { type ActivityBarItem } from '@/components/ActivityBar.vue'
+import FileMenuButton from '@/components/FileMenuButton.vue'
+import { ChevronDown } from '@lucide/vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
@@ -1945,21 +1947,61 @@ watch(editorRef, (v) => {
     :class="{ 'dark': store.darkMode }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
-    <header class="flex h-9 shrink-0 items-stretch bg-white text-gray-700 dark:bg-[#111] dark:text-gray-300">
-      <!-- logo 段:固定 48px(只占 ActivityBar 那列宽)。veloLogo 同样用于
-           loadSample 时替换 sample.md 里的 Velo.png 占位(?raw 字符串不被 Vite 重写)。 -->
-      <div class="flex shrink-0 items-center gap-2 pl-3 border-b border-gray-200 dark:border-gray-800" style="width: 48px">
-        <img :src="veloLogo" alt="Velo" class="h-6 w-6">
+    <header class="flex h-9 shrink-0 items-stretch bg-gray-100 text-gray-700 dark:bg-[#111] dark:text-gray-300">
+      <!-- 文件菜单入口(v0.7.x):原 ActivityBar 顶部的 FileMenuButton 移到此处,
+           占据原 logo 那 48px 列宽,触发器改为向下箭头,点击在按钮正下方展开
+           文件下拉面板。veloLogo import 仍保留 —— loadSample 时替换 sample.md
+           里的 Velo.png 占位(?raw 字符串不被 Vite 重写)。 -->
+      <div class="flex shrink-0 items-center justify-center border-b border-gray-200 dark:border-gray-800" style="width: 47px">
+        <FileMenuButton
+          :is-tauri="tauri"
+          :exporting="exportStore.exporting"
+          :recent-entries="recentFilesStore.entries"
+          :welcome-enabled="isDev"
+          :always-on-top="isAlwaysOnTop"
+          :focus-mode="focusMode"
+          :typewriter-mode="typewriterMode"
+          @new-doc="documentStore.newDoc()"
+          @new-window="createNewAppWindow()"
+          @open-file="documentStore.open()"
+          @open-folder="openFolderAsWorkspace()"
+          @save="documentStore.save()"
+          @save-as="documentStore.saveAs()"
+          @export="exportStore.exportDocument()"
+          @open-recent="openRecentFile"
+          @open-welcome="welcomeVisible = true"
+          @toggle-always-on-top="toggleAlwaysOnTop()"
+          @toggle-focus-mode="toggleFocusMode()"
+          @toggle-typewriter-mode="toggleTypewriterMode()"
+        >
+          <template #trigger="{ open, toggle, registerRef }">
+            <button
+              :ref="registerRef"
+              type="button"
+              class="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              :class="{ 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-200': open }"
+              title="文件"
+              aria-label="文件"
+              aria-haspopup="menu"
+              :aria-expanded="open"
+              @click="toggle"
+            >
+              <ChevronDown :size="18" aria-hidden="true" />
+            </button>
+          </template>
+        </FileMenuButton>
       </div>
 
       <!-- 顶栏标签栏(v0.6.0 多标签):TabBar 自己根 div 含 pl-3 + border-b -->
       <TabBar :settings-open="settingsOpen" :settings-active="settingsActive" @reveal-in-tree="revealFileInTree" @close-settings="closeSettings" @focus-settings="settingsActive = true" @focus-doc="settingsActive = false" />
 
-      <!-- 右侧段:仅窗口控制(`WindowControls` 自带 pr-1 + border-b,布局不抖)。
+      <!-- 右侧段:仅窗口控制。wrapper 自带 border-b(分界线)+ items-stretch,
+           让 WindowControls 撑满顶栏可用高度(border 之上),按钮不再越过分界线;
+           去掉右内边距,按钮贴齐窗口右缘。
            v0.6.x 早期曾放过 dev 模式欢迎入口(MessageSquare) + 与 WindowControls 之间的
            1px 竖线,本次按用户偏好移除 —— dev 用户现在通过 Ctrl+Shift+P 命令面板
            或首次启动触发入口即可重看欢迎对话框,不需要常驻 chrome。 -->
-      <div class="ml-auto flex shrink-0 items-center gap-1 pr-1 border-b border-gray-200 dark:border-gray-800">
+      <div class="ml-auto flex shrink-0 items-stretch border-b border-gray-200 dark:border-gray-800">
         <WindowControls v-if="tauri" />
       </div>
     </header>
@@ -1970,30 +2012,11 @@ watch(editorRef, (v) => {
     <div class="flex flex-1 overflow-hidden">
       <ActivityBar
         :active="activeActivity"
-        :is-tauri="tauri"
-        :exporting="exportStore.exporting"
-        :recent-entries="recentFilesStore.entries"
-        :welcome-enabled="isDev"
-        :always-on-top="isAlwaysOnTop"
-        :focus-mode="focusMode"
-        :typewriter-mode="typewriterMode"
         @select-files="onSelectSidebarActivity('files')"
         @select-outline="onSelectSidebarActivity('outline')"
         @select-search="onSelectSidebarActivity('search')"
         @select-assets="onSelectSidebarActivity('assets')"
         @select-settings="showSettingsPanel"
-        @new-doc="documentStore.newDoc()"
-        @new-window="createNewAppWindow()"
-        @open-file="documentStore.open()"
-        @open-folder="openFolderAsWorkspace()"
-        @save="documentStore.save()"
-        @save-as="documentStore.saveAs()"
-        @export="exportStore.exportDocument()"
-        @open-recent="openRecentFile"
-        @open-welcome="welcomeVisible = true"
-        @toggle-always-on-top="toggleAlwaysOnTop()"
-        @toggle-focus-mode="toggleFocusMode()"
-        @toggle-typewriter-mode="toggleTypewriterMode()"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。

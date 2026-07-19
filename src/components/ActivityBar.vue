@@ -1,17 +1,12 @@
 <script setup lang="ts">
-// 左贴边功能栏(v0.6.x):
-//  - 入口:文件(下拉面板,FileMenuButton 提供)/ 工作区 / 大纲 / 全局搜索 / 设置。
-//    「文件」原侧栏 FileActionsPanel + 顶栏 RecentFilesButton + dev 欢迎按钮
-//    三合一,统一走 FileMenuButton 的 `#trigger` 插槽渲染,ActivityBar 仅
-//    转发 FileMenuButton 的事件(命令发到 App.vue,App.vue 接管同一批 handler)。
+// 左贴边功能栏(v0.7.x):
+//  - 入口:工作区 / 大纲 / 全局搜索 / 资产(可拖拽重排 + 可隐藏)+ 设置(固定底部)。
+//    「文件」下拉面板(FileMenuButton)已从这里移出,改挂在 App.vue 顶栏 logo 位
+//    (向下箭头触发),ActivityBar 不再承载文件命令入口。
 //  - 视觉:38×42 主色块按钮,active 用 `color-mix(in srgb, var(--md-primary-color) 12%, transparent)`
 //    + 主色文本;hover 走 rgba 半透明,亮/暗双主题均一致。
 //  - 高度:在 App.vue 外层 flex-row 直接接顶(不再压在 header 之下),与
 //    leftPanelView 的侧栏(sidebar / settings)同列高对齐。
-//  - 「文件」按钮的 active 状态直接用 FileMenuButton 的 open 状态(slot scope),
-//    不再走 active prop —— 下拉面板是组件自管的瞬时态,不适合混进 ActivityBar
-//    的「当前面板」长态。其它按钮(active = files/outline/search/settings)
-//    继续由 App.vue 通过 active prop 控制。
 //
 // v0.6.1 自定义(排序 / 隐藏):
 //  - 3 个视图入口(工作区 / 大纲 / 全局搜索)可拖拽重排 + 可隐藏;顺序 / 隐藏态
@@ -23,24 +18,15 @@
 //    纵向列表 → 用 clientY 判 before/after(TabBar 横向用 clientX)。
 
 import { computed, ref } from 'vue'
-import { Folders, List, Search, Settings, File, Image as ImageIcon } from '@lucide/vue'
-import FileMenuButton from './FileMenuButton.vue'
+import { Files, List, Search, Settings, Image as ImageIcon } from '@lucide/vue'
 import ActivityBarContextMenu from './ActivityBarContextMenu.vue'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { useEditorStore, type ActivityBarItem } from '@/stores/editor'
-import type { RecentFileEntry } from '@/stores/persistence'
 
 export type { ActivityBarItem }
 
 defineProps<{
   active: ActivityBarItem | null
-  isTauri: boolean
-  exporting: boolean
-  recentEntries: RecentFileEntry[]
-  welcomeEnabled: boolean
-  alwaysOnTop: boolean
-  focusMode: boolean
-  typewriterMode: boolean
 }>()
 const emit = defineEmits<{
   'select-files': []
@@ -48,19 +34,6 @@ const emit = defineEmits<{
   'select-search': []
   'select-assets': []
   'select-settings': []
-  // —— FileMenuButton 转发(v0.6.x)——
-  'new-doc': []
-  'new-window': []
-  'open-file': []
-  'open-folder': []
-  'save': []
-  'save-as': []
-  'export': []
-  'open-recent': [path: string]
-  'open-welcome': []
-  'toggle-always-on-top': []
-  'toggle-focus-mode': []
-  'toggle-typewriter-mode': []
 }>()
 
 const editorStore = useEditorStore()
@@ -75,7 +48,7 @@ const ITEM_LABELS: Record<ActivityBarItem, string> = {
   settings: '设置',
 }
 const ITEM_ICONS = {
-  files: Folders,
+  files: Files,
   outline: List,
   search: Search,
   assets: ImageIcon,
@@ -198,50 +171,6 @@ function onResetActivityBar() {
     @contextmenu.prevent="onActivityContextMenu"
   >
     <div class="flex flex-col items-center gap-1">
-      <!-- 文件(下拉面板,FileMenuButton 提供)—— 固定顶部,不参与排序/隐藏 -->
-      <FileMenuButton
-        :is-tauri="isTauri"
-        :exporting="exporting"
-        :recent-entries="recentEntries"
-        :welcome-enabled="welcomeEnabled"
-        :always-on-top="alwaysOnTop"
-        :focus-mode="focusMode"
-        :typewriter-mode="typewriterMode"
-        @new-doc="emit('new-doc')"
-        @new-window="emit('new-window')"
-        @open-file="emit('open-file')"
-        @open-folder="emit('open-folder')"
-        @save="emit('save')"
-        @save-as="emit('save-as')"
-        @export="emit('export')"
-        @open-recent="(p) => emit('open-recent', p)"
-        @open-welcome="emit('open-welcome')"
-        @toggle-always-on-top="emit('toggle-always-on-top')"
-        @toggle-focus-mode="emit('toggle-focus-mode')"
-        @toggle-typewriter-mode="emit('toggle-typewriter-mode')"
-      >
-        <!-- FileMenuButton 用 `#trigger` slot 暴露 `open / toggle / registerRef`:
-             `registerRef` 必须在自定义 button 上 `:ref` 调一次把元素喂回去,否则
-             `recomputeMenuPos` 走 `if (!btn) { menuPos = null; return }`,主菜单
-             永远不渲染(用户点了毫无反应)。slot 默认按钮已自带 `:ref="registerRef"`,
-             走默认分支不踩这个坑;ActivityBar 这种"自定义视觉"路径必须显式绑。 -->
-        <template #trigger="{ open, toggle, registerRef }">
-          <button
-            :ref="registerRef"
-            type="button"
-            class="activity-bar__button"
-            :class="{ 'activity-bar__button--active': open }"
-            title="文件"
-            aria-label="文件"
-            aria-haspopup="menu"
-            :aria-expanded="open"
-            @click="toggle"
-          >
-            <File :size="20" aria-hidden="true" />
-          </button>
-        </template>
-      </FileMenuButton>
-
       <button
         v-for="item in editorStore.visibleActivityBarItems"
         :key="item"

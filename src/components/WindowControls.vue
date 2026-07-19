@@ -39,7 +39,7 @@ void win.onResized(() => { void refreshMaximized() })
 </script>
 
 <template>
-  <div class="window-controls flex h-10 shrink-0 items-center overflow-hidden text-gray-500 dark:text-gray-300">
+  <div class="window-controls flex h-full shrink-0 items-stretch overflow-hidden text-gray-500 dark:text-gray-300">
     <button
       class="window-control window-control--minimize"
       title="最小化"
@@ -81,7 +81,7 @@ void win.onResized(() => { void refreshMaximized() })
 .window-control {
   display: inline-flex;
   width: 2.5em;
-  height: 2.5em;
+  height: 100%;
   align-items: center;
   justify-content: center;
   color: inherit;
