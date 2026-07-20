@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -215,6 +215,44 @@ function headingToParagraph(state: any, dispatch?: any): boolean {
 }
 
 // ============================================================
+//  列表下方空段落 Backspace → 删除空行(不 join 到列表)
+// ============================================================
+
+// baseKeymap 的 joinBackward 在「空段落 + 前一个兄弟是列表」时会把空段落
+// 合并进列表末尾 list_item,等价于扩展列表(用户看到"多了一个列表项")。
+// 用户需要按 3 次 Backspace 才能删掉空行。这里提前拦截:直接删除空段落。
+function emptyParaBeforeListBackspace(state: any, dispatch?: any): boolean {
+  const { selection } = state
+  if (!selection.empty) return false
+  const $from = selection.$from
+  if ($from.parentOffset !== 0) return false
+  if ($from.parent.type.name !== 'paragraph') return false
+  if ($from.parent.content.size > 0) return false
+
+  const parentDepth = $from.depth - 1
+  if (parentDepth < 0) return false
+  const paraIndex = $from.index(parentDepth)
+  if (paraIndex === 0) return false
+
+  const parent = $from.node(parentDepth)
+  const prevSibling = parent.child(paraIndex - 1)
+  if (prevSibling.type.name !== 'bullet_list' && prevSibling.type.name !== 'ordered_list') {
+    return false
+  }
+
+  if (dispatch) {
+    const tr = state.tr
+    const paraStart = $from.before($from.depth)
+    const paraEnd = paraStart + $from.parent.nodeSize
+    tr.delete(paraStart, paraEnd)
+    const $pos = tr.doc.resolve(Math.min(paraStart, tr.doc.content.size))
+    tr.setSelection(TextSelection.near($pos, -1))
+    dispatch(tr)
+  }
+  return true
+}
+
+// ============================================================
 //  列表项 + 代码类节点的 Tab 缩进(对齐旧 tabIndent)
 // ============================================================
 
@@ -405,9 +443,11 @@ const basePlugins: Plugin[] = [
   //      吞掉事件(不允许影响外面的行),空代码块转回 paragraph。必须排在
   //      baseKeymap 前,否则 joinBackward 会把代码块降级合并到上一段。
   //   3. headingToParagraph:heading 前退化为段落
-  //   4. baseKeymap['Backspace']:兜底
+  //   4. emptyParaBeforeListBackspace:列表下方空段落 Backspace → 直接删除空行
+  //      (不走到 baseKeymap 的 joinBackward,否则空段落会被合并进列表末尾 list_item)
+  //   5. baseKeymap['Backspace']:兜底
   keymap({
-    Backspace: chainCommands(foldDeleteCommand, frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, baseKeymap['Backspace']),
+    Backspace: chainCommands(foldDeleteCommand, frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, emptyParaBeforeListBackspace, baseKeymap['Backspace']),
     Delete: chainCommands(foldDeleteCommand, headingToParagraph, baseKeymap['Delete']),
     // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
     'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),

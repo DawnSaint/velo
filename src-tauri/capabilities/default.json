@@ -25,6 +25,8 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "core:window:allow-set-always-on-top",
+    "core:window:allow-set-decorations",
+    "core:window:allow-show",
     "core:event:allow-listen",
     {
       "identifier": "fs:allow-read-text-file",

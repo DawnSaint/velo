@@ -68,10 +68,3 @@
   background-color: rgba(255, 255, 255, 0.06);
   color: #aaa;
 }
-
-// 块级 HTML 源码编辑态:html_block 被替换成 code_block,用虚线边框标识
-// "这是在编辑 HTML 源码"而非普通代码块
-.velo-html-block-source-edit {
-  border: 1px dashed var(--md-primary-color, #1F71D9);
-  border-radius: 4px;
-}

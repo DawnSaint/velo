@@ -298,14 +298,4 @@ describe('HtmlNodeView - 块级 HTML 源码切换(code_block 范式)', () => {
     cleanup()
   })
 
-  it('code_block 编辑态有 .velo-html-block-source-edit 装饰(虚线边框标识)', () => {
-    const { view, cleanup } = mountBlockView('<p>x</p>')
-    const btn = view.dom.querySelector('.html-source-toggle-btn') as HTMLButtonElement
-    btn.click()
-
-    // code_block 的 DOM 应有 .velo-html-block-source-edit class(node decoration)
-    const codeBlockDom = view.dom.querySelector('.velo-html-block-source-edit')
-    expect(codeBlockDom).not.toBeNull()
-    cleanup()
-  })
 })

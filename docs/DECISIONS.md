@@ -128,7 +128,7 @@
 
 - **Context**: html_block 是 atom 节点（`contentEditable=false`），编辑其源码需要一个文本编辑面。候选:A NodeView 内嵌 textarea（math_block 范式）vs B 点击按钮把 html_block 替换成 `code_block { language:'html' }`（有 contentDOM 的普通可编辑节点）。A 的致命坑:PM 对 atom 节点自动设 `contentEditable=false`，dom 嵌在 `view.dom`（`contentEditable=true`）内；用户点击 textarea 时 mousedown 冒泡到 `view.dom`，虽然 `stopEvent:()=>true` 让 PM JS handler 提前返回，但**浏览器原生 contenteditable 行为仍被触发**（尝试在 view.dom 放光标）→ textarea 失焦 → blur → 误退出编辑 session。`stopEvent` / `stopPropagation` 都不防浏览器原生 contenteditable 焦点抢夺。
 - **Decision**: 选 B。点击按钮 dispatch 把 html_block 替换成 code_block（有 contentDOM），用户在 code_block 内编辑是 PM 原生行为，点击 / 拖选 / IME 全部正常，彻底绕开 `contentEditable=false` 问题。session 由 `htmlSourceEditPlugin` 管理（同 html_inline / imageEdit 范式：光标移出 commit / Escape 还原）。code_block `{ code:true }` 天然保留换行，Enter 只换行不拆段。
-- **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换；但 code_block 上挂 `.velo-html-block-source-edit` node decoration（虚线边框）标识"正在编辑 HTML 源码"，用户可明确感知编辑态。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
+- **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
 
 ---
 

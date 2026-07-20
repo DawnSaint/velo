@@ -66,6 +66,9 @@ import {
 } from '@/tauri/window'
 
 const tauri = isTauri()
+// macOS 检测:仅桌面端生效,浏览器 dev 模式不走此分支。
+// UA 比 navigator.platform 更稳定(platform 已 deprecated)。
+const isMacOS = tauri && /Mac/.test(navigator.userAgent)
 const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
@@ -1659,7 +1662,13 @@ onMounted(async () => {
   //     文件已不存在时 openPath 返回 false,静默保留空白文档。
   //   - 'new-doc':保留 init('') 的空白文档,不做任何事。
   // CLI 打开文件 / 目录时跳过,避免覆盖显式启动意图。
-  if (!initialFile && !initialDir && store.startupMode === 'last-file') {
+  //
+  // shouldRestoreActive 守门:只有 main 冷启动才走 last-file 恢复。动态窗口
+  // (菜单栏"新窗口" / 二次启动 single-instance)语义上就是"空窗口起步",即使
+  // startupMode='last-file'也不该拉 recent file —— 否则每次新建窗口都会先蹦出
+  // 一个用户的最近文档,违背"新窗口空白"的预期。CLI payload 显式路由的单个文件
+  // / 目录由上方 initialFile / initialDir 处理,不走此路径。
+  if (shouldRestoreActive && !initialFile && !initialDir && store.startupMode === 'last-file') {
     const lastPath = recentFilesStore.entries[0]?.path
     if (lastPath) await documentStore.openPathInTab(lastPath)
   }
@@ -1674,7 +1683,13 @@ onMounted(async () => {
   //    期间打开的最近文件)。
   //    openPathInTab 传 { silent: true }:启动期个别文件被外部删,只 console.warn
   //    不弹原生错误框,避免连弹几个吓到用户。
-  if (persistedOpenTabs.length > 0) {
+  //
+  //    动态窗口(菜单栏"新窗口" / 二次启动 single-instance)不恢复旧窗口的 openTabs
+  //    —— 这些窗口语义上就是"空窗口起步"(CLI payload 显式路由的单个文件/目录除外)。
+  //    shouldRestoreActive 已经为 false 的窗口,persistedOpenTabs 在第 1645 行也被
+  //    短路成 [],所以这里的 gate 是冗余但显式的兜底,防止未来有人改动 1645 行的
+  //    串联逻辑时意外把标签恢复开放给动态窗口。
+  if (shouldRestoreActive && persistedOpenTabs.length > 0) {
     // 批量并行恢复(v0.6.x):openPathsInTabs 内 IO 阶段 Promise.all 并发 readTextFile,
     // commit 阶段同步批量写 store,所有 reactive 触发在同一 microtask 内合并,
     // TabBar 一次性拿到 N 个新 tab —— 不会肉眼可见地"一个个出现"。
@@ -1873,8 +1888,19 @@ watch(editorRef, (v) => {
     :class="{ 'dark': store.darkMode }"
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
-    <header class="flex h-9 shrink-0 items-stretch bg-gray-100 text-gray-700 dark:bg-[#111] dark:text-gray-300">
-      <!-- 文件菜单入口(v0.7.x):原 ActivityBar 顶部的 FileMenuButton 移到此处,
+    <header
+      class="flex h-9 shrink-0 items-stretch bg-gray-100 text-gray-700 dark:bg-[#111] dark:text-gray-300"
+      :data-tauri-drag-region="isMacOS || undefined"
+    >
+      <!-- macOS 交通灯避让区:overlay 标题栏下交通灯浮在 header 左上角,
+           留出 78px 空白让按钮不被遮挡;同时作为窗口拖拽热区。 -->
+      <div
+        v-if="isMacOS"
+        data-tauri-drag-region
+        class="shrink-0"
+        style="width: 78px"
+      />
+      <!-- 文件菜单入口(v0.7.x):原 ActivityBar 顶部的 FileMenuButton 移到此处，
            占据原 logo 那 48px 列宽,触发器改为向下箭头,点击在按钮正下方展开
            文件下拉面板。 -->
       <div class="flex shrink-0 items-center justify-center border-b border-gray-200 dark:border-gray-800" style="width: 47px">
@@ -1925,7 +1951,9 @@ watch(editorRef, (v) => {
            v0.6.x 早期曾放过 dev 模式欢迎入口(MessageSquare) + 与 WindowControls 之间的
            1px 竖线,本次按用户偏好移除 —— dev 用户现在通过 Ctrl+Shift+P 命令面板
            或首次启动触发入口即可重看欢迎对话框,不需要常驻 chrome。 -->
-      <div class="ml-auto flex shrink-0 items-stretch border-b border-gray-200 dark:border-gray-800">
+      <!-- macOS 原生装饰自带交通灯(关闭/最小化/全屏),不需要自绘窗口按钮;
+           Windows/Linux 无原生装饰,继续用 WindowControls。 -->
+      <div v-if="!isMacOS" class="ml-auto flex shrink-0 items-stretch border-b border-gray-200 dark:border-gray-800">
         <WindowControls v-if="tauri" />
       </div>
     </header>

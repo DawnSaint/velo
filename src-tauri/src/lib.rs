@@ -53,7 +53,7 @@ fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String,
     let label = next_app_window_label();
     store_window_payload(app, &label, payload);
 
-    let build_result = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         label.clone(),
         WebviewUrl::App("index.html".into()),
@@ -64,9 +64,20 @@ fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String,
     .center()
     .resizable(true)
     .fullscreen(false)
-    .decorations(false)
-    .disable_drag_drop_handler()
-    .build();
+    .disable_drag_drop_handler();
+
+    // macOS: 原生装饰 + overlay 标题栏,交通灯浮在自定义 header 左上角。
+    // Windows/Linux: 无原生装饰,前端自绘 WindowControls。
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.decorations(true).title_bar_style(tauri::TitleBarStyle::Overlay);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.decorations(false);
+    }
+
+    let build_result = builder.build();
 
     match build_result {
         Ok(win) => {
@@ -240,6 +251,20 @@ pub fn run() {
             let args: Vec<String> = std::env::args().skip(1).collect();
             let payload = parse_cli_args(&args);
             store_window_payload(app.handle(), MAIN_WINDOW_LABEL, payload);
+
+            // 窗口装饰平台适配:
+            //   macOS  — tauri.conf.json 已设 decorations:true + titleBarStyle:Overlay,
+            //            直接 show 即可,交通灯浮在 header 上。
+            //   Win/Linux — tauri.conf.json 的 decorations:true 会导致原生标题栏闪烁,
+            //            这里先 set_decorations(false) 再 show,避免闪现。
+            //   (tauri.conf.json 不支持平台条件配置,所以统一设 true 再在此覆写)
+            if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = win.set_decorations(false);
+                }
+                let _ = win.show();
+            }
 
             // 注册/刷新"在 Velo 中打开"文件夹右键菜单。
             // 安装器会写入偏好标志;ensure_registered 读取标志决定

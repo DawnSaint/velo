@@ -11,7 +11,7 @@
 //
 // 块级 HTML (html_block):
 //   1. NodeView 右上角按钮点击 → 替换成 code_block { language: 'html' },
-//      光标落进 code_block 内,Decoration 加 .velo-html-block-source-edit 视觉指示。
+//      光标落进 code_block 内。
 //   2. 编辑态下:
 //      - 用户在 code_block 内正常编辑(PM 原生 contenteditable,无 textarea 焦点问题)
 //      - 光标移出 code_block → apply 检测到,view.update 触发 commit
@@ -153,7 +153,7 @@ export const htmlSourceEditPlugin = new Plugin<HtmlEditState>({
         const { blockPos } = pluginState.blockSession
         const node = state.doc.nodeAt(blockPos)
         if (node) {
-          decos.push(Decoration.node(blockPos, blockPos + node.nodeSize, { class: 'velo-html-block-source-edit' }))
+          decos.push(Decoration.node(blockPos, blockPos + node.nodeSize, { class: '' }))
         }
       }
 
