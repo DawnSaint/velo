@@ -81,7 +81,8 @@
 
 // 代码块横向滚动条:仅影响 .velo-editor pre(code_block),不影响编辑器
 // 主滚动条(后者走 index.scss 全局 ::-webkit-scrollbar)。hover 用 default
-// 指针(不继承 contentEditable 的 text 光标);thumb 更淡(opacity 0.15)。
+// 指针(不继承 contentEditable 的 text 光标)。颜色与全局 / 工作区浮动
+// thumb 统一(亮 0.3/0.5,暗 0.2/0.35)。
 //
 // **点击范围**:track 保持 8px(与全局一致,点击范围不缩小),thumb 用
 // 2px transparent border + background-clip: padding-box 让视觉宽度只有
@@ -98,21 +99,21 @@
   cursor: default;
 }
 .velo-editor pre::-webkit-scrollbar-thumb {
-  background-color: rgba(144, 146, 152, 0.15);
+  background-color: rgba(144, 146, 152, 0.3);
   border-radius: 4px;
   border: 2px solid transparent;
   background-clip: padding-box;
   cursor: default;
   &:hover {
-    background-color: rgba(144, 146, 152, 0.25);
+    background-color: rgba(144, 146, 152, 0.5);
   }
 }
 html.dark .velo-editor pre::-webkit-scrollbar-thumb,
 .dark .velo-editor pre::-webkit-scrollbar-thumb,
 .velo-editor.dark pre::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.2);
   &:hover {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.35);
   }
 }
 

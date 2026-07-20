@@ -121,3 +121,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   }),
   convertFileSrc: vi.fn((p: string) => p),
 }))
+
+// 全局注册 v-velo-scroll 指令(工作区滚动条 hover 显示),避免每个 mount
+// 用到它的组件测试(FileTree / WorkspaceSearchPanel / Sidebar / AssetPanel
+// 等)单独传 global.directives。实现见 src/directives/veloScroll.ts。
+import { config } from '@vue/test-utils'
+import { vVeloScroll } from '@/directives/veloScroll'
+config.global.directives['velo-scroll'] = vVeloScroll

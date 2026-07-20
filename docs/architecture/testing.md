@@ -53,7 +53,7 @@
 ```
 src/
 ├── test/
-│   └── setup.ts                          # 全局 mock、测试期 hook
+│   └── setup.ts                          # 全局 mock、测试期 hook、全局指令注册(v-velo-scroll)
 ├── utils/
 │   └── __tests__/
 │       ├── outline.test.ts
@@ -135,6 +135,8 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 - `@tauri-apps/plugin-dialog` → `open` / `save` / `confirm`
 - `@tauri-apps/plugin-clipboard-manager` → `writeText`
 - `@tauri-apps/api/window` → `getCurrentWindow().{label,setTitle,onCloseRequested,minimize,toggleMaximize,close,destroy,isMaximized,onResized}`
+
+**全局指令注册**: `setup.ts` 还全局注册了 `v-velo-scroll` 指令(工作区滚动条 hover 显示，实现见 `src/directives/veloScroll.ts`)，避免每个 mount 用到它的组件测试(FileTree / WorkspaceSearchPanel / Sidebar / AssetPanel 等)单独传 `global.directives`。
 
 **新增 Tauri 调用的规约**:
 - 在 `src/tauri/` 下建薄封装(如 `src/tauri/fs.ts`、`src/tauri/dialog.ts`),业务侧 import 封装

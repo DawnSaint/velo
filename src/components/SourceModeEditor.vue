@@ -36,6 +36,7 @@ import { handleTreePathDrop, pickImageFile, escapeMdAlt, escapeMdUrl, parseAsset
 import { saveImageAsset } from '@/utils/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromMarkdown, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
+import { attachVeloScroll, detachVeloScroll } from '@/directives/veloScroll'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -535,6 +536,7 @@ onMounted(async () => {
   if (!hostRef.value) return
   const view = createView()
   viewRef.value = view
+  attachVeloScroll(view.scrollDOM)
 view.focus()
 emitCursorPosition(view)
 emitHeadingContext(view)
@@ -558,6 +560,7 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(cmRafId)
     cmRafId = null
   }
+  if (viewRef.value) detachVeloScroll(viewRef.value.scrollDOM)
   viewRef.value?.destroy()
   viewRef.value = null
 })

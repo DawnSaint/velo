@@ -308,7 +308,7 @@ onUnmounted(detachScrollListener)
       暂无标题
     </div>
 
-    <div v-else class="min-h-0 flex-1 overflow-y-auto pr-2">
+    <div v-else v-velo-scroll class="min-h-0 flex-1 overflow-y-auto pr-2">
       <div
         v-for="item in flatList"
         :key="item.key"

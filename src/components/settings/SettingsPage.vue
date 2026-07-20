@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
        分组列表在侧栏 EditorOutline(虚拟模式)。flex-1 + min-w-0 确保侧栏开合时内容区被
        "压缩"而非被"推动"(见 file-tree.md min-w-0 链)。 -->
   <div class="flex h-full min-w-0 flex-1 overflow-hidden bg-white dark:bg-[#1e1e1e]">
-    <div ref="scrollRef" class="min-w-0 flex-1 overflow-y-auto" @scroll.passive="onScroll">
+    <div ref="scrollRef" v-velo-scroll class="min-w-0 flex-1 overflow-y-auto" @scroll.passive="onScroll">
       <div class="mx-auto max-w-2xl px-8 py-6">
         <!-- 所有分组依次排列,每个分组包一层带锚点的 div 供 scroll-spy / scrollToGroup 定位。
              scroll-mt-6:scrollIntoView 时给标题留 24px 呼吸空间,不顶到容器最上沿。 -->

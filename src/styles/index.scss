@@ -70,10 +70,68 @@
   ::-webkit-scrollbar-thumb {
     border-radius: 6px;
     background-color: rgba(144, 146, 152, 0.3);
+    &:hover {
+      background-color: rgba(144, 146, 152, 0.5);
+    }
   }
 
   .dark ::-webkit-scrollbar-thumb {
-    background-color: rgba(120, 120, 120, 0.5);
+    background-color: rgba(255, 255, 255, 0.2);
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.35);
+    }
   }
+}
+
+/* 工作区浮动滚动条(.velo-scroll):
+   原生滚动条隐藏(width:0 不占布局空间),由 JS(v-velo-scroll 指令 /
+   attachVeloScroll)创建 position:fixed 的 .velo-scroll-thumb 浮在内容右侧。
+   thumb 默认 opacity:0,mouseenter 容器时 JS 给 thumb 加
+   .velo-scroll-thumb-visible → opacity 淡入;mouseleave 淡出。
+   transition: opacity 0.18s ease。
+
+   **为什么不用纯 CSS ::-webkit-scrollbar**:① 原生自定义滚动条是 classic
+   模式(占布局宽度),整行高亮无法紧贴右侧 border;② thumb 默认 transparent
+   时容器 :hover 不驱动重绘(WebView2 quirk),transition 也不稳定。浮动 thumb
+   + JS class 切换同时解决"不占空间"和"可靠淡入淡出"两个问题。
+
+   thumb 作为滚动容器的子元素(命令式 appendChild),position:fixed 使其
+   不随内容滚动、不被 overflow 裁剪(前提:容器及祖先无 transform)。 */
+.velo-scroll {
+  &::-webkit-scrollbar { width: 0; height: 0; }
+  scrollbar-width: none;
+}
+
+.velo-scroll-thumb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 0;
+  border-radius: 3px;
+  background-color: rgba(144, 146, 152, 0.3);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.velo-scroll-thumb-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.velo-scroll-thumb:hover,
+.velo-scroll-thumb-dragging {
+  background-color: rgba(144, 146, 152, 0.5);
+}
+
+.dark .velo-scroll-thumb {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .velo-scroll-thumb:hover,
+.dark .velo-scroll-thumb-dragging {
+  background-color: rgba(255, 255, 255, 0.35);
 }
 

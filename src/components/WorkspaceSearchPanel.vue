@@ -565,7 +565,7 @@ function isCollapsed(fullPath: string): boolean {
       </div>
     </div>
 
-    <div ref="listRef" class="min-h-0 flex-1 overflow-y-auto">
+    <div ref="listRef" v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <div v-if="!props.root || invalidRegex || (!groups.length && !isSearching && (query.trim() || invalidRegex))" class="py-8 text-center text-xs text-gray-400">
         {{ statusText }}
       </div>

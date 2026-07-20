@@ -220,6 +220,50 @@ btn.className = 'velo-icon-btn my-comp-btn'
 
 ---
 
+## 工作区浮动滚动条（`.velo-scroll`）
+
+工作区常驻滚动容器用**浮动 thumb**方案：原生滚动条隐藏（`width:0` 不占布局空间），由 JS 创建 `position:fixed` 的 `.velo-scroll-thumb` DOM 浮在内容右侧。CSS 定义在 `index.scss`（`@layer base` 之外），JS 实现在 `src/directives/veloScroll.ts`。
+
+**两个设计目标**（纯 CSS `::-webkit-scrollbar` 做不到）：
+1. **不占布局空间** —— 原生自定义滚动条是 classic 模式（占宽度），整行高亮无法紧贴右侧 border；浮动 thumb 悬浮在内容之上，内容占满容器宽度。
+2. **可靠淡入淡出** —— thumb 默认 `opacity:0`，`mouseenter` 容器时 JS 给 thumb 加 `.velo-scroll-thumb-visible` → `opacity` transition（0.18s）淡入；`mouseleave` 淡出。自己的 DOM transition 100% 可靠（webkit scrollbar 伪元素 transition 不稳定，且 transparent thumb 时容器 `:hover` 不驱动重绘）。
+
+| 滚动条 | 位置 | 显示策略 | 占空间 | 适用 |
+|--------|------|---------|--------|------|
+| 全局 `::-webkit-scrollbar` | `index.scss` `@layer base` | 常驻 8px | 是 | 弹出菜单 / dialog / popover |
+| `.velo-scroll` 浮动 thumb | `index.scss`（layer 外）+ `veloScroll.ts` | 鼠标进入容器淡入(0.18s)，离开淡出 | 否 | 工作区常驻滚动容器 |
+| code_block / table | `_editor-code.scss` / `_editor-tables.scss` | 常驻淡显示，10px track / ~6px thumb | 是 | 编辑器内容局部滚动 |
+
+### 颜色统一约定
+
+三套滚动条颜色已统一为同一套色阶（亮色灰色系 / 暗色白色系），仅显示策略不同：
+
+| 模式 | thumb | hover |
+|------|-------|-------|
+| 亮色 | `rgba(144, 146, 152, 0.3)` | `rgba(144, 146, 152, 0.5)` |
+| 暗色 | `rgba(255, 255, 255, 0.2)` | `rgba(255, 255, 255, 0.35)` |
+
+**维护约束**：改任意一处滚动条颜色时，三处（全局 / 浮动 thumb / code_block·table）必须同步，保持视觉一致。浮动 thumb 的 hover/dragging 态对应 webkit 伪元素的 `:hover` 态，透明度值相同。
+
+### thumb 定位机制
+
+thumb 作为滚动容器的**子元素**（JS `appendChild`），`position:fixed` 使其不随内容滚动、不被 `overflow` 裁剪（前提：容器及祖先无 `transform`，已确认工作区滚动容器链路无 transform）。`updateThumb` 在 scroll / resize / DOM 变化时读容器的 `getBoundingClientRect()` 计算 thumb 的 fixed 屏幕坐标（`top` / `left`），并按 `scrollTop / (scrollHeight - clientHeight)` 比例算 thumb 高度和位置。
+
+- 淡入淡出：`transition: opacity 0.18s ease`（thumb 自己的 DOM，可靠）
+- 拖拽：`mousedown` thumb → 全局 `mousemove`/`mouseup`，按拖拽距离换算 `scrollTop`
+- 节流：rAF（每帧最多一次 `updateThumb`）
+- 内容不足：`display: none`（不占位、不可交互）
+- 暗色模式：`.velo-scroll-thumb` 是容器 DOM 后代，自然命中 `.dark` 祖先选择器
+
+### 用法
+
+- **Vue 模板**：用 `v-velo-scroll` 指令（全局注册于 `main.ts`，实现在 `src/directives/veloScroll.ts`）。指令负责隐藏原生滚动条 + 创建/管理 thumb，模板里**不要**再写 `velo-scroll` class。
+- **命令式 DOM**（CM6 `.cm-scroller`）：`attachVeloScroll(view.scrollDOM)` 挂载、`detachVeloScroll` 卸载。
+
+**适用范围**：编辑器主区域 / 文件树 / 大纲 / 搜索结果 / 资产面板 / 设置页 / 源码模式。弹出式容器（右键菜单 / QuickCommandPanel / 子菜单 / Dialog / popover）不适用，继续用全局滚动条。
+
+---
+
 ## class 命名约定
 
 ### 前缀

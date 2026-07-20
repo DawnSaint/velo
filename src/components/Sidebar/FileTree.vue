@@ -916,6 +916,7 @@ function displayName(node: TreeNode): string {
     <!-- 文件列表 -->
     <div
       v-else
+      v-velo-scroll
       class="min-h-0 flex-1 overflow-y-auto py-2"
       :class="{ 'bg-blue-50/40 dark:bg-blue-950/20': dragOverTarget !== null && dragOverTarget === workspace.activeRoot }"
       @dragover.self="onContainerDragOver"

@@ -85,7 +85,7 @@ defineExpose({ getEditorView })
     class="relative flex-1 min-w-0 bg-white dark:bg-[#1e1e1e]"
     @click="onCardClick"
   >
-    <div class="flex justify-center h-full w-full overflow-auto px-8 py-6 relative">
+    <div v-velo-scroll class="flex justify-center h-full w-full overflow-auto px-8 py-6 relative">
       <div
         :class="{
           'dark': props.darkMode,

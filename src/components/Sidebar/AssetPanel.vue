@@ -522,7 +522,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 <template>
   <div class="flex h-full flex-col">
     <!-- 滚动内容(无顶部标题栏,直接展示折叠分组) -->
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <div v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <!-- 空态 -->
       <div
         v-if="allImages.length === 0 && orphans.length === 0 && !orphanLoading"
