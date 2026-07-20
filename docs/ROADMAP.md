@@ -39,18 +39,17 @@
 > 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
 
 ```
-P1  #settings-panel ──→ #dark-mode-follow · #font-ui · #theme-presets · #theme-market
-    #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
+P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P2  #system-tray ──→ #daily-note
     #git-integration ──↔── #local-timeline ──→ #recent-locations
     #wikilink ──→ #go-to-def · #find-refs
-    #block-drag · #table-enhance · #md-lint · #changelog-popup（独立）
-    #dark-mode-follow · #font-ui（← #settings-panel）
+    #block-drag · #table-enhance · #md-lint · #changelog-popup · #notification（独立）
+    #dark-mode-follow · #font-ui（独立）
                                                                 │
 P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
-    #theme-market · #theme-presets（← #settings-panel）
+    #theme-market · #theme-presets（独立）
 ```
 
 
@@ -65,14 +64,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 
 ## P1 — 核心功能
-
-### 设置面板重做 `#settings-panel` `P1` `M`
-
-> `→ #dark-mode-follow` `→ #font-ui` `→ #theme-presets` `→ #theme-market`
->
-> 目标：做成可扩展的分组结构（分组 + 插件式注册），后续所有个性化功能都能挂进去。
-
-- [x] 设置面板架构重做：分组容器 + 可扩展注册机制，新设置项只需注册一行（整页 SettingsPage 接管编辑器主区域 + registry.ts 分组注册）
 
 ### 知识库 — 工作区索引 `#workspace-index` `P1` `L`
 
@@ -162,13 +153,22 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 ### 个性化
 
-- [ ] **跟随系统深浅色** `#dark-mode-follow` `P2` `S` `← #settings-panel`
+- [ ] **跟随系统深浅色** `#dark-mode-follow` `P2` `S`
   - 监听 `prefers-color-scheme` 媒体查询，自动切换暗色模式
   - 设置面板新增三态开关：跟随系统 / 始终浅色 / 始终暗色
 
-- [ ] **字体配置 UI** `#font-ui` `P2` `S` `← #settings-panel`
+- [ ] **字体配置 UI** `#font-ui` `P2` `S`
   - `editorStore.fontFamily` 已有 store 字段，仅设置面板未暴露
   - 补一个字体族选择器（系统字体 + 常用编程字体下拉）
+
+### 通知与反馈
+
+- [ ] **消息通知机制** `#notification` `P2` `M` `?`
+  - 统一的消息横幅 / Toast 通知系统，用于在完成某些操作后给用户即时反馈（如保存成功、导出完成、替换完成、设置已应用等）
+  - 替代当前散落在各处的 `console.warn` / 原生弹框 / 静默成功，提供一致的非阻塞反馈
+  - 候选方案：① 自建轻量 Toast 组件（零依赖，完全可控）② 接入第三方通知库（功能完整但增加依赖）
+  - 通知类型：成功 / 信息 / 警告 / 错误，自动消失 + 手动关闭
+  - 需覆盖的初始场景：导出完成 / 替换完成 / 保存失败 / 外部修改检测 / 草稿恢复
 
 ### 资产面板工程级未引用 `#asset-orphan` `P2` `M` `← #workspace-index`
 
@@ -199,12 +199,12 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 可选：行内补全（类似 Copilot，走本地小模型，只对 markdown 文本补全）
   - 与 Velo 本地优先定位高度契合，Typora / Zettlr 均无此能力
 
-- [ ] **主题市场** `#theme-market` `P3` `XL` `?` `← #settings-panel`
+- [ ] **主题市场** `#theme-market` `P3` `XL` `?`
   - 自定义颜色方案 / 字号规范 / 段落间距整套打包
   - 导入 / 导出主题 JSON
   - 社区分享（远期）
 
-- [ ] **多种自带主题预设** `#theme-presets` `P3` `M` `← #settings-panel`
+- [ ] **多种自带主题预设** `#theme-presets` `P3` `M`
   - 除当前两套外增加更多内置主题
   - 与主题市场共享主题数据格式
 

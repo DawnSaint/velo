@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { BUNDLED_THEMES } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+import SettingsItem from '../SettingsItem.vue'
 
 const store = useEditorStore()
 
@@ -90,8 +91,7 @@ function endDrag(e: PointerEvent) {
   <section class="space-y-5 pt-6">
     <!-- 字号:滑块选择器,与 title 同行。数值文字 font-size 随当前设置值缩放,
          直观预览字号效果。数值放在滑块左侧,滑块固定宽度不再撑满整行。 -->
-    <div class="velo-setting-row h-8">
-      <span class="velo-setting-label whitespace-nowrap">字号</span>
+    <SettingsItem label="字号" :keywords="['font-size', 'size']">
       <div class="flex items-center gap-3">
         <span
           class="velo-setting-value whitespace-nowrap"
@@ -121,50 +121,46 @@ function endDrag(e: PointerEvent) {
           />
         </div>
       </div>
-    </div>
+    </SettingsItem>
 
     <!-- 代码块主题:浅色 + 深色,各一个下拉(带过滤)。切换走
       lazy load(~100-300ms),由 App.vue watch store 触发 ensureTheme +
       dispatch rebuild。独立于 darkMode toggle(后者是纯 CSS 切色)。 -->
-    <div>
-      <label class="velo-setting-toplabel">代码块主题(浅色)</label>
+    <SettingsItem label="代码块主题(浅色)" :keywords="['code', 'theme', 'light', 'shiki']">
       <select
         v-model="store.codeLightTheme"
-        class="velo-select w-full rounded-lg border p-1.5 text-sm outline-none"
+        class="velo-select w-48 rounded-lg border p-1.5 text-sm outline-none"
       >
         <option v-for="t in lightThemes" :key="t.id" :value="t.id">{{ themeLabel(t) }}</option>
       </select>
-    </div>
-    <div>
-      <label class="velo-setting-toplabel">代码块主题(深色)</label>
+    </SettingsItem>
+    <SettingsItem label="代码块主题(深色)" :keywords="['code', 'theme', 'dark', 'shiki']">
       <select
         v-model="store.codeDarkTheme"
-        class="velo-select w-full rounded-lg border p-1.5 text-sm outline-none"
+        class="velo-select w-48 rounded-lg border p-1.5 text-sm outline-none"
       >
         <option v-for="t in darkThemes" :key="t.id" :value="t.id">{{ themeLabel(t) }}</option>
       </select>
-    </div>
+    </SettingsItem>
 
     <!-- 开关项:左 label 右 switch,激活色走主题色 -->
     <div class="space-y-3 pt-1">
-      <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">代码块行号</span>
+      <SettingsItem label="代码块行号" :keywords="['line-number', '行号']" clickable>
         <input
           v-model="store.showCodeLineNumbers"
           type="checkbox"
           role="switch"
           class="velo-switch"
         >
-      </label>
-      <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">面包屑</span>
+      </SettingsItem>
+      <SettingsItem label="面包屑" :keywords="['breadcrumb', '面包屑']" clickable>
         <input
           v-model="store.showBreadcrumbs"
           type="checkbox"
           role="switch"
           class="velo-switch"
         >
-      </label>
+      </SettingsItem>
     </div>
   </section>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import SettingsItem from '../SettingsItem.vue'
 
 // Windows 检测:isTauri 守门桌面端,userAgent 判定 Windows(navigator.platform 已弃用)。
 // 三个控件都只在 Windows 桌面端显示;其它平台整个分组不注册(registerGroups.ts 守门)。
@@ -50,10 +51,9 @@ onMounted(refreshShellState)
 </script>
 
 <template>
-  <section class="space-y-5 pt-6">
+  <section class="space-y-4 pt-6">
     <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
-    <div class="velo-setting-row h-8">
-      <span class="velo-setting-label">Markdown 默认程序</span>
+    <SettingsItem label="Markdown 默认程序" :keywords="['default', 'app', '默认', '程序']">
       <button
         type="button"
         class="velo-text-btn"
@@ -61,32 +61,28 @@ onMounted(refreshShellState)
       >
         设为默认…
       </button>
-    </div>
+    </SettingsItem>
 
-    <div class="space-y-3 pt-1">
       <!-- 文件夹右键菜单 -->
-      <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">文件夹右键菜单增加"在 Velo 中打开"</span>
-        <input
-          v-model="folderMenuOn"
-          type="checkbox"
-          role="switch"
-          class="velo-switch"
-          @change="toggleFolderMenu"
-        >
-      </label>
+    <SettingsItem :label='`文件夹右键菜单增加"在 Velo 中打开"`' :keywords="['folder', 'context', 'menu', '右键', '文件夹']" clickable>
+      <input
+        v-model="folderMenuOn"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+        @change="toggleFolderMenu"
+      >
+    </SettingsItem>
 
-      <!-- .md 右键菜单 -->
-      <label class="velo-setting-row h-8 cursor-pointer">
-        <span class="velo-setting-label">Markdown 文件右键菜单增加"在 Velo 中编辑"</span>
-        <input
-          v-model="mdMenuOn"
-          type="checkbox"
-          role="switch"
-          class="velo-switch"
-          @change="toggleMdMenu"
-        >
-      </label>
-    </div>
+    <!-- .md 右键菜单 -->
+    <SettingsItem :label='`Markdown 文件右键菜单增加"在 Velo 中编辑"`' :keywords="['md', 'context', 'menu', '右键']" clickable>
+      <input
+        v-model="mdMenuOn"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+        @change="toggleMdMenu"
+      >
+    </SettingsItem>
   </section>
 </template>

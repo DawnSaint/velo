@@ -1885,6 +1885,7 @@ watch(editorRef, (v) => {
           :always-on-top="isAlwaysOnTop"
           :focus-mode="focusMode"
           :typewriter-mode="typewriterMode"
+          :has-document="!settingsActive && !!documentStore.activeId"
           @new-doc="documentStore.newDoc()"
           @new-window="createNewAppWindow()"
           @open-file="documentStore.open()"

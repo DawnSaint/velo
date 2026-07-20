@@ -165,3 +165,14 @@
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ---------- 设置搜索命中高亮 ---------- */
+/* 搜索结果点击后,目标设置项短暂闪烁主色背景,帮助用户定位。 */
+@keyframes velo-settings-hit-flash {
+  0%, 100% { background-color: transparent; }
+  30% { background-color: color-mix(in srgb, var(--md-primary-color, #1F71D9) 14%, transparent); }
+}
+.velo-settings-hit {
+  animation: velo-settings-hit-flash 1.5s ease-out;
+  border-radius: 6px;
+}

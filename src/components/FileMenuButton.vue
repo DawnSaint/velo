@@ -52,6 +52,8 @@ const props = defineProps<{
   focusMode: boolean
   /** 打字机模式态(toggle 项勾选指示) */
   typewriterMode: boolean
+  /** 是否有活动文档(设置页 / 空页面时为 false,隐藏保存 / 另存为 / 导出) */
+  hasDocument: boolean
 }>()
 
 const emit = defineEmits<{
@@ -104,13 +106,16 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
         { key: 'recent', label: '最近文件', shortcut: '', event: 'export', disabled: false },
       ],
     },
-    {
-      rows: [
-        { key: 'save', label: '保存', shortcut: 'Ctrl+S', event: 'save' },
-        { key: 'save-as', label: '另存为', shortcut: 'Ctrl+Shift+S', event: 'save-as' },
-        { key: 'export', label: props.exporting ? '导出中…' : '导出', shortcut: 'Ctrl+Shift+E', event: 'export', disabled: props.exporting },
-      ],
-    },
+    // 保存 / 另存为 / 导出:仅在有活动文档时显示(设置页 / 空页面隐藏)
+    ...(props.hasDocument
+      ? [{
+          rows: [
+            { key: 'save', label: '保存', shortcut: 'Ctrl+S', event: 'save' as FileActionEvent },
+            { key: 'save-as', label: '另存为', shortcut: 'Ctrl+Shift+S', event: 'save-as' as FileActionEvent },
+            { key: 'export', label: props.exporting ? '导出中…' : '导出', shortcut: 'Ctrl+Shift+E', event: 'export' as FileActionEvent, disabled: props.exporting },
+          ],
+        }]
+      : []),
     // 窗口级 toggle 项:勾选态由 props 驱动,右侧显示 Check 代替 shortcut
     {
       rows: [

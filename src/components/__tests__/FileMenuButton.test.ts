@@ -13,6 +13,7 @@ function mountMenu(props: Partial<{
   alwaysOnTop: boolean
   focusMode: boolean
   typewriterMode: boolean
+  hasDocument: boolean
 }> = {}) {
   return mount(FileMenuButton, {
     props: {
@@ -22,6 +23,7 @@ function mountMenu(props: Partial<{
       alwaysOnTop: false,
       focusMode: false,
       typewriterMode: false,
+      hasDocument: true,
       ...props,
     },
     global: {
@@ -179,6 +181,20 @@ describe('FileMenuButton', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('暂无最近文件')
+  })
+
+  it('无活动文档时隐藏保存/另存为/导出', async () => {
+    const wrapper = mountMenu({ hasDocument: false })
+
+    await openMenu(wrapper)
+
+    expect(wrapper.find('[aria-label="保存"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="另存为"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="导出"]').exists()).toBe(false)
+    // 其他菜单项仍可用
+    expect(wrapper.find('[aria-label="新建文件"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="最近文件"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="专注模式"]').exists()).toBe(true)
   })
 
   // 守住"向下展开"语义:主菜单从触发器正下方展开,x = trigger.left(左对齐),
