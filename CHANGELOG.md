@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.3](https://github.com/DawnSaint/velo/compare/v0.7.2...v0.7.3) (2026-07-20)
+
+
+### Features
+
+* **ci:** add macos x64 and appimage to release matrix ([67f35ed](https://github.com/DawnSaint/velo/commit/67f35edbe3e35d73605e5d32726e37691b6801e6))
+* **settings:** add cross-group settings search and context-aware file menu ([9225725](https://github.com/DawnSaint/velo/commit/92257258d695c3b51210640617dad3dda6101c4a))
+* **settings:** rebuild settings as full-page tab with extensible registry ([be8e3eb](https://github.com/DawnSaint/velo/commit/be8e3eb2b5c42e795a2ee7e0476326d07ec11503))
+* **settings:** redesign settings as scrollable flow with outline navigation ([984eb4c](https://github.com/DawnSaint/velo/commit/984eb4cdebe3f5772ca79676fc35862decd3eb70))
+* **settings:** redesign settings page tab bar and fix dark code styling ([96f318c](https://github.com/DawnSaint/velo/commit/96f318ce1067fbcbdb750863c7a5f6d6cf671cd5))
+* **styles:** add floating overlay scrollbar for workspace panels ([a2dd77b](https://github.com/DawnSaint/velo/commit/a2dd77bf2c34cb6213cca6227e763f92356ea0b4))
+* **topbar:** move file menu to top-bar logo slot and freeze tab width on close ([36caa1b](https://github.com/DawnSaint/velo/commit/36caa1b2736a3c1f543643cbf4435f26d7e2d487))
+* **welcome:** inline WelcomeDialog on empty page and fix code block theme switching black screen ([90bc86f](https://github.com/DawnSaint/velo/commit/90bc86f95803a2c8f994c32e745ba8fe6c870805))
+
 ## [0.7.2](https://github.com/DawnSaint/velo/compare/v0.7.1...v0.7.2) (2026-07-17)
 
 
