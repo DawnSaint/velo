@@ -7,9 +7,7 @@ const documentStore = useDocumentStore()
 </script>
 
 <template>
-  <section class="space-y-5">
-    <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">文档</h2>
-
+  <section class="space-y-5 pt-6">
     <!-- 启动时打开内容 -->
     <div>
       <label class="velo-setting-toplabel">启动时打开</label>

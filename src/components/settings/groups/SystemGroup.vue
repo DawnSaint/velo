@@ -50,9 +50,7 @@ onMounted(refreshShellState)
 </script>
 
 <template>
-  <section class="space-y-5">
-    <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">系统</h2>
-
+  <section class="space-y-5 pt-6">
     <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
     <div class="velo-setting-row h-8">
       <span class="velo-setting-label">Markdown 默认程序</span>

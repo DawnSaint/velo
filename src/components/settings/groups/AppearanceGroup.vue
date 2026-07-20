@@ -5,9 +5,7 @@ const store = useEditorStore()
 </script>
 
 <template>
-  <section class="space-y-5">
-    <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">外观</h2>
-
+  <section class="space-y-5 pt-6">
     <!-- 主色 -->
     <div class="velo-setting-row h-8">
       <span class="velo-setting-label">主色</span>

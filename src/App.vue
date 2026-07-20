@@ -27,7 +27,6 @@ import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIn
 import SettingsPage from '@/components/settings/SettingsPage.vue'
 import { registerBuiltinSettingsGroups } from '@/components/settings/registerGroups'
 import { getSettingsGroups } from '@/components/settings/registry'
-import type { HeadingItem } from '@/utils/outline'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
@@ -149,17 +148,10 @@ const settingsOpen = ref(false)
 const settingsActive = ref(false)
 // 注册内置设置分组(编辑器 / 外观 / 文档 / 系统);幂等,HMR 安全。
 registerBuiltinSettingsGroups()
-// 当前激活的设置分组 id。状态提升到 App.vue:侧栏 EditorOutline(虚拟模式) + 编辑器区 SettingsPage 共享。
+// 当前激活的设置分组 id。状态提升到 App.vue,保证设置失活再激活后能记住上次选中的类目。
 // 注册后必有至少一组(editor),取首个作默认值。
 const settingsActiveGroupId = ref<string>(getSettingsGroups()[0]?.id ?? '')
-// 设置分组的虚拟标题列表:把 registry 分组转成 HeadingItem[],喂给 EditorOutline 虚拟模式渲染。
-// 设置 tab 激活时大纲区域显示这个列表(设置分类),而非上一个文档的大纲。
-const settingsHeadings = computed<HeadingItem[]>(() =>
-  getSettingsGroups().map(g => ({ level: 1, text: g.title, displayText: g.title, children: [], key: g.id })),
-)
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
-// SettingsPage 实例引用:大纲点击分组时调 scrollToGroup 平滑滚动到对应分区。
-const settingsPageRef = ref<InstanceType<typeof SettingsPage> | null>(null)
 
 // ========== 侧栏可拖拽 + 自动收起(v0.5.5)==========
 // sidebarWidthRef 是 UI 层镜像,composable 在拖拽中写入此 ref(rAF 节流);
@@ -909,13 +901,12 @@ function formatReplaceStatus(result: { replacedCount: number, skippedFiles: stri
   return parts.length ? parts.join('，') : '替换完成'
 }
 
-// active 高亮回显当前侧栏视图(files/outline/search/assets)。设置激活时侧栏同样
-// 遵循 sidebarTab(设置激活 + outline = 大纲区显示设置分类虚拟模式;设置激活 +
-// files/search/assets = 侧栏正常显示文件树 / 搜索 / 资产,设置保持激活不离开)。
+// active 高亮回显当前侧栏视图(files/outline/search/assets)。设置激活时侧栏
+// 遵循 sidebarTab:outline/assets 显示空态(无文档上下文),files/search 正常渲染。
 // 齿轮不参与 active 高亮,设置激活态由 TabBar 设置 tab 表达(原始语义)。
 const activeActivity = computed<ActivityBarItem | null>(() => {
-if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
-return null
+  if (leftPanelView.value === 'sidebar') return workspaceStore.sidebarTab
+  return null
 })
 
 // 隐藏当前 active 入口时收起侧栏(v0.6.1):避免「面板还开着但无 active 按钮」的悬空态。
@@ -961,25 +952,15 @@ function toggleSidebarTab(tab: SidebarTab) {
 function showSettingsPanel() {
 settingsOpen.value = true
 settingsActive.value = true
-// 展开侧栏 + 切到 outline:设置激活时只有 sidebarTab==='outline' 才在大纲区
-// 渲染设置分类(虚拟模式);用户可随时点其他功能按钮切到文件树 / 搜索 / 资产,
-// 侧栏内容切换但设置保持激活,点 outline 能正常 toggle 折叠侧栏。
-workspaceStore.setSidebarTab('outline')
-leftPanelView.value = 'sidebar'
+// 默认收起侧栏:设置类目改为设置页顶部 Tab 切换,不再需要借住大纲区域导航;
+// 用户可随时点 ActivityBar 功能按钮重新展开侧栏浏览文件树 / 搜索等。
+leftPanelView.value = null
 }
 
 // 彻底关闭设置 tab(X / 中键):tab 从 TabBar 消失,回到当前文档。
 function closeSettings() {
 settingsOpen.value = false
 settingsActive.value = false
-}
-
-// 大纲(虚拟模式)点击设置分组:即时高亮(用户立即看到反馈)+ 平滑滚动到对应分区。
-// 滚动过程中 SettingsPage 的 scroll-spy 会持续 emit update:activeGroupId 回写本 ref,
-// 保持高亮与可视位置同步。即时赋值避免"点击后高亮滞后到滚动结束"的视觉延迟。
-function onSelectSettingsGroup(id: string) {
-settingsActiveGroupId.value = id
-settingsPageRef.value?.scrollToGroup(id)
 }
 
 // ActivityBar 功能按钮(files/outline/search/assets)统一入口。
@@ -1728,6 +1709,7 @@ onMounted(async () => {
       () => store.codeDarkTheme,
       () => store.startupMode,
       () => store.showCodeLineNumbers,
+      () => store.showBreadcrumbs,
       () => documentStore.autoSaveEnabled,
       () => documentStore.autoSaveOnBlur,
       () => store.activityBarOrder,
@@ -1981,9 +1963,6 @@ watch(editorRef, (v) => {
               :workspace-search-replace-status="workspaceSearchReplaceStatus"
               :workspace-search-rerun-token="workspaceSearchRerunToken"
               :settings-active="settingsActive"
-              :settings-headings="settingsHeadings"
-              :settings-active-group-id="settingsActiveGroupId"
-              @select-settings-group="onSelectSettingsGroup"
               @workspace-search-close="onWorkspaceSearchClose"
               @workspace-search-open-result="openWorkspaceSearchResult"
               @workspace-search-clear-scope="onWorkspaceSearchClearScope"
@@ -2019,12 +1998,11 @@ watch(editorRef, (v) => {
            decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
            setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
       <div class="flex flex-1 flex-col min-w-0">
-        <!-- 设置页(#settings-panel 重做):整页接管编辑器主区域,流式布局(所有分组
-             纵向滚动排列)。取代旧 EditorSettings(原挤在左侧栏 ~256px)。设置 tab
-             后台保留:切文档 tab 只失活(v-if 用 settingsActive),X / 中键 / Escape
-             才真正关(settingsOpen)。 -->
+        <!-- 设置页(#settings-panel 重做):整页接管编辑器主区域,顶部 Tab 切换类目
+             (编辑器 / 外观 / 文档 / 系统)。取代旧流式布局 + 侧栏大纲虚拟模式导航。
+             设置 tab 后台保留:切文档 tab 只失活(v-if 用 settingsActive),
+             X / 中键 / Escape 才真正关(settingsOpen)。 -->
         <SettingsPage
-          ref="settingsPageRef"
           v-if="settingsOpen && settingsActive"
           :active-group-id="settingsActiveGroupId"
           @update:active-group-id="settingsActiveGroupId = $event"

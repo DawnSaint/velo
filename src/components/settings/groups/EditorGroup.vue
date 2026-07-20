@@ -87,38 +87,39 @@ function endDrag(e: PointerEvent) {
 </script>
 
 <template>
-  <section class="space-y-5">
-    <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">编辑器</h2>
-
-    <!-- 字号:滑块选择器。数值显示在 label 行右侧(不挂在拖圆上),
-         刻度仅"精确选中"那一档高亮放大,其余保持灰色小点。 -->
-    <div>
-      <div class="velo-setting-row h-8">
-        <span class="velo-setting-label">字号</span>
-        <span class="velo-setting-value">{{ activeSize }}px</span>
-      </div>
-      <div
-        ref="sliderTrackRef"
-        class="velo-slider-track relative h-8 touch-none select-none"
-        :class="{ 'is-dragging': draggingRatio !== null }"
-        role="slider"
-        aria-label="字号"
-        :aria-valuenow="activeSize"
-        :aria-valuemin="FONT_SIZE_MIN"
-        :aria-valuemax="FONT_SIZE_MAX"
-        :aria-valuetext="`字号 ${activeSize}px`"
-        tabindex="0"
-        @pointerdown="onTrackPointerDown"
-        @pointermove="onTrackPointerMove"
-        @pointerup="endDrag"
-        @pointercancel="endDrag"
-      >
-        <span class="velo-slider-line absolute inset-x-0 top-1/2 block h-0.5 -translate-y-1/2 rounded-full bg-gray-200 dark:bg-gray-700" />
-        <!-- 拖动圆:纯白球 + 灰边,暗色下深球 + 浅边(颜色见 CSS) -->
+  <section class="space-y-5 pt-6">
+    <!-- 字号:滑块选择器,与 title 同行。数值文字 font-size 随当前设置值缩放,
+         直观预览字号效果。数值放在滑块左侧,滑块固定宽度不再撑满整行。 -->
+    <div class="velo-setting-row h-8">
+      <span class="velo-setting-label whitespace-nowrap">字号</span>
+      <div class="flex items-center gap-3">
         <span
-          class="velo-slider-knob absolute top-1/2 block h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
-          :style="{ left: `${knobRatio * 100}%` }"
-        />
+          class="velo-setting-value whitespace-nowrap"
+          :style="{ fontSize: `${activeSize}px` }"
+        >{{ activeSize }}px</span>
+        <div
+          ref="sliderTrackRef"
+          class="velo-slider-track relative h-8 w-48 touch-none select-none"
+          :class="{ 'is-dragging': draggingRatio !== null }"
+          role="slider"
+          aria-label="字号"
+          :aria-valuenow="activeSize"
+          :aria-valuemin="FONT_SIZE_MIN"
+          :aria-valuemax="FONT_SIZE_MAX"
+          :aria-valuetext="`字号 ${activeSize}px`"
+          tabindex="0"
+          @pointerdown="onTrackPointerDown"
+          @pointermove="onTrackPointerMove"
+          @pointerup="endDrag"
+          @pointercancel="endDrag"
+        >
+          <span class="velo-slider-line absolute inset-x-0 top-1/2 block h-0.5 -translate-y-1/2 rounded-full bg-gray-200 dark:bg-gray-700" />
+          <!-- 拖动圆:纯白球 + 灰边,暗色下深球 + 浅边(颜色见 CSS) -->
+          <span
+            class="velo-slider-knob absolute top-1/2 block h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
+            :style="{ left: `${knobRatio * 100}%` }"
+          />
+        </div>
       </div>
     </div>
 

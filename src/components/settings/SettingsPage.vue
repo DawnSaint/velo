@@ -1,103 +1,69 @@
 <script setup lang="ts">
 // 设置页主组件（#settings-panel 重做）
 //
-// 接管编辑器主区域。左导航(分组列表)复用 EditorOutline 的虚拟模式渲染在
-// 左侧功能区大纲位置,设置激活时点开大纲看到的就是设置分类 —— 避免设置页
-// 显示上一个文档的大纲造成误导。
-//
-// **流式布局**:所有分组在一个可纵向滚动的容器里依次排列(类似 macOS 系统设置 /
-// GitHub settings)。左侧大纲点击 → scrollToGroup 平滑滚动到对应分区;
-// 滚动 → scroll-spy 实时回写当前可视分组到大纲高亮。用户也可不依赖大纲,
-// 直接上下滚动浏览所有设置。
+// 接管编辑器主区域。顶部 Tab 切换设置类目（编辑器 / 外观 / 文档 / 系统），
+// 每次只显示一个分组。取代原流式布局 + 侧栏大纲虚拟模式导航 —— 设置类目
+// 不再借住大纲区域显示，改为设置页自身顶部 Tab 切换。
 //
 // 分组来源:registry.ts 的 getSettingsGroups()(由 registerGroups.ts 注册内置 4 组,
 // 未来新设置项只需注册一行)。本组件不硬编码任何分组,纯靠 registry 驱动渲染。
 //
-// activeGroupId 状态提升到 App.vue:SettingsPage scroll-spy emit update → App.vue
-// 更新 ref → 侧栏 EditorOutline(虚拟模式)activeKey 变 → 大纲高亮跟随。
-// 反向:大纲点击 → App.vue 调 settingsPageRef.scrollToGroup → 平滑滚动。
+// activeGroupId 状态提升到 App.vue:Tab 点击 → emit update:activeGroupId →
+// App.vue 更新 ref → 本组件 prop 变化 → 切换显示的分组。状态在 App.vue
+// 保证设置失活再激活后能记住上次选中的类目。
 //
 // 关闭/失活途径(两态):设置 tab 可后台保留,切文档 tab 只失活不关闭。
 //   彻底关闭(X / 中键)→ TabBar emit('close-settings') → App.vue closeSettings()
 //   失活(Escape / 切文档 tab / ActivityBar toggle)→ settingsActive=false,tab 保留
 //   Escape 由本组件 emit('close') → App.vue 设 settingsActive=false(不关 settingsOpen)。
 
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getSettingsGroups } from './registry'
 
 const props = defineProps<{
-  /** 当前高亮分组 id(scroll-spy 驱动;大纲点击时 App.vue 先即时赋值再 scrollToGroup)。 */
+  /** 当前激活的设置分组 id(Tab 切换驱动)。 */
   activeGroupId: string
 }>()
 const emit = defineEmits<{
   'close': []
-  /** scroll-spy 检测到滚动使可视分组变化时触发,App.vue 据此更新 settingsActiveGroupId。 */
+  /** Tab 点击切换分组时触发,App.vue 据此更新 settingsActiveGroupId。 */
   'update:activeGroupId': [id: string]
 }>()
 
 const groups = computed(() => getSettingsGroups())
 
-// ========== 滚动容器 + 分区锚点 ==========
-// 每个分组包一层 div[data-group-id],scroll-spy 和 scrollToGroup 都靠它定位。
-const scrollRef = ref<HTMLElement | null>(null)
-const sectionRefs = ref<Record<string, HTMLElement | null>>({})
+const activeGroup = computed(() =>
+  groups.value.find(g => g.id === props.activeGroupId) ?? groups.value[0],
+)
 
-function setSectionRef(id: string) {
-  return (el: Element | ComponentPublicInstance | null) => {
-    sectionRefs.value[id] = (el as HTMLElement | null) ?? null
+function onSelectGroup(id: string) {
+  if (id !== props.activeGroupId) {
+    emit('update:activeGroupId', id)
   }
 }
 
-// ========== Scroll-spy:跟踪滚动位置,回写当前可视分组 ==========
-let scrollRafId: number | null = null
-// 防止 scrollToGroup 触发的滚动与 scroll-spy 互相干扰:
-// 程序滚动期间允许 scroll-spy 自然更新(平滑滚动过程中高亮跟随是期望行为),
-// 无需特殊抑制 —— smooth scroll 的中间态高亮符合直觉。
+// ========== Tab 激活下划线滑动动效 ==========
+// 单一下划线元素根据当前激活 Tab 的 DOM 位置(left/width)滑动,
+// CSS transition 驱动平滑过渡,无需手动 rAF。
+const tabRefs = ref<HTMLElement[]>([])
+const underlineLeft = ref(0)
+const underlineWidth = ref(0)
 
-function findActiveGroup(): string | null {
-  const container = scrollRef.value
-  if (!container) return null
-  const rect = container.getBoundingClientRect()
-  // 视口顶线往下 24px 算作当前分区分界线(给标题留呼吸空间)
-  const threshold = rect.top + 24
-
-  let activeId: string | null = null
-  for (const g of groups.value) {
-    const el = sectionRefs.value[g.id]
-    if (!el) continue
-    if (el.getBoundingClientRect().top <= threshold) {
-      activeId = g.id
-    } else {
-      break
-    }
-  }
-  // 滚到最顶端时回退到首个分组(避免空白高亮)
-  if (!activeId && groups.value[0]) {
-    activeId = groups.value[0].id
-  }
-  return activeId
-}
-
-function onScroll() {
-  if (scrollRafId !== null) return
-  scrollRafId = requestAnimationFrame(() => {
-    scrollRafId = null
-    const id = findActiveGroup()
-    if (id && id !== props.activeGroupId) {
-      emit('update:activeGroupId', id)
-    }
-  })
-}
-
-// ========== 暴露给 App.vue:大纲点击 → 平滑滚动到对应分组 ==========
-function scrollToGroup(id: string) {
-  const el = sectionRefs.value[id]
+function updateUnderline() {
+  const idx = groups.value.findIndex(g => g.id === props.activeGroupId)
+  if (idx === -1) return
+  const el = tabRefs.value[idx]
   if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  underlineLeft.value = el.offsetLeft
+  underlineWidth.value = el.offsetWidth
 }
 
-defineExpose({ scrollToGroup })
+onMounted(() => {
+  nextTick(() => updateUnderline())
+})
+watch(() => props.activeGroupId, () => {
+  nextTick(() => updateUnderline())
+})
 
 // ========== Escape 关闭设置页 ==========
 function onKeydown(e: KeyboardEvent) {
@@ -109,40 +75,48 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  // 初始高亮首个分组(与 App.vue 默认值一致;scroll-spy 兜底)
-  nextTick(() => {
-    const id = findActiveGroup()
-    if (id) emit('update:activeGroupId', id)
-  })
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (scrollRafId !== null) {
-    cancelAnimationFrame(scrollRafId)
-    scrollRafId = null
-  }
 })
 </script>
 
 <template>
-  <!-- 右内容:居中限宽,纵向滚动(流式:所有分组依次排列)。顶栏由 TabBar 的设置 tab 承担,
-       分组列表在侧栏 EditorOutline(虚拟模式)。flex-1 + min-w-0 确保侧栏开合时内容区被
-       "压缩"而非被"推动"(见 file-tree.md min-w-0 链)。 -->
-  <div class="flex h-full min-w-0 flex-1 overflow-hidden bg-white dark:bg-[#1e1e1e]">
-    <div ref="scrollRef" v-velo-scroll class="min-w-0 flex-1 overflow-y-auto" @scroll.passive="onScroll">
-      <div class="mx-auto max-w-2xl px-8 py-6">
-        <!-- 所有分组依次排列,每个分组包一层带锚点的 div 供 scroll-spy / scrollToGroup 定位。
-             scroll-mt-6:scrollIntoView 时给标题留 24px 呼吸空间,不顶到容器最上沿。 -->
-        <div
-          v-for="(group, index) in groups"
-          :key="group.id"
-          :ref="setSectionRef(group.id)"
-          :data-group-id="group.id"
-          :class="index > 0 ? 'mt-16 border-t border-gray-200 pt-16 dark:border-gray-700' : ''"
-          class="scroll-mt-6"
-        >
-          <component :is="group.component" />
+  <!-- 右内容:顶部 Tab 栏 + 分组内容(单分组渲染,纵向滚动)。顶栏由 TabBar 的设置 tab 承担。
+       flex-1 + min-w-0 确保侧栏开合时内容区被"压缩"而非被"推动"(见 file-tree.md min-w-0 链)。 -->
+  <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#1e1e1e]">
+    <!-- 分组内容:居中限宽,纵向滚动,只渲染当前激活的分组。
+         Tab 栏放在内容容器顶部(取代各分组组件的 h2 标题),靠左摆放,
+         下划线宽度与内容区一致(max-w-2xl)。 -->
+    <div v-velo-scroll class="min-w-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-2xl px-8 py-12">
+        <!-- Tab 栏:每个分组一个 Tab,点击切换类目。下划线为单一带 transition 的元素,
+             根据 activeGroupId 变化滑动到对应 Tab 位置。 -->
+        <div class="relative flex items-center gap-1 border-b border-gray-200 pb-2 dark:border-gray-800">
+          <button
+            v-for="(group, idx) in groups"
+            :key="group.id"
+            :ref="el => { if (el) tabRefs[idx] = el as HTMLElement }"
+            class="relative px-3 py-1.5 text-sm transition-colors"
+            :class="group.id === activeGroup?.id
+              ? 'font-medium text-gray-900 dark:text-gray-100'
+              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'"
+            @click="onSelectGroup(group.id)"
+          >
+            {{ group.title }}
+          </button>
+          <!-- 激活下划线:单一元素,transition 驱动滑动。bottom-0 让下划线紧贴 border 线 -->
+          <span
+            class="absolute bottom-0 h-0.5 transition-all duration-200 ease-out"
+            :style="{
+              left: `${underlineLeft}px`,
+              width: `${underlineWidth}px`,
+              backgroundColor: 'var(--md-primary-color, #1F71D9)',
+            }"
+          />
         </div>
+
+        <component v-if="activeGroup" :is="activeGroup.component" />
       </div>
     </div>
   </div>
