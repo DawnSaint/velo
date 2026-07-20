@@ -88,7 +88,7 @@ function endDrag(e: PointerEvent) {
 </script>
 
 <template>
-  <section class="space-y-5 pt-6">
+  <section class="space-y-4 pt-6">
     <!-- 字号:滑块选择器,与 title 同行。数值文字 font-size 随当前设置值缩放,
          直观预览字号效果。数值放在滑块左侧,滑块固定宽度不再撑满整行。 -->
     <SettingsItem label="字号" :keywords="['font-size', 'size']">
@@ -143,24 +143,23 @@ function endDrag(e: PointerEvent) {
       </select>
     </SettingsItem>
 
-    <!-- 开关项:左 label 右 switch,激活色走主题色 -->
-    <div class="space-y-3 pt-1">
-      <SettingsItem label="代码块行号" :keywords="['line-number', '行号']" clickable>
-        <input
-          v-model="store.showCodeLineNumbers"
-          type="checkbox"
-          role="switch"
-          class="velo-switch"
-        >
-      </SettingsItem>
-      <SettingsItem label="面包屑" :keywords="['breadcrumb', '面包屑']" clickable>
-        <input
-          v-model="store.showBreadcrumbs"
-          type="checkbox"
-          role="switch"
-          class="velo-switch"
-        >
-      </SettingsItem>
-    </div>
+
+    <SettingsItem label="代码块行号" :keywords="['line-number', '行号']" clickable>
+      <input
+        v-model="store.showCodeLineNumbers"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
+    <SettingsItem label="面包屑" :keywords="['breadcrumb', '面包屑']" clickable>
+      <input
+        v-model="store.showBreadcrumbs"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
+
   </section>
 </template>

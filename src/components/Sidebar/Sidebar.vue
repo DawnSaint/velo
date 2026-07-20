@@ -56,9 +56,9 @@ defineExpose({
   refreshDir(dirPath: string) {
     fileTreeRef.value?.refreshDir(dirPath)
   },
-  /** 在文件树中高亮定位到指定文件。给 TabBar「在文件树中显示」用。 */
-  async revealFile(filePath: string) {
-    await fileTreeRef.value?.revealFile(filePath)
+  /** 在文件树中高亮定位到指定文件。给 TabBar「在文件树中显示」/ 点 tab 定位用。 */
+  async revealFile(filePath: string, options?: { flash?: boolean }) {
+    await fileTreeRef.value?.revealFile(filePath, options)
   },
 })
 

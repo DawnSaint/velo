@@ -664,8 +664,9 @@ async function revealInExplorer(node: TreeNode) {
 
 const treeRootRef = ref<HTMLDivElement | null>(null)
 
-/** 把 path 在文件树中高亮定位。已展开 / 已加载的子树无副作用。 */
-async function revealFile(filePath: string): Promise<void> {
+/** 把 path 在文件树中高亮定位。已展开 / 已加载的子树无副作用。
+ *  flash=true(默认)加短暂蓝高亮;flash=false 仅展开目录 + 滚动定位,不闪。 */
+async function revealFile(filePath: string, options?: { flash?: boolean }): Promise<void> {
   const root = workspace.activeRoot
   if (!root) return
   if (filePath !== root && !filePath.startsWith(root + '/') && !filePath.startsWith(root + '\\')) return
@@ -678,9 +679,11 @@ async function revealFile(filePath: string): Promise<void> {
   if (rel) {
     const segments = rel.split(/[\\/]+/)
     let cur = root
-    // 倒数第二段之前的每个目录 = 文件的某层祖先,逐级 setDirExpanded + 必要时 loadDirChildren
+    // 倒数第二段之前的每个目录 = 文件的某层祖先,逐级 setDirExpanded + 必要时 loadDirChildren。
+    // 必须用 join() 构建路径(不能用 `/` 拼接):Windows 上 fullPath 用 \ 分隔,
+    // `/` 拼接的路径与 dirIndex / expandedDirs 里的 key 不匹配 → 展开无效。
     for (let i = 0; i < segments.length - 1; i++) {
-      cur = `${cur}/${segments[i]}`
+      cur = await join(cur, segments[i])
       workspace.setDirExpanded(cur, true)
       const parent = dirIndex.get(cur)
       if (parent && parent.children === undefined) {
@@ -697,8 +700,10 @@ async function revealFile(filePath: string): Promise<void> {
   const row = treeRootRef.value?.querySelector(`[title="${CSS.escape(filePath)}"]`) as HTMLElement | null
   if (!row) return
   row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  row.classList.add('reveal-flash')
-  window.setTimeout(() => row.classList.remove('reveal-flash'), 1500)
+  if (options?.flash !== false) {
+    row.classList.add('reveal-flash')
+    window.setTimeout(() => row.classList.remove('reveal-flash'), 1500)
+  }
 }
 
 // ========== 右键菜单新增:在编辑器中打开 / 作为工作区打开(v0.5.1)==========
@@ -917,7 +922,7 @@ function displayName(node: TreeNode): string {
     <div
       v-else
       v-velo-scroll
-      class="min-h-0 flex-1 overflow-y-auto py-2"
+      class="min-h-0 flex-1 overflow-y-auto"
       :class="{ 'bg-blue-50/40 dark:bg-blue-950/20': dragOverTarget !== null && dragOverTarget === workspace.activeRoot }"
       @dragover.self="onContainerDragOver"
       @drop.self="onContainerDrop"
@@ -986,7 +991,7 @@ function displayName(node: TreeNode): string {
           <div
             v-else
             :style="indentStyle(item.depth)"
-            class="group flex cursor-pointer items-center gap-1 h-8 pr-2 text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
+            class="group flex cursor-pointer items-center gap-1 h-7.5 pr-2 text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
             :class="{
               'bg-gray-200 dark:bg-gray-800': !item.node.isDir && item.node.fullPath === activeFile,
               'ring-1 ring-blue-400 dark:ring-blue-500': item.node.isDir && item.node.fullPath === dragOverTarget,
@@ -1009,7 +1014,7 @@ function displayName(node: TreeNode): string {
             <span class="flex size-4 shrink-0 items-center justify-center">
               <ChevronRight
                 v-if="item.node.isDir && (isRootNode(item.node) || !(item.node.children && item.node.children.length === 0))"
-                class="size-2.5 text-gray-400 transition-transform"
+                class="size-3 text-gray-400 transition-transform"
                 :class="{ 'rotate-90': item.expanded }"
                 :stroke-width="2.5"
               />
@@ -1018,7 +1023,7 @@ function displayName(node: TreeNode): string {
             <Folder v-if="item.node.isDir" class="size-3.5 shrink-0 text-gray-400" />
             <Image v-else-if="isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" />
             <File v-else class="size-3.5 shrink-0 text-gray-400" />
-            <span class="truncate text-gray-700 dark:text-gray-300">
+            <span class="truncate text-gray-500 dark:text-gray-300">
               {{ displayName(item.node) }}
             </span>
           </div>

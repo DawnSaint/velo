@@ -293,6 +293,11 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
       if (node.value === '<br />') {
         return [schema.node('paragraph')]
       }
+      // 单行 <hr> / <hr /> / <hr  > 等 HTML 分割线 → hr 节点(同 --- 语义)。
+      // 不保留原始 HTML 形态(round-trip 后序列化为 ---),不支持展开源码编辑。
+      if (/^<hr\b[^>]*>$/i.test(node.value)) {
+        return [schema.node('hr')]
+      }
       // 独立 <img src="..." alt="..." title="..."> 标签(仅 src/alt/title 属性)
       // → 接管为 image 节点(htmlSource=true),可选中 + 点按钮展开源码编辑。
       // 含额外属性(width 等)或 img 嵌套在 HTML 内 → 不匹配,保留 html_block。

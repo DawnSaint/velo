@@ -1057,6 +1057,16 @@ function revealFileInTree(filePath: string) {
   void sidebarRef.value?.revealFile(filePath)
 }
 
+/** 点文档 tab 时:侧栏已显示文件树则自动展开目录 + 定位高亮(active 态由
+ *  FileTree 的 activeFile computed 跟 currentFilePath 自动同步,无需额外处理)。
+ *  不切 tab 不强制开侧栏 —— 仅在 files 视图已可见时才触发。
+ *  不加蓝高亮闪 —— 仅展开目录 + 滚动到该行,active 背景色足够。 */
+function onTabClicked(filePath: string) {
+  if (!filePath) return
+  if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'files') return
+  void sidebarRef.value?.revealFile(filePath, { flash: false })
+}
+
 /** 顶栏"打开文件夹"按钮:弹原生目录选择对话框,选中后切到该工作区。
  *  与 FileTree 内空态按钮共用一个 workspaceStore.pickWorkspace,UI 入口
  *  上提到顶栏后,FileTree 顶部"更换工作区"按钮移除(v0.5.1,避免与本按钮重复)。 */
@@ -1943,7 +1953,7 @@ watch(editorRef, (v) => {
       </div>
 
       <!-- 顶栏标签栏(v0.6.0 多标签):TabBar 自己根 div 含 pl-3 + border-b -->
-      <TabBar :settings-open="settingsOpen" :settings-active="settingsActive" @reveal-in-tree="revealFileInTree" @close-settings="closeSettings" @focus-settings="settingsActive = true" @focus-doc="settingsActive = false" />
+      <TabBar :settings-open="settingsOpen" :settings-active="settingsActive" @reveal-in-tree="revealFileInTree" @tab-clicked="onTabClicked" @close-settings="closeSettings" @focus-settings="settingsActive = true" @focus-doc="settingsActive = false" />
 
       <!-- 右侧段:仅窗口控制。wrapper 自带 border-b(分界线)+ items-stretch,
            让 WindowControls 撑满顶栏可用高度(border 之上),按钮不再越过分界线;

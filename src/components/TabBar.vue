@@ -24,6 +24,9 @@ const emit = defineEmits<{
    *  showSidebarTab('files') + sidebarRef.revealFile(path)。TabBar 不持有
    *  sidebarRef,emit 上去由 App.vue 持有侧栏引用。 */
   (e: 'reveal-in-tree', path: string): void
+  /** 点文档 tab 时携带文件路径上报 —— App.vue 在侧栏已显示文件树时
+   *  自动展开目录 + 定位高亮,不切 tab 不强制开侧栏。 */
+  (e: 'tab-clicked', filePath: string): void
   /** 设置 tab 彻底关闭(X / 中键):tab 从 TabBar 消失。 */
   (e: 'close-settings'): void
   /** 点设置 tab 激活:编辑器切回设置页,文档 tab 全部失活。 */
@@ -157,10 +160,13 @@ function onCloseSettings() {
 
 /** 文档 tab 点击:切到该文档,并失活设置(tab 保留)。switchTab 对 already-active
  *  tab 是 no-op(不改 activeId),所以设置激活时点当前 active 文档 tab 想回编辑器
- *  要靠这里的 emit('focus-doc') 直接通知 App.vue 失活设置,不依赖 watch 链路。 */
+ *  要靠这里的 emit('focus-doc') 直接通知 App.vue 失活设置,不依赖 watch 链路。
+ *  同时上报文件路径 —— App.vue 在侧栏已显示文件树时自动展开目录 + 定位高亮。 */
 function onTabClick(id: string) {
   documentStore.switchTab(id)
   if (props.settingsActive) emit('focus-doc')
+  const filePath = documentStore.documents.get(id)?.currentFilePath
+  if (filePath) emit('tab-clicked', filePath)
 }
 
 /** 设置 tab 点击:已激活则 no-op;失活中则重新激活(切回设置页)。 */

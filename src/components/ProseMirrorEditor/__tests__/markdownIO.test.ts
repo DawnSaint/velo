@@ -358,6 +358,55 @@ describe('markdownIO - HTML img 接管为 image 节点', () => {
   })
 })
 
+describe('markdownIO - HTML hr 接管为 hr 节点', () => {
+  it('<hr> → hr 节点(非 html_block)', () => {
+    const doc = fromMarkdown('<hr>', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<hr /> → hr 节点', () => {
+    const doc = fromMarkdown('<hr />', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<hr/> → hr 节点', () => {
+    const doc = fromMarkdown('<hr/>', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<hr  > → hr 节点(尾部空格)', () => {
+    const doc = fromMarkdown('<hr  >', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<HR> 大写 → hr 节点', () => {
+    const doc = fromMarkdown('<HR>', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<hr class="x"> 带属性 → hr 节点', () => {
+    const doc = fromMarkdown('<hr class="divider">', schema)
+    expect(doc.firstChild!.type.name).toBe('hr')
+  })
+
+  it('<div><hr></div> hr 嵌套 → 保留 html_block(不接管)', () => {
+    const md = '<div><hr></div>'
+    const doc = fromMarkdown(md, schema)
+    expect(doc.firstChild!.type.name).toBe('html_block')
+    expect(doc.firstChild!.attrs.value).toBe(md)
+  })
+
+  it('<hr> 序列化为 ---(规范化,非 round-trip)', () => {
+    const doc = fromMarkdown('<hr>', schema)
+    expect(toMarkdown(doc).trim()).toBe('---')
+  })
+
+  it('<hr /> 序列化为 ---', () => {
+    const doc = fromMarkdown('<hr />', schema)
+    expect(toMarkdown(doc).trim()).toBe('---')
+  })
+})
+
 describe('markdownIO - underline', () => {
   it('<u>text</u> 解析为带 underline mark 的 text 节点', () => {
     const doc = fromMarkdown('<u>hello</u>', schema)

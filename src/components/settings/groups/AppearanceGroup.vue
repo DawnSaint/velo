@@ -6,7 +6,7 @@ const store = useEditorStore()
 </script>
 
 <template>
-  <section class="space-y-5 pt-6">
+  <section class="space-y-4 pt-6">
     <!-- 主色 -->
     <SettingsItem label="主色" :keywords="['primary', 'color', '主题色', 'accent']">
       <span class="flex items-center gap-2">
