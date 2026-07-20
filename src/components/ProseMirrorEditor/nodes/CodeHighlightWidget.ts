@@ -848,15 +848,19 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       const hlReady = await ensureTheme(light)
       await ensureTheme(dark)
       if (view.isDestroyed) return
-      const s = codeHighlightKey.getState(view.state)
-      // 防御:仅在 hl/主题与 state 不一致时 dispatch,避免无谓的 state mutation
-      if (!s || s.highlighter !== hlReady || s.lightTheme !== light || s.darkTheme !== dark) {
-        view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
-          highlighter: hlReady,
-          lightTheme: light,
-          darkTheme: dark,
-        }))
-      }
+      // **始终 dispatch**:state.init 从 store 同步读到主题名,但主题 hex
+      // 可能尚未 loaded(PM 重挂载时若 App.vue watch 的 ensureTheme 还在
+      // 异步路上 / 或设置页切换主题后 PM 卸载期间未预装)。此情况下
+      // decorations 首帧拿 undefined token color → 全黑;ensureTheme resolve
+      // 后必须 dispatch setMeta 触发 rebuild 才能出真色。若主题已 loaded,
+      // dispatch 后 apply 返回等价 state、decorations 重算结果不变,PM 不
+      // 更新 DOM —— 无副作用。对照 SourceModeEditor onMounted 的同款范式
+      // (ensureMarkdownGrammar 后始终 dispatch setShikiTheme)。
+      view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
+        highlighter: hlReady,
+        lightTheme: light,
+        darkTheme: dark,
+      }))
     })().catch((err) => {
       console.warn('[codeHighlight] shiki highlighter 加载失败:', err)
     })

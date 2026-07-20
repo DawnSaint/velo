@@ -10,7 +10,6 @@ function mountMenu(props: Partial<{
   isTauri: boolean
   exporting: boolean
   recentEntries: RecentFileEntry[]
-  welcomeEnabled: boolean
   alwaysOnTop: boolean
   focusMode: boolean
   typewriterMode: boolean
@@ -20,7 +19,6 @@ function mountMenu(props: Partial<{
       isTauri: true,
       exporting: false,
       recentEntries: [],
-      welcomeEnabled: false,
       alwaysOnTop: false,
       focusMode: false,
       typewriterMode: false,
@@ -96,26 +94,6 @@ describe('FileMenuButton', () => {
     expect(button.attributes('disabled')).toBeDefined()
     await button.trigger('click')
     expect(wrapper.emitted('export')).toBeUndefined()
-  })
-
-  it('默认不显示「欢迎对话框」入口,welcomeEnabled = true 时显示', async () => {
-    const wrapperHidden = mountMenu({ welcomeEnabled: false })
-    await openMenu(wrapperHidden)
-    expect(wrapperHidden.find('[aria-label="欢迎对话框"]').exists()).toBe(false)
-
-    const wrapperShown = mountMenu({ welcomeEnabled: true })
-    await openMenu(wrapperShown)
-    expect(wrapperShown.find('[aria-label="欢迎对话框"]').exists()).toBe(true)
-  })
-
-  it('点击「欢迎对话框」emit open-welcome 并关闭', async () => {
-    const wrapper = mountMenu({ welcomeEnabled: true })
-
-    await openMenu(wrapper)
-    await wrapper.get('[aria-label="欢迎对话框"]').trigger('click')
-
-    expect(wrapper.emitted('open-welcome')).toHaveLength(1)
-    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })
 
   it('点击「保持窗口最前」emit toggle-always-on-top 并关闭', async () => {

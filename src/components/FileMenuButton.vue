@@ -46,8 +46,6 @@ const props = defineProps<{
   exporting: boolean
   /** 顶栏全局最近文件列表(由 recentFilesStore.entries 传入) */
   recentEntries: RecentFileEntry[]
-  /** true 时显示「欢迎」入口 —— 仅开发模式需要(用于重看欢迎对话框) */
-  welcomeEnabled: boolean
   /** 窗口置顶态(toggle 项勾选指示) */
   alwaysOnTop: boolean
   /** 专注模式态(toggle 项勾选指示) */
@@ -65,7 +63,6 @@ const emit = defineEmits<{
   'save-as': []
   'export': []
   'open-recent': [path: string]
-  'open-welcome': []
   'toggle-always-on-top': []
   'toggle-focus-mode': []
   'toggle-typewriter-mode': []
@@ -97,7 +94,7 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
     {
       rows: [
         { key: 'open-file', label: '打开文件', shortcut: 'Ctrl+O', event: 'open-file' },
-        { key: 'open-folder', label: '打开文件夹', shortcut: '—', event: 'open-folder' },
+        { key: 'open-folder', label: '打开文件夹', shortcut: '', event: 'open-folder' },
       ],
     },
     {
@@ -124,13 +121,6 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
           : []),
       ],
     },
-    ...(props.welcomeEnabled
-      ? [{
-          rows: [
-            { key: 'welcome', label: '欢迎对话框', shortcut: '', event: 'export' as FileActionEvent, disabled: false },
-          ],
-        }]
-      : []),
   ]
 })
 
@@ -165,16 +155,23 @@ async function recomputeMenuPos() {
     return
   }
   const rect = btn.getBoundingClientRect()
-  // 等 menuRef 真实 DOM 挂上后再算偏移 —— 占位宽算出来的 x 在真实窄菜单下
-  // 会偏左不够贴右。
+  // 模板 v-if="open && menuPos" 造成循环依赖:menuPos 为 null 时菜单 DOM 不渲染,
+  // menuRef 拿不到。先用 fallback 尺寸设置 menuPos 让菜单挂载,再 nextTick
+  // 读真实宽高修正 x/y(贴右/贴下 clamp 依赖真实宽高)。
+  menuPos.value = {
+    x: Math.min(rect.left, window.innerWidth - 240 - 8),
+    y: Math.min(rect.bottom, window.innerHeight - 480 - 8),
+    width: 240,
+    height: 480,
+  }
   await nextTick()
   const menuEl = menuRef.value
-  const w = menuEl ? menuEl.getBoundingClientRect().width : 240
-  const h = menuEl ? menuEl.getBoundingClientRect().height : 480
+  if (!menuEl) return
+  const w = menuEl.getBoundingClientRect().width
+  const h = menuEl.getBoundingClientRect().height
   // 展开方向:触发器现在是顶栏左上角的向下箭头按钮,主菜单从按钮**正下方**
   // 展开 —— 左边界贴触发器左缘(rect.left),顶边贴触发器底缘(rect.bottom),
   // 语义与"向下箭头"一致。贴右/贴下留 8px 安全距 clamp。
-  // 子菜单位置仍走 (main.x + main.width + SUBMENU_GAP) 留在主菜单右侧并留 4px gap。
   menuPos.value = {
     x: Math.min(rect.left, window.innerWidth - w - 8),
     y: Math.min(rect.bottom, window.innerHeight - h - 8),
@@ -194,8 +191,13 @@ function computeSubmenuPos() {
   if (!main) return
   const SUBMENU_W = 320
   const SUBMENU_H_MAX = 360
+  // 直接读主菜单 DOM 实际宽度,而非 menuPos.width —— recomputeMenuPos 虽已两阶段
+  // 修正,但它是 async 且 toggleMenu 未 await,极端快速操作下 menuPos.width 可能
+  // 仍是 fallback 240(实际 min-w-48=192),导致子菜单与主菜单间出现 ~48px 间距。
+  const menuEl = menuRef.value
+  const mainW = menuEl ? menuEl.getBoundingClientRect().width : main.width
   // 子菜单水平:贴主菜单右缘 + gap,贴右 clamp;竖直:与主菜单顶对齐,贴下 clamp
-  const x = Math.min(main.x + main.width + SUBMENU_GAP, window.innerWidth - SUBMENU_W - 8)
+  const x = Math.min(main.x + mainW + SUBMENU_GAP, window.innerWidth - SUBMENU_W - 8)
   const y = Math.min(main.y, window.innerHeight - SUBMENU_H_MAX - 8)
   const subEl = document.querySelector('[data-file-menu-panel="recent"]') as HTMLElement | null
   const h = subEl ? subEl.getBoundingClientRect().height : SUBMENU_H_MAX
@@ -205,11 +207,6 @@ function computeSubmenuPos() {
 function emitAction(row: FileActionRow) {
   if (row.disabled) return
   if (row.key === 'recent') return // 子菜单入口,不应走 emitAction
-  if (row.key === 'welcome') {
-    emit('open-welcome')
-    closeAll()
-    return
-  }
   if (row.event === 'new-doc') emit('new-doc')
   else if (row.event === 'new-window') emit('new-window')
   else if (row.event === 'open-file') emit('open-file')

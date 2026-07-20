@@ -135,6 +135,14 @@ function onTabStripLeave() {
   frozenTabWidth.value = null
 }
 
+/** 鼠标滚轮(垂直)→ 横向滚动 tab 条;触摸板横向滚动(deltaX)交给浏览器。 */
+function onTabStripWheel(event: WheelEvent) {
+  if (event.deltaY !== 0 && event.deltaX === 0 && tabStripRef.value) {
+    event.preventDefault()
+    tabStripRef.value.scrollLeft += event.deltaY
+  }
+}
+
 watch(
   () => displayTabs.value.length,
   (next, prev) => {
@@ -363,14 +371,25 @@ async function onCloseThis() {
 
 async function onCloseOthers() {
   const id = contextMenu.value?.tabId
+  const hadSettings = props.settingsOpen
   closeContextMenu()
-  if (id) await documentStore.closeOtherTabs(id)
+  if (!id) return
+  const ok = await documentStore.closeOtherTabs(id)
+  // 设置 tab 是虚拟项(不在 documentStore),「关闭其他」需 TabBar 层额外关掉;
+  // 中途用户取消 dirty 确认时保留设置,与文档批次语义一致
+  if (ok && hadSettings) emit('close-settings')
 }
 
 async function onCloseRight() {
   const id = contextMenu.value?.tabId
+  // closeContextMenu 会清 contextMenu → tabMenuIndex 归 -1,先读
+  const idx = tabMenuIndex.value
+  // 设置在右键 tab 右侧 ⟺ 右键 tab 在 documentStore.tabs 的索引 < 设置插入索引
+  const settingsOnRight = props.settingsOpen && idx >= 0 && idx < settingsInsertIndex.value
   closeContextMenu()
-  if (id) await documentStore.closeTabsToRight(id)
+  if (!id) return
+  const ok = await documentStore.closeTabsToRight(id)
+  if (ok && settingsOnRight) emit('close-settings')
 }
 
 function onCloseSaved() {
@@ -379,8 +398,10 @@ function onCloseSaved() {
 }
 
 async function onCloseAll() {
+  const hadSettings = props.settingsOpen
   closeContextMenu()
-  await documentStore.closeAllTabs()
+  const ok = await documentStore.closeAllTabs()
+  if (ok && hadSettings) emit('close-settings')
 }
 
 async function onSave() {
@@ -457,7 +478,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex h-full min-w-0 flex-1 items-stretch border-b border-gray-200 dark:border-gray-800">
-    <div ref="tabStripRef" class="tab-bar flex min-w-0 items-end" @mouseleave="onTabStripLeave">
+    <div ref="tabStripRef" class="tab-bar flex min-w-0 items-end" @mouseleave="onTabStripLeave" @wheel="onTabStripWheel">
       <div
         v-for="(tab, i) in displayTabs"
         :key="tab.id"
@@ -554,6 +575,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="scss">
+
+/* tab 条溢出处理:tab 总宽超过可用空间时横向滚动,不溢出到窗口控制按钮区。
+ * 隐藏原生滚动条(滚轮 / 触摸板横向滚动),不引入浮动 thumb —— tab 条高 32px,
+ * 浮动 thumb 反而干扰。 */
+.tab-bar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
 
 /* 默认宽 200px;溢出时 flex-shrink 等等比压缩至 min-width 80px。
  * 非活动标签无边框,仅相邻两个非活动标签之间用竖线分隔(类右上角三件套)。

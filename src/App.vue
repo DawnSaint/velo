@@ -8,7 +8,7 @@ import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/store
 import type { SidebarTab } from '@/stores/persistence'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useFoldStore } from '@/stores/folding'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, readSampleContent, isFirstRun, type PersistedSettings } from '@/stores/persistence'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
 import {
   getHighlighter,
   ensureTheme,
@@ -55,9 +55,7 @@ import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
 import { NodeSelection, TextSelection } from 'prosemirror-state'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
-import { SAMPLE, findSample } from '@/utils/samples'
 import { mark, measure, report } from '@/utils/perf'
-import veloLogo from '@/assets/Velo.png'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
 import { isTauri, invoke } from '@tauri-apps/api/core'
@@ -69,7 +67,6 @@ import {
 } from '@/tauri/window'
 
 const tauri = isTauri()
-const isDev = import.meta.env.DEV
 const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
@@ -107,12 +104,6 @@ documentStore.init('')
 // true → PM mount,行为一致,不会卡白屏)。
 const settingsReady = ref(false)
 const codeBlockReady = ref(false)
-const welcomeVisible = ref(false)
-// sample 走 Vite 动态 ?raw —— 编译进 JS chunk,任何环境(dev web / dev Tauri /
-// release)都可用,不存在"读不到"的可能。保留 ref 是为了未来按构建类型关闭
-// (例如 SSR / 移动端),当前永远 true。
-const samplesAvailable = ref(true)
-
 void initSettings()
   .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
@@ -429,39 +420,12 @@ function onWindowFocus() {
   void documentStore.checkExternalChange()
 }
 
-// ========== 欢迎对话框 ==========
+// ========== 空状态(无标签)入口 ==========
 function onWelcomeBlank() {
-  welcomeVisible.value = false
   documentStore.newDoc()
 }
 function onWelcomeOpenFile() {
-  welcomeVisible.value = false
   documentStore.open()
-}
-function onWelcomeSample(key: string) {
-  welcomeVisible.value = false
-  void loadSample(key)
-}
-
-/**
- * 装载示例文档(只读)。sample 走 Vite 动态 ?raw import(拆 chunk,用才下载),字符串
- * 编译进 bundle —— 磁盘无文件实体,用户无法修改,reinstall 跟随应用走。失败静默
- * (null 不进 loadContent);sample.md 里的 Velo.png 占位由下方 replace 换成打包后的
- * veloLogo URL(?raw 字符串不被 Vite 资源重写)。
- */
-async function loadSample(key: string) {
-  const entry = findSample(key)
-  if (!entry) return
-  const content = await readSampleContent(key)
-  if (content === null) return
-  // sample.md 以 ?raw 字符串编译进 bundle,Vite 不重写其中的 Velo.png,
-  // release 下该路径不在 dist → 404。替换成显式 import 过的 veloLogo(Vite 会打包+hash 改名)。
-  const resolved = content.replace(
-    'Velo.png',
-    new URL(veloLogo, window.location.href).href,
-  )
-  // sample 走新标签(或复用干净未命名标签),只读装载 + 虚拟标题
-  documentStore.openSampleTab(resolved, `示例 — ${entry.label}`)
 }
 
 // ========== 查找替换 (v0.3.1) ==========
@@ -1158,10 +1122,6 @@ async function openRecentFile(path: string) {
   workspaceStore.setLastFile(path)
 }
 
-async function openSample(key: string) {
-  await loadSample(key)
-}
-
 const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
   const needWorkspace = !workspaceStore.activeRoot
   const items: CommandPaletteItem[] = [
@@ -1358,18 +1318,6 @@ const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
       run: () => workspaceStore.closeWorkspace(),
     },
   ]
-
-  if (samplesAvailable.value) {
-    items.push({
-      id: `sample:${SAMPLE.key}`,
-      title: SAMPLE.label,
-      subtitle: `示例文档 — ${SAMPLE.description}`,
-      group: 'app',
-      icon: 'source',
-      keywords: ['sample', SAMPLE.label, SAMPLE.description],
-      run: () => openSample(SAMPLE.key),
-    })
-  }
 
   for (const entry of recentFilesStore.entries.slice(0, 12)) {
     const displayPath = normalizeDisplayPath(entry.path)
@@ -1720,19 +1668,10 @@ onMounted(async () => {
 
   await recentFilesStore.hydrate()
 
-  // 0.15) 示例文档可见性 —— Vite ?raw 任何环境都可读,恒为 true。
-  //       这里保留赋值是为了未来如果按平台关闭示例入口时单点改这里。
-  samplesAvailable.value = true
-
   const initialDir = initialPayload.dirs?.[0]
   if (initialDir) workspaceStore.setActiveRoot(initialDir)
   const initialFile = initialPayload.files?.[0]
   if (initialFile) await documentStore.openPathInTab(initialFile)
-
-  // 首次启动且无 CLI 参数 → 弹出欢迎对话框
-  if (!initialFile && !initialDir && await isFirstRun()) {
-    welcomeVisible.value = true
-  }
 
   // 无 CLI 参数 + 非首次启动:按 editor.startupMode 决定打开内容。
   //   - 'last-file'(默认):尝试打开全局最近文件(recentFilesStore 已在 0.1 hydrate);
@@ -1844,16 +1783,21 @@ onMounted(async () => {
   // 启动期 settings 加载提前到 App.vue setup 顶层 await(见 setup 顶部),
   // ProseMirrorEditor 子组件 mount 时 store.codeLightTheme / codeDarkTheme
   // 已经是用户值;plugin view 工厂 attach 后从 store 读 → getHighlighter(
-  // light, dark) 一次性装对。**这里 watch 不开 immediate** —— 首次由 view
-  // 工厂的 getHighlighter 触发,本 watch 只管"用户后续改"。
+  //  light, dark) 一次性装对。**这里 watch 不开 immediate** —— 首次由 view
+  //  工厂的 getHighlighter 触发,本 watch 只管"用户后续改"。
+  //
+  // **ensureTheme 必须在 view 检查之前**:设置页激活时 PM 编辑器已卸载
+  // (v-if/v-else 接管编辑器区域),view 为 null。若提前 return 跳过 ensureTheme,
+  // 新主题 hex 不会被装入 highlighter —— 切回文档 tab 时 PM 重挂载,state.init
+  // 从 store 读到新主题名但 hl 未 loaded → token color undefined → 全黑。
+  // 先 ensureTheme 再判 view:PM 卸载期间主题已预装,切回时首帧即正确色。
   watch(
     () => [store.codeLightTheme, store.codeDarkTheme] as const,
     async ([light, dark]) => {
-      const view = editorRef.value?.getEditorView()
-      if (!view || view.isDestroyed) return
       const hl = await ensureTheme(light)
       await ensureTheme(dark)
-      if (view.isDestroyed) return
+      const view = editorRef.value?.getEditorView()
+      if (!view || view.isDestroyed) return
       view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
         highlighter: hl,
         lightTheme: light,
@@ -1950,14 +1894,12 @@ watch(editorRef, (v) => {
     <header class="flex h-9 shrink-0 items-stretch bg-gray-100 text-gray-700 dark:bg-[#111] dark:text-gray-300">
       <!-- 文件菜单入口(v0.7.x):原 ActivityBar 顶部的 FileMenuButton 移到此处,
            占据原 logo 那 48px 列宽,触发器改为向下箭头,点击在按钮正下方展开
-           文件下拉面板。veloLogo import 仍保留 —— loadSample 时替换 sample.md
-           里的 Velo.png 占位(?raw 字符串不被 Vite 重写)。 -->
+           文件下拉面板。 -->
       <div class="flex shrink-0 items-center justify-center border-b border-gray-200 dark:border-gray-800" style="width: 47px">
         <FileMenuButton
           :is-tauri="tauri"
           :exporting="exportStore.exporting"
           :recent-entries="recentFilesStore.entries"
-          :welcome-enabled="isDev"
           :always-on-top="isAlwaysOnTop"
           :focus-mode="focusMode"
           :typewriter-mode="typewriterMode"
@@ -1969,7 +1911,6 @@ watch(editorRef, (v) => {
           @save-as="documentStore.saveAs()"
           @export="exportStore.exportDocument()"
           @open-recent="openRecentFile"
-          @open-welcome="welcomeVisible = true"
           @toggle-always-on-top="toggleAlwaysOnTop()"
           @toggle-focus-mode="toggleFocusMode()"
           @toggle-typewriter-mode="toggleTypewriterMode()"
@@ -2129,29 +2070,12 @@ watch(editorRef, (v) => {
               @open-global-search="openGlobalSearchFromFind"
             />
           </template>
-          <!-- 所有标签都关闭后的空态(关闭最后标签不会自动重建空白标签) -->
-          <div
+          <!-- 无标签空状态:WelcomeDialog 作为内联占位,提供新建 / 打开入口 -->
+          <WelcomeDialog
             v-else-if="codeBlockReady && !documentStore.activeId"
-            class="flex flex-1 min-w-0 flex-col items-center justify-center gap-3 bg-white text-gray-400 dark:bg-[#1e1e1e] dark:text-gray-500"
-          >
-            <span class="text-sm">没有打开的文档</span>
-            <div class="flex gap-2">
-              <button
-                type="button"
-                class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                @click="documentStore.newDoc()"
-              >
-                新建
-              </button>
-              <button
-                type="button"
-                class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                @click="documentStore.open()"
-              >
-                打开…
-              </button>
-            </div>
-          </div>
+            @create-blank="onWelcomeBlank"
+            @open-file="onWelcomeOpenFile"
+          />
         </div>
         </template>
       </div>
@@ -2172,15 +2096,6 @@ watch(editorRef, (v) => {
       @set-active-root="workspaceStore.setActiveRoot"
       @toggle-source-mode="documentStore.toggleSourceMode()"
       @toggle-read-only="documentStore.readOnly = !documentStore.readOnly"
-    />
-
-    <!-- 首次启动欢迎对话框：新建 / 打开文件 / 浏览示例文档 -->
-    <WelcomeDialog
-      :visible="welcomeVisible"
-      :samples-available="samplesAvailable"
-      @create-blank="onWelcomeBlank"
-      @open-file="onWelcomeOpenFile"
-      @open-sample="onWelcomeSample"
     />
 
     <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->
