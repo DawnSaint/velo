@@ -1,18 +1,26 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import SettingsItem from '../SettingsItem.vue'
 
-// Windows 检测:isTauri 守门桌面端,userAgent 判定 Windows(navigator.platform 已弃用)。
-// 三个控件都只在 Windows 桌面端显示;其它平台整个分组不注册(registerGroups.ts 守门)。
-const isWindows = isTauri() && /Win/.test(navigator.userAgent)
+// 平台识别：沿用 App.vue 的 UA 嗅探惯例（tauri 守门桌面端，UA 判定系统）。
+// 注：navigator.platform 已弃用，navigator.userAgent 仍可靠检测 Win/Mac/Linux。
+const tauri = isTauri()
+const platform = computed<'windows' | 'macos' | 'linux' | 'none'>(() => {
+  if (!tauri) return 'none'
+  const ua = navigator.userAgent
+  if (/Win/.test(ua)) return 'windows'
+  if (/Mac/.test(ua)) return 'macos'
+  if (/Linux/.test(ua)) return 'linux'
+  return 'none'
+})
 
-// Windows 右键菜单启用状态:启动时从 Rust 读偏好,用户切换时写回。
+// Windows 右键菜单启用状态：启动时从 Rust 读偏好，用户切换时写回。
 const folderMenuOn = ref(true)
 const mdMenuOn = ref(true)
 
 async function refreshShellState() {
-  if (!isWindows) return
+  if (platform.value === 'none') return
   try {
     const state = await invoke<{ folder_menu: boolean, md_menu: boolean }>('shell_integration_state')
     folderMenuOn.value = state.folder_menu
@@ -39,7 +47,7 @@ async function toggleMdMenu() {
 }
 
 async function openDefaultApps() {
-  if (!isWindows) return
+  if (platform.value !== 'windows') return
   try {
     await invoke('open_default_apps_settings')
   } catch (e) {
@@ -52,8 +60,8 @@ onMounted(refreshShellState)
 
 <template>
   <section class="space-y-4 pt-6">
-    <!-- 默认程序:引导到 Windows 设置页面,由用户手动完成(反劫持保护下唯一可靠路径)。 -->
-    <SettingsItem label="Markdown 默认程序" :keywords="['default', 'app', '默认', '程序']">
+    <!-- 默认程序：仅 Windows 有意义（反劫持保护下只能引导到系统设置），其它平台隐藏。 -->
+    <SettingsItem v-if="platform === 'windows'" label="Markdown 默认程序" :keywords="['default', 'app', '默认', '程序']">
       <button
         type="button"
         class="velo-text-btn"
@@ -63,8 +71,8 @@ onMounted(refreshShellState)
       </button>
     </SettingsItem>
 
-      <!-- 文件夹右键菜单 -->
-    <SettingsItem :label='`文件夹右键菜单增加"在 Velo 中打开"`' :keywords="['folder', 'context', 'menu', '右键', '文件夹']" clickable>
+    <!-- 文件夹右键菜单：三平台均支持，机制各异（Windows=注册表/macOS=Finder 服务/Linux=action 文件）。 -->
+    <SettingsItem label='文件夹右键菜单增加"在 Velo 中打开"' :keywords="['folder', 'context', 'menu', '右键', '文件夹']" clickable>
       <input
         v-model="folderMenuOn"
         type="checkbox"
@@ -74,8 +82,8 @@ onMounted(refreshShellState)
       >
     </SettingsItem>
 
-    <!-- .md 右键菜单 -->
-    <SettingsItem :label='`Markdown 文件右键菜单增加"在 Velo 中编辑"`' :keywords="['md', 'context', 'menu', '右键']" clickable>
+    <!-- .md 文件右键菜单：仅 Windows 完整支持（SystemFileAssociations 动词），其它平台留后续迭代。 -->
+    <SettingsItem v-if="platform === 'windows'" :label='`Markdown 文件右键菜单增加"在 Velo 中编辑`' :keywords="['md', 'context', 'menu', '右键']" clickable>
       <input
         v-model="mdMenuOn"
         type="checkbox"

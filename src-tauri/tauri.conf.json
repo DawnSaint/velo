@@ -69,6 +69,9 @@
         "template": "nsis/installer.nsi",
         "installerHooks": "nsis/installer-hooks.nsh"
       }
+    },
+    "macOS": {
+      "infoPlist": "Info-Additions.plist"
     }
   },
   "plugins": {}

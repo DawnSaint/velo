@@ -40,9 +40,10 @@ export function registerBuiltinSettingsGroups(): void {
     component: DocumentGroup,
   })
 
-  // 系统分组仅 Windows 桌面端注册(含右键菜单 / 默认程序集成,其它平台无意义)。
-  const isWindows = isTauri() && /Win/.test(navigator.userAgent)
-  if (isWindows) {
+  // 系统分组在任意桌面端注册（含文件夹右键菜单集成）。
+  // Windows:注册表 verb;macOS:Finder 服务(action 文件);Linux:action 文件。
+  // 各平台渲染由 SystemGroup.vue 内部按 UA 分支控制。
+  if (isTauri()) {
     registerSettingsGroup({
       id: 'system',
       title: '系统',

@@ -8,8 +8,8 @@
 > - 业务侧只 import `src/tauri/*`，不要直 import `@tauri-apps/*`。
 > - dev web 端 Tauri API 必须用 `tauriOnly()` / `isTauri()` 守门。
 > - `capabilities/default.json` 当前 fs scope 为 `**`，这是本地编辑器的显式取舍。
-> - Windows 文件夹右键菜单运行时写 HKCU（best-effort 重写，不阻塞应用）；安装器也写 HKCU（per-user only，SHCTX=HKCU）。
-> - 文件关联（ProgID 始终注册，确保 Velo 出现在“打开方式”列表）、文件夹右键菜单、md 文件右键菜单由 NSIS installer hooks 手动管理（非 `bundle.fileAssociations`），安装时用户可选，卸载时自动注销。Windows 的反劫持保护使程序无法通过注册表直写设定默认程序，前端可通过 Tauri command `open_default_apps_settings` 打开 `ms-settings:defaultapps` 引导用户手动完成。
+> - 文件夹右键菜单跨平台（Windows=HKCU 注册表 / macOS=Finder _services / Linux=action 文件），启动时 best-effort 注册，per-user，免 admin，失败仅 log 不阻塞。Windows 运行时写 HKCU 重写 exe 路径；macOS plist 合并一次注册持久（Launch Services 自动发现）；Linux 按 `$XDG_CURRENT_DESKTOP` 写对应 action 文件。
+> - 文件关联（ProgID 始终注册，确保 Velo 出现在“打开方式”列表）、**Windows** 文件夹/md 文件右键菜单由 NSIS installer hooks 手动管理（非 `bundle.fileAssociations`），安装时用户可选，卸载时自动注销。Windows 的反劫持保护使程序无法通过注册表直写设定默认程序，前端可通过 Tauri command `open_default_apps_settings` 打开 `ms-settings:defaultapps` 引导用户手动完成。macOS/Linux 暂不注册 md 文件菜单。
 >
 > **相关文件**: [架构入口](../ARCHITECTURE.md) / [导出](./export.md) / [测试](./testing.md)
 
@@ -24,7 +24,10 @@
 
 - **可见 app window label 与权限**:主窗口显式 label 为 `main`,动态 app window 使用 `velo-window-{n}`;`capabilities/default.json` 只授权 `main` + `velo-window-*`,不要用 `*`,避免隐藏 PDF printer window 拿到完整编辑器权限。多窗口不是多标签:每个 WebView 拥有自己的 Pinia runtime,当前工作区 / 当前文档 / dirty prompt 都按窗口隔离。
 - **动态 app window 走 async 创建 + per-window bootstrap**:二次启动 / 顶栏新窗口入口都创建新 WebView window,启动参数先按 label 写入 pending map,前端挂载后领取。不要恢复全局 `cli-args` 广播;多窗口下广播会让所有窗口同时切工作区 / 打开文件。`WebviewWindowBuilder::build` 不要在 single-instance 同步回调里直接调用,必须 `tauri::async_runtime::spawn` 后再建,延续 PDF 窗口踩坑。
-- **"在 Velo 中打开"文件夹右键菜单走 HKCU 注册表 + 每启动 best-effort 重写**: `folder_menu::ensure_registered` 运行时写 HKCU\Software\Classes\Directory\shell\OpenInVelo(verb 子键 + command 子键),不写 HKLM —— HKCU 不需要 UAC 提升,普通用户启动即可注册。每次 `setup()` 重写而非"仅缺时写":自动跟随 exe 路径变化(用户把 Velo 拖到别处的场景),HKCU 写盘是同步快速 op 无可感知开销。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell 空白右键,本菜单挂的是 Directory\shell 即"右键文件夹"),引号必加防止路径含空格被拆词。失败仅 log::warn 不抛 —— Velo 是本地编辑器,菜单是 nice-to-have,启动不该被注册表故障阻塞。
+- **"在 Velo 中打开"文件夹右键菜单 —— 跨平台，启动时 best-effort 注册，per-user，免 admin**: `setup()` 按 `cfg(target_os)` 分发到三个平台实现，失败仅 `log::warn` 不抛 —— 菜单是 nice-to-have，启动不该被注册故障阻塞。argv 目录路径由 `parse_cli_args` 归 `dirs` → single-instance 二次启动 → `setActiveRoot`，三平台共用，仅注册菜单项本身。
+  - **Windows — HKCU 注册表 + 每启动重写**: `folder_menu::ensure_registered` 写 `HKCU\Software\Classes\Directory\shell\OpenInVelo`(verb + command 子键)。每次 `setup()` 重写而非"仅缺时写"——自动跟随 exe 路径变化(用户把 Velo 拖别处的场景),HKCU 写盘是同步快速 op。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell),引号防路径含空格拆词。偏好标志 `HKCU\Software\com.velo.editor\ShellIntegration\FolderMenu`("1"/"0",未设置→注册)。
+  - **macOS — Finder Services(NSServices) + Info.plist 合并**: `Info-Additions.plist` 的 `NSServices` 数组静态声明 `NSMessage=openInVelo:`、`NSSendTypes=[public.folder, public.file-or-folder]`,通过 `bundle.macOS.infoPlist` 合并进 app Info.plist(docs.rs `MacConfig::info_plist`: "merge with the default")。`finder_service.rs` 用 `objc` crate 注册 service provider,实现 `openInVelo:userData:error:` 从 `NSPasteboard` 读 file URLs 取首个路径后重新启动自身传路径(走 single-instance → setActiveRoot)。启动时 `install_service_provider()` 注册一次即可 —— Launch Services 自动从 plist 发现 NSServices,无需像 Windows 那样每启动重写。偏好读写 `~/.config/com.velo.editor/folder-menu`。注意:NSServices 自 macOS 10.14 起 deprecated,菜单落在右键「服务」子菜单而非顶级菜单。
+  - **Linux — 桌面环境检测 + action 文件**: `linux_menu::ensure_registered()` 读 `$XDG_CURRENT_DESKTOP`,KDE 走 Dolphin ServiceMenu(`.desktop` 含 `Actions=OpenInVelo`,落到 `~/.local/share/kio/servicemenus/`,顶级菜单,文件须 chmod +x),GNOME/Nemo/Caja/MATE 其它走 Nautilus 脚本(`~/.local/share/nautilus/scripts/`，「脚本」子菜单)。`Exec=<exe> %f` 传路径 → single-instance → setActiveRoot。偏好文件同 macOS。Thunar/XFCE 无文件级机制,暂不支持。
 
 - **NSIS 安装器集成 — 文件关联 + 文件夹/md 文件右键菜单安装时可选、卸载时自动注销; `installMode: currentUser` per-user only**: Windows 安装器从 MSI(WiX)切换为 NSIS-only。NSIS 通过自定义模板 + installer hooks 实现用户可选的 shell 集成:
   - **移除 MSI target 与 `bundle.fileAssociations`**: MSI 安装器在已安装旧版本时会弹出"更改/修复/删除"维护页面(Windows Installer 行为),阻止覆盖安装;且 MSI/WiX 无法通过 Tauri 配置注入自定义安装页面(需写 WiX UI Fragment,Tauri 2 未暴露入口)。`bundle.fileAssociations` 会让安装器无条件注册文件关联,与"用户可选"需求冲突。改为 NSIS-only + installer hooks 手动写注册表。

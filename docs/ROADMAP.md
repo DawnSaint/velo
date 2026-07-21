@@ -58,7 +58,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
 
-- [ ] **Mac / Linux 文件夹右键菜单「在 Velo 中打开」未实现**（Windows 已支持） `P2` `S`
 - [ ] **表格操作 + Ctrl+Z 后文档仍为脏(dirty),即便内容视觉上回到原始状态** `P2` `M`  **复现**:打开 `sample.md`(含表格以外的其他语法块,如 math / footnote / image / html inline 等),在表格内做加行/加列等任一变异操作后再 `Ctrl+Z` 撤销 —— 表格视觉回到原样,但标签页仍显示"已修改未保存"。**暂未定位根因**(纯 ProseMirror 历史 undo 本身已探针验证能一字不差回到操作前内容 `undo_probe.txt`,因此脏位不归零的路径在 store 同步 / markdownIO round-trip / checkExternalChange 链路,而非 PM 历史)。**触发条件猜测**:markdownIO 对某些节点(非表格)round-trip 不稳定(`toMarkdown(fromMarkdown(s))` 的"稳态 canonical"≠用户 undo 后再序列化的结果),字节不等 → `dirty = content !== lastSavedContent` 永不归零。**所需样例**:一份能复现的最小 `sample.md`(业务数据可隐去,但须保留"触发该缺陷的非表格语法 + 一个表格"的组合)。拿到后跑 `toMarkdown(fromMarkdown(s))` vs undo 后再序列化的首个字节分叉点一次性回填修复
 
 

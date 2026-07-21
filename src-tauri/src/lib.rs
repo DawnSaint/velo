@@ -176,24 +176,71 @@ fn open_default_apps_settings() {
 /// 前端设置面板:读取文件夹 / .md 右键菜单的当前启用状态。
 /// 两个 bool 分别对应 FolderMenu / MdMenu 偏好("1" = 启用,"0" = 禁用,
 /// 未设置 → true 向后兼容)。
-#[cfg(target_os = "windows")]
+/// 跨平台:Windows 读注册表偏好;macOS / Linux 读 ~/.config 偏好文件。
 #[tauri::command]
 fn shell_integration_state() -> ShellIntegrationState {
-    ShellIntegrationState {
-        folder_menu: folder_menu::folder_menu_enabled(),
-        md_menu: folder_menu::md_menu_enabled(),
+    #[cfg(target_os = "windows")]
+    {
+        return ShellIntegrationState {
+            folder_menu: folder_menu::folder_menu_enabled(),
+            md_menu: folder_menu::md_menu_enabled(),
+        };
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return ShellIntegrationState {
+            folder_menu: finder_service::folder_menu_enabled(),
+            md_menu: false, // macOS 暂不注册 md 文件菜单
+        };
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return ShellIntegrationState {
+            folder_menu: linux_menu::folder_menu_enabled(),
+            md_menu: false, // Linux 暂不注册 md 文件菜单
+        };
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        ShellIntegrationState {
+            folder_menu: false,
+            md_menu: false,
+        }
     }
 }
 
 /// 前端设置面板:运行时切换文件夹或 .md 右键菜单。
 /// `kind` = "folder" | "md";`enabled` = 启用/禁用。
-#[cfg(target_os = "windows")]
+/// macOS / Linux 只认 "folder" kind。
 #[tauri::command]
 fn set_shell_integration(kind: String, enabled: bool) {
-    match kind.as_str() {
-        "folder" => folder_menu::set_folder_menu(enabled),
-        "md" => folder_menu::set_md_menu(enabled),
-        other => log::warn!("[shell_integration] 未知的菜单种类: {other}"),
+    #[cfg(target_os = "windows")]
+    {
+        match kind.as_str() {
+            "folder" => folder_menu::set_folder_menu(enabled),
+            "md" => folder_menu::set_md_menu(enabled),
+            other => log::warn!("[shell_integration] 未知的菜单种类: {other}"),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        match kind.as_str() {
+            "folder" => finder_service::set_folder_menu(enabled),
+            "md" => log::warn!("[shell_integration] macOS 暂不支持 md 文件菜单"),
+            other => log::warn!("[shell_integration] 未知的菜单种类: {other}"),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match kind.as_str() {
+            "folder" => linux_menu::set_folder_menu(enabled),
+            "md" => log::warn!("[shell_integration] Linux 暂不支持 md 文件菜单"),
+            other => log::warn!("[shell_integration] 未知的菜单种类: {other}"),
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (kind, enabled);
     }
 }
 
@@ -210,6 +257,15 @@ mod folder_menu;
 /// Windows 默认程序:打开系统设置页面引导用户完成 .md 关联。
 #[cfg(target_os = "windows")]
 mod file_assoc;
+
+/// macOS Finder 服务:注册"在 Velo 中打开"文件夹右键菜单(v0.7.x)。
+/// Info-Additions.plist 静态声明 NSServices,本模块实现 openInVelo: handler。
+#[cfg(target_os = "macos")]
+mod finder_service;
+
+/// Linux 文件夹右键菜单:按桌面环境检测 + 写 action 文件(v0.7.x)。
+#[cfg(target_os = "linux")]
+mod linux_menu;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -241,9 +297,7 @@ pub fn run() {
             export_pdf,
             #[cfg(target_os = "windows")]
             open_default_apps_settings,
-            #[cfg(target_os = "windows")]
             shell_integration_state,
-            #[cfg(target_os = "windows")]
             set_shell_integration,
         ])
         .setup(|app| {
@@ -270,8 +324,13 @@ pub fn run() {
             // 安装器会写入偏好标志;ensure_registered 读取标志决定
             // 是否注册:"1"→刷新,"0"→跳过(用户安装时选了不注册),未设置→照常
             // 注册(便携模式/旧版升级)。best-effort,不阻塞应用启动。
+            // 跨平台:Windows→注册表;macOS→Finder 服务 provider;Linux→action 文件。
             #[cfg(target_os = "windows")]
             folder_menu::ensure_registered();
+            #[cfg(target_os = "macos")]
+            finder_service::register();
+            #[cfg(target_os = "linux")]
+            linux_menu::ensure_registered();
 
             Ok(())
         })
