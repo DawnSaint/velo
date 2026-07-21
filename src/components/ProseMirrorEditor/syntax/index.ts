@@ -30,6 +30,8 @@ import { footnoteRefSyntax } from './inline/footnoteRef'
 import { linkSyntax } from './inline/link'
 import { highlightSyntax } from './inline/highlight'
 import { underlineSyntax } from './inline/underline'
+import { supSyntax } from './inline/sup'
+import { subSyntax } from './inline/sub'
 import { inlineCodeSyntax } from './inline/code'
 import { htmlTagSyntax } from './inline/htmlTag'
 
@@ -54,14 +56,19 @@ registerInlineSyntax(inlineMathSyntax)
 // 上又重扫一次(框架注释说外层 for 会继续走下一条 syntax,这是天然行为,顺序
 // 只是优化早返回)。strike 之后,emphasisUnderscore 放它后面。highlight 放最末,
 // 不抢前面的 link / footnote / math / strike 匹配。
+// sub 必须在 strike 之前:`~text~` 优先命中下标(单 ~),`~~text~~` 留给 strike
+// (双 ~~)。sub 的正则闭口边界 `(?![\w/~])` 保证 `~~text~~` 不会被 sub 误切。
 registerInlineSyntax(emphasisStarSyntax)
 registerInlineSyntax(strongSyntax)
+registerInlineSyntax(subSyntax)
 registerInlineSyntax(strikeSyntax)
 registerInlineSyntax(emphasisUnderscoreSyntax)
 registerInlineSyntax(highlightSyntax)
 // underline 必须在 htmlTag 之前:<u>text</u> 完整闭合时优先转 underline mark,
 // 而非 html_inline atom。空 <u></u> 不匹配(快捷键通过 skipSyntaxAutoFormat 防御)
 registerInlineSyntax(underlineSyntax)
+// sup 必须在 htmlTag 之前,原因同 underline:防被抢转成 html_inline atom
+registerInlineSyntax(supSyntax)
 // inline code(`` `code` ``):backtick 围栏。独占 mark(excludes:'_'),不与上面 mark
 // 抢匹配;放 htmlTag 之前 —— backtick 与 `<...>` 无交集,顺序非关键但保持靠后
 registerInlineSyntax(inlineCodeSyntax)

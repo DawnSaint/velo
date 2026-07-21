@@ -23,6 +23,7 @@ import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
+import { remarkSupSub } from '../plugins/remarkSupSub'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
@@ -37,7 +38,11 @@ const processor = unified()
   .use(remarkParse)
   .use(remarkPreserveEmptyLine)
   .use(remarkEncodeLinkUrls)
-  .use(remarkGfm)
+  // remarkGfm 配 singleTilde:false —— gfm 删除线只匹配双 `~~`,单 `~` 留作下标。
+  // 这样 `~text~` 不会被 gfm 在 parse 阶段吃掉成 delete,由 remarkSupSub
+  // 转成下标节点;`~~text~~` 仍走 gfm 删除线。
+  .use(remarkSupSub)
+  .use(remarkGfm, { singleTilde: false })
   .use(remarkMathFenceGuard)
   .use(remarkMath)
   .use(remarkAlert)
@@ -72,6 +77,24 @@ const processor = unified()
           state.all(node)
         }
         state.write('</u>')
+      },
+      // ^text^ 上标。与 highlight 同范式:state.write 原样输出 `^`,
+      // 内层 children 走 state.all 让 remark-stringify 自己序列化。
+      superscript(state: any, node: any) {
+        state.write('^')
+        if (Array.isArray(node.children) && node.children.length > 0) {
+          state.all(node)
+        }
+        state.write('^')
+      },
+      // ~text~ 下标。与 highlight 同范式:state.write 原样输出 `~`,
+      // 内层 children 走 state.all 让 remark-stringify 自己序列化。
+      subscript(state: any, node: any) {
+        state.write('~')
+        if (Array.isArray(node.children) && node.children.length > 0) {
+          state.all(node)
+        }
+        state.write('~')
       },
       // 行内公式:覆盖 remark-math 的 inlineMath handler,根据 delimiterCount
       // 决定输出 `$value$`(单 $)还是 `$$value$$`(双 $)。remark-math 默认总用
@@ -507,6 +530,18 @@ function inlineNodeToPM(
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.underline })))
 
+    case 'superscript':
+      // remarkSupSub 注入的自定义节点,无 GFM 原生对应物。
+      return n.children.flatMap((c: PhrasingContent) =>
+        inlineNodeToPM(c, schema,
+          activeMarks.concat({ type: schema.marks.superscript })))
+
+    case 'subscript':
+      // remarkSupSub 注入的自定义节点,无 GFM 原生对应物。
+      return n.children.flatMap((c: PhrasingContent) =>
+        inlineNodeToPM(c, schema,
+          activeMarks.concat({ type: schema.marks.subscript })))
+
     case 'delete':
       return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
@@ -933,6 +968,53 @@ function processSpans(spans: InlineSpan[]): PhrasingContent[] {
         out.push({ type: 'html', value: '==' } as PhrasingContent)
         out.push(...inner)
         out.push({ type: 'html', value: '==' } as PhrasingContent)
+      }
+      i = end
+      continue
+    }
+
+    // 抽 superscript run(^text^)。与 highlight 同范式,用 html 节点作 `^` 边界
+    // (防 `^` 被 remark-stringify escape)。
+    if (span.kind === 'text' && span.marks.some(m => m.name === 'superscript')) {
+      let end = i
+      while (
+        end < spans.length
+        && spans[end].kind === 'text'
+        && spans[end].marks.some(m => m.name === 'superscript')
+      ) {
+        end++
+      }
+      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
+        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'superscript') } : s
+      )
+      const inner = processSpans(innerSpans)
+      if (inner.length > 0) {
+        out.push({ type: 'html', value: '^' } as PhrasingContent)
+        out.push(...inner)
+        out.push({ type: 'html', value: '^' } as PhrasingContent)
+      }
+      i = end
+      continue
+    }
+
+    // 抽 subscript run(~text~)。与 superscript 同范式,用 html 节点作 `~` 边界。
+    if (span.kind === 'text' && span.marks.some(m => m.name === 'subscript')) {
+      let end = i
+      while (
+        end < spans.length
+        && spans[end].kind === 'text'
+        && spans[end].marks.some(m => m.name === 'subscript')
+      ) {
+        end++
+      }
+      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
+        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'subscript') } : s
+      )
+      const inner = processSpans(innerSpans)
+      if (inner.length > 0) {
+        out.push({ type: 'html', value: '~' } as PhrasingContent)
+        out.push(...inner)
+        out.push({ type: 'html', value: '~' } as PhrasingContent)
       }
       i = end
       continue

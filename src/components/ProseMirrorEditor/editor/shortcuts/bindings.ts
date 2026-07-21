@@ -67,6 +67,20 @@ registerShortcut({
 })
 
 registerShortcut({
+  key: 'Mod-,',
+  command: toggleMarkWithWrap(schema.marks.subscript, '~'),
+  label: '下标',
+  group: 'text',
+})
+
+registerShortcut({
+  key: 'Mod-.',
+  command: toggleMarkWithWrap(schema.marks.superscript, '^'),
+  label: '上标',
+  group: 'text',
+})
+
+registerShortcut({
   key: 'Mod-k',
   command: triggerLinkEdit,
   label: '链接',

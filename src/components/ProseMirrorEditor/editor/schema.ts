@@ -622,6 +622,26 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ tag: 'u' }],
     toDOM: () => ['u', 0],
   },
+
+  // ^text^ 上标。Obsidian / Logseq / Pandoc 风格。
+  // `^` 不与 math 冲突(math 用 `$` 包裹,行内 `$x^2$` 的 `^` 在 `$` 内,
+  // 而 superscript 正则要求 `^` 在行内非 `$` 上下文——实际由 syntaxAutoFormat
+  // 的 inline 扫描 + remarkSupSub 的 mdast 重写共同保证,`$x^2$` 先被 math_inline
+  // 吃掉不会留给 sup)。
+  // 闭口后不挡 `]`(允许 `[^1^]` 类 footnote 相邻场景误匹配,footnote 实际
+  // 由 `[^id]` 正则先抢,且 id 不含 `^`,无冲突)。
+  superscript: {
+    parseDOM: [{ tag: 'sup' }],
+    toDOM: () => ['sup', 0],
+  },
+
+  // ~text~ 下标。Obsidian / Logseq / Pandoc 风格。
+  // 单 `~` 表下标,双 `~~` 表删除线(strike 走 `~~`,见 syntax/inline/strike.ts)。
+  // 这是 breaking change:旧版 `~text~` 是删除线,改版后变下标。
+  subscript: {
+    parseDOM: [{ tag: 'sub' }],
+    toDOM: () => ['sub', 0],
+  },
 }
 
 // ============================================================

@@ -45,13 +45,13 @@ export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceE
 // 单 EditorView 实例场景安全(view spec 设置,destroy 清 null)。
 let editorView: EditorView | null = null
 
-// 目标 mark:strong / emphasis / highlight / underline / strike / code(行内代码;link 自有 session)。
-const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'underline', 'strike_through', 'code'])
+// 目标 mark:strong / emphasis / highlight / underline / superscript(`^`) / subscript(`~`) / strike(`~~`) / code(行内代码;link 自有 session)。
+const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'underline', 'superscript', 'subscript', 'strike_through', 'code'])
 
 // 标记嵌套顺序(开:外→内;闭:内→外)。照 markdownIO wrapWithMarks 的外→内序反转得开序,
 // 闭序为开序的反转。highlight 单独处理(其无 marker attr,且 wrapWithMarks 不含它)。
 // code 排最末(最内)—— 它 excludes:'_' 独占,实际不会与其他 mark 并存,位置无副作用。
-const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'underline', 'code'] as const
+const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'underline', 'superscript', 'subscript', 'code'] as const
 const CLOSE_ORDER = [...OPEN_ORDER].reverse() as readonly string[]
 
 interface MarkSourceEditSession {
@@ -85,6 +85,8 @@ function markerText(mark: Mark): { open: string, close: string } | null {
     case 'emphasis': return mark.attrs.marker === '_' ? { open: '_', close: '_' } : { open: '*', close: '*' }
     case 'highlight': return { open: '==', close: '==' }
     case 'underline': return { open: '<u>', close: '</u>' }
+    case 'superscript': return { open: '^', close: '^' }
+    case 'subscript': return { open: '~', close: '~' }
     case 'strike_through': return { open: '~~', close: '~~' }
     case 'code': return { open: '`', close: '`' }
     default: return null
@@ -317,7 +319,7 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
       const { editFrom, editTo, markName } = pluginState.session
       // underline 展开态是 HTML 源码(`<u>text</u>`),视觉上与 htmlSourceEdit
       // 点击展开的 `<kbd>text</kbd>` 一致 —— 复用 .velo-html-source-edit 底色 +
-      // 等宽字体,避免同为 HTML 标签却视觉不一致。其余 mark(`**`/`==`/`~~`)
+      // 等宽字体,避免同为 HTML 标签却视觉不一致。其余 mark(`**`/`==`/`~~`/`^`/`~`)
       // 展开态是 markdown 标点,不加底色(Obsidian Live Preview 范式)。
       const attrs: Record<string, string> = { 'data-mark-source-edit': '' }
       if (markName === 'underline') attrs.class = 'velo-html-source-edit'
