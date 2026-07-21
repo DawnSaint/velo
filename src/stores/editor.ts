@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+import type { PersistedSettings } from './persistence'
 
 /** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
 export type StartupMode = 'last-file' | 'new-doc'
@@ -96,6 +97,45 @@ export const useEditorStore = defineStore('editor', () => {
     activityBarHidden.value = hidden
   }
 
+  // ========== 设置持久化(v0.6.6 重构) ==========
+  //
+  // store 自己管 hydrate / snapshot,App.vue 只做泛化分发 —— 新增设置字段不再需要
+  // 改 App.vue。字段守门(typeof / 枚举校验)内联在此,与 persistence.ts 的
+  // PersistedSettings['editor'] 类型定义一一对应。
+
+  /** 从磁盘 JSON 灌入编辑器设置。每字段独立 typeof 守门,非法值静默跳过。 */
+  function hydrateSettings(e: PersistedSettings['editor']) {
+    if (!e) return
+    if (typeof e.fontSize === 'string') fontSize.value = e.fontSize
+    if (typeof e.primaryColor === 'string') primaryColor.value = e.primaryColor
+    if (typeof e.fontFamily === 'string') fontFamily.value = e.fontFamily
+    if (typeof e.darkMode === 'boolean') darkMode.value = e.darkMode
+    if (typeof e.codeLightTheme === 'string') codeLightTheme.value = e.codeLightTheme
+    if (typeof e.codeDarkTheme === 'string') codeDarkTheme.value = e.codeDarkTheme
+    if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') startupMode.value = e.startupMode
+    if (typeof e.showCodeLineNumbers === 'boolean') showCodeLineNumbers.value = e.showCodeLineNumbers
+    if (typeof e.showBreadcrumbs === 'boolean') showBreadcrumbs.value = e.showBreadcrumbs
+    // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。
+    hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
+  }
+
+  /** 快照当前编辑器设置为可序列化对象。App.vue 落盘前调用。 */
+  function snapshotSettings(): PersistedSettings['editor'] {
+    return {
+      fontSize: fontSize.value,
+      primaryColor: primaryColor.value,
+      fontFamily: fontFamily.value,
+      darkMode: darkMode.value,
+      codeLightTheme: codeLightTheme.value,
+      codeDarkTheme: codeDarkTheme.value,
+      startupMode: startupMode.value,
+      showCodeLineNumbers: showCodeLineNumbers.value,
+      showBreadcrumbs: showBreadcrumbs.value,
+      activityBarOrder: activityBarOrder.value,
+      activityBarHidden: activityBarHidden.value,
+    }
+  }
+
   return {
     fontSize,
     primaryColor,
@@ -114,6 +154,8 @@ export const useEditorStore = defineStore('editor', () => {
     toggleActivityBarHidden,
     resetActivityBar,
     hydrateActivityBarConfig,
+    hydrateSettings,
+    snapshotSettings,
   }
 })
 

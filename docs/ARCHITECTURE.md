@@ -66,7 +66,7 @@ velo/
 │   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window），业务侧只 import 这里
 │   ├── lib/export/              导出管线（mdast walker + shiki / KaTeX / mermaid / DOMPurify）
 │   ├── utils/                   跨组件纯工具（fuzzy / commandPalette / quickOpenIndex / workspaceSearch / documentStats 等）
-│   ├── composables/             shell 层通用 composable（useContextMenu）
+│   ├── composables/             shell 层通用 composable（useContextMenu / useWorkspaceWatch / useCommandPaletteItems / useWorkspaceSearch / useGlobalKeybindings / useCrossModeSync）
 │   ├── styles/                  Tailwind + Sass partial
 │   ├── test/                    测试基建（vitest setup）
 │   └── components/

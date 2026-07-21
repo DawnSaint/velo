@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount, provide, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, provide, computed } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useOutlineStore } from '@/stores/outline'
@@ -21,7 +21,11 @@ import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighl
 import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
-import { captureAnchor, applyAnchor } from '@/components/crossModeSync'
+import { useWorkspaceWatch } from '@/composables/useWorkspaceWatch'
+import { useCommandPaletteItems } from '@/composables/useCommandPaletteItems'
+import { useWorkspaceSearch } from '@/composables/useWorkspaceSearch'
+import { useGlobalKeybindings } from '@/composables/useGlobalKeybindings'
+import { useCrossModeSync } from '@/composables/useCrossModeSync'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
@@ -38,26 +42,15 @@ import FileMenuButton from '@/components/FileMenuButton.vue'
 import { ChevronDown } from '@lucide/vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
-import { clearAll as clearQuickOpenIndex, invalidate as invalidateQuickOpenIndex } from '@/utils/quickOpenIndex'
-import type { CommandPaletteItem } from '@/utils/commandPalette'
-import { revealHeadingInDom, findHeadingRawOffset, findLineOffset } from '@/utils/revealHeading'
-import { cmLineHighlightEffect } from '@/components/ProseMirrorEditor/findreplace/cmLineHighlight'
-import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
-import {
-  revealWorkspaceSearchMatch,
-  applyWorkspaceReplace,
-  type WorkspaceSearchHit,
-  type ReplacePlan,
-} from '@/utils/workspaceSearch'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
-import { NodeSelection, TextSelection } from 'prosemirror-state'
+import { NodeSelection } from 'prosemirror-state'
 import { resolveImageAssetAbsPath } from '@/utils/imagePath'
 import { mark, measure, report } from '@/utils/perf'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
-import { isTauri, invoke } from '@tauri-apps/api/core'
+import { isTauri } from '@tauri-apps/api/core'
 import {
   getCurrentWindowLabel,
   newAppWindow,
@@ -316,51 +309,21 @@ watch(
 // ========== 用户设置持久化 ==========
 // 启动时从 appDataDir 读 json 覆盖 store,任何设置字段变化 → 500ms debounce 后写回。
 // 失败一律不抛:首次启动 / 文件被删 / 解析错 都回到默认值继续运行。
+//
+// hydrate / snapshot 逻辑下沉到各自 store(editorStore / documentStore),
+// App.vue 只做泛化分发 —— 新增设置字段时改 store + persistence.ts 类型即可,不需要改这里。
 async function initSettings() {
   const loaded = await loadSettings()
   if (!loaded) return
-  const e = loaded.editor
-  if (e) {
-    if (typeof e.fontSize === 'string') store.fontSize = e.fontSize
-    if (typeof e.primaryColor === 'string') store.primaryColor = e.primaryColor
-    if (typeof e.fontFamily === 'string') store.fontFamily = e.fontFamily
-  if (typeof e.darkMode === 'boolean') store.darkMode = e.darkMode
-    if (typeof e.codeLightTheme === 'string') store.codeLightTheme = e.codeLightTheme
-    if (typeof e.codeDarkTheme === 'string') store.codeDarkTheme = e.codeDarkTheme
-    if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') store.startupMode = e.startupMode
-    if (typeof e.showCodeLineNumbers === 'boolean') store.showCodeLineNumbers = e.showCodeLineNumbers
-    if (typeof e.showBreadcrumbs === 'boolean') store.showBreadcrumbs = e.showBreadcrumbs
-    // ActivityBar 自定义(v0.6.1):normalize 防御(未知项过滤 / 缺失项补默认)后灌入 store。
-    // 两字段缺失时 normalize 回退默认,与其它字段的 typeof 守门等价。
-    store.hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
-  }
-  const d = loaded.document
-  if (d) {
-    if (typeof d.autoSaveEnabled === 'boolean') documentStore.autoSaveEnabled = d.autoSaveEnabled
-    if (typeof d.autoSaveOnBlur === 'boolean') documentStore.autoSaveOnBlur = d.autoSaveOnBlur
-  }
+  store.hydrateSettings(loaded.editor)
+  documentStore.hydrateSettings(loaded.document)
 }
 
 function snapshotSettings(): PersistedSettings {
   return {
     version: 1,
-    editor: {
-      fontSize: store.fontSize,
-      primaryColor: store.primaryColor,
-      fontFamily: store.fontFamily,
-      darkMode: store.darkMode,
-      codeLightTheme: store.codeLightTheme,
-      codeDarkTheme: store.codeDarkTheme,
-      startupMode: store.startupMode,
-      showCodeLineNumbers: store.showCodeLineNumbers,
-      showBreadcrumbs: store.showBreadcrumbs,
-      activityBarOrder: store.activityBarOrder,
-      activityBarHidden: store.activityBarHidden,
-    },
-    document: {
-      autoSaveEnabled: documentStore.autoSaveEnabled,
-      autoSaveOnBlur: documentStore.autoSaveOnBlur,
-    },
+    editor: store.snapshotSettings(),
+    document: documentStore.snapshotSettings(),
   }
 }
 
@@ -504,59 +467,6 @@ function activeBackend() {
   return v ? createPmBackend(v) : null
 }
 
-// ========== 跨模式光标 + 浏览状态同步 ==========
-// toggleSourceMode() 翻转 sourceMode → v-if 互换两个编辑器,两边卸载重挂,
-// 光标/滚动在 DOM 层丢失。这里在翻转**前**(flush:'pre',出方向组件尚未卸载)
-// 从出方向 view 抓文本锚点,翻转后(nextTick,入方向 onMounted 已建 view)应用。
-// 最佳努力:定位失败静默放弃。三个切换入口(Ctrl+` / 工具栏 / Esc)都走
-// sourceMode 翻转,此 watch 单点覆盖,无需改调用点。
-//
-// : 行号模式会话(lineSession):输入 : 时记原模式 + 光标锚点(不切源码,只收起面板 +
-// 显示 hint);用户敲行号时才切源码(switched=true)。Enter 确认(留源码)、Esc/离开/关闭
-// 取消(恢复光标 + 切回原模式)。pendingPreview 缓冲"切源码中"已敲的行号,CM6 挂载后由本
-// watch 补跳。pendingLineRestore 用于取消切回 WYSIWYG 时用原锚点覆盖 anchor 恢复。
-const lineSession = ref<{
-  originalMode: boolean
-  pmAnchor: ReturnType<typeof captureAnchor>  // WYSIWYG 原锚点(切回时恢复)
-  cmPos: number  // 源码原光标(源码下取消恢复,不 focus 避免抢输入框)
-  pendingPreview: number | null
-  switched: boolean  // 是否切过源码(WYSIWYG→source)
-} | null>(null)
-// 对象包装:空文档锚点为 null 也不漏(避免 fallthrough 到正常 anchor 恢复)
-const pendingLineRestore = ref<{ anchor: ReturnType<typeof captureAnchor> } | null>(null)
-
-watch(
-  () => documentStore.sourceMode,
-  async (now, prev) => {
-    // 1. : 取消恢复:切回 WYSIWYG 时用原锚点(而非当前 CM6 光标,它在预览行)
-    if (pendingLineRestore.value) {
-      const a = pendingLineRestore.value.anchor
-      pendingLineRestore.value = null
-      await nextTick()
-      if (!now && a) applyAnchor(editorRef.value?.getEditorView(), 'pm', a)
-      return
-    }
-    // 2. : 行号 live-preview:切源码挂载后补跳用户已敲的行号(跳过 anchor 恢复)
-    if (lineSession.value && lineSession.value.pendingPreview != null) {
-      const n = lineSession.value.pendingPreview
-      lineSession.value.pendingPreview = null
-      await nextTick()
-      if (now) applyLinePreview(n)
-      return
-    }
-    // 3. 正常跨模式光标恢复(原行为)
-    // 出方向:prev=true 曾是源码(CM6 出),prev=false 曾是 WYSIWYG(PM 出)
-    const anchor = prev
-      ? captureAnchor(srcRef.value?.view, 'cm')
-      : captureAnchor(editorRef.value?.getEditorView(), 'pm')
-    await nextTick()
-    if (!anchor) return // 抓不到(空文档 / 极短)→ 静默放弃
-    // 入方向:now=true 进源码(CM6 入),now=false 进 WYSIWYG(PM 入)
-    if (now) applyAnchor(srcRef.value?.view, 'cm', anchor)
-    else applyAnchor(editorRef.value?.getEditorView(), 'pm', anchor)
-  },
-  { flush: 'pre' },
-)
 
 // 打开查找:从当前活跃编辑器选区取初始 query。
 // - 面板当前关着 → 完整重置意图(query=选区、选项清零、替换文清空),再 open。
@@ -605,42 +515,6 @@ const quickCommandInitialQuery = ref('')
 // 模式切换用 mount key:面板已开时再按 Ctrl+P / Ctrl+Shift+P 切到另一模式,
 // 靠 bump key 强制 remount 让新 initialQuery 生效(open watcher 只在 false→true 触发)。
 const quickCommandMountKey = ref(0)
-// 工作区全文搜索(v0.6.x):改为侧栏内嵌 tab,本 ref 仅保留"从选区带入的
-// 初始 query"语义,挂载 / 卸载由 workspaceStore.sidebarTab === 'search'
-// 走 Sidebar 的 v-if 控制。
-const workspaceSearchInitialQuery = ref('')
-// 文件夹搜索 scope(v0.6.0):文件树右键菜单「在此文件夹中搜索」会把目录
-// 路径写进这里,Sidebar 透传给 WorkspaceSearchPanel 作为 BFS 起点。
-// 不持久化 —— 用户重开面板想"重新看全工作区",保留旧 scope 反直觉。
-// 切工作区时不需要显式清:WorkspaceSearchPanel 的 prop 默认 null,
-  // 工作区根变 → App.vue 重新渲染 → panel prop 自然更新。
-const workspaceSearchScopeDir = ref<string | null>(null)
-// 替换反馈(v0.6.0):applyWorkspaceReplace 完成后写一次面板底部 status,
-// 由 prop watcher 显示一次性文案,然后用户后续搜索/输入清掉。
-const workspaceSearchReplaceStatus = ref<string>('')
-
-function openWorkspaceSearch() {
-  if (!workspaceStore.activeRoot) return
-  // Ctrl+Shift+F 行为(v0.6.x 侧栏内嵌后):
-  //   - 始终打开 search tab,不 toggle 关闭 —— 用户重复按也保持可见
-  //   - 仅当编辑器有选区时,把内容写进 workspaceSearchInitialQuery 触发
-  //     WorkspaceSearchPanel 的 watch 把内容写进搜索框;空选区不动
-  //     initialQuery,保留用户已输入的搜索词
-  const sel = currentSelectionText()
-  if (sel) workspaceSearchInitialQuery.value = sel
-  quickCommandOpen.value = false
-  findOpen.value = false
-  if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'search') {
-    showSidebarTab('search')
-  }
-}
-
-// FindReplace 内的 Ctrl+Shift+F / Ctrl+H 不走 App.vue 的 onKeydown(capture 阶段
-// closest data-fr-panel 直接 return,把控制权让给面板),由面板 emit 出来后再走。
-// 关闭本面板 + 打开全局搜索,与外部按 Ctrl+Shift:F 行为一致。
-function openGlobalSearchFromFind() {
-  openWorkspaceSearch()
-}
 
 function showQuickCommand(prefix: string) {
   quickCommandInitialQuery.value = prefix
@@ -659,250 +533,8 @@ function openCommandPalette() {
   showQuickCommand('>')
 }
 
-function selectAndRevealWorkspaceSearchMatch(be: ReturnType<typeof activeBackend>, from: number, to: number) {
-  revealWorkspaceSearchMatch(be, from, to)
-}
 
-async function selectWorkspaceSearchHit(hit: WorkspaceSearchHit): Promise<boolean> {
-  let be = activeBackend()
-  if (!be) return false
 
-  if (documentStore.sourceMode) {
-    const matches = be.findMatches(hit.query, hit.options)
-    const match = matches[hit.matchOrdinal]
-    if (match) {
-      selectAndRevealWorkspaceSearchMatch(be, match.from, match.to)
-      return true
-    }
-    const rawText = be.getRangeText(hit.rawFrom, hit.rawTo)
-    if (rawText === hit.matchText) {
-      selectAndRevealWorkspaceSearchMatch(be, hit.rawFrom, hit.rawTo)
-      return true
-    }
-    return false
-  }
-
-  // WYSIWYG: 直接信任 pmMatches[hit.matchOrdinal],不再校验
-  // pmMatches.length === hit.fileMatchCount。raw scan 走 per-line 全串正则,
-  // 命中包含 code_block / image / mermaid 等非 text 节点的源码内容;
-  // PM findMatchesInDoc 只扫 text 节点,跳过这些节点;两边计数规则天然不一致,
-  // 等式几乎永远不成立 —— 旧校验等价于"文件不能含任何特殊节点",导致含图 /
-  // mermaid / 代码块的笔记 100% 报"结果已过期"。
-  // raw ordinal 与 PM pmMatches 在 prose 节点(paragraph / heading / list)上
-  // 对齐(text node 一次 exec 不跨节点,同段 N 个 match ordinal 0..N-1);raw 命中
-  // 若落在 code_block / image / mermaid 节点里,PM pmMatches[ordinal] undefined
-  // → 静默放弃,文件已 openPathInTab 打开,用户至少能浏览到目标行附近。
-  // 不自动切 source mode:与 workspace-search 架构决策一致,避免劫持用户当前
-  // 编辑模式;App.vue 的跨模式光标 / 滚动同步 watch 只服务主动 Ctrl+` 入口。
-  const pmMatches = be.findMatches(hit.query, hit.options)
-  const pmMatch = pmMatches[hit.matchOrdinal]
-  if (pmMatch) {
-    selectAndRevealWorkspaceSearchMatch(be, pmMatch.from, pmMatch.to)
-    return true
-  }
-
-  return false
-}
-
-async function openWorkspaceSearchResult(hit: WorkspaceSearchHit) {
-  const ok = await documentStore.openPathInTab(hit.fullPath)
-  if (!ok) return
-  workspaceStore.setLastFile(hit.fullPath)
-  await nextTick()
-  const selected = await selectWorkspaceSearchHit(hit)
-  if (!selected) console.warn('[WorkspaceSearch] 结果已过期,无法定位选区:', hit)
-  // v0.6.x:侧栏内嵌模式下**不**自动关闭面板 —— 用户可以连续点多个结果;
-  // 关闭走 X / Esc / 再次点 ActivityBar 搜索图标。
-}
-
-// 统一命令面板 @ 符号模式 + Breadcrumbs 点击跳转:跳转到当前文档指定标题。
-// WYSIWYG 走 DOM(与 EditorOutline 同款 revealHeadingInDom),source 走 raw markdown
-// 行定位 → CM6 doc offset(源码文档即原始 markdown,offset == pos)→ backend 跳转。
-//
-// **WYSIWYG 选区同步**:revealHeadingInDom 返回命中的标题 DOM 元素后,
-// 用 view.posAtDOM 把 PM 选区设到标题开头,再 focus。否则 focus 会触发浏览器
-// 把旧选区滚入视口,标题被滚走 → 高亮一闪而过(命令面板 / 面包屑都踩此坑)。
-function onRevealHeading({ level, displayText }: { level: number, displayText: string }) {
-  if (documentStore.sourceMode) {
-    const offset = findHeadingRawOffset(documentStore.content, level, displayText)
-    if (offset < 0) return
-    const be = activeBackend()
-    if (!be) return
-    be.setSelection(offset, offset)
-    be.scrollMatchIntoView(offset)
-    be.focus()
-    return
-  }
-  const el = revealHeadingInDom(level, displayText)
-  const view = editorRef.value?.getEditorView()
-  if (el && view) {
-    const pos = view.posAtDOM(el, 0)
-    view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
-  }
-  view?.focus()
-}
-
-/** Breadcrumbs 点击跳转:复用 onRevealHeading 逻辑(HeadingBreadcrumb.text → displayText) */
-function onBreadcrumbReveal(h: HeadingBreadcrumb) {
-  onRevealHeading({ level: h.level, displayText: h.text })
-}
-
-// 统一命令面板 : 行号模式:实时滚动 + 高亮第 N 行,跨模式会话恢复。
-// 行号是源码概念。输入 : 时只收起面板 + 显示 hint(onLineEnter 记原模式 + 锚点,不切源码);
-// 用户敲行号时才切源码(CM6 doc === raw markdown,offset == pos)+ 实时 setSelection +
-// 滚动 + 行高亮(cmLineHighlightEffect)。Enter 确认(留源码)、Esc/离开/关闭 取消(恢复)。
-function onLineEnter() {
-  if (lineSession.value) return
-  const originalMode = documentStore.sourceMode
-  const pmAnchor = originalMode ? null : captureAnchor(editorRef.value?.getEditorView(), 'pm')
-  const cmPos = originalMode ? (srcRef.value?.view?.state.selection.main.head ?? 0) : 0
-  lineSession.value = { originalMode, pmAnchor, cmPos, pendingPreview: null, switched: false }
-}
-
-/** 把第 N 行滚到中线 + 高亮。CM6 未就绪(切源码中)返回 false,交由 sync watch 补跳。 */
-function applyLinePreview(n: number): boolean {
-  const view = srcRef.value?.view
-  const be = activeBackend()
-  if (!view || !be || !documentStore.sourceMode) return false
-  const offset = findLineOffset(documentStore.content, n)
-  be.setSelection(offset, offset)
-  be.scrollMatchIntoView(offset)
-  view.dispatch({ effects: cmLineHighlightEffect.of(n) })
-  return true
-}
-
-function onLinePreview(n: number | null) {
-  const s = lineSession.value
-  if (!s) return
-  if (n == null) {
-    srcRef.value?.view?.dispatch({ effects: cmLineHighlightEffect.of(null) })
-    s.pendingPreview = null
-    return
-  }
-  if (documentStore.sourceMode) {
-    // 已在源码:直接跳(applyLinePreview 不 focus,不抢输入框)
-    if (applyLinePreview(n)) s.pendingPreview = null
-    else s.pendingPreview = n
-  } else {
-    // WYSIWYG:敲了行号才切源码;sync watch 挂载后补跳
-    s.pendingPreview = n
-    s.switched = true
-    documentStore.toggleSourceMode()
-  }
-}
-
-function onLineConfirm() {
-  // 留在源码模式,光标已在预览行;清高亮
-  srcRef.value?.view?.dispatch({ effects: cmLineHighlightEffect.of(null) })
-  lineSession.value = null
-}
-
-function onLineCancel() {
-  const s = lineSession.value
-  if (!s) return
-  lineSession.value = null
-  srcRef.value?.view?.dispatch({ effects: cmLineHighlightEffect.of(null) })
-  if (s.switched) {
-    // 切过源码(原 WYSIWYG)→ 切回 + 恢复原 PM 锚点(sync watch 用 pendingLineRestore 覆盖)
-    pendingLineRestore.value = { anchor: s.pmAnchor }
-    documentStore.toggleSourceMode()
-  } else if (s.originalMode) {
-    // 原是源码、预览过 → 恢复原 CM6 光标(setSelection 不 focus,避免抢输入框)
-    const be = activeBackend()
-    if (be) {
-      be.setSelection(s.cmPos, s.cmPos)
-      be.scrollMatchIntoView(s.cmPos)
-    }
-  }
-  // else: 只打了 : 未切未预览 → 无需恢复
-}
-
-// 面板关闭兜底:面板是 v-if 卸载,open watcher 来不及发 line-cancel(尤其输入框失焦时
-// Esc 走 onGlobalKeydown 只 close)。这里在 App.vue 侧单点监听 quickCommandOpen 落 false,
-// 若 : 会话仍在 → 跑取消恢复。已 emit 过 line-cancel 的话 lineSession 已清,no-op。
-watch(quickCommandOpen, (open) => {
-  if (!open && lineSession.value) onLineCancel()
-})
-
-// 文件树右键菜单「在此文件夹中搜索」:写 scope + 切到 search tab。
-// 不带 initialQuery —— 保留用户已输入的搜索词,只换 scope。
-function onSearchInFolder(dirPath: string) {
-  workspaceSearchScopeDir.value = dirPath
-  showSidebarTab('search')
-}
-
-function onWorkspaceSearchClearScope() {
-  workspaceSearchScopeDir.value = null
-}
-
-// 工作区搜索「替换」/「全部替换」编排(v0.6.0):
-//  - snapshot 当前所有脏盘 tab 的 path(替换开始瞬间,避免 race)
-//  - 调 applyWorkspaceReplace 拿 result(IO 已落盘)
-//  - 同步打开中的 clean tab(用 result.fileContents 免一次 readTextFile)
-//  - 触发 WorkspaceSearchPanel 重跑搜索(把 initialQuery 写回同样值,panel
-//    的 watcher 看到 initialQuery 不变不会触发 → 改用 prop 传"重跑"信号)
-// 简化做法:直接 emit 'workspace-search-rerun' 给 Sidebar 转发给 panel,
-//    panel 监听该 prop 触发 scheduleSearch。但 Vue 3 没有"emit 事件" prop
-//    模式 → 改用 ref 计数器:replace 一次 ++,panel watch 该 ref 变化就
-//    scheduleSearch。计数器是整数,递增总是触发 watch,无关值。
-const workspaceSearchRerunToken = ref(0)
-
-async function onWorkspaceSearchApplyReplace(payload: {
-  hits: WorkspaceSearchHit[]
-  replacement: string
-  scope: 'one' | 'all'
-}) {
-  // snapshot 替换开始瞬间的 dirty tab 集合 —— 遍历过程不再重读,避免
-  // race("开始前是 clean、跑到一半用户敲了键变成 dirty")。从 documents Map
-  // 直接读:tabs computed 只返轻量摘要,没有 currentFilePath / content 字段。
-  // dirty 是 derived(content !== lastSavedContent),在 store 内是 computed,
-  // 在 DocState 数据结构上等价于此表达式。
-  const dirtyPaths = new Set(
-    [...documentStore.documents.values()]
-      .filter(d => d.content !== d.lastSavedContent && d.currentFilePath)
-      .map(d => d.currentFilePath as string),
-  )
-  // 替换的 query / options 从第一条 hit 拿 —— panel 在同一次搜索结果内点替换,
-  // 所有 hit 共享 query / options(由 panel 的 runSearch 一致传入 searchWorkspaceMarkdown)。
-  const first = payload.hits[0]
-  if (!first) return
-  const plan: ReplacePlan = {
-    query: first.query,
-    options: first.options,
-    replacement: payload.replacement,
-  }
-  const result = await applyWorkspaceReplace(payload.hits, plan, dirtyPaths)
-
-  // 同步打开中的 clean tab:写盘已完成,这里把 lastSavedContent + content 同步,
-  // 让编辑器(PM/CM6)看到新内容。重置 dirty 基线,draft 也跟着清掉。
-  for (const fullPath of result.changedFiles) {
-    const newContent = result.fileContents.get(fullPath)
-    if (!newContent) continue
-    // 同 path 可能有多个 tab(中键 / openPathInNewTab),content 相同,
-    // 只对第一个执行 loadContentInto 即可:loadContentInto 同步 content +
-    // lastSavedContent + 重建 watch —— 其他 tab 重新激活时通过
-    // documentStore 的 readTextOf fallback 拿到 disk 新内容。
-    const d = [...documentStore.documents.values()].find(x => x.currentFilePath === fullPath)
-    if (d) documentStore.loadContentInto(d, newContent, fullPath, false)
-  }
-
-  // 状态文案 + 触发 panel 重跑搜索
-  workspaceSearchReplaceStatus.value = formatReplaceStatus(result)
-  workspaceSearchRerunToken.value++
-
-  // 失败明细:进度回调里塞"读了/写了什么文件失败"信息(已经入 result,这里 console 留痕)
-  if (result.failedFiles.length) {
-    console.warn('[WorkspaceSearch] 替换部分失败:', result.failedFiles)
-  }
-}
-
-function formatReplaceStatus(result: { replacedCount: number, skippedFiles: string[], failedFiles: { fullPath: string }[] }): string {
-  const parts: string[] = []
-  if (result.replacedCount) parts.push(`已替换 ${result.replacedCount} 处`)
-  if (result.skippedFiles.length) parts.push(`${result.skippedFiles.length} 个文件因有未保存修改被跳过`)
-  if (result.failedFiles.length) parts.push(`${result.failedFiles.length} 个文件读写失败`)
-  return parts.length ? parts.join('，') : '替换完成'
-}
 
 // active 高亮回显当前侧栏视图(files/outline/search/assets)。设置激活时侧栏
 // 遵循 sidebarTab:outline/assets 显示空态(无文档上下文),files/search 正常渲染。
@@ -1116,421 +748,79 @@ async function openRecentFile(path: string) {
   workspaceStore.setLastFile(path)
 }
 
-const commandPaletteItems = computed<CommandPaletteItem[]>(() => {
-  const needWorkspace = !workspaceStore.activeRoot
-  const items: CommandPaletteItem[] = [
-    {
-      id: 'file.new',
-      title: '新建文件',
-      subtitle: '创建一份未保存的新 Markdown 文档',
-      shortcut: 'Ctrl+N',
-      group: 'app',
-      keywords: ['new file', 'new document', 'markdown'],
-      run: () => documentStore.newDoc(),
-    },
-    ...(tauri ? [{
-      id: 'window.new',
-      title: '新窗口',
-      subtitle: '打开一个独立的 Velo 窗口',
-      shortcut: 'Ctrl+Shift+N',
-      group: 'app' as const,
-      keywords: ['new window'],
-      run: () => createNewAppWindow(),
-    }] : []),
-    ...(tauri ? [{
-      id: 'window.fullscreen',
-      title: isFullscreen.value ? '退出全屏' : '全屏模式',
-      subtitle: '切换窗口全屏',
-      shortcut: 'F11',
-      group: 'app' as const,
-      keywords: ['fullscreen', '全屏'],
-      run: () => toggleFullscreen(),
-    }] : []),
-    ...(tauri ? [{
-      id: 'window.alwaysOnTop',
-      title: isAlwaysOnTop.value ? '取消窗口最前' : '保持窗口最前',
-      subtitle: '窗口浮在所有普通窗口之上',
-      group: 'app' as const,
-      keywords: ['always on top', 'pin', '置顶', '最前'],
-      run: () => toggleAlwaysOnTop(),
-    }] : []),
-    {
-      id: 'editor.focusMode',
-      title: focusMode.value ? '退出专注模式' : '专注模式',
-      subtitle: '当前段落外内容降透明度',
-      shortcut: 'F8',
-      group: 'app',
-      keywords: ['focus mode', '专注', 'focus'],
-      run: () => toggleFocusMode(),
-    },
-    {
-      id: 'editor.typewriterMode',
-      title: typewriterMode.value ? '退出打字机模式' : '打字机模式',
-      subtitle: '光标锁定在视口中线',
-      shortcut: 'F9',
-      group: 'app',
-      keywords: ['typewriter mode', '打字机', 'typewriter', '锁屏'],
-      run: () => toggleTypewriterMode(),
-    },
-    {
-      id: 'file.open',
-      title: '打开文件',
-      subtitle: '从磁盘选择一个 Markdown 文件',
-      shortcut: 'Ctrl+O',
-      group: 'app',
-      keywords: ['open file'],
-      run: () => documentStore.open(),
-    },
-    {
-      id: 'file.save',
-      title: '保存',
-      subtitle: documentStore.currentFilePath ? normalizeDisplayPath(documentStore.currentFilePath) : '未命名文件会进入另存为',
-      shortcut: 'Ctrl+S',
-      group: 'app',
-      keywords: ['save file'],
-      run: () => documentStore.save(),
-    },
-    {
-      id: 'file.saveAs',
-      title: '另存为',
-      subtitle: '选择新位置保存当前文档',
-      shortcut: 'Ctrl+Shift+S',
-      group: 'app',
-      keywords: ['save as'],
-      run: () => documentStore.saveAs(),
-    },
-    {
-      id: 'file.export',
-      title: exportStore.exporting ? '导出中…' : '导出',
-      subtitle: '导出为 HTML 或 PDF',
-      shortcut: 'Ctrl+Shift+E',
-      group: 'app',
-      keywords: ['export', 'html', 'pdf'],
-      disabled: exportStore.exporting,
-      disabledReason: '导出中…',
-      run: () => exportStore.exportDocument(),
-    },
-    {
-      id: 'edit.find',
-      title: '查找',
-      subtitle: '在当前文档中查找',
-      shortcut: 'Ctrl+F',
-      group: 'app',
-      keywords: ['find', 'search current file'],
-      run: () => openFind(),
-    },
-    {
-      id: 'edit.replace',
-      title: '替换',
-      subtitle: '在当前文档中查找并替换',
-      shortcut: 'Ctrl+H',
-      group: 'app',
-      keywords: ['replace'],
-      run: () => openReplace(),
-    },
-    {
-      id: 'editor.toggleSource',
-      title: documentStore.sourceMode ? '切换到所见即所得' : '切换源码模式',
-      subtitle: documentStore.sourceMode ? '返回 ProseMirror 所见即所得编辑器' : '使用源码模式编辑 Markdown',
-      shortcut: 'Ctrl+`',
-      group: 'app',
-      keywords: ['source mode', 'wysiwyg', 'markdown source'],
-      run: () => documentStore.toggleSourceMode(),
-    },
-    {
-      id: 'settings.open',
-      title: '打开设置',
-      subtitle: '调整编辑器外观和行为',
-      group: 'app',
-      keywords: ['settings', 'preferences'],
-      run: () => showSettingsPanel(),
-    },
-    {
-      id: 'workspace.openFolder',
-      title: '打开文件夹作为工作区',
-      subtitle: '选择一个目录作为当前工作区',
-      group: 'workspace',
-      keywords: ['open folder', 'workspace'],
-      run: () => openFolderAsWorkspace(),
-    },
-    {
-      id: 'workspace.quickOpen',
-      title: '快速打开文件',
-      subtitle: '在当前工作区中按文件名查找 Markdown',
-      shortcut: 'Ctrl+P',
-      group: 'workspace',
-      keywords: ['quick open', 'file search'],
-      disabled: needWorkspace,
-      disabledReason: '需要先打开工作区',
-      run: () => openQuickOpen(),
-    },
-    {
-      id: 'workspace.search',
-      title: '搜索工作区',
-      subtitle: '全文搜索当前工作区中的 Markdown',
-      shortcut: 'Ctrl+Shift+F',
-      group: 'workspace',
-      keywords: ['workspace search', 'search all files'],
-      disabled: needWorkspace,
-      disabledReason: '需要先打开工作区',
-      run: () => openWorkspaceSearch(),
-    },
-    {
-      id: 'workspace.files',
-      title: '显示工作区文件',
-      subtitle: '打开左侧文件树',
-      group: 'workspace',
-      keywords: ['file tree', 'explorer', 'workspace files'],
-      disabled: needWorkspace,
-      disabledReason: '需要先打开工作区',
-      run: () => showSidebarTab('files'),
-    },
-    {
-      id: 'workspace.outline',
-      title: '显示大纲',
-      subtitle: '打开当前文档的大纲视图',
-      group: 'workspace',
-      keywords: ['outline', 'headings'],
-      run: () => showSidebarTab('outline'),
-    },
-    {
-      id: 'workspace.assets',
-      title: '显示资产面板',
-      subtitle: '查看当前文档的图片资产',
-      group: 'workspace',
-      keywords: ['assets', 'images', 'pictures'],
-      run: () => showSidebarTab('assets'),
-    },
-    {
-      id: 'workspace.close',
-      title: '关闭工作区',
-      subtitle: workspaceStore.activeRoot ? normalizeDisplayPath(workspaceStore.activeRoot) : '当前没有打开的工作区',
-      group: 'workspace',
-      keywords: ['close workspace'],
-      disabled: needWorkspace,
-      disabledReason: '当前没有打开的工作区',
-      run: () => workspaceStore.closeWorkspace(),
-    },
-  ]
-
-  for (const entry of recentFilesStore.entries.slice(0, 12)) {
-    const displayPath = normalizeDisplayPath(entry.path)
-    items.push({
-      id: `recent:${entry.path}`,
-      title: `打开最近文件: ${basenameOfPath(entry.path)}`,
-      subtitle: displayPath,
-      group: 'recent',
-      keywords: ['recent file', entry.path, displayPath],
-      run: () => openRecentFile(entry.path),
-    })
-  }
-
-  return items
+// ========== composable: 跨模式同步 + 行号模式 ==========
+const { onRevealHeading, onBreadcrumbReveal, onLineEnter, onLinePreview, onLineConfirm, onLineCancel } = useCrossModeSync({
+  editorRef,
+  srcRef,
+  quickCommandOpen,
+  getActiveBackend: activeBackend,
 })
 
-// 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
-//
-// 必须 capture 阶段 + preventDefault 才能压过浏览器自己的 Ctrl+F (find in page)。
-// 浏览器在 keydown 冒泡结束后才决定是否开内置 find,我们在 capture 阶段就
-// preventDefault,事件到达目标元素前 default action 已被标记为取消。
-// stopPropagation 防止冒泡到其他 window/document 上的扩展 / 第三方脚本再开一次。
-function onKeydown(e: KeyboardEvent) {
-  if (!(e.ctrlKey || e.metaKey)) return
-  const k = e.key.toLowerCase()
-  // Ctrl+F(capture 阶段)无条件 preventDefault —— 必须先压过 webview 内置的
-  // "find in page" 搜索框,再决定行为分发:焦点在 FindReplace 内 → 让面板处理
-  // (closest 命中,return);否则 → 走下面的 openFind。不能在 closest 检查之后
-  // 再 preventDefault,否则焦点在面板内时 return 时 default action 还没被
-  // 拦,WebView2 仍会弹内置搜索框。
-  if (k === 'f' && !e.shiftKey) e.preventDefault()
-  const target = e.target as HTMLElement | null
-  // 焦点在 FindReplace / 命令面板里 → 让面板自己处理(避免双触发)。
-  // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,
-  // 不抢 Ctrl+F / Ctrl+Shift+F 等全局快捷键 —— 焦点在搜索框内仍允许触发
-  // 文档级查找、再次激活搜索等动作。
-  if (target?.closest('[data-fr-panel], [data-quick-command-panel]')) return
-  if (k === 's' && e.shiftKey) {
-    e.preventDefault()
-    e.stopPropagation()
-    void documentStore.saveAs()
-  }
-  else if (k === 's') {
-    e.preventDefault()
-    e.stopPropagation()
-    void documentStore.save()
-  }
-  else if (k === 'n' && e.shiftKey) {
-    if (!tauri) return
-    e.preventDefault()
-    e.stopPropagation()
-    void createNewAppWindow()
-  }
-  else if (k === 'n') {
-    e.preventDefault()
-    e.stopPropagation()
-    documentStore.newDoc()
-  }
-  else if (k === 'o') {
-    e.preventDefault()
-    e.stopPropagation()
-    void documentStore.open()
-  }
-  else if (k === 'f' && e.shiftKey) {
-    // Ctrl+Shift+F 工作区全文搜索(v0.5.2,v0.6.x 改为侧栏 tab):无工作区静默。
-    // 不 toggle —— 已在 search tab 时也不关闭;有选区时把内容塞进搜索框。
-    if (!workspaceStore.activeRoot) return
-    e.preventDefault()
-    e.stopPropagation()
-    openWorkspaceSearch()
-  }
-  else if (k === 'f') {
-    e.preventDefault()
-    e.stopPropagation()
-    openFind()
-  }
-  else if (k === 'h') {
-    e.preventDefault()
-    e.stopPropagation()
-    openReplace()
-  }
-  else if (k === '`') {
-    e.preventDefault()
-    e.stopPropagation()
-    documentStore.toggleSourceMode()
-  }
-  else if (k === 'e' && e.shiftKey) {
-    // 导出(Ctrl/Cmd+Shift+E):走原生 saveDialog 多 filter(HTML / PDF)
-    e.preventDefault()
-    e.stopPropagation()
-    void exportStore.exportDocument()
-  }
-  else if (k === 'p' && e.shiftKey) {
-    // Ctrl+Shift+P 命令模式(v0.6.2):已开在同模式 → 关,否则切到 '>' 命令模式
-    e.preventDefault()
-    e.stopPropagation()
-    if (quickCommandOpen.value && quickCommandInitialQuery.value === '>') quickCommandOpen.value = false
-    else openCommandPalette()
-  }
-  else if (k === 'p' && !e.shiftKey) {
-    // Ctrl+P 查找文件(v0.6.2):无工作区静默;已开在同模式 → 关,否则切到 '' 文件模式
-    if (!workspaceStore.activeRoot) return
-    e.preventDefault()
-    e.stopPropagation()
-    if (quickCommandOpen.value && quickCommandInitialQuery.value === '') quickCommandOpen.value = false
-    else openQuickOpen()
-  }
-  else if (k === 'r' && e.shiftKey) {
-    // 阅读模式 toggle(Ctrl/Cmd+Shift+R):复用 Ctrl+Shift+R 这个本属浏览器硬刷新
-    // 的快捷键 —— 应用层 capture 阶段 preventDefault 让 webview 永远拿不到刷新信号。
-    // 与下文 Ctrl+R / F5 拦截配合,桌面 markdown editor 下不存在"误刷新丢未保存"的路径。
-    e.preventDefault()
-    e.stopPropagation()
-    documentStore.readOnly = !documentStore.readOnly
-  }
-}
-
-// ========== 工作区根目录 fs.watch(v0.5.0)==========
-//
-// 单 recursive 句柄挂在 activeRoot。回调拿 watch event 推断脏目录,
-// 100ms debounce 后让 Sidebar.refreshDir 重拉那棵子树。**不做 path diff**,
-// 重拉整 dir 简单可靠,目录中数十个文件 readDir < 5ms。
-//
-// 与"当前文件 watch"(documentStore.startWatchOf)共存:当前文件也落在根树
-// 下,会收到两份事件 —— 但 documentStore 内 `disk === lastSavedContent`
-// 短路 + externalCheckInFlight 重入保护已足够去重,不需要在此特殊处理。
-//
-// 网络盘 / 同步工具的 notify-rs 漏报:window-focus 兜底已覆盖当前文件;
-// 工作区根侧没有等价兜底(代价高 —— 重新整树 walk),v0.5.0 接受这个限制,
-// 用户切回应用时手动点工作区刷新按钮(后续版本再补)。
-import { watch as watchFs, type UnwatchFn as FsUnwatchFn } from '@/tauri/fs'
-
-let workspaceUnwatch: FsUnwatchFn | null = null
-const dirtyDirs = new Set<string>()
-const pendingSidebarDirtyDirs = new Set<string>()
-let dirtyFlushTimer: ReturnType<typeof setTimeout> | null = null
-
-async function flushPendingSidebarDirtyDirs() {
-  if (leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'files') return
-  if (pendingSidebarDirtyDirs.size === 0) return
-  await nextTick()
-  const sidebar = sidebarRef.value
-  if (!sidebar) return
-  const dirs = Array.from(pendingSidebarDirtyDirs)
-  pendingSidebarDirtyDirs.clear()
-  for (const d of dirs) {
-    sidebar.refreshDir(d)
-  }
-}
-
-function scheduleDirtyFlush() {
-  if (dirtyFlushTimer) return
-  dirtyFlushTimer = setTimeout(() => {
-    dirtyFlushTimer = null
-    const dirs = Array.from(dirtyDirs)
-    dirtyDirs.clear()
-    const sidebar = sidebarRef.value
-    for (const d of dirs) {
-      if (sidebar) sidebar.refreshDir(d)
-      else pendingSidebarDirtyDirs.add(d)
-    }
-    void flushPendingSidebarDirtyDirs()
-    // Ctrl+P 索引也作废 —— 任何脏目录事件视为索引失效,下次面板打开重扫(v0.5.2)
-    invalidateQuickOpenIndex(workspaceStore.activeRoot)
-  }, 120)
-}
-
-/** 从 fs.watch 事件中的路径反推所属目录,以便定位要刷新哪棵子树。 */
-function dirnameOf(p: string): string {
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i <= 0 ? p : p.slice(0, i)
-}
-
-async function startWorkspaceWatch(root: string) {
-  await stopWorkspaceWatch()
-  if (!tauri) return
-  try {
-    workspaceUnwatch = await watchFs(
-      root,
-      (event) => {
-        const paths = Array.isArray(event.paths) ? event.paths : []
-        for (const p of paths) {
-          dirtyDirs.add(dirnameOf(p))
-        }
-        // 极端情况下没解析到 path,至少刷一下根
-        if (paths.length === 0) dirtyDirs.add(root)
-        scheduleDirtyFlush()
-      },
-      { recursive: true, delayMs: 150 },
-    )
-  }
-  catch (e) {
-    console.error('工作区 watch 启动失败', e)
-  }
-}
-
-async function stopWorkspaceWatch() {
-  if (!workspaceUnwatch) return
-  try { workspaceUnwatch() }
-  catch (e) { console.warn('工作区 watch 停止失败', e) }
-  workspaceUnwatch = null
-}
-
-// activeRoot 变化:重建 watch。先 stop 后 start,沿用 documentStore.startWatchOf
-// 的 race 容忍策略 —— 用户快速切换工作区时,新 watch 句柄会赢,旧的就算回调
-// 漏过来也只是多刷一次树,无副作用。
-watch(() => workspaceStore.activeRoot, async (r) => {
-  // 切工作区 → 清掉旧 root 的延迟目录刷新,Ctrl+P 缓存整张表清掉
-  // (新工作区不复用旧索引,且旧路径上的 watch 已停)。
-  pendingSidebarDirtyDirs.clear()
-  clearQuickOpenIndex()
-  if (r) await startWorkspaceWatch(r)
-  else await stopWorkspaceWatch()
+// ========== composable: 工作区搜索编排 ==========
+const {
+  workspaceSearchInitialQuery,
+  workspaceSearchScopeDir,
+  workspaceSearchReplaceStatus,
+  workspaceSearchRerunToken,
+  openWorkspaceSearch,
+  openGlobalSearchFromFind,
+  openWorkspaceSearchResult,
+  onSearchInFolder,
+  onWorkspaceSearchClearScope,
+  onWorkspaceSearchApplyReplace,
+} = useWorkspaceSearch({
+  leftPanelView,
+  quickCommandOpen,
+  findOpen,
+  showSidebarTab,
+  getActiveBackend: activeBackend,
+  currentSelectionText,
 })
 
-watch(
-  [() => leftPanelView.value, () => workspaceStore.sidebarTab],
-  () => { void flushPendingSidebarDirtyDirs() },
-)
+// ========== composable: 命令面板项 ==========
+const commandPaletteItems = useCommandPaletteItems({
+  tauri,
+  isFullscreen,
+  isAlwaysOnTop,
+  focusMode,
+  typewriterMode,
+  createNewAppWindow,
+  toggleFullscreen,
+  toggleAlwaysOnTop,
+  toggleFocusMode,
+  toggleTypewriterMode,
+  openFind,
+  openReplace,
+  showSettingsPanel,
+  openFolderAsWorkspace,
+  openQuickOpen,
+  openWorkspaceSearch,
+  showSidebarTab,
+  openRecentFile,
+})
+
+// ========== composable: 全局快捷键 ==========
+useGlobalKeybindings({
+  tauri,
+  quickCommandOpen,
+  quickCommandInitialQuery,
+  createNewAppWindow,
+  openFind,
+  openReplace,
+  openWorkspaceSearch,
+  openCommandPalette,
+  openQuickOpen,
+  toggleFullscreen,
+  toggleFocusMode,
+  toggleTypewriterMode,
+})
+
+// ========== composable: 工作区 fs.watch ==========
+useWorkspaceWatch({
+  tauri,
+  sidebarRef,
+  leftPanelView,
+})
 
 // 当前打开文件变化 → 同步到 workspaceStore.lastFile,用户切回工作区时能恢复。
 // 无活跃工作区时 setLastFile 内部直接 return,不污染状态。
@@ -1565,36 +855,8 @@ onMounted(async () => {
   // Vue 已把 App.vue 根挂上 DOM —— 打 mark(后续 await 链路里的 keydown 挂载
   // 等不能推迟到这里之后,见 0-pre 注释)。
   mark('mounted')
-  // 0-pre) 关键:keydown 监听必须在第一个 await 之前挂上。
-  //   启动期 await 一堆(读盘、invoke、openPath),用户在 await 期间按 Ctrl+F
-  //   浏览器自己的 find 会先开 —— handler 还没挂就拦不住了。capture 阶段
-  //   + preventDefault 是另一道保险,见 onKeydown 注释。
-  window.addEventListener('keydown', onKeydown, { capture: true })
-
-  // F11 切全屏 + F12 打开 WebView DevTools —— Cargo.toml 开了 `devtools` feature,release 包也能用。
-  // tauri command `open_devtools` 在 src-tauri/src/lib.rs 注册。dev 环境 Vite/浏览器
-  // 自带 F12,这里 invoke 会失败,catch 掉就行。
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'F11' && tauri) {
-      e.preventDefault()
-      void toggleFullscreen()
-      return
-    }
-    if (e.key === 'F8') {
-      e.preventDefault()
-      toggleFocusMode()
-      return
-    }
-    if (e.key === 'F9') {
-      e.preventDefault()
-      toggleTypewriterMode()
-      return
-    }
-    if (e.key === 'F12' && tauri) {
-      e.preventDefault()
-      void invoke('open_devtools').catch(() => { /* dev 环境无此 command,忽略 */ })
-    }
-  })
+  // keydown 监听已由 useGlobalKeybindings composable 在其 onMounted 中注册
+  // (Vue FIFO,先于本 onMounted 执行),确保在启动期 await 链路之前挂上。
 
   // 全屏状态初始化 + resize 同步:用户可能用 OS 手段退出全屏(Esc / 鼠标手势),
   // onResized 时重新查 isFullscreen 保持 UI 镜像与实际一致。
@@ -1724,23 +986,12 @@ onMounted(async () => {
   }, DRAFT_SAVE_INTERVAL_MS)
 
   // 0.5) 设置变化 → 落盘的 watch。必须在 load 之后挂,否则 load 自身会触发写盘。
+  // deep watch store 的 snapshot —— 新增设置字段时不需要在这里加 watch 源,
+  // store 的 snapshotSettings 已经覆盖所有持久化字段。
   watch(
-    [
-      () => store.fontSize,
-      () => store.primaryColor,
-      () => store.fontFamily,
-      () => store.darkMode,
-      () => store.codeLightTheme,
-      () => store.codeDarkTheme,
-      () => store.startupMode,
-      () => store.showCodeLineNumbers,
-      () => store.showBreadcrumbs,
-      () => documentStore.autoSaveEnabled,
-      () => documentStore.autoSaveOnBlur,
-      () => store.activityBarOrder,
-      () => store.activityBarHidden,
-    ],
+    [() => store.snapshotSettings(), () => documentStore.snapshotSettings()],
     () => { debouncedSettingsSave() },
+    { deep: true },
   )
   watch(
     () => outlineStore.collapsedByPath,
@@ -1865,12 +1116,7 @@ onBeforeUnmount(() => {
     clearInterval(draftTimer)
     draftTimer = null
   }
-  if (dirtyFlushTimer) {
-    clearTimeout(dirtyFlushTimer)
-    dirtyFlushTimer = null
-  }
-  void stopWorkspaceWatch()
-  window.removeEventListener('keydown', onKeydown, { capture: true })
+  // keydown / dirtyFlushTimer / stopWorkspaceWatch 的清理已由各 composable 的 onBeforeUnmount 接管
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('focus', onWindowFocus)
 })
@@ -2007,9 +1253,9 @@ watch(editorRef, (v) => {
               @workspace-search-clear-scope="onWorkspaceSearchClearScope"
               @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
               @search-in-folder="onSearchInFolder"
-@locate-image="onLocateImage"
-@reorganize-asset="onReorganizeAsset"
-/>
+              @locate-image="onLocateImage"
+              @reorganize-asset="onReorganizeAsset"
+            />
           </KeepAlive>
         </div>
       </aside>
@@ -2143,35 +1389,3 @@ watch(editorRef, (v) => {
   </div>
 </template>
 
-<style>
-/* 侧栏分隔条视觉(v0.5.5)。
- * 4px 透明点击热区 + 左贴边 ::before 1px 线(gray-200 light / gray-800 dark);
- * hover 或 .velo-splitter-dragging 时视觉线向左右各扩 1px(3px) + 主题色(--md-primary-color)。
- * 不用 Tailwind arbitrary 值表达这套 ::before + transition + 主题色的组合,
- * 直接 CSS 更清晰,且样式只在 App.vue 一处用到,无需抽组件。
- */
-.velo-splitter {
-  position: relative;
-  z-index: 1;
-}
-.velo-splitter::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 1px;
-  pointer-events: none;
-  background-color: #e5e7eb; /* gray-200 */
-  transition: left 120ms ease, width 120ms ease;
-}
-.dark .velo-splitter::before {
-  background-color: #1f2937; /* gray-800 */
-}
-.velo-splitter:hover::before,
-.velo-splitter.velo-splitter-dragging::before {
-  left: -1px;
-  width: 3px;
-  background-color: var(--md-primary-color, #1F71D9);
-}
-</style>

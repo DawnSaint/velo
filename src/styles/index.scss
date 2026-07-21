@@ -135,3 +135,32 @@
   background-color: rgba(255, 255, 255, 0.35);
 }
 
+/* 侧栏分隔条(v0.5.5)。
+ * 4px 透明点击热区 + 左贴边 ::before 1px 线(gray-200 light / gray-800 dark);
+ * hover 或 .velo-splitter-dragging 时视觉线向左右各扩 1px(3px) + 主题色(--md-primary-color)。
+ * 全局样式(与 .velo-scroll 同级),不跟任何组件绑定。 */
+.velo-splitter {
+  position: relative;
+  z-index: 1;
+}
+.velo-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  pointer-events: none;
+  background-color: #e5e7eb; /* gray-200 */
+  transition: left 120ms ease, width 120ms ease;
+}
+.dark .velo-splitter::before {
+  background-color: #1f2937; /* gray-800 */
+}
+.velo-splitter:hover::before,
+.velo-splitter.velo-splitter-dragging::before {
+  left: -1px;
+  width: 3px;
+  background-color: var(--md-primary-color, #1F71D9);
+}
+

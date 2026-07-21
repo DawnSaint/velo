@@ -10,6 +10,7 @@ import {
   loadDrafts as loadDraftsFromFs,
   deleteDraft as deleteDraftFromFs,
   type Draft,
+  type PersistedSettings,
 } from './persistence'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
@@ -1154,6 +1155,24 @@ export const useDocumentStore = defineStore('document', () => {
     pendingRecoveryDrafts.value = []
   }
 
+  // ========== 设置持久化(v0.6.6 重构) ==========
+  // store 自己管 hydrate / snapshot,App.vue 只做泛化分发 —— 新增设置字段不再需要改 App.vue。
+
+  /** 从磁盘 JSON 灌入文档设置。每字段独立 typeof 守门,非法值静默跳过。 */
+  function hydrateSettings(d: PersistedSettings['document']) {
+    if (!d) return
+    if (typeof d.autoSaveEnabled === 'boolean') autoSaveEnabled.value = d.autoSaveEnabled
+    if (typeof d.autoSaveOnBlur === 'boolean') autoSaveOnBlur.value = d.autoSaveOnBlur
+  }
+
+  /** 快照当前文档设置为可序列化对象。App.vue 落盘前调用。 */
+  function snapshotSettings(): PersistedSettings['document'] {
+    return {
+      autoSaveEnabled: autoSaveEnabled.value,
+      autoSaveOnBlur: autoSaveOnBlur.value,
+    }
+  }
+
   return {
     // 多标签核心
     documents,
@@ -1223,5 +1242,7 @@ export const useDocumentStore = defineStore('document', () => {
     recoverDraft,
     discardDraft,
     dismissRecoveryDialog,
+    hydrateSettings,
+    snapshotSettings,
   }
 })
