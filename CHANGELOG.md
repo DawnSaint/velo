@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.4](https://github.com/DawnSaint/velo/compare/v0.7.3...v0.7.4) (2026-07-22)
+
+
+### Features
+
+* **editor:** adapt macOS native window style and fix list backspace bug ([ca162ca](https://github.com/DawnSaint/velo/commit/ca162ca86bb334fc0aa53156de64c7fd4fa6e1a8))
+* **editor:** add superscript `^x^` and subscript `~x~` syntax support ([6ab2447](https://github.com/DawnSaint/velo/commit/6ab2447e45ff32bf3d9f6273236e958ed05e45de))
+* **editor:** parse standalone &lt;hr&gt; HTML as hr node and reveal file in tree on tab click ([adcf53e](https://github.com/DawnSaint/velo/commit/adcf53ed9c5315376433555f1b9d0ceb478a2007))
+* **shell-integration:** implement "Open in Velo" folder context menu for macOS and Linux ([7a540ef](https://github.com/DawnSaint/velo/commit/7a540efe61b13e77d75cab8e1d62680a4f2a43b0))
+
+
+### Bug Fixes
+
+* **editor:** fix cjk punctuation breaking bold emphasis parsing and wrap up v0.7.4 ([843ff62](https://github.com/DawnSaint/velo/commit/843ff621abd5b76b49b192216ec164fbd1c4e875))
+
 ## [0.7.3](https://github.com/DawnSaint/velo/compare/v0.7.2...v0.7.3) (2026-07-20)
 
 
