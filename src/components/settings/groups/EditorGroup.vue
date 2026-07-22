@@ -1,17 +1,40 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useEditorStore } from '@/stores/editor'
-import { BUNDLED_THEMES } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+import { BUNDLED_THEMES, NO_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
+import { THEME_PALETTES } from '@/components/ProseMirrorEditor/nodes/themePalettes'
 import SettingsItem from '../SettingsItem.vue'
+import VeloSelect, { type VeloSelectOption } from '../VeloSelect.vue'
 
 const store = useEditorStore()
 
-const lightThemes = computed(() => BUNDLED_THEMES.filter(t => t.type === 'light'))
-const darkThemes = computed(() => BUNDLED_THEMES.filter(t => t.type === 'dark'))
-
-function themeLabel(t: { displayName: string, id: string }): string {
-  return t.displayName || t.id
+// 从主题色板提取 4 个代表色(keyword / string / func / comment)作为色块预览;
+// 过滤空值(部分主题缺某些 scope 的颜色定义)。
+function themeSwatches(id: string): string[] {
+  const p = THEME_PALETTES[id]
+  if (!p) return []
+  return [p.keyword, p.string, p.func, p.comment].filter(c => c)
 }
+
+// 「无主题」选项:不使用 shiki 渲染,代码块显示纯文本。
+const NO_THEME_OPTION: VeloSelectOption = { value: NO_THEME, label: '无主题' }
+
+const lightThemeOptions = computed<VeloSelectOption[]>(() => [
+  NO_THEME_OPTION,
+  ...BUNDLED_THEMES.filter(t => t.type === 'light').map(t => ({
+    value: t.id,
+    label: t.displayName || t.id,
+    swatches: themeSwatches(t.id),
+  })),
+])
+const darkThemeOptions = computed<VeloSelectOption[]>(() => [
+  NO_THEME_OPTION,
+  ...BUNDLED_THEMES.filter(t => t.type === 'dark').map(t => ({
+    value: t.id,
+    label: t.displayName || t.id,
+    swatches: themeSwatches(t.id),
+  })),
+])
 
 /* ---------- 字号滑块 ---------- */
 // 可视"可拖圆 + 直线"选择器,Obsidian / 微信风格:一段带刻度直线 + 可拖圆。
@@ -127,20 +150,20 @@ function endDrag(e: PointerEvent) {
       lazy load(~100-300ms),由 App.vue watch store 触发 ensureTheme +
       dispatch rebuild。独立于 darkMode toggle(后者是纯 CSS 切色)。 -->
     <SettingsItem label="代码块主题(浅色)" :keywords="['code', 'theme', 'light', 'shiki']">
-      <select
+      <VeloSelect
         v-model="store.codeLightTheme"
-        class="velo-select w-48 rounded-lg border p-1.5 text-sm outline-none"
-      >
-        <option v-for="t in lightThemes" :key="t.id" :value="t.id">{{ themeLabel(t) }}</option>
-      </select>
+        :options="lightThemeOptions"
+        width-class="w-48"
+        aria-label="代码块浅色主题"
+      />
     </SettingsItem>
     <SettingsItem label="代码块主题(深色)" :keywords="['code', 'theme', 'dark', 'shiki']">
-      <select
+      <VeloSelect
         v-model="store.codeDarkTheme"
-        class="velo-select w-48 rounded-lg border p-1.5 text-sm outline-none"
-      >
-        <option v-for="t in darkThemes" :key="t.id" :value="t.id">{{ themeLabel(t) }}</option>
-      </select>
+        :options="darkThemeOptions"
+        width-class="w-48"
+        aria-label="代码块深色主题"
+      />
     </SettingsItem>
 
 

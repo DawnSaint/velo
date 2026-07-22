@@ -2,22 +2,27 @@
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import SettingsItem from '../SettingsItem.vue'
+import VeloSelect from '../VeloSelect.vue'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
+
+const startupModeOptions = [
+  { value: 'last-file', label: '上次打开的文件' },
+  { value: 'new-doc', label: '新文档' },
+]
 </script>
 
 <template>
   <section class="space-y-4 pt-6">
     <!-- 启动时打开内容 -->
     <SettingsItem label="启动时打开" :keywords="['startup', '启动', 'open']">
-      <select
+      <VeloSelect
         v-model="store.startupMode"
-        class="velo-select w-48 rounded-lg border p-1.5 text-sm outline-none"
-      >
-        <option value="last-file">上次打开的文件</option>
-        <option value="new-doc">新文档</option>
-      </select>
+        :options="startupModeOptions"
+        width-class="w-48"
+        aria-label="启动时打开"
+      />
     </SettingsItem>
 
     <SettingsItem label="自动保存" :keywords="['auto', 'save', '自动']" clickable>

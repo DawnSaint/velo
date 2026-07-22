@@ -21,8 +21,6 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import {
   ensureTheme,
   ensureMarkdownGrammar,
-  DEFAULT_LIGHT_THEME,
-  DEFAULT_DARK_THEME,
 } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 import {
   shikiExtensions,
@@ -78,10 +76,11 @@ const viewRef = shallowRef<EditorView | null>(null)
 //  主题镜像 —— 初值取自 store(App.vue codeBlockReady 已 ensure 过 bootstrap
 //  主题,等价于已装)。watch 只管"用户在 settings 面板后续改"。
 // ============================================================
-const lightTheme = ref(editorStore.codeLightTheme || DEFAULT_LIGHT_THEME)
-const darkTheme = ref(editorStore.codeDarkTheme || DEFAULT_DARK_THEME)
+const lightTheme = ref(editorStore.codeLightTheme)
+const darkTheme = ref(editorStore.codeDarkTheme)
 
 // shiki extensions 初值用本地镜像;后续主题切换走 setShikiTheme effect。
+// 空字符串(NO_THEME)直接透传,shikiCmPlugin build 时据此跳过渲染。
 const shikiExts = shikiExtensions({
   lightTheme: lightTheme.value,
   darkTheme: darkTheme.value,

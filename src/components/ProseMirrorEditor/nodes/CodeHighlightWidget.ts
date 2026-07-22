@@ -81,8 +81,9 @@ function makeInitialState(): CodeHighlightState {
   let dark = DEFAULT_DARK_THEME
   try {
     const store = useEditorStore()
-    if (store.codeLightTheme) light = store.codeLightTheme
-    if (store.codeDarkTheme) dark = store.codeDarkTheme
+    // 用 != null 而非 falsy 判断:允许空字符串(NO_THEME 哨兵)通过
+    if (store.codeLightTheme != null) light = store.codeLightTheme
+    if (store.codeDarkTheme != null) dark = store.codeDarkTheme
   }
   catch { /* pinia 未就绪 / 单元测试场景,fallback DEFAULT */ }
   return {
@@ -839,14 +840,17 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
     // `ensureTheme` 追加 + dispatch setMeta 触发 rebuild,跟这里正交。
     ;(async () => {
       const store = useEditorStore()
-      const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
-      const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
+      // ensureTheme 需要 valid theme id,空字符串(NO_THEME)用 DEFAULT 兼容;
+      // 但 dispatch 给 plugin 的 lightTheme/darkTheme 用 store 原值(可能为 ''),
+      // getTokensSync 据此跳过渲染。
+      const lightEns = store.codeLightTheme || DEFAULT_LIGHT_THEME
+      const darkEns = store.codeDarkTheme || DEFAULT_DARK_THEME
       // 即便 state.init 已经同步拿了 hl,这里再 ensureTheme 一次保证
       // "用户主题确实装上了"(防 init 时 cached 来自别的早调用方但装的是
       // DEFAULT 主题 —— 当前 App.vue codeBlockReady 已 ensure 过,理论上
       // cached 的 hl 已经装好用户主题,这里 ensureTheme 是幂等保险)。
-      const hlReady = await ensureTheme(light)
-      await ensureTheme(dark)
+      const hlReady = await ensureTheme(lightEns)
+      await ensureTheme(darkEns)
       if (view.isDestroyed) return
       // **始终 dispatch**:state.init 从 store 同步读到主题名,但主题 hex
       // 可能尚未 loaded(PM 重挂载时若 App.vue watch 的 ensureTheme 还在
@@ -858,8 +862,8 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       // (ensureMarkdownGrammar 后始终 dispatch setShikiTheme)。
       view.dispatch(view.state.tr.setMeta(codeHighlightKey, {
         highlighter: hlReady,
-        lightTheme: light,
-        darkTheme: dark,
+        lightTheme: store.codeLightTheme,
+        darkTheme: store.codeDarkTheme,
       }))
     })().catch((err) => {
       console.warn('[codeHighlight] shiki highlighter 加载失败:', err)

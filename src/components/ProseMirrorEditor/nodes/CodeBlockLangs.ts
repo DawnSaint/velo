@@ -111,6 +111,10 @@ export const BUNDLED_THEMES: ReadonlyArray<{ id: string, displayName: string, ty
 export const DEFAULT_LIGHT_THEME = 'one-light'
 export const DEFAULT_DARK_THEME = 'one-dark-pro'
 
+/** 「无主题」哨兵值 —— 设置面板选「无主题」时 store 存此值,
+ *  getTokensSync / ensureTheme 等全链路据此跳过 shiki 渲染,代码块显示纯文本。 */
+export const NO_THEME = ''
+
 // ============================================================
 //  Highlighter singleton(懒加载主题)
 // ============================================================
@@ -196,6 +200,8 @@ export function getHighlighterSync(): Highlighter | null {
  * 调用方 dispatch tr.setMeta(codeHighlightKey, { highlighter: hl }) 触发 rebuild。
  */
 export async function ensureTheme(themeId: string): Promise<Highlighter> {
+  // 「无主题」哨兵:直接返回当前 hl,不尝试 loadTheme('')
+  if (!themeId) return getHighlighter()
   const hl = await getHighlighter()
   if (hl.getLoadedThemes().includes(themeId)) return hl
   if (loadingThemes.has(themeId)) {
@@ -317,6 +323,8 @@ export function getTokensSync(
   darkTheme: string,
 ): { tokens: ThemedTokenWithVariants[][] } | null {
   if (!hl || !lang) return null
+  // 「无主题」哨兵:light 或 dark 任一为空 → 跳过 shiki 渲染,代码块显示纯文本
+  if (!lightTheme || !darkTheme) return null
   const id = resolveShikiLang(lang)
   if (!hl.getLoadedLanguages().includes(id)) {
     // lang 不在 shiki bundled 列表(用户手敲 `xyz-not-registered` 之类)

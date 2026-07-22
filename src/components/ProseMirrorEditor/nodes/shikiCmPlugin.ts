@@ -99,7 +99,8 @@ export function createShikiHighlighter(
       if (!hl) return Decoration.none
 
       const themeState = view.state.field(themeField)
-      if (!themeState.lightTheme && !themeState.darkTheme) return Decoration.none
+      // 「无主题」哨兵:light 或 dark 任一为空 → 跳过 shiki 渲染
+      if (!themeState.lightTheme || !themeState.darkTheme) return Decoration.none
 
       const code = view.state.doc.toString()
       const result = getTokensSync(hl, code, 'markdown', themeState.lightTheme, themeState.darkTheme)

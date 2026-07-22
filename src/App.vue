@@ -103,6 +103,8 @@ void initSettings()
   .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
+    // 空字符串(NO_THEME) → 用 DEFAULT 装 highlighter(shiki createHighlighter
+    // 需要至少一个合法主题),渲染时 getTokensSync 会据此跳过。
     const light = store.codeLightTheme || DEFAULT_LIGHT_THEME
     const dark = store.codeDarkTheme || DEFAULT_DARK_THEME
     // createHighlighter 是 singleton,本次调用的 lang 集合决定终身装哪些 grammar

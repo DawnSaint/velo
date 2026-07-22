@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { useEditorStore } from '@/stores/editor'
 import SettingsItem from '../SettingsItem.vue'
+import VeloSelect from '../VeloSelect.vue'
 
 const store = useEditorStore()
+
+const themeModeOptions = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '始终浅色' },
+  { value: 'dark', label: '始终暗色' },
+]
 </script>
 
 <template>
@@ -31,14 +38,12 @@ const store = useEditorStore()
     </SettingsItem>
 
     <SettingsItem label="主题模式" :keywords="['dark', 'mode', '夜间', '深色', 'theme', 'system', '系统', '跟随']">
-      <select
+      <VeloSelect
         v-model="store.themeMode"
-        class="velo-select w-40 rounded-lg border p-1.5 text-sm outline-none"
-      >
-        <option value="system">跟随系统</option>
-        <option value="light">始终浅色</option>
-        <option value="dark">始终暗色</option>
-      </select>
+        :options="themeModeOptions"
+        width-class="w-40"
+        aria-label="主题模式"
+      />
     </SettingsItem>
   </section>
 </template>

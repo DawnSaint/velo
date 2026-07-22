@@ -65,20 +65,150 @@
   color: rgb(209 213 219); /* gray-300 */
 }
 
-/* select 控件 */
-.velo-select {
-  border-color: rgb(229 231 235); /* gray-200 */
+/* ---------- 自定义下拉(VeloSelect) ---------- */
+// 替代原生 <select>,支持色块预览(代码块主题)、自定义 chevron、
+// 统一深浅色外观。面板 Teleport 到 body(fixed 定位,防 overflow 裁切),
+// 故样式走全局 partial(同 _context-menu.scss 范式)。
+
+/* 触发按钮:视觉与旧 .velo-select 对齐(gray-200 border / white bg / text-sm) */
+.velo-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left; /* 覆盖 <button> 默认 text-align:center */
+  border: 1px solid rgb(229 231 235); /* gray-200 */
+  border-radius: 0.5rem;
   background-color: white;
   color: rgb(17 24 39); /* gray-900 */
   font-size: 0.8125rem;
+  padding: 0.375rem 0.625rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.dark .velo-select {
+.velo-select-trigger:hover {
+  border-color: rgb(209 213 219); /* gray-300 */
+}
+.velo-select-trigger:focus-visible {
+  border-color: var(--md-primary-color, #1F71D9);
+  box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+}
+.dark .velo-select-trigger {
   border-color: rgb(55 65 81); /* gray-700 */
   background-color: rgb(37 37 37); /* #252525 */
   color: rgb(229 231 235); /* gray-200 */
 }
-.velo-select option {
+.dark .velo-select-trigger:hover {
+  border-color: rgb(75 85 99); /* gray-600 */
+}
+.dark .velo-select-trigger:focus-visible {
+  border-color: var(--md-primary-color, #1F71D9);
+  box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+}
+
+/* chevron:展开时旋转 180° */
+.velo-select-chevron {
+  flex-shrink: 0;
+  opacity: 0.45;
+  transition: transform .15s ease;
+}
+.velo-select-trigger[aria-expanded="true"] .velo-select-chevron {
+  transform: rotate(180deg);
+}
+
+/* 下拉面板:Teleport to body,fixed 定位 */
+.velo-select-panel {
+  position: fixed;
+  z-index: 1100;
+  border-radius: 0.5rem;
+  background: white;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+html.dark .velo-select-panel {
+  background: rgb(31 41 55); /* gray-800 */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+/* 面板滚动条:对齐全局色阶(亮 0.3/0.5,暗 0.2/0.35) */
+.velo-select-panel::-webkit-scrollbar { width: 8px; }
+.velo-select-panel::-webkit-scrollbar-track { background: transparent; }
+.velo-select-panel::-webkit-scrollbar-thumb {
+  background-color: rgba(144, 146, 152, 0.3);
+  border-radius: 4px;
+  &:hover { background-color: rgba(144, 146, 152, 0.5); }
+}
+html.dark .velo-select-panel::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.2);
+  &:hover { background-color: rgba(255, 255, 255, 0.35); }
+}
+
+/* 面板出现/消失过渡 */
+.velo-select-panel-enter-active,
+.velo-select-panel-leave-active {
+  transition: opacity .12s ease, transform .12s ease;
+}
+.velo-select-panel-enter-from,
+.velo-select-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* 选项行:左 label 右色块(可选),hover / highlighted 高亮 */
+.velo-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
   font-size: 0.8125rem;
+  color: rgb(55 65 81); /* gray-700 */
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background-color .1s ease;
+}
+.velo-select-option:hover,
+.velo-select-option--highlighted {
+  background: rgb(243 244 246); /* gray-100 */
+}
+.velo-select-option--selected {
+  font-weight: 500;
+  color: var(--md-primary-color, #1F71D9);
+}
+.velo-select-option__label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html.dark .velo-select-option {
+  color: rgb(229 231 235); /* gray-200 */
+}
+html.dark .velo-select-option:hover,
+html.dark .velo-select-option--highlighted {
+  background: rgb(55 65 81); /* gray-700 */
+}
+
+/* 色块预览:4 个小圆点,展示主题代表色(keyword / string / func / comment) */
+.velo-select-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.velo-select-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+html.dark .velo-select-swatch {
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 去掉 input[type=color] 默认外观,内部色块撑满整个圆 */
