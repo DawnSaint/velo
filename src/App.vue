@@ -474,6 +474,12 @@ function activeBackend() {
 //   (与旧 watch(initialQuery) 语义一致)。findOpen 已 true 不变,FindReplace 的
 //   query watcher 会自动重算。
 function openFind() {
+  // 设置页激活时 Ctrl+F / 命令面板「查找」→ focus 设置搜索框，
+  // 不设 findOpen=true，避免切回文档 tab 时 FindReplace 自动弹出。
+  if (settingsActive.value) {
+    document.querySelector<HTMLInputElement>('[data-settings-search-input]')?.focus()
+    return
+  }
   const sel = currentSelectionText()
   if (!findOpen.value) {
     findQuery.value = sel
@@ -490,6 +496,10 @@ function openFind() {
 }
 
 function openReplace() {
+  if (settingsActive.value) {
+    document.querySelector<HTMLInputElement>('[data-settings-search-input]')?.focus()
+    return
+  }
   const sel = currentSelectionText()
   if (!findOpen.value) {
     findQuery.value = sel
@@ -810,6 +820,7 @@ useGlobalKeybindings({
   openWorkspaceSearch,
   openCommandPalette,
   openQuickOpen,
+  showSettingsPanel,
   toggleFullscreen,
   toggleFocusMode,
   toggleTypewriterMode,

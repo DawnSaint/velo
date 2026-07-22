@@ -22,7 +22,7 @@ jobs:
             artifact_id: linux-x64
           - platform: macos-latest
             artifact_id: macos-arm64
-          - platform: macos-13
+          - platform: macos-15-intel
             artifact_id: macos-x64
           - platform: windows-latest
             artifact_id: windows-x64

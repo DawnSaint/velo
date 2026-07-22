@@ -91,7 +91,7 @@ extern "C" fn open_in_velo(
         let nsurl_class: *mut Object = class!(NSURL);
         let classes: *mut Object = msg_send![class!(NSArray), arrayWithObject: nsurl_class];
         let urls: *mut Object =
-            msg_send![pboard, readObjectsForClasses: classes, options: std::ptr::null_mut::<Object>()];
+            msg_send![pboard, readObjectsForClasses: classes options: std::ptr::null_mut::<Object>()];
         if urls.is_null() {
             log::warn!("[shell_integration] openInVelo: 读 pasteboard URLs 失败");
             return;

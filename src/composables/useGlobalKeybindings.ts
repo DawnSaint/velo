@@ -26,6 +26,7 @@ export function useGlobalKeybindings(opts: {
   openWorkspaceSearch: () => void
   openCommandPalette: () => void
   openQuickOpen: () => void
+  showSettingsPanel: () => void
   toggleFullscreen: () => void
   toggleFocusMode: () => void
   toggleTypewriterMode: () => void
@@ -42,14 +43,23 @@ export function useGlobalKeybindings(opts: {
   // preventDefault,事件到达目标元素前 default action 已被标记为取消。
   // stopPropagation 防止冒泡到其他 window/document 上的扩展 / 第三方脚本再开一次。
   function onKeydown(e: KeyboardEvent) {
+    // F3 / Shift+F3: suppress browser find-next/prev (no Ctrl/Cmd, so
+    // must be handled before the guard below)
+    if (e.key === 'F3') {
+      e.preventDefault()
+      return
+    }
+    // F5: suppress browser reload — desktop editor has no reload path
+    if (e.key === 'F5') {
+      e.preventDefault()
+      return
+    }
     if (!(e.ctrlKey || e.metaKey)) return
     const k = e.key.toLowerCase()
-    // Ctrl+F(capture 阶段)无条件 preventDefault —— 必须先压过 webview 内置的
-    // "find in page" 搜索框,再决定行为分发:焦点在 FindReplace 内 → 让面板处理
-    // (closest 命中,return);否则 → 走下面的 openFind。不能在 closest 检查之后
-    // 再 preventDefault,否则焦点在面板内时 return 时 default action 还没被
-    // 拦,WebView2 仍会弹内置搜索框。
-    if (k === 'f' && !e.shiftKey) e.preventDefault()
+    // Ctrl+F / Ctrl+G / Ctrl+R: unconditional preventDefault —— must happen
+    // before the closest check below, otherwise focus in FindReplace would let
+    // browser find-in-page / find-next / reload slip through.
+    if ((k === 'f' && !e.shiftKey) || k === 'g' || k === 'r') e.preventDefault()
     const target = e.target as HTMLElement | null
     // 焦点在 FindReplace / 命令面板里 → 让面板自己处理(避免双触发)。
     // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,
@@ -105,6 +115,12 @@ export function useGlobalKeybindings(opts: {
       e.stopPropagation()
       documentStore.toggleSourceMode()
     }
+    else if (k === ',') {
+      // Ctrl/Cmd+, 打开设置页(VSCode 风格)
+      e.preventDefault()
+      e.stopPropagation()
+      opts.showSettingsPanel()
+    }
     else if (k === 'e' && e.shiftKey) {
       // 导出(Ctrl/Cmd+Shift+E):走原生 saveDialog 多 filter(HTML / PDF)
       e.preventDefault()
@@ -129,10 +145,20 @@ export function useGlobalKeybindings(opts: {
     else if (k === 'r' && e.shiftKey) {
       // 阅读模式 toggle(Ctrl/Cmd+Shift+R):复用 Ctrl+Shift+R 这个本属浏览器硬刷新
       // 的快捷键 —— 应用层 capture 阶段 preventDefault 让 webview 永远拿不到刷新信号。
-      // 与下文 Ctrl+R / F5 拦截配合,桌面 markdown editor 下不存在"误刷新丢未保存"的路径。
+      // 与上方 Ctrl+R / F5 拦截配合,桌面 markdown editor 下不存在"误刷新丢未保存"的路径。
       e.preventDefault()
       e.stopPropagation()
       documentStore.readOnly = !documentStore.readOnly
+    }
+    else if (k === 'r' && !e.shiftKey) {
+      // Ctrl/Cmd+R: suppress browser reload (preventDefault 已在上方无条件调用,
+      // 此处 stopPropagation 防止冒泡到其他可能触发刷新的 handler)
+      e.stopPropagation()
+    }
+    else if (k === 'g') {
+      // Ctrl/Cmd+G / Ctrl+Shift+G: suppress browser find-next/prev (preventDefault
+      // 已在上方无条件调用,此处 stopPropagation 收尾)
+      e.stopPropagation()
     }
   }
 

@@ -52,10 +52,15 @@ export function useWorkspaceSearch(opts: {
     const sel = opts.currentSelectionText()
     if (sel) workspaceSearchInitialQuery.value = sel
     opts.quickCommandOpen.value = false
-    opts.findOpen.value = false
     if (opts.leftPanelView.value !== 'sidebar' || workspaceStore.sidebarTab !== 'search') {
       opts.showSidebarTab('search')
     }
+    // 始终 focus 搜索输入框:侧栏已在 search tab 且无选区时,initialQuery 不变 →
+    // panel 的 watcher 不触发 → 输入框不会被 focus。这里 nextTick 后手动 focus,
+    // 确保 Ctrl+Shift+F 从 FindReplace / 编辑器按下时搜索框都能获得焦点。
+    nextTick(() => {
+      document.querySelector<HTMLInputElement>('[data-testid="workspace-search-input"]')?.focus()
+    })
   }
 
   // FindReplace 内的 Ctrl+Shift+F / Ctrl+H 不走 App.vue 的 onKeydown(capture 阶段

@@ -151,6 +151,7 @@ onBeforeUnmount(() => {
       />
       <input
         ref="inputRef"
+        data-settings-search-input
         v-model="query"
         type="text"
         placeholder="搜索设置"
