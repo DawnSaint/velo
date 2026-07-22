@@ -136,8 +136,9 @@
 }
 
 /* 侧栏分隔条(v0.5.5)。
- * 4px 透明点击热区 + 左贴边 ::before 1px 线(gray-200 light / gray-800 dark);
- * hover 或 .velo-splitter-dragging 时视觉线向左右各扩 1px(3px) + 主题色(--md-primary-color)。
+ * 4px 透明点击热区;常态不画硬线,视觉分隔由编辑器区的
+ * .velo-editor-shadow::before 渐变负责(见下方);hover 或
+ * .velo-splitter-dragging 时 ::before 出现 3px 主题色硬线作为拖拽抓取反馈。
  * 全局样式(与 .velo-scroll 同级),不跟任何组件绑定。 */
 .velo-splitter {
   position: relative;
@@ -149,18 +150,39 @@
   top: 0;
   bottom: 0;
   left: 0;
-  width: 1px;
+  width: 3px;
   pointer-events: none;
-  background-color: #e5e7eb; /* gray-200 */
-  transition: left 120ms ease, width 120ms ease;
-}
-.dark .velo-splitter::before {
-  background-color: #1f2937; /* gray-800 */
+  background-color: transparent;
+  transition: background-color 120ms ease;
 }
 .velo-splitter:hover::before,
 .velo-splitter.velo-splitter-dragging::before {
-  left: -1px;
-  width: 3px;
   background-color: var(--md-primary-color, #1F71D9);
+}
+
+
+/* 功能区与编辑器区的视觉分隔(v0.5.5 shadow 方案)。
+ * 在编辑器区左边缘用 ::before 伪元素画朝右渐变的 shadow,替代旧的 1px 硬线。
+ * 为什么不画在 .velo-splitter 上:ProseMirrorEditor / SourceModeEditor /
+ * SettingsPage 根 div 都有 position:relative + 不透明背景(bg-white /
+ * dark:bg-[#1e1e1e]),会覆盖 splitter 投射过去的 box-shadow。改画在编辑器区
+ * 自身内部,::before 的 z-index:1 确保在编辑器内容(z-index:auto)之上。
+ * 仅在侧栏可见时由 App.vue 绑定 .velo-editor-shadow class 激活。 */
+.velo-editor-shadow {
+  position: relative;
+}
+.velo-editor-shadow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 10px;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.04), transparent);
+}
+.dark .velo-editor-shadow::before {
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.4), transparent);
 }
 

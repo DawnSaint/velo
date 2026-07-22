@@ -46,7 +46,7 @@ import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCurs
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
 import { NodeSelection } from 'prosemirror-state'
-import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { resolveImageAssetAbsPath, dirnameSync } from '@/utils/imagePath'
 import { mark, measure, report } from '@/utils/perf'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm } from '@/tauri/dialog'
@@ -907,7 +907,9 @@ onMounted(async () => {
   // main 冷启动且没有 CLI dir 时,才把 persisted active 当作恢复 hint;
   // 动态窗口默认不继承其它窗口的 active,避免新空窗口自动打开别的工作区。
   const workspacesLoaded = await loadWorkspaces()
-  const shouldRestoreActive = !tauri || (windowLabel === MAIN_WINDOW_LABEL && !initialPayload.dirs?.[0])
+  // CLI 带文件时也不恢复持久化工作区:用户右键 MD 文件打开 Velo,期望看到该文件
+  // 的父目录作为工作区,而不是上次的某个工作区。
+  const shouldRestoreActive = !tauri || (windowLabel === MAIN_WINDOW_LABEL && !initialPayload.dirs?.[0] && !initialPayload.files?.[0])
 
   // 关键:loadFrom 之后**立即**把 openTabs + activeTab 拍快照到本地。
   // 原因:下面 startup 段(CLI initialFile / startupMode='last-file')会调
@@ -925,9 +927,30 @@ onMounted(async () => {
   await recentFilesStore.hydrate()
 
   const initialDir = initialPayload.dirs?.[0]
-  if (initialDir) workspaceStore.setActiveRoot(initialDir)
   const initialFile = initialPayload.files?.[0]
-  if (initialFile) await documentStore.openPathInTab(initialFile)
+
+  // CLI 目录(文件夹右键菜单「在 Velo 中打开」):设为工作区根 + 展开 files 侧栏,
+  // 让用户直接在文件树中选择文件,而非面对一个空白未命名 Tab。
+  if (initialDir) {
+    workspaceStore.setActiveRoot(initialDir)
+    workspaceStore.setSidebarTab('files')
+    leftPanelView.value = 'sidebar'
+  }
+
+  // CLI 文件(MD 文件右键菜单「在 Velo 中打开」):打开文件 + 把父目录设为工作区根
+  // + 展开 files 侧栏。无 initialDir 时才从文件推父目录(目录 + 文件混杂时目录已设为
+  // 根,文件仅作为当前文档)。
+  if (initialFile) {
+    if (!initialDir) {
+      const parentDir = dirnameSync(initialFile)
+      if (parentDir) {
+        workspaceStore.setActiveRoot(parentDir)
+        workspaceStore.setSidebarTab('files')
+        leftPanelView.value = 'sidebar'
+      }
+    }
+    await documentStore.openPathInTab(initialFile)
+  }
 
   // 无 CLI 参数 + 非首次启动:按 editor.startupMode 决定打开内容。
   //   - 'last-file'(默认):尝试打开全局最近文件(recentFilesStore 已在 0.1 hydrate);
@@ -1260,11 +1283,10 @@ watch(editorRef, (v) => {
         </div>
       </aside>
 
-      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1) + 左贴边 1px 线;
-           hover/drag 时向左右各扩 1px(3px)并上主题色(--md-primary-color)。
-           CSS 规则见下方 <style> 块,因为 Tailwind 不便表达 ::before 视觉层
-           与透明命中区分离的组合,直接写 CSS 更清晰。
-           收起时不渲染,避免 0 宽侧栏旁出现孤立 1px 条。 -->
+      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1);常态不画硬线,
+           视觉分隔由编辑器区的 .velo-editor-shadow::before 渐变负责;
+           hover/drag 时 ::before 出现 3px 主题色硬线作拖拽抓取反馈。
+           CSS 规则在 index.scss。收起时不渲染。 -->
       <div
         v-if="leftPanelView"
         class="velo-splitter w-1 shrink-0 cursor-col-resize bg-transparent"
@@ -1282,7 +1304,7 @@ watch(editorRef, (v) => {
            mount 早于 `await getHighlighter()` resolve,plugin 第一次跑
            decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
            setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
-      <div class="flex flex-1 flex-col min-w-0">
+      <div class="flex flex-1 flex-col min-w-0" :class="{ 'velo-editor-shadow': leftPanelView }">
         <!-- 设置页(#settings-panel 重做):整页接管编辑器主区域,顶部 Tab 切换类目
              (编辑器 / 外观 / 文档 / 系统)。取代旧流式布局 + 侧栏大纲虚拟模式导航。
              设置 tab 后台保留:切文档 tab 只失活(v-if 用 settingsActive),

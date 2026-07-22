@@ -23,6 +23,7 @@ import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
+import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
 import { remarkSupSub } from '../plugins/remarkSupSub'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
@@ -33,6 +34,58 @@ import type { FrontmatterLang } from '../syntax/block/frontmatter'
 // ============================================================
 //  unified processor
 // ============================================================
+
+/**
+ * 自定义 strong handler —— 覆盖 mdast-util-to-markdown 默认 handler。
+ *
+ * 默认 handler 在 strong 内容以标点结尾且后跟字母时,会把字母编码为 HTML 实体
+ * (如 `&#x6B63;`),防止 `**` 闭合判定失败(CommonMark right-flanking 规则)。
+ * 但 remarkCjkEmphasis 插件已在 parse 阶段修复 CJK 标点导致的解析问题,
+ * outside 编码不再必要 —— 保留它会令源码视图出现丑陋的 `&#x6B63;`。
+ *
+ * 保留 inside 编码(内容首尾是空白时仍需编码,防 `**` delimiter 歧义)。
+ * outside 编码跳过:不设置 attentionEncodeSurroundingInfo。
+ */
+function encodeCharRef(code: number): string {
+  return '&#x' + code.toString(16).toUpperCase() + ';'
+}
+
+const strongHandler = function (node: any, _parent: any, state: any, info: any) {
+  const marker = state.options.strong || '*'
+  const exit = state.enter('strong')
+  const tracker = state.createTracker(info)
+  const before = tracker.move(marker + marker)
+
+  let between = tracker.move(
+    state.containerPhrasing(node, {
+      after: marker,
+      before,
+      ...tracker.current(),
+    })
+  )
+
+  // inside 编码:内容首尾是空白时编码为 HTML 实体,防 `**` delimiter 歧义。
+  // 与 mdast-util-to-markdown 的 encodeInfo inside 逻辑对齐。
+  const head = between.charAt(0)
+  if (head === ' ' || head === '\t') {
+    between = encodeCharRef(head.charCodeAt(0)) + between.slice(1)
+  }
+  const tail = between.charAt(between.length - 1)
+  if (tail === ' ' || tail === '\t') {
+    between = between.slice(0, -1) + encodeCharRef(tail.charCodeAt(0))
+  }
+
+  const after = tracker.move(marker + marker)
+  exit()
+
+  // 跳过 outside 编码:不设置 attentionEncodeSurroundingInfo。
+  state.attentionEncodeSurroundingInfo = undefined
+
+  return before + between + after
+}
+strongHandler.peek = function (_node: any, _parent: any, state: any) {
+  return state.options.strong || '*'
+}
 
 const processor = unified()
   .use(remarkParse)
@@ -48,6 +101,9 @@ const processor = unified()
   .use(remarkAlert)
   .use(remarkHighlight)
   .use(remarkUnderline)
+  // CJK 标点（：。（）等）会破坏 CommonMark 的 emphasis delimiter 判定，
+  // 导致 `**text：**more` 不被识别为 strong。此插件在 mdast 层补齐。
+  .use(remarkCjkEmphasis)
   // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
   .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkStringify, {
@@ -59,6 +115,8 @@ const processor = unified()
     rule: '-',
     ruleSpaces: false,
     handlers: {
+      // 自定义 strong handler(见上方 strongHandler 定义)。
+      strong: strongHandler,
       // ==xxx== 高亮。mdast 没有原生 highlight 节点,这里走 state.write
       // 原样输出 `==`,内层 children 走 state.all 让 remark-stringify 自己序列化
       // (嵌套 strong / emphasis / link 都正确)。

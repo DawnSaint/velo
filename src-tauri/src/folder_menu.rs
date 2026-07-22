@@ -13,6 +13,17 @@
 //! (用户移动 exe 的场景);`md_menu` 不需要运行时刷新,因为安装器写后 exe
 //! 路径不变。前端设置面板通过 `set_folder_menu` / `set_md_menu`
 //! 在运行时切换,写入偏好 + 立即注册/注销菜单树。
+//!
+//! **debug 构建跳过注册表写入**:debug exe 路径(`target/debug/velo.exe`)是
+//! 临时路径,写入注册表会让右键菜单启动 debug 版本 → 尝试连接 Vite dev
+//! server(5273)并弹出终端窗口(console subsystem)。右键菜单注册由安装器
+//! + release 版本负责,debug 构建只读写偏好标志,不触碰注册表菜单树。
+//! 因此注册表操作函数在 debug 构建下无调用者,模块级 allow(dead_code)。
+
+// debug 构建跳过注册表菜单树操作(ensure_registered / set_*_menu 内的
+// #[cfg(not(debug_assertions))] 块),导致 register_* / unregister_* /
+// notify_shell_changed / 相关常量无调用者。release 构建正常检查 dead_code。
+#![cfg_attr(debug_assertions, allow(dead_code))]
 
 use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_FLUSH};
 use winreg::enums::*;
@@ -61,20 +72,29 @@ const PREF_MD_MENU: &str = "MdMenu";
 /// 启动时调用:读 FolderMenu 偏好,按需刷新文件夹菜单的 exe 路径。
 /// best-effort:失败仅 warn,不抛错给调用方。
 pub fn ensure_registered() {
-  let enabled = read_pref(PREF_FOLDER_MENU).map(|v| v != "0").unwrap_or(true);
-  if !enabled {
-    log::info!("[shell_integration] 文件夹右键菜单偏好为 0,跳过注册");
+  #[cfg(debug_assertions)]
+  {
+    log::info!("[shell_integration] debug 构建,跳过文件夹右键菜单注册表刷新");
     return;
   }
-  let exe = match std::env::current_exe() {
-    Ok(p) => p,
-    Err(e) => {
-      log::warn!("[shell_integration] 取 exe 路径失败,跳过注册: {}", e);
+
+  #[cfg(not(debug_assertions))]
+  {
+    let enabled = read_pref(PREF_FOLDER_MENU).map(|v| v != "0").unwrap_or(true);
+    if !enabled {
+      log::info!("[shell_integration] 文件夹右键菜单偏好为 0,跳过注册");
       return;
     }
-  };
-  if let Err(e) = register_folder_menu(&exe.to_string_lossy()) {
-    log::warn!("[shell_integration] 刷新文件夹右键菜单失败: {}", e);
+    let exe = match std::env::current_exe() {
+      Ok(p) => p,
+      Err(e) => {
+        log::warn!("[shell_integration] 取 exe 路径失败,跳过注册: {}", e);
+        return;
+      }
+    };
+    if let Err(e) = register_folder_menu(&exe.to_string_lossy()) {
+      log::warn!("[shell_integration] 刷新文件夹右键菜单失败: {}", e);
+    }
   }
 }
 
@@ -95,41 +115,61 @@ pub fn md_menu_enabled() -> bool {
 /// 运行时切换文件夹右键菜单。写入偏好 + 注册/注销菜单树 + SHChangeNotify。
 pub fn set_folder_menu(enabled: bool) {
   write_pref(PREF_FOLDER_MENU, enabled);
-  if enabled {
-    let exe = match std::env::current_exe() {
-      Ok(p) => p.to_string_lossy().to_string(),
-      Err(e) => {
-        log::warn!("[shell_integration] 取 exe 路径失败: {}", e);
-        return;
-      }
-    };
-    if let Err(e) = register_folder_menu(&exe) {
-      log::warn!("[shell_integration] 注册文件夹右键菜单失败: {}", e);
-    }
-  } else {
-    unregister_folder_menu();  // 双侧 best-effort,内部已处理错误
+  // debug 构建不修改注册表菜单树(避免写入 debug exe 路径),只更新偏好标志。
+  #[cfg(debug_assertions)]
+  {
+    log::info!("[shell_integration] debug 构建,仅更新偏好,跳过注册表写入");
+    return;
   }
-  notify_shell_changed();
+
+  #[cfg(not(debug_assertions))]
+  {
+    if enabled {
+      let exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+          log::warn!("[shell_integration] 取 exe 路径失败: {}", e);
+          return;
+        }
+      };
+      if let Err(e) = register_folder_menu(&exe) {
+        log::warn!("[shell_integration] 注册文件夹右键菜单失败: {}", e);
+      }
+    } else {
+      unregister_folder_menu();  // 双侧 best-effort,内部已处理错误
+    }
+    notify_shell_changed();
+  }
 }
 
 /// 运行时切换 .md 文件右键菜单。写入偏好 + 注册/注销菜单树 + SHChangeNotify。
 pub fn set_md_menu(enabled: bool) {
   write_pref(PREF_MD_MENU, enabled);
-  if enabled {
-    let exe = match std::env::current_exe() {
-      Ok(p) => p.to_string_lossy().to_string(),
-      Err(e) => {
-        log::warn!("[shell_integration] 取 exe 路径失败: {}", e);
-        return;
-      }
-    };
-    if let Err(e) = register_md_menu(&exe) {
-      log::warn!("[shell_integration] 注册 .md 右键菜单失败: {}", e);
-    }
-  } else {
-    unregister_md_menu();  // 双侧 best-effort,内部已处理错误
+  // debug 构建不修改注册表菜单树(避免写入 debug exe 路径),只更新偏好标志。
+  #[cfg(debug_assertions)]
+  {
+    log::info!("[shell_integration] debug 构建,仅更新偏好,跳过注册表写入");
+    return;
   }
-  notify_shell_changed();
+
+  #[cfg(not(debug_assertions))]
+  {
+    if enabled {
+      let exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+          log::warn!("[shell_integration] 取 exe 路径失败: {}", e);
+          return;
+        }
+      };
+      if let Err(e) = register_md_menu(&exe) {
+        log::warn!("[shell_integration] 注册 .md 右键菜单失败: {}", e);
+      }
+    } else {
+      unregister_md_menu();  // 双侧 best-effort,内部已处理错误
+    }
+    notify_shell_changed();
+  }
 }
 
 // ---------------------------------------------------------------------------

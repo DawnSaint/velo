@@ -154,14 +154,14 @@ onBeforeUnmount(() => {
         v-model="query"
         type="text"
         placeholder="搜索设置"
-        class="w-48 h-8 rounded-2xl border border-gray-200 bg-white pl-8 pr-6 text-xs text-gray-900/80 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+        class="w-48 h-8 rounded-2xl border border-gray-200 bg-white pl-8 pr-6 text-xs text-gray-900/80 outline-none focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
         @keydown="onKeydown"
         @focus="open = results.length > 0"
       >
       <button
         v-if="query"
         type="button"
-        class="absolute right-1.5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        class="absolute right-1.5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
         title="清空"
         @click="clearQuery"
       >
