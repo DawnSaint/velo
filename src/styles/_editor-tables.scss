@@ -76,7 +76,7 @@
     bottom: 0;
     width: 3px;
     z-index: 20;
-    background-color: var(--md-primary-color, var(--velo-table-resize-handle, #3370ff));
+    background-color: var(--md-doc-primary-color, var(--velo-table-resize-handle, #3370ff));
     pointer-events: none;
   }
 
@@ -164,8 +164,8 @@
   &:hover::before {
     width: 20px;
     height: 20px;
-    background: var(--md-primary-color, #3370ff);
-    box-shadow: 0 1px 4px color-mix(in srgb, var(--md-primary-color, #3370ff) 35%, transparent);
+    background: var(--md-doc-primary-color, #3370ff);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--md-doc-primary-color, #3370ff) 35%, transparent);
   }
 
   &:hover svg {
@@ -178,7 +178,7 @@
   z-index: 999;
   display: none; // JS 控制显示
   pointer-events: none;
-  background: var(--md-primary-color, #3370ff);
+  background: var(--md-doc-primary-color, #3370ff);
 }
 
 // ============ 行列拾取条(飞书风格,挂编辑器滚动容器内) ============
@@ -219,12 +219,12 @@
   }
   // 当前整行/整列选中:主题色实色(取 activity 主题色),无外圈光晕
   &.is-active::before {
-    background: var(--md-primary-color, #3370ff);
+    background: var(--md-doc-primary-color, #3370ff);
   }
   // 拖拽扩展选区区间高亮:比 is-active 稍浅的主题色实色(取 activity 主题色),
   // 覆盖在 is-active 之上,给瞬时扩展态视觉反馈。
   &.is-active-range::before {
-    background: color-mix(in srgb, var(--md-primary-color, #3370ff) 65%, transparent);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #3370ff) 65%, transparent);
   }
   // 拖拽中的拾取条:仅提升 z-index 浮在 insert dot(1000) 之上,不加 ring/光晕,
   // 视觉高亮统一由 `.is-active-range` 承载(起点在 pointerdown 时即加入选区),
@@ -260,11 +260,11 @@
 }
 
 :is(.dark) .velo-t-insert-dot:hover::before {
-  background: var(--md-primary-color, #4d8eff);
+  background: var(--md-doc-primary-color, #4d8eff);
 }
 
 :is(.dark) .velo-t-insert-guide {
-  background: var(--md-primary-color, #4d8eff);
+  background: var(--md-doc-primary-color, #4d8eff);
 }
 
 // 拾取条暗色:hover 换成表格分隔线暗色(#3a3a3a);active / active-range / dragging 仍为主题色。
@@ -276,10 +276,10 @@
     background: #3a3a3a;
   }
   &.is-active::before {
-    background: var(--md-primary-color, #4d8eff);
+    background: var(--md-doc-primary-color, #4d8eff);
   }
   &.is-active-range::before {
-    background: color-mix(in srgb, var(--md-primary-color, #4d8eff) 65%, transparent);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #4d8eff) 65%, transparent);
   }
   &.is-dragging {
     z-index: 1001;

@@ -8,7 +8,7 @@
   min-width: 1.2em;
   padding: 0 2px;
   border-radius: 3px;
-  color: var(--md-primary-color, #1F71D9);
+  color: var(--md-doc-primary-color, #1F71D9);
   font-weight: 600;
   font-size: 0.85em;
   line-height: 1.4;
@@ -20,12 +20,12 @@
   transition: background-color 0.15s;
 
   &:hover {
-    background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #1F71D9) 12%, transparent);
   }
 
   &:focus {
     background: #fff8dc;
-    box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+    box-shadow: 0 0 0 1px var(--md-doc-primary-color, #1F71D9);
   }
 }
 
@@ -57,7 +57,7 @@
   min-width: 1.2em;
   padding: 0 2px;
   border-radius: 3px;
-  color: var(--md-primary-color, #1F71D9);
+  color: var(--md-doc-primary-color, #1F71D9);
   font-weight: 600;
   font-size: 0.85em;
   line-height: 1.4;
@@ -66,7 +66,7 @@
   transition: background-color 0.15s;
 
   &:hover {
-    background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #1F71D9) 12%, transparent);
   }
 }
 
@@ -107,7 +107,7 @@
 /* footnote_label 节点渲染为 <dt>,套用之前的 .footnote-label 视觉 */
 .velo-editor .footnote-definition .footnote-content > dt {
   flex: 0 0 auto;
-  color: var(--md-primary-color, #1F71D9);
+  color: var(--md-doc-primary-color, #1F71D9);
   font-weight: 600;
   cursor: text;
   outline: none;
@@ -120,13 +120,13 @@
   margin: 0;
 
   &:hover {
-    background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 10%, transparent);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #1F71D9) 10%, transparent);
   }
 
   &:focus,
   &:focus-within {
     background: #fff8dc;
-    box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
+    box-shadow: 0 0 0 1px var(--md-doc-primary-color, #1F71D9);
   }
 }
 
@@ -138,7 +138,7 @@
 
 .velo-editor .footnote-definition .footnote-backref {
   flex: 0 0 auto;
-  color: var(--md-primary-color, #1F71D9);
+  color: var(--md-doc-primary-color, #1F71D9);
   text-decoration: none;
   font-weight: 700;
   cursor: pointer;

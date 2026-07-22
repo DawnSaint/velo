@@ -37,6 +37,10 @@ export const useEditorStore = defineStore('editor', () => {
   /** 编辑器顶部面包屑(可选开关,默认开启)。
    * 纯 UI 偏好,不进 documentStore / 不持久化到 per-workspace。 */
   const showBreadcrumbs = ref(true)
+  /** 主题色是否影响文档内容颜色(标题 / 加粗 / 列表 / 折叠 / 表格等)。
+   * 默认 false —— 文档内容使用各规则兜底的默认色,不受用户主色影响;
+   * 开启后文档内容色跟随 --md-primary-color(旧行为)。 */
+  const themeColorAffectsDoc = ref(false)
 
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
@@ -115,6 +119,7 @@ export const useEditorStore = defineStore('editor', () => {
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') startupMode.value = e.startupMode
     if (typeof e.showCodeLineNumbers === 'boolean') showCodeLineNumbers.value = e.showCodeLineNumbers
     if (typeof e.showBreadcrumbs === 'boolean') showBreadcrumbs.value = e.showBreadcrumbs
+    if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
     // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。
     hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
   }
@@ -131,6 +136,7 @@ export const useEditorStore = defineStore('editor', () => {
       startupMode: startupMode.value,
       showCodeLineNumbers: showCodeLineNumbers.value,
       showBreadcrumbs: showBreadcrumbs.value,
+      themeColorAffectsDoc: themeColorAffectsDoc.value,
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
     }
@@ -146,6 +152,7 @@ export const useEditorStore = defineStore('editor', () => {
     startupMode,
     showCodeLineNumbers,
     showBreadcrumbs,
+    themeColorAffectsDoc,
     activityBarOrder,
     activityBarHidden,
     visibleActivityBarItems,

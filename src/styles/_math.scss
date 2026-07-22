@@ -38,7 +38,7 @@
 .math-inline-node[data-mode="edit"] .math-inline-display {
   margin-left: 6px;
   opacity: 0.85;
-  border-left: 1px solid color-mix(in srgb, var(--md-primary-color, #1F71D9) 30%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--md-doc-primary-color, #1F71D9) 30%, transparent);
   padding-left: 6px;
 }
 
@@ -99,7 +99,7 @@
 }
 /* 选中态(NodeSelection 直接选中 + 鼠标拖蓝跨越),与 image / hr 同范式 */
 .velo-editor .math-block-node.selected:not(.is-editing) {
-  outline: 0.1em solid var(--md-primary-color, #1F71D9);
+  outline: 0.1em solid var(--md-doc-primary-color, #1F71D9);
   outline-offset: 2px;
 }
 /* 选中 math_block 时隐藏文本光标(同 image / hr) */
@@ -113,7 +113,7 @@
   width: 100%;
   min-width: 320px;
   padding: 8px 12px;
-  border: 1px solid var(--md-primary-color, #1F71D9);
+  border: 1px solid var(--md-doc-primary-color, #1F71D9);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: inherit;
@@ -145,5 +145,5 @@
 .velo-editor.dark .edit-textarea {
   background: #1e1e1e;
   color: #d4d4d4;
-  border-color: var(--md-primary-color, #1F71D9);
+  border-color: var(--md-doc-primary-color, #1F71D9);
 }

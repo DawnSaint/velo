@@ -19,7 +19,7 @@
 
   ul li::marker,
   ol li::marker {
-    color: var(--md-primary-color, #1F71D9);
+    color: var(--md-doc-primary-color, #1F71D9);
   }
 
   li {
@@ -47,13 +47,13 @@
     }
 
     > .task-checkbox:hover {
-      border-color: var(--md-primary-color, #1F71D9);
+      border-color: var(--md-doc-primary-color, #1F71D9);
     }
 
     &[data-checked="true"] {
       > .task-checkbox {
-        background: var(--md-primary-color, #1F71D9);
-        border-color: var(--md-primary-color, #1F71D9);
+        background: var(--md-doc-primary-color, #1F71D9);
+        border-color: var(--md-doc-primary-color, #1F71D9);
       }
 
       > .task-checkbox::after {

@@ -13,7 +13,7 @@
     font-size: 2em;
     font-weight: bold;
     margin: 2em 0 1em;
-    color: var(--md-primary-color, #333);
+    color: var(--md-doc-primary-color, #333);
     text-align: center;
   }
 
@@ -21,26 +21,26 @@
     font-size: 1.6em;
     font-weight: bold;
     margin: 1.5em 0 .5em;
-    color: var(--md-primary-color, #333);
-    border-bottom: 1px solid var(--md-primary-color, #eee);
+    color: var(--md-doc-primary-color, #333);
+    border-bottom: 1px solid var(--md-doc-primary-color, #eee);
   }
 
   h3 {
     font-size: 1.4em;
     font-weight: bold;
     margin-top: 1em;
-    color: var(--md-primary-color, #333);
+    color: var(--md-doc-primary-color, #333);
   }
 
   h4 {
     font-size: 1.2em;
     font-weight: bold;
     margin-top: .5em;
-    color: var(--md-primary-color, #333);
+    color: var(--md-doc-primary-color, #333);
   }
 
   h5 {
-    color: var(--md-primary-color, #333);
+    color: var(--md-doc-primary-color, #333);
   }
 
   h5,
@@ -68,7 +68,7 @@
   // 行内强调 / 链接 / 分割线
   strong {
     font-weight: bold;
-    color: var(--md-primary-color, inherit);
+    color: var(--md-doc-primary-color, inherit);
   }
 
   em {

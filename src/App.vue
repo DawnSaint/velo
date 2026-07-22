@@ -1042,6 +1042,18 @@ onMounted(async () => {
     { immediate: true },
   )
 
+  // 文档内容色(--md-doc-primary-color):默认不跟随主题色,文档内容用各规则兜底的
+  // 默认色;用户开启 "主题色影响文档颜色" 后才把主色灌进这个变量。提到 <html> 后
+  // .velo-editor 内的文档规则都能读到;关闭时 removeProperty 让 var() 走 fallback。
+  watch(
+    [() => store.primaryColor, () => store.themeColorAffectsDoc],
+    ([color, affects]) => {
+      if (affects) document.documentElement.style.setProperty('--md-doc-primary-color', color)
+      else document.documentElement.style.removeProperty('--md-doc-primary-color')
+    },
+    { immediate: true },
+  )
+
   watch(
     () => foldStore.collapsedByPath,
     () => { debouncedFoldSave() },

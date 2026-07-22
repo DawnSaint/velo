@@ -74,6 +74,8 @@ export interface ExportOptions {
   darkMode: boolean
   /** 编辑器的 primaryColor(导出 HTML 用,跟编辑器主题色一致)。 */
   primaryColor: string
+  /** 是否让主题色影响文档内容色。默认 false —— 文档内容用各自默认色。 */
+  applyThemeColorToContent: boolean
   /** 编辑器的 fontFamily。 */
   fontFamily: string
   /** 编辑器的 fontSize(导出 HTML 用 px string)。 */
@@ -108,7 +110,7 @@ function escapeHtml(text: string): string {
 
 export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult> {
   const warnings: string[] = []
-  const { content, fileName, darkMode, primaryColor, fontFamily, fontSize, currentFilePath, lightTheme, darkTheme } = opts
+  const { content, fileName, darkMode, primaryColor, applyThemeColorToContent, fontFamily, fontSize, currentFilePath, lightTheme, darkTheme } = opts
 
   // 1) markdown → mdast(复用 editor/markdownIO.ts 的同一份 pipeline)
   const processor = unified()
@@ -181,6 +183,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   --md-primary-color: ${escapeHtml(primaryColor)};
   --md-font-family: ${escapeHtml(fontFamily)};
   --md-font-size: ${escapeHtml(fontSize)};
+  ${applyThemeColorToContent ? `--md-doc-primary-color: ${escapeHtml(primaryColor)};` : ''}
 }
 ${editorCss}
 ${jetbrainsCss}
@@ -203,7 +206,7 @@ ${katexCss}
   }
   .velo-editor blockquote { color: #aaa; }
   .velo-editor h1, .velo-editor h2, .velo-editor h3, .velo-editor h4 {
-    color: var(--md-primary-color, #6aa3e0);
+    color: var(--md-doc-primary-color, #6aa3e0);
   }
   .velo-editor th, .velo-editor td { border-color: #30363d; }
   .velo-editor hr { border-top-color: #30363d; }
@@ -689,7 +692,7 @@ function footnoteSlug(label: string): string {
 }
 
 /** 给测试用:把缺省 light / dark 主题填充成 DEFAULT_*。 */
-export function resolveExportThemes(opts: Partial<ExportOptions> & Pick<ExportOptions, 'content' | 'fileName' | 'darkMode' | 'primaryColor' | 'fontFamily' | 'fontSize' | 'currentFilePath'>): ExportOptions {
+export function resolveExportThemes(opts: Partial<ExportOptions> & Pick<ExportOptions, 'content' | 'fileName' | 'darkMode' | 'primaryColor' | 'applyThemeColorToContent' | 'fontFamily' | 'fontSize' | 'currentFilePath'>): ExportOptions {
   return {
     ...opts,
     lightTheme: opts.lightTheme ?? DEFAULT_LIGHT_THEME,

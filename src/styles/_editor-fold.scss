@@ -105,7 +105,7 @@
 }
 
 .velo-fold-toggle:hover {
-  color: var(--md-primary-color, #3b82f6);
+  color: var(--md-doc-primary-color, #3b82f6);
 }
 
 html.dark .velo-fold-toggle {
@@ -113,7 +113,7 @@ html.dark .velo-fold-toggle {
 }
 
 html.dark .velo-fold-toggle:hover {
-  color: var(--md-primary-color, #60a5fa);
+  color: var(--md-doc-primary-color, #60a5fa);
 }
 
 // ============================================================
@@ -151,7 +151,7 @@ html.dark .velo-fold-toggle:hover {
 }
 
 .velo-fold-placeholder:hover {
-  color: var(--md-primary-color, #3b82f6);
+  color: var(--md-doc-primary-color, #3b82f6);
 }
 
 // 选中态(v0.7.2):非空选区覆盖 fold_placeholder 节点时挂 is-selected 高亮。
@@ -159,7 +159,7 @@ html.dark .velo-fold-toggle:hover {
 // 自绘蓝底对齐 ::selection(#b4d5ff),让 head 文字 + `...` 一体选中。
 // Decoration.node 在 buildDecorations 中挂/卸,选区移开自动解除。
 .velo-fold-placeholder.is-selected {
-  color: var(--md-primary-color, #3b82f6);
+  color: var(--md-doc-primary-color, #3b82f6);
   background: #b4d5ff;
 }
 
@@ -168,10 +168,10 @@ html.dark .velo-fold-placeholder {
 }
 
 html.dark .velo-fold-placeholder:hover {
-  color: var(--md-primary-color, #60a5fa);
+  color: var(--md-doc-primary-color, #60a5fa);
 }
 
 html.dark .velo-fold-placeholder.is-selected {
-  color: var(--md-primary-color, #60a5fa);
+  color: var(--md-doc-primary-color, #60a5fa);
   background: #264f78;
 }

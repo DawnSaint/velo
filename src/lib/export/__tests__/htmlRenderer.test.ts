@@ -25,6 +25,7 @@ const baseOpts = (content: string) => resolveExportThemes({
   fileName: 'test.md',
   darkMode: false,
   primaryColor: '#0F4C81',
+  applyThemeColorToContent: true,
   fontFamily: 'sans-serif',
   fontSize: '14px',
   currentFilePath: null,
@@ -181,7 +182,7 @@ describe('htmlRenderer', () => {
       // 修 v0.4.7 回归:htmlRenderer 早先 <sup class="footnote-ref"> 但 _footnote.scss
       // 只配 .footnote-ref-node → 导出 HTML 拿浏览器默认 sup 灰色小字,无蓝字
       // 无 hover 高亮。修法:_footnote.scss 给 .footnote-ref 单独写镜像规则
-      // (共享 --md-primary-color + 同款 hover,<a> inherit color + 去 underline)。
+      // (共享 --md-doc-primary-color + 同款 hover,<a> inherit color + 去 underline)。
       // 此处断言 SCSS 源里必须能找到这些规则,防止未来 SCSS 改动把 .footnote-ref
       // 块丢掉而 walker 端 class 字符串照旧,测试才不掉链。
       //
@@ -191,14 +192,14 @@ describe('htmlRenderer', () => {
       // 这些规则块落到 .velo-editor 容器里,跟此处断言的"在 .velo-editor
       // .footnote-ref 块内"语义同源。
       const scss = readFootnoteScss()
-      // .footnote-ref 自身:主色 + 圆角 + 字号 + 走 --md-primary-color 变量
-      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*color:\s*var\(--md-primary-color/)
+      // .footnote-ref 自身:主色 + 圆角 + 字号 + 走 --md-doc-primary-color 变量
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*color:\s*var\(--md-doc-primary-color/)
       expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*border-radius:\s*3px/)
       expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[^}]*font-size:\s*0\.85em/)
       // hover 高亮 —— 跟编辑器内 .footnote-ref-node:hover 同款 color-mix
       // (SCSS 源是嵌套 &:hover,编译后展开成 .velo-editor .footnote-ref:hover,
       // 断言 SCSS 源里 .footnote-ref 块下含 &:hover { + 同款 color-mix)
-      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[\s\S]*?&:hover\s*\{[\s\S]*?color-mix\([^)]*--md-primary-color/)
+      expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s*\{[\s\S]*?&:hover\s*\{[\s\S]*?color-mix\([^)]*--md-doc-primary-color/)
       // <a> 在 sup 内:inherit color + 去 underline(否则浏览器默认蓝下划线盖掉主色)
       expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s+a\s*\{[^}]*color:\s*inherit/)
       expect(scss).toMatch(/\.velo-editor\s+\.footnote-ref\s+a\s*\{[^}]*text-decoration:\s*none/)

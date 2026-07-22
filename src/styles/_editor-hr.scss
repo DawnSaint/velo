@@ -13,7 +13,7 @@
 
     // 选中:ProseMirror NodeSelection 触发,NodeView.selectNode() 加 .selected。
     &.selected hr {
-      outline: 0.1em solid var(--md-primary-color, #1F71D9);
+      outline: 0.1em solid var(--md-doc-primary-color, #1F71D9);
       outline-offset: 2px;
       border-radius: 1px;
     }

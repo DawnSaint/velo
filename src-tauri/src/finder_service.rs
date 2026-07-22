@@ -18,7 +18,9 @@ use std::sync::Once;
 
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel, objc_getClass};
-use objc::{class, msg_send, sel};
+// sel_impl 必须显式引入:objc 0.2.7 的 sel! 宏内部直接调用 sel_impl!()
+// 而非 $crate::sel_impl!(),所以宏展开时 sel_impl 不在作用域会编译失败。
+use objc::{class, msg_send, sel, sel_impl};
 
 const SERVICE_PROVIDER_CLASS: &str = "VeloServiceProvider";
 
@@ -80,7 +82,11 @@ extern "C" fn open_in_velo(
     _cmd: Sel,
     pboard: *mut Object,
     _user_data: *mut Object,
-    _error: *mut *mut Object,
+    // objc 0.2 的 encode_message_impl! 只给 *mut Object 实现 Encode,
+    // 不给 *mut *mut Object 实现。NSError** 与 *mut Object 都是
+    // 指针大小,ABI 一致;handler 不使用 error 参数,改用 *mut Object
+    // 以满足 add_method 的 MethodImplementation 约束。
+    _error: *mut Object,
 ) {
     if pboard.is_null() {
         log::warn!("[shell_integration] openInVelo: pasteboard 为空");
@@ -88,7 +94,9 @@ extern "C" fn open_in_velo(
     }
     unsafe {
         // 从 pasteboard 读 file URLs：readClasses:[NSURL] options:nil
-        let nsurl_class: *mut Object = class!(NSURL);
+        // class!() 返回 &Class;传给 msg_send! 的 Encode 参数时编码为 "#" 而非 "@"，
+        // 但 ABI 层面都是指针,objc_msgSend 不依赖类型编码进行分派。
+        let nsurl_class = class!(NSURL);
         let classes: *mut Object = msg_send![class!(NSArray), arrayWithObject: nsurl_class];
         let urls: *mut Object =
             msg_send![pboard, readObjectsForClasses: classes options: std::ptr::null_mut::<Object>()];
@@ -133,15 +141,17 @@ fn install_service_provider() {
         };
         decl.add_method(
             sel!(openInVelo:userData:error:),
-            open_in_velo as extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut *mut Object),
+            open_in_velo as extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object),
         );
         decl.register();
     });
 
     unsafe {
         // 在运行时查找已注册的类（objc_getClass 返回 *const Class）。
-        let cls: *const Class =
-            objc_getClass(SERVICE_PROVIDER_CLASS.as_ptr() as *const i8) as *const Class;
+        // objc_getClass 需要以 null 结尾的 C 字符串;&str.as_ptr() 不保证
+        // null 结尾,用 CString 确保正确。
+        let name = std::ffi::CString::new(SERVICE_PROVIDER_CLASS).unwrap();
+        let cls: *const Class = objc_getClass(name.as_ptr()) as *const Class;
         if cls.is_null() {
             log::warn!("[shell_integration] {SERVICE_PROVIDER_CLASS} 类不存在");
             return;

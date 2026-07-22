@@ -15,7 +15,7 @@
     position: relative;
     margin: .25em 0;
     padding: 0.5em 1em;
-    border-left: .25em solid var(--md-primary-color, #0F4C81);
+    border-left: .25em solid var(--md-doc-primary-color, #0F4C81);
     background: rgba(0, 0, 0, 0.015);
     border-radius: 0 .5em .5em 0;
   }
@@ -43,8 +43,8 @@
   }
 
   .velo-toc-link:hover {
-    color: var(--md-primary-color, #0F4C81);
-    background: color-mix(in srgb, var(--md-primary-color, #0F4C81) 8%, transparent);
+    color: var(--md-doc-primary-color, #0F4C81);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #0F4C81) 8%, transparent);
   }
 
   .velo-toc-empty {
@@ -83,7 +83,7 @@
 }
 
 @keyframes toc-flash {
-  0%  { background-color: var(--md-primary-color, #0F4C81); color: #fff; border-radius: 4px; }
+  0%  { background-color: var(--md-doc-primary-color, #0F4C81); color: #fff; border-radius: 4px; }
   100%{ background-color: transparent; color: inherit; }
 }
 
@@ -98,8 +98,8 @@
   }
 
   .velo-toc-link:hover {
-    color: var(--md-primary-color, #58a6ff);
-    background: color-mix(in srgb, var(--md-primary-color, #58a6ff) 10%, transparent);
+    color: var(--md-doc-primary-color, #58a6ff);
+    background: color-mix(in srgb, var(--md-doc-primary-color, #58a6ff) 10%, transparent);
   }
 
   .velo-toc-empty {

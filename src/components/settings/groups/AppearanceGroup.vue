@@ -19,6 +19,17 @@ const store = useEditorStore()
       </span>
     </SettingsItem>
 
+    <!-- 主题色影响文档颜色:默认关闭,文档内容(标题/加粗/列表/折叠/表格等)用各自默认色;
+         开启后文档内容色跟随主色(旧行为)。UI  chrome(侧栏/设置/分割线)始终跟随主色。 -->
+    <SettingsItem label="主题色影响文档颜色" :keywords="['primary', 'color', '文档', '主题色', '标题', '影响']" clickable>
+      <input
+        v-model="store.themeColorAffectsDoc"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
+
     <SettingsItem label="暗色模式" :keywords="['dark', 'mode', '夜间', '深色']" clickable>
       <input
         v-model="store.darkMode"

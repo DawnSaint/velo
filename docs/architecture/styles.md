@@ -161,7 +161,8 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 
 | 变量 | 定义位置 | 用途 | 动态注入 |
 |------|---------|------|---------|
-| `--md-primary-color` | `ProseMirrorEditor/index.vue` inline style | 主题强调色 | ✓ props.primaryColor |
+| `--md-primary-color` | `App.vue` 设到 `<html>` | 主题强调色(UI chrome / 导出) | ✓ store.primaryColor |
+| `--md-doc-primary-color` | `App.vue` 设到 `<html>`(条件) | 文档内容强调色 | ✓ store.primaryColor(仅 themeColorAffectsDoc 开启时注入) |
 | `--md-font-family` | 同上 | 正文字体族 | ✓ props.fontFamily |
 | `--md-font-size` | 同上 | 正文字号 | ✓ props.fontSize |
 | `--font-mono` | `_fonts.scss` `:root` | 等宽字体栈 | ✗ 静态 |
