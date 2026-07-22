@@ -152,7 +152,7 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 ### 个性化
 
-- [ ] **跟随系统深浅色** `#dark-mode-follow` `P2` `S`
+- [x] **跟随系统深浅色** `#dark-mode-follow` `P2` `S`
   - 监听 `prefers-color-scheme` 媒体查询，自动切换暗色模式
   - 设置面板新增三态开关：跟随系统 / 始终浅色 / 始终暗色
 

@@ -23,9 +23,26 @@ describe('editor store 默认值', () => {
     expect(store.fontFamily).toContain('Microsoft YaHei')
   })
 
-  it('darkMode 默认 false', () => {
+  it('themeMode 默认 system', () => {
     const store = useEditorStore()
+    expect(store.themeMode).toBe('system')
+  })
+
+  it('darkMode computed：themeMode=light 时 false，themeMode=dark 时 true', () => {
+    const store = useEditorStore()
+    store.themeMode = 'light'
     expect(store.darkMode).toBe(false)
+    store.themeMode = 'dark'
+    expect(store.darkMode).toBe(true)
+  })
+
+  it('darkMode computed：themeMode=system 时跟随 systemDarkMode', () => {
+    const store = useEditorStore()
+    store.themeMode = 'system'
+    store.systemDarkMode = false
+    expect(store.darkMode).toBe(false)
+    store.systemDarkMode = true
+    expect(store.darkMode).toBe(true)
   })
 
   it('showCodeLineNumbers 默认 false(v0.5.11 可选行号,默认关闭)', () => {
@@ -35,8 +52,8 @@ describe('editor store 默认值', () => {
 
   it('所有 ref 可写且双向反映', () => {
     const store = useEditorStore()
-    store.darkMode = true
-    expect(store.darkMode).toBe(true)
+    store.themeMode = 'dark'
+    expect(store.themeMode).toBe('dark')
 
     store.primaryColor = '#FF0000'
     expect(store.primaryColor).toBe('#FF0000')

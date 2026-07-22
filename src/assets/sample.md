@@ -539,7 +539,7 @@ editor:
   fontSize: 15px
   primaryColor: "#0F4C81"
   fontFamily: "Inter, system-ui, sans-serif"
-darkMode: false
+  themeMode: system
 document:
   autoSaveEnabled: true
   autoSaveOnBlur: true

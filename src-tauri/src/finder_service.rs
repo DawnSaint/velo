@@ -12,11 +12,21 @@
 //! 与 Windows `%1` 完全同构）。
 //!
 //! 注意：NSServices 自 macOS 10.14 起 deprecated，但仍可用；菜单落在右键「服务」子菜单。
+//!
+//! ## macOS 26 (Tahoe) 兼容性
+//!
+//! macOS 26 修改了 ObjC 异常处理行为：之前能被静默忽略的 ObjC 异常现在会穿越
+//! `extern "C"` 边界，触发 `panic_cannot_unwind` → `abort()`，导致应用启动即崩溃。
+//! (tao#1171, tauri#15517)
+//!
+//! 本模块中所有 `msg_send!` 调用均用 `objc::exception::catch` 包裹，
+//! 捕获 ObjC 异常后降级为 warn 日志，避免进程被 abort。
 
 use std::path::PathBuf;
 use std::sync::Once;
 
 use objc::declare::ClassDecl;
+use objc::exception;
 use objc::runtime::{Class, Object, Sel, objc_getClass};
 // sel_impl 必须显式引入:objc 0.2.7 的 sel! 宏内部直接调用 sel_impl!()
 // 而非 $crate::sel_impl!(),所以宏展开时 sel_impl 不在作用域会编译失败。
@@ -92,37 +102,48 @@ extern "C" fn open_in_velo(
         log::warn!("[shell_integration] openInVelo: pasteboard 为空");
         return;
     }
-    unsafe {
-        // 从 pasteboard 读 file URLs：readClasses:[NSURL] options:nil
-        // class!() 返回 &Class;传给 msg_send! 的 Encode 参数时编码为 "#" 而非 "@"，
-        // 但 ABI 层面都是指针,objc_msgSend 不依赖类型编码进行分派。
-        let nsurl_class = class!(NSURL);
-        let classes: *mut Object = msg_send![class!(NSArray), arrayWithObject: nsurl_class];
-        let urls: *mut Object =
-            msg_send![pboard, readObjectsForClasses: classes options: std::ptr::null_mut::<Object>()];
-        if urls.is_null() {
-            log::warn!("[shell_integration] openInVelo: 读 pasteboard URLs 失败");
-            return;
-        }
-        let count: usize = msg_send![urls, count];
-        if count == 0 {
-            log::warn!("[shell_integration] openInVelo: pasteboard 无 URL");
-            return;
-        }
-        let first_url: *mut Object = msg_send![urls, objectAtIndex: 0];
-        // NSURL.path → NSString → UTF8 路径
-        let nsstring: *mut Object = msg_send![first_url, path];
-        if nsstring.is_null() {
-            log::warn!("[shell_integration] openInVelo: URL path 为空");
-            return;
-        }
-        let cstr: *const i8 = msg_send![nsstring, UTF8String];
-        if cstr.is_null() {
-            log::warn!("[shell_integration] openInVelo: UTF8String 为空");
-            return;
-        }
-        let path = std::ffi::CStr::from_ptr(cstr).to_string_lossy().into_owned();
-        reopen_with_dir(&path);
+
+    // 用 exception::catch 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
+    // extern "C" 边界导致 panic_cannot_unwind → abort (macOS 26)。
+    let result = unsafe {
+        exception::catch(|| {
+            // 从 pasteboard 读 file URLs：readClasses:[NSURL] options:nil
+            // class!() 返回 &Class;传给 msg_send! 的 Encode 参数时编码为 "#" 而非 "@"，
+            // 但 ABI 层面都是指针,objc_msgSend 不依赖类型编码进行分派。
+            let nsurl_class = class!(NSURL);
+            let classes: *mut Object = msg_send![class!(NSArray), arrayWithObject: nsurl_class];
+            let urls: *mut Object =
+                msg_send![pboard, readObjectsForClasses: classes options: std::ptr::null_mut::<Object>()];
+            if urls.is_null() {
+                log::warn!("[shell_integration] openInVelo: 读 pasteboard URLs 失败");
+                return None;
+            }
+            let count: usize = msg_send![urls, count];
+            if count == 0 {
+                log::warn!("[shell_integration] openInVelo: pasteboard 无 URL");
+                return None;
+            }
+            let first_url: *mut Object = msg_send![urls, objectAtIndex: 0];
+            // NSURL.path → NSString → UTF8 路径
+            let nsstring: *mut Object = msg_send![first_url, path];
+            if nsstring.is_null() {
+                log::warn!("[shell_integration] openInVelo: URL path 为空");
+                return None;
+            }
+            let cstr: *const i8 = msg_send![nsstring, UTF8String];
+            if cstr.is_null() {
+                log::warn!("[shell_integration] openInVelo: UTF8String 为空");
+                return None;
+            }
+            let path = std::ffi::CStr::from_ptr(cstr).to_string_lossy().into_owned();
+            Some(path)
+        })
+    };
+
+    match result {
+        Ok(Some(path)) => reopen_with_dir(&path),
+        Ok(None) => {}
+        Err(_) => log::warn!("[shell_integration] openInVelo: ObjC 异常被捕获"),
     }
 }
 
@@ -146,23 +167,29 @@ fn install_service_provider() {
         decl.register();
     });
 
-    unsafe {
-        // 在运行时查找已注册的类（objc_getClass 返回 *const Class）。
-        // objc_getClass 需要以 null 结尾的 C 字符串;&str.as_ptr() 不保证
-        // null 结尾,用 CString 确保正确。
-        let name = std::ffi::CString::new(SERVICE_PROVIDER_CLASS).unwrap();
-        let cls: *const Class = objc_getClass(name.as_ptr()) as *const Class;
-        if cls.is_null() {
-            log::warn!("[shell_integration] {SERVICE_PROVIDER_CLASS} 类不存在");
-            return;
-        }
-        let provider: *mut Object = msg_send![cls, new];
-        if provider.is_null() {
-            log::warn!("[shell_integration] 创建 service provider 实例失败");
-            return;
-        }
-        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        let _: () = msg_send![app, setServiceProvider: provider];
+    // 用 exception::catch 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
+    // extern "C" 边界导致 panic_cannot_unwind → abort (macOS 26)。
+    // See: https://github.com/tauri-apps/tao/issues/1171
+    let name = std::ffi::CString::new(SERVICE_PROVIDER_CLASS).unwrap();
+    let result = unsafe {
+        exception::catch(|| {
+            // 在运行时查找已注册的类（objc_getClass 返回 *const Class）。
+            // objc_getClass 需要以 null 结尾的 C 字符串;&str.as_ptr() 不保证
+            // null 结尾,用 CString 确保正确。
+            let cls: *const Class = objc_getClass(name.as_ptr()) as *const Class;
+            if cls.is_null() {
+                return;
+            }
+            let provider: *mut Object = msg_send![cls, new];
+            if provider.is_null() {
+                return;
+            }
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![app, setServiceProvider: provider];
+        })
+    };
+    if result.is_err() {
+        log::warn!("[shell_integration] ObjC 异常: service provider 注册失败");
     }
 }
 

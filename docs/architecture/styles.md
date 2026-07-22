@@ -102,6 +102,17 @@ ProseMirror NodeView / Decoration 通过 `document.createElement` 命令式创�
 
 ## 暗色模式
 
+### 三态主题模式
+
+`editorStore.themeMode` 控制主题偏好，三态：`'system'`（跟随系统，默认）/ `'light'`（始终浅色）/ `'dark'`（始终暗色）。设置面板用下拉框切换。
+
+`darkMode` 是 **computed**，不直接持久化：
+- `themeMode='system'` → 跟随 `systemDarkMode`（App.vue 用 `matchMedia('(prefers-color-scheme: dark)')` listener 实时维护）
+- `themeMode='light'` → `false`
+- `themeMode='dark'` → `true`
+
+持久化只存 `themeMode`；旧版本设置文件的 `darkMode: boolean` 在 hydrate 时迁移（`true`→`'dark'`，`false`→`'light'`）。
+
 ### 两种触发源
 
 项目有两套暗色触发源，覆盖不同场景：

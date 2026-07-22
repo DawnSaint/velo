@@ -6,6 +6,9 @@ import type { PersistedSettings } from './persistence'
 /** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
 export type StartupMode = 'last-file' | 'new-doc'
 
+/** 主题模式：'system' 跟随系统偏好，'light' 始终浅色，'dark' 始终暗色。 */
+export type ThemeMode = 'system' | 'light' | 'dark'
+
 /** 左侧 ActivityBar 的可配置入口(v0.6.1)。
  *  - 'files' / 'outline' / 'search' 三个**视图入口**可拖拽重排 + 可隐藏
  *  - 'settings' 固定在底部(不可拖拽),可隐藏
@@ -23,7 +26,14 @@ export const useEditorStore = defineStore('editor', () => {
   const fontSize = ref('16px')
   const primaryColor = ref('#1F71D9')
   const fontFamily = ref('-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif')
-  const darkMode = ref(false)
+  /** 用户主题偏好：跟随系统 / 始终浅色 / 始终暗色。持久化字段。 */
+  const themeMode = ref<ThemeMode>('system')
+  /** 系统当前深浅色偏好（运行时从 matchMedia 读取，不持久化）。 */
+  const systemDarkMode = ref(false)
+  /** 实际生效的暗色状态：themeMode='system' 时跟随 systemDarkMode，否则由 themeMode 决定。 */
+  const darkMode = computed(() =>
+    themeMode.value === 'system' ? systemDarkMode.value : themeMode.value === 'dark',
+  )
   /** 代码块浅色主题 id(sloth shiki bundledThemesInfo 的 id 字段)。 */
   const codeLightTheme = ref(DEFAULT_LIGHT_THEME)
   /** 代码块深色主题 id。 */
@@ -113,7 +123,12 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.fontSize === 'string') fontSize.value = e.fontSize
     if (typeof e.primaryColor === 'string') primaryColor.value = e.primaryColor
     if (typeof e.fontFamily === 'string') fontFamily.value = e.fontFamily
-    if (typeof e.darkMode === 'boolean') darkMode.value = e.darkMode
+    // themeMode 优先；旧版本设置文件没有 themeMode，从废弃的 darkMode 字段迁移
+    if (e.themeMode === 'system' || e.themeMode === 'light' || e.themeMode === 'dark') {
+      themeMode.value = e.themeMode
+    } else if (typeof e.darkMode === 'boolean') {
+      themeMode.value = e.darkMode ? 'dark' : 'light'
+    }
     if (typeof e.codeLightTheme === 'string') codeLightTheme.value = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') codeDarkTheme.value = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') startupMode.value = e.startupMode
@@ -130,7 +145,7 @@ export const useEditorStore = defineStore('editor', () => {
       fontSize: fontSize.value,
       primaryColor: primaryColor.value,
       fontFamily: fontFamily.value,
-      darkMode: darkMode.value,
+      themeMode: themeMode.value,
       codeLightTheme: codeLightTheme.value,
       codeDarkTheme: codeDarkTheme.value,
       startupMode: startupMode.value,
@@ -146,6 +161,8 @@ export const useEditorStore = defineStore('editor', () => {
     fontSize,
     primaryColor,
     fontFamily,
+    themeMode,
+    systemDarkMode,
     darkMode,
     codeLightTheme,
     codeDarkTheme,

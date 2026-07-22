@@ -266,6 +266,8 @@ const displaySidebarWidth = computed(() => {
 })
 
 // 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效。
+// darkMode 是 computed：themeMode='system' 时跟随 systemDarkMode（由下方
+// matchMedia listener 维护），否则由 themeMode 直接决定。
 watch(
   () => store.darkMode,
   (val) => {
@@ -276,6 +278,15 @@ watch(
   },
   { immediate: true },
 )
+
+// 跟随系统深浅色：监听 prefers-color-scheme 媒体查询，实时更新 store.systemDarkMode。
+// darkMode computed 会自动响应 → 上方 watch 触发 .dark class 切换。
+const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+store.systemDarkMode = darkMediaQuery.matches
+const onSystemThemeChange = (e: MediaQueryListEvent) => {
+  store.systemDarkMode = e.matches
+}
+darkMediaQuery.addEventListener('change', onSystemThemeChange)
 
 // 字号变化时通知表格浮层重定位 —— dot/handle 挂在 document.body 上,
 // 不继承编辑器 font-size,字号变化后表格行高/列宽撑大但浮层不跟,需主动触发 repositionDots。
@@ -1158,13 +1169,14 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  if (draftTimer) {
-    clearInterval(draftTimer)
-    draftTimer = null
-  }
-  // keydown / dirtyFlushTimer / stopWorkspaceWatch 的清理已由各 composable 的 onBeforeUnmount 接管
-  window.removeEventListener('blur', onWindowBlur)
-  window.removeEventListener('focus', onWindowFocus)
+if (draftTimer) {
+clearInterval(draftTimer)
+draftTimer = null
+}
+// keydown / dirtyFlushTimer / stopWorkspaceWatch 的清理已由各 composable 的 onBeforeUnmount 接管
+window.removeEventListener('blur', onWindowBlur)
+window.removeEventListener('focus', onWindowFocus)
+darkMediaQuery.removeEventListener('change', onSystemThemeChange)
 })
 
 // ========== 性能打点收口 ==========

@@ -30,13 +30,15 @@ const store = useEditorStore()
       >
     </SettingsItem>
 
-    <SettingsItem label="暗色模式" :keywords="['dark', 'mode', '夜间', '深色']" clickable>
-      <input
-        v-model="store.darkMode"
-        type="checkbox"
-        role="switch"
-        class="velo-switch"
+    <SettingsItem label="主题模式" :keywords="['dark', 'mode', '夜间', '深色', 'theme', 'system', '系统', '跟随']">
+      <select
+        v-model="store.themeMode"
+        class="velo-select w-40 rounded-lg border p-1.5 text-sm outline-none"
       >
+        <option value="system">跟随系统</option>
+        <option value="light">始终浅色</option>
+        <option value="dark">始终暗色</option>
+      </select>
     </SettingsItem>
   </section>
 </template>

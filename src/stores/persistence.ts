@@ -25,7 +25,10 @@ export interface PersistedSettings {
     fontSize: string
     primaryColor: string
     fontFamily: string
-    darkMode: boolean
+    /** 主题模式：跟随系统 / 始终浅色 / 始终暗色。取代旧版 darkMode: boolean。 */
+    themeMode?: 'system' | 'light' | 'dark'
+    /** @deprecated 已被 themeMode 取代，仅保留用于读取旧版本设置文件。 */
+    darkMode?: boolean
     codeLightTheme?: string
     codeDarkTheme?: string
     /** 启动时打开内容的选择。'last-file' | 'new-doc'。 */

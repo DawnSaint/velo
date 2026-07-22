@@ -34,7 +34,10 @@ base64 = "0.22"
 # macOS Finder 服务(v0.7.x 注册"在 Velo 中打开"文件夹右键菜单):objc
 # objc crate 是轻量 ObjC runtime 绑定,用于向 service provider 注册 openInVelo: handler。
 [target.'cfg(target_os = "macos")'.dependencies]
-objc = "0.2"
+# exception feature: objc::exception::catch 用于包裹 msg_send! 调用，
+# 防止 ObjC 异常穿越 extern "C" 边界导致 panic_cannot_unwind → abort
+# (macOS 26 Tahoe 兼容性问题，见 tao#1171)
+objc = { version = "0.2", features = ["exception"] }
 
 # Windows PDF 导出:WebView2 ICoreWebView2_7::PrintToPdf
 # Windows 注册表(v0.5.1 注册"在 Velo 中打开"文件夹右键菜单):winreg

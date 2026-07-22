@@ -90,48 +90,6 @@
 
 ---
 
-## v0.7.0 — 收尾 per-user 安装体验
-
-### ADR-20260711-001: 移除安装器残留强制默认 + 补全 Markdown 扩展名 + 加运行时控件
-
-- **Context**: 此前已完成 MSI→NSIS 切换(per-user only,不弹 UAC)。但安装器仍有一个"将 .md 设为默认使用 Velo 打开"checkbox —— 用户不勾选也会在后台改写默认关联,与 per-user 定位不符;右键菜单仅覆盖 3 个扩展名(.md/.markdown/.mdown),无法惠及 .mkd/.mdtext 等常见 Markdown 变体用户;且安装时没勾选右键菜单的用户之后也无法在运行时重新开启。需要一个既能收掉残留强制默认、又能让用户在装好之后仍可自选的方案。候选:A 保留"设默认"checkbox(简单但残留强制);B 移除 checkbox 并禁止安装时改写默认,改为运行时在主设置面板提供三个控件 + 补全 8 个扩展名;C 仅移除 checkbox,不加运行时控件(用户装完就定型)。
-- **Decision**: 选 B。安装器 sandbox 再收紧 —— 删除"设默认"checkbox,禁止安装阶段改写 .md 默认关联(不强拆已有,也不强加于人);ProgID `Velo.md` 仍注册进"打开方式"列表,但默认权交给用户自己在 Windows 设置里点;设置面板新增"Windows 集成"分组,提供"设为 Markdown 默认程序 / 文件夹右键 / .md 右键"三个运行时控件,装完还能改;右键覆盖扩展名从 3 个扩到 8 个(.md .markdown .mdown .mkd .mkdown .mdwn .mdtxt .mdtext),与 GitHub Linguist 公认全集对齐。
-- **Consequences**: 安装器彻底 opt-in —— 不再强改默认、不再强加右键;运行时控件让装时没勾的用户后来也能随时调整,不再"一装定终身";扩展名覆盖与主流 Markdown 生态对齐(用户用 .mkd/.mdtext 等变体也不再漏挂右键)。代价:用户若真想把 Velo 设默认,需要自己在 Windows 设置里多点一下(这是取舍本身,不是缺陷)。
-
----
-
-## 0.7.1 — 表格编辑
-
-### ADR-20260717-002: CellSelection 剪贴板走 tab 分隔文本 + HTML 路径 TSV 重建
-
-- **Context**: CellSelection 复制 / 粘贴需要"矩形块"语义(列对齐 / 整块填充),但 PM 默认 `clipboardTextSerializer` 用 `textBetween` 把 cell 文本用 `\n\n` 连接 —— 粘贴到 Excel 时所有 cell 挤成一列,行列结构丢失。候选:A 沿用 PM 默认(简单但行列错位);B 自定义 `clipboardTextSerializer` 输出 tab 分隔列 + 换行分隔行(对齐 Excel/Sheets 粘贴格式),`clipboardTextParser` 在表格内把 tab 文本解析回 `table_row` slice 走 `pastedCells` 整块填充。
-- **Decision**: 选 B。`clipboardTextSerializer` 仅对 CellSelection 的 rows slice(openStart=1/openEnd=1 + 首子节点 `tableRole='row'`)生效,其他选区返回 undefined 走 PM 默认;`clipboardTextParser` 仅在 tab/换行存在且光标位于 `table_row` 内时重建 slice,纯单行 / 非表格上下文返回 null 走默认。含表头列粘贴时按目标行类型(`rectTop + i`)选 `table_header` / `table_cell`,避免把 `table_cell` 插入 `table_header_row`(只接受 `table_header`)破坏结构。
-- **Consequences**: Excel / Sheets / 浏览器跨应用拷贝表格保持行列结构。**HTML 路径的同类坑**:copy 时 `serializeForClipboard` 把 bare `<tr>` 用 `wrapMap` 包成 `<table><br data-pm-slice>`;paste 在表格 cell 内时 `DOMParser.parseSlice(context=$context)` 用 `table_cell` 作 context,`<tr>`/`<td>` 在 cell content 模型下无效被剥离 → 产出段落而非表格行 → `pastedCells` 返回 null → `tableEditing.handlePaste` 走 1×1 fallback,行列错乱。`tableCellInputGuardPlugin` 必须在 `tableEditing` 之前注册,其 `handlePaste` 检测 slice 无 `tableRole` / 结构损坏 / cell 类型不匹配时,从 `event.clipboardData.getData('text/plain')` 读 tab 文本,`buildTsvSlice` 重建后委托 `tableHandlePaste`。判定 `hasValidTableStructure`(子节点全 `row`、每行至少 1 cell、`openStart<=1 && openEnd<=1`)与 `cellTypesMatchTarget` 把"可安全交给 tableEditing"与"需重建"两条路径分开。**含表头列**是高频场景,单独验证(`H0\nS0/C0\n…` 重建后 header 行得 `table_header`)。
-
-### ADR-20260717-001: 表格操作统一走整表 `replaceWith`
-
-- **Context**: 表操作(增删行列 / 列对齐 / 行/列移动)需要把新 doc 写回。A 逐 cell `setNodeMarkup` / 局部 step；B 整表 clone + splice + `replaceWith(tablePos, tablePos + oldTableSize, newTable)`。`prosemirror-tables` 官方推荐 A，但我们的 schema 定制过（`table_header_row table_row*` + `isolating: true`），A 路径在 GFM 对齐列时会让 `toMarkdown` 从首行推导 `align[]`，列内值不一致就 round-trip 跳变；B 路径整表一次性替换，`markdownIO` 把新表整体序列化，天然闭合。
-- **Decision**: 选 B。所有表操作命令统一签名 `cmd(schema, anchorPos?) => ShortcutCommand`，splice 后整表 replaceWith + 光标定位补丁（`dispatchReplaceWithCursor`）。矩形批量语义（rect.top/rect.bottom/rect.left/rect.right 锚外边界）沿用同套路。
-- **Consequences**: 表操作 undo 粒度 = 整笔替换（非逐 cell），可接受；markdownIO round-trip 闭合，列对齐 / 增删行列 / 移动全部零额外适配。**后续表功能（列宽持久化 / 表头行开关等）强制复用此范式**，新增命令 = 写一个文件 + 注册一行，不引入第二条写回路径。
-
----
-
-## v0.7.2 — 编辑器语法增强
-
-### ADR-20260717-003: 折叠占位符从 Decoration.widget 改为真实 inline atom 节点
-
-- **Context**: 折叠后的 `...` 占位符原为 `Decoration.widget`，widget 的 `side` 属性只能让光标停在一侧（`side:0` 停前 / `side:1` 停后），无法实现"光标自然停在两侧"；widget 不参与 PM selection model，鼠标划选无法覆盖 `...`（浏览器选区绕过 widget），导致选中后删除只能删到占位符边界而非整块折叠内容。候选:A 保持 widget（接受光标 / 选区限制）；B 改为真实 `fold_placeholder` inline atom 节点（光标 / 选区 / 删除全部走 PM 原生语义）。
-- **Decision**: 选 B。schema 新增 `fold_placeholder` 节点（`inline` / `atom` / `selectable:false`），折叠 / 展开时由 `appendTransaction` 插入 / 删除节点到折叠点末尾 inline 位（`addToHistory:false` 不进 undo），`toMarkdown` 跳过（不污染 markdown round-trip）。`appendTransaction` 用 `nodeSync` meta 防无限循环，逆序扫描保持位置稳定。点击 `...` → `handleClickOn` 展开（选区为空时触发，拖选后不误触发）；划选覆盖 → `Decoration.node` 挂 `is-selected` 高亮；Backspace / Delete → `foldDeleteCommand`（排在 keymap 链首）把删除范围扩展到折叠节点起点 ~ range[1]（整块删除）+ 从 collapsedSet 移除。
-- **Consequences**: 光标可自然停在 `...` 两侧、鼠标划选可覆盖、选中后删除连同折叠内容整块删除——三项交互全部走 PM 原生语义，无 widget 限制。代价:`appendTransaction` 必须严格防循环（nodeSync meta + 扫描逻辑幂等）；`fold_placeholder` 节点不计入 markdown round-trip（`pmInlineToMdast` 跳过），测试中的位置查找需考虑节点插入导致的偏移。后续折叠相关交互（如拖拽折叠块）基于真实节点实现，不再受 widget 约束。
-
-### ADR-20260717-004: 块级 HTML 源码编辑走 code_block 替换（非 NodeView textarea）
-
-- **Context**: html_block 是 atom 节点（`contentEditable=false`），编辑其源码需要一个文本编辑面。候选:A NodeView 内嵌 textarea（math_block 范式）vs B 点击按钮把 html_block 替换成 `code_block { language:'html' }`（有 contentDOM 的普通可编辑节点）。A 的致命坑:PM 对 atom 节点自动设 `contentEditable=false`，dom 嵌在 `view.dom`（`contentEditable=true`）内；用户点击 textarea 时 mousedown 冒泡到 `view.dom`，虽然 `stopEvent:()=>true` 让 PM JS handler 提前返回，但**浏览器原生 contenteditable 行为仍被触发**（尝试在 view.dom 放光标）→ textarea 失焦 → blur → 误退出编辑 session。`stopEvent` / `stopPropagation` 都不防浏览器原生 contenteditable 焦点抢夺。
-- **Decision**: 选 B。点击按钮 dispatch 把 html_block 替换成 code_block（有 contentDOM），用户在 code_block 内编辑是 PM 原生行为，点击 / 拖选 / IME 全部正常，彻底绕开 `contentEditable=false` 问题。session 由 `htmlSourceEditPlugin` 管理（同 html_inline / imageEdit 范式：光标移出 commit / Escape 还原）。code_block `{ code:true }` 天然保留换行，Enter 只换行不拆段。
-- **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
-
----
-
 ## v0.5.0 — 工作区与文件树
 
 ### ADR-20260623-001: 工作区根走 recursive 单 watch 句柄
@@ -161,12 +119,6 @@
 - **Context**: Playwright 只支持 CDP/BiDi，tauri-driver 是 WebDriver Classic 代理 → 协议层不兼容。跳过 E2E 无法覆盖 CLI→工作区→写盘跨进程链路。
 - **Decision**: WebdriverIO 9 + tauri-driver + msedgedriver（Tauri 官方同款），Windows-only。
 - **Consequences**: 后续 spec 复用现有 helper，不再对 WebView2 工具链做二次研究。
-
-### ADR-20260624-002: CLI argv 容忍单层 `--` 前缀
-
-- **Context**: WebDriver 把 `tauri:options.args` 强加 `--` 前缀，velo.exe 收到 `--C:\path` → `is_file()=false` / `is_dir()=false` → 空 payload。
-- **Decision**: `strip_prefix("--").unwrap_or(s)` 一行修改。真实 CLI 用户不会传 `--path` 命名参数，不受影响。
-- **Consequences**: 给 E2E/WebDriver 工具链留统一入口，不再绕路。
 
 ---
 
@@ -245,3 +197,45 @@
 - **Context**: v0.5.7 起 Ctrl+P（查文件）与 Ctrl+Shift+P（命令）是两个独立浮层。VSCode / Sublime / Obsidian 都用一个输入框 + 首字符前缀分发模式。A 保持两个独立面板 vs B 合并为前缀分发单一面板 vs C 单一面板但用顶部 tab 按钮切模式。
 - **Decision**: 选 B。一个输入框，首字符决定模式（无前缀=文件、`>`=命令、`@`=符号、`:`=行号），剥前缀后喂给各模式自己的过滤函数；Ctrl+P / Ctrl+Shift+P 打开同一面板，仅预填前缀不同。
 - **Consequences**: 新模式只需加一个前缀字符 + 一条分发分支，无需新浮层；`@` / `:` 等新模式靠前缀介绍行天然可发现。代价是首字符被前缀占用（文件名以 `>` / `@` / `:` 开头极少，可接受）；`#` workspace-symbol 同架构接入，本版暂缓。
+
+---
+
+## v0.7.0 — 收尾 per-user 安装体验
+
+### ADR-20260711-001: 移除安装器残留强制默认 + 补全 Markdown 扩展名 + 加运行时控件
+
+- **Context**: 此前已完成 MSI→NSIS 切换(per-user only,不弹 UAC)。但安装器仍有一个"将 .md 设为默认使用 Velo 打开"checkbox —— 用户不勾选也会在后台改写默认关联,与 per-user 定位不符;右键菜单仅覆盖 3 个扩展名(.md/.markdown/.mdown),无法惠及 .mkd/.mdtext 等常见 Markdown 变体用户;且安装时没勾选右键菜单的用户之后也无法在运行时重新开启。需要一个既能收掉残留强制默认、又能让用户在装好之后仍可自选的方案。候选:A 保留"设默认"checkbox(简单但残留强制);B 移除 checkbox 并禁止安装时改写默认,改为运行时在主设置面板提供三个控件 + 补全 8 个扩展名;C 仅移除 checkbox,不加运行时控件(用户装完就定型)。
+- **Decision**: 选 B。安装器 sandbox 再收紧 —— 删除"设默认"checkbox,禁止安装阶段改写 .md 默认关联(不强拆已有,也不强加于人);ProgID `Velo.md` 仍注册进"打开方式"列表,但默认权交给用户自己在 Windows 设置里点;设置面板新增"Windows 集成"分组,提供"设为 Markdown 默认程序 / 文件夹右键 / .md 右键"三个运行时控件,装完还能改;右键覆盖扩展名从 3 个扩到 8 个(.md .markdown .mdown .mkd .mkdown .mdwn .mdtxt .mdtext),与 GitHub Linguist 公认全集对齐。
+- **Consequences**: 安装器彻底 opt-in —— 不再强改默认、不再强加右键;运行时控件让装时没勾的用户后来也能随时调整,不再"一装定终身";扩展名覆盖与主流 Markdown 生态对齐(用户用 .mkd/.mdtext 等变体也不再漏挂右键)。代价:用户若真想把 Velo 设默认,需要自己在 Windows 设置里多点一下(这是取舍本身,不是缺陷)。
+
+---
+
+## v0.7.1 — 表格编辑
+
+### ADR-20260717-001: 表格操作统一走整表 `replaceWith`
+
+- **Context**: 表操作(增删行列 / 列对齐 / 行/列移动)需要把新 doc 写回。A 逐 cell `setNodeMarkup` / 局部 step；B 整表 clone + splice + `replaceWith(tablePos, tablePos + oldTableSize, newTable)`。`prosemirror-tables` 官方推荐 A，但我们的 schema 定制过（`table_header_row table_row*` + `isolating: true`），A 路径在 GFM 对齐列时会让 `toMarkdown` 从首行推导 `align[]`，列内值不一致就 round-trip 跳变；B 路径整表一次性替换，`markdownIO` 把新表整体序列化，天然闭合。
+- **Decision**: 选 B。所有表操作命令统一签名 `cmd(schema, anchorPos?) => ShortcutCommand`，splice 后整表 replaceWith + 光标定位补丁（`dispatchReplaceWithCursor`）。矩形批量语义（rect.top/rect.bottom/rect.left/rect.right 锚外边界）沿用同套路。
+- **Consequences**: 表操作 undo 粒度 = 整笔替换（非逐 cell），可接受；markdownIO round-trip 闭合，列对齐 / 增删行列 / 移动全部零额外适配。**后续表功能（列宽持久化 / 表头行开关等）强制复用此范式**，新增命令 = 写一个文件 + 注册一行，不引入第二条写回路径。
+
+### ADR-20260717-002: CellSelection 剪贴板走 tab 分隔文本 + HTML 路径 TSV 重建
+
+- **Context**: CellSelection 复制 / 粘贴需要"矩形块"语义(列对齐 / 整块填充),但 PM 默认 `clipboardTextSerializer` 用 `textBetween` 把 cell 文本用 `\n\n` 连接 —— 粘贴到 Excel 时所有 cell 挤成一列,行列结构丢失。候选:A 沿用 PM 默认(简单但行列错位);B 自定义 `clipboardTextSerializer` 输出 tab 分隔列 + 换行分隔行(对齐 Excel/Sheets 粘贴格式),`clipboardTextParser` 在表格内把 tab 文本解析回 `table_row` slice 走 `pastedCells` 整块填充。
+- **Decision**: 选 B。`clipboardTextSerializer` 仅对 CellSelection 的 rows slice(openStart=1/openEnd=1 + 首子节点 `tableRole='row'`)生效,其他选区返回 undefined 走 PM 默认;`clipboardTextParser` 仅在 tab/换行存在且光标位于 `table_row` 内时重建 slice,纯单行 / 非表格上下文返回 null 走默认。含表头列粘贴时按目标行类型选 `table_header` / `table_cell`,避免破坏 schema 结构。
+- **Consequences**: Excel / Sheets / 浏览器跨应用拷贝表格保持行列结构。HTML 路径粘贴存在 DOMParser context 剥离坑（`table_cell` context 下 `<tr>`/`<td>` 被剥离 → `pastedCells` 返回 null → 1×1 fallback 错乱），需 `tableCellInputGuardPlugin` 在 `tableEditing` 之前注册拦截并走 TSV 重建修复。实现细节见 `architecture/editor.md`。
+
+---
+
+## v0.7.2 — 编辑器语法增强
+
+### ADR-20260717-003: 折叠占位符从 Decoration.widget 改为真实 inline atom 节点
+
+- **Context**: 折叠后的 `...` 占位符原为 `Decoration.widget`，widget 的 `side` 属性只能让光标停在一侧（`side:0` 停前 / `side:1` 停后），无法实现"光标自然停在两侧"；widget 不参与 PM selection model，鼠标划选无法覆盖 `...`（浏览器选区绕过 widget），导致选中后删除只能删到占位符边界而非整块折叠内容。候选:A 保持 widget（接受光标 / 选区限制）；B 改为真实 `fold_placeholder` inline atom 节点（光标 / 选区 / 删除全部走 PM 原生语义）。
+- **Decision**: 选 B。schema 新增 `fold_placeholder` 节点（`inline` / `atom` / `selectable:false`），折叠 / 展开时由 `appendTransaction` 插入 / 删除节点到折叠点末尾 inline 位（`addToHistory:false` 不进 undo），`toMarkdown` 跳过（不污染 markdown round-trip）。`appendTransaction` 用 `nodeSync` meta 防无限循环，逆序扫描保持位置稳定。点击 `...` → `handleClickOn` 展开（选区为空时触发，拖选后不误触发）；划选覆盖 → `Decoration.node` 挂 `is-selected` 高亮；Backspace / Delete → `foldDeleteCommand`（排在 keymap 链首）把删除范围扩展到折叠节点起点 ~ range[1]（整块删除）+ 从 collapsedSet 移除。
+- **Consequences**: 光标可自然停在 `...` 两侧、鼠标划选可覆盖、选中后删除连同折叠内容整块删除——三项交互全部走 PM 原生语义，无 widget 限制。代价:`appendTransaction` 必须严格防循环（nodeSync meta + 扫描逻辑幂等）；`fold_placeholder` 节点不计入 markdown round-trip（`pmInlineToMdast` 跳过），测试中的位置查找需考虑节点插入导致的偏移。后续折叠相关交互（如拖拽折叠块）基于真实节点实现，不再受 widget 约束。
+
+### ADR-20260717-004: 块级 HTML 源码编辑走 code_block 替换（非 NodeView textarea）
+
+- **Context**: html_block 是 atom 节点（`contentEditable=false`），编辑其源码需要一个文本编辑面。候选:A NodeView 内嵌 textarea（math_block 范式）vs B 点击按钮把 html_block 替换成 `code_block { language:'html' }`（有 contentDOM 的普通可编辑节点）。A 的致命坑:PM 对 atom 节点自动设 `contentEditable=false`，dom 嵌在 `view.dom`（`contentEditable=true`）内；用户点击 textarea 时 mousedown 冒泡到 `view.dom`，虽然 `stopEvent:()=>true` 让 PM JS handler 提前返回，但**浏览器原生 contenteditable 行为仍被触发**（尝试在 view.dom 放光标）→ textarea 失焦 → blur → 误退出编辑 session。`stopEvent` / `stopPropagation` 都不防浏览器原生 contenteditable 焦点抢夺。
+- **Decision**: 选 B。点击按钮 dispatch 把 html_block 替换成 code_block（有 contentDOM），用户在 code_block 内编辑是 PM 原生行为，点击 / 拖选 / IME 全部正常，彻底绕开 `contentEditable=false` 问题。session 由 `htmlSourceEditPlugin` 管理（同 html_inline / imageEdit 范式：光标移出 commit / Escape 还原）。code_block `{ code:true }` 天然保留换行，Enter 只换行不拆段。
+- **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
