@@ -107,8 +107,10 @@ pub async fn export_pdf(
     // with_webview 把闭包投递到 webview 线程;打印结果通过 oneshot 桥回 async 上下文。
     // 投递本身失败(窗口已关等)→ 走错误分支,不 await rx(此时 tx 已随闭包 drop,
     // rx 会拿到 canceled,但我们直接报更准确的 with_webview 错误)。
-    // html / output_path 是函数参数,move 闭包直接捕获;webview 参数在非 Windows
-    // 平台不用,加 _ 前缀抑制 unused 警告。
+    // html / output_path 仅在 Windows 闭包分支使用;非 Windows 平台闭包不捕获它们,
+    // 需显式引用以抑制 unused_variables 警告(macOS/Linux PDF 导出待实现时会真正使用)。
+    #[cfg(not(target_os = "windows"))]
+    let _ = (&html, &output_path);
     let result = match printer.with_webview(move |_webview| {
         // 平台分发:每平台各自实现 HTML 注入 + PrintToPDF + oneshot 回传
         #[cfg(target_os = "windows")]
