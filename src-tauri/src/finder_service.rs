@@ -19,19 +19,19 @@
 //! `extern "C"` 边界，触发 `panic_cannot_unwind` → `abort()`，导致应用启动即崩溃。
 //! (tao#1171, tauri#15517)
 //!
-//! 本模块中所有 `msg_send!` 调用均用 `objc_exception::try` 包裹，
+//! 本模块中所有 `msg_send!` 调用均用 `objc_exception::r#try` 包裹，
 //! 捕获 ObjC 异常后降级为 warn 日志，避免进程被 abort。
 //!
 //! 注：objc 0.2.7 的 `exception` 模块是私有的（`mod exception;` 而非 `pub mod`），
 //! 即使启了 `exception` feature 也无法从外部访问；直接依赖 `objc_exception` crate
-//! 使用其 `try` 函数。
-
-use std::path::PathBuf;
-use std::sync::Once;
+//! 使用其 `r#try` 函数。
 
 // objc 0.2.7 的 class!/msg_send!/sel! 宏内部使用已废弃的 cfg(cargo-clippy)，
 // 触发 unexpected_cfgs 警告；这是上游问题，在此模块级别抑制。
 #![allow(unexpected_cfgs)]
+
+use std::path::PathBuf;
+use std::sync::Once;
 
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel, objc_getClass};
@@ -110,10 +110,10 @@ extern "C" fn open_in_velo(
         return;
     }
 
-    // 用 objc_exception::try 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
+    // 用 objc_exception::r#try 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
     // extern "C" 边界导致 panic_cannot_unwind → abort (macOS 26)。
     let result = unsafe {
-        objc_exception::try(|| {
+        objc_exception::r#try(|| {
             // 从 pasteboard 读 file URLs：readClasses:[NSURL] options:nil
             // class!() 返回 &Class;传给 msg_send! 的 Encode 参数时编码为 "#" 而非 "@"，
             // 但 ABI 层面都是指针,objc_msgSend 不依赖类型编码进行分派。
@@ -174,12 +174,12 @@ fn install_service_provider() {
         decl.register();
     });
 
-    // 用 objc_exception::try 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
+    // 用 objc_exception::r#try 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
     // extern "C" 边界导致 panic_cannot_unwind → abort (macOS 26)。
     // See: https://github.com/tauri-apps/tao/issues/1171
     let name = std::ffi::CString::new(SERVICE_PROVIDER_CLASS).unwrap();
     let result = unsafe {
-        objc_exception::try(|| {
+        objc_exception::r#try(|| {
             // 在运行时查找已注册的类（objc_getClass 返回 *const Class）。
             // objc_getClass 需要以 null 结尾的 C 字符串;&str.as_ptr() 不保证
             // null 结尾,用 CString 确保正确。
