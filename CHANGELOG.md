@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.5](https://github.com/DawnSaint/velo/compare/v0.7.4...v0.7.5) (2026-07-23)
+
+
+### Features
+
+* **editor:** add follow-system theme mode and fix macOS finder service crash ([361a85d](https://github.com/DawnSaint/velo/commit/361a85d9f7618ac32eb9f13f5f6c6b2986d4ea18))
+* **settings:** add toggle for theme color affecting document content ([b14d522](https://github.com/DawnSaint/velo/commit/b14d5222fe630be8e20c26b9a063e4bf666f0e44))
+* **settings:** unify dropdowns with VeloSelect, add theme swatches and no-theme option ([200f216](https://github.com/DawnSaint/velo/commit/200f216204276541bbfa78e9eb7dad0a4959242e))
+
+
+### Bug Fixes
+
+* **editor:** fix macOS build, settings Ctrl+F, and suppress browser shortcuts ([8befccb](https://github.com/DawnSaint/velo/commit/8befccb3af6ec06268d3b45bf3d57fb455bc3464))
+* **editor:** fix startup flicker, tab restore order, and code block ancestor fold header ([2c558e6](https://github.com/DawnSaint/velo/commit/2c558e6c2031466979e6d3f8e240f9f757ee6d86))
+* **editor:** preserve scroll position on tab switch ([7e854d2](https://github.com/DawnSaint/velo/commit/7e854d2f93c775b69672a8b942a1562b1955b602))
+
 ## [0.7.4](https://github.com/DawnSaint/velo/compare/v0.7.3...v0.7.4) (2026-07-22)
 
 
