@@ -613,6 +613,9 @@ let pendingTabRestore = false
 // 启动期(mounted=false)不抢焦点,避免把 DraftRecoveryDialog 等启动期弹窗的
 // 焦点踢走。
 let mounted = false
+// 跟踪上一个活动标签 id,切标签时据此把旧标签的 PM state + scrollTop
+// 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
+let prevActiveId = ''
 
 // 折叠状态同步:文件切换时,把 store 里稳定 key 翻译成当前 doc 的 contentStart
 // 灌进 plugin。文件 path 变化是这个 watch 的唯一信号(modelValue 变可能是
@@ -692,6 +695,11 @@ watch(() => props.modelValue, async (newVal) => {
   // 真实滚动容器是上层 overflow:auto 的 wrapper —— useProseMirror 的
   // resetScrollToTop() 沿祖先链 walk 找最近的可滚祖先并 scrollTop=0。
   resetScrollToTop()
+  // 装载后立即缓存初始 PM state + scrollTop=0:文件装载走 view.updateState
+  // 而非 dispatchTransaction,onSelectionChange 不跑 → pmState 为 undefined。
+  // 切回时 peekActivePmStateForRestore 返回 null → 走重建 + resetScrollToTop,
+  // 滚动位置丢失。这里在装载后立即缓存。
+  documentStore.captureActivePmState(view.state, 0)
   // 等同 tick 的 props 副作用跑完(典型:从只读 sample 切到新建文件时,
   // readOnly watch 在同一 tick 内把 view.editable 从 false 翻 true)。
   // 否则 view.focus() 在 editable=false 状态下调用,PM 拒键盘事件,
@@ -713,11 +721,24 @@ const documentStore = useDocumentStore()
 // 切标签:恢复该标签缓存的 PM state(保 undo 历史 / 光标),而非 modelValue watch 的重建路径。
 // flush:'sync' 确保 tabSwitchToken 自增后立即恢复,先于 modelValue(pre-flush)watch 跑;
 // 后者看到 pendingTabRestore=true 跳过重建。
+//
+// 滚动位置保留:PM 不像 CM6 有 viewportChanged 信号,滚动不产生 transaction →
+// onSelectionChange 不跑 → store 里的 scrollTop 停在上次选区变更时的值。
+// 解法:在此 watch(同步)里,restore 新标签**之前**先把旧标签的 view.state +
+// scrollTop 写回 store。此时 activeId 已指向新标签,但 view 仍持有旧标签的
+// EditorState、滚动容器仍是旧标签的位置 —— 原子保存,无 rAF 竞态。
 watch(() => documentStore.tabSwitchToken, () => {
   if (!mounted) return
   const view = getView()
   if (!view) return
+  // 同步捕获即将离开的标签的 state + 滚动位
+  if (prevActiveId && prevActiveId !== documentStore.activeId) {
+    const scroller = findScrollAncestor(view.dom)
+    const scrollTop = scroller ? scroller.scrollTop : 0
+    documentStore.capturePmStateForDoc(prevActiveId, view.state, scrollTop)
+  }
   const cached = documentStore.peekActivePmStateForRestore()
+  prevActiveId = documentStore.activeId // 无论 cache 命中与否都更新
   if (!cached) return // 无缓存 / 内容已外部改 → 走 modelValue watch 重建
   pendingTabRestore = true
   view.updateState(cached.state as EditorState)
@@ -788,10 +809,15 @@ emitHeadingContext()
   },
 onReady: () => {
 mounted = true
+prevActiveId = documentStore.activeId
 emitCursorPosition()
 emitHeadingContext()
     const view = getView()
-    if (view) registerTableEditorView(view)
+    if (view) {
+      registerTableEditorView(view)
+      // 首挂时也缓存初始 PM state,覆盖「组件首挂 + modelValue watch 不 fire」的场景
+      documentStore.captureActivePmState(view.state, 0)
+    }
   },
 })
 

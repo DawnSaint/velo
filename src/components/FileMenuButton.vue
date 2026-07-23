@@ -346,7 +346,7 @@ onBeforeUnmount(() => {
         <div class="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
           最近文件
         </div>
-        <div v-if="visibleRecent.length" class="max-h-80 overflow-auto pb-1">
+        <div v-if="visibleRecent.length" v-velo-scroll class="max-h-80 overflow-auto pb-1">
           <button
             v-for="entry in visibleRecent"
             :key="entry.path"

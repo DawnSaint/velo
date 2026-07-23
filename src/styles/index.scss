@@ -100,6 +100,13 @@
 .velo-scroll {
   &::-webkit-scrollbar { width: 0; height: 0; }
   scrollbar-width: none;
+  /* 关闭浏览器原生 scroll-anchoring：这些容器的滚动位置由 JS 程序化管理
+     (切标签 restoreScrollTop / resetScrollToTop / 打字机居中等)，浏览器在
+     布局阶段按锚点元素补偿 scrollTop 会覆盖 JS 设定的值 —— 典型场景是 PM
+     切标签 view.updateState 整体替换文档 DOM 后，浏览器选了新锚点并调整
+     scrollTop，把 restoreScrollTop 的正确值冲掉。CM6 的 .cm-scroller 内置
+     了 overflow-anchor:none，PM 侧滚动容器缺这条导致切标签偶发位置偏移。 */
+  overflow-anchor: none;
 }
 
 .velo-scroll-thumb {

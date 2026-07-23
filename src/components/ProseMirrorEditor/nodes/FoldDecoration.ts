@@ -155,6 +155,9 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
   const nextMermaid = new Set<number>()
   const nextToc = new Set<number>()
   for (const triggerContentStart of collapsedSet) {
+    // 越界守卫:切标签时 apply 可能收到上一个标签的 stale pos(与 doc 不匹配),
+    // doc.resolve 会抛 "Position X outside of fragment"。越界直接跳过。
+    if (triggerContentStart < 0 || triggerContentStart > doc.content.size) continue
     const triggerNode = doc.resolve(triggerContentStart).parent
     // code_block 折叠自身:直接加入 foldedCodeBlockPosSet
     if (triggerNode.type.name === 'code_block') {
@@ -253,8 +256,15 @@ export function makeStableKey(node: PMNode): string {
  * 给定 doc + contentStart,返回该位置对应 block 的稳定 key。
  * 用于 plugin view hook 把折叠 pos → stable key 写回 store。
  * pos 无效或对应节点不是 foldable → 返回 ''(caller 跳过)。
+ *
+ * **位置越界守卫**:切标签时 view.updateState(cachedState) 整体替换 state,
+ * foldDecoPlugin.view.update 的 prevCollapsed 闭包仍持有上一个标签的折叠 pos。
+ * diff 同步逻辑会拿旧标签的 pos 在新标签的 doc 上调 makeStableKeyForPos →
+ * doc.nodeAt(pos) 抛 "Position X outside of fragment"。这里在 nodeAt 之前
+ * 做 bounds check,越界直接返回 ''(跳过 store 同步,不 crash)。
  */
 function makeStableKeyForPos(doc: PMNode, pos: number): string {
+  if (pos < 0 || pos > doc.content.size) return ''
   const node = doc.nodeAt(pos)
   if (!node) return ''
   if (isFoldable(node)) {
@@ -822,6 +832,21 @@ const foldDecoPlugin = new Plugin<FoldState>({
         // 只 dispatch toggle meta,不像 chevron click handler 那样手动 setAttribute。
         // 这里统一同步:每帧扫描所有 toggle,按 collapsedSet 更新属性 + title。
         syncToggleState(updatedView, s)
+        // 切标签守卫:view.updateState(cachedState) 整体替换 state,prevCollapsed
+        // 仍持有上一个标签的折叠 pos。检测到越界 pos 时说明是跨标签 state swap,
+        // 直接重置 prevCollapsed 并跳过 diff(避免拿旧标签 pos 在新标签 doc 上
+        // 算 stable key → 误写 store / crash)。
+        if (prevCollapsed.size > 0) {
+          const docSize = updatedView.state.doc.content.size
+          let stale = false
+          for (const pos of prevCollapsed) {
+            if (pos < 0 || pos > docSize) { stale = true; break }
+          }
+          if (stale) {
+            prevCollapsed = new Set(s.collapsedSet)
+            return
+          }
+        }
         // 同步 store:只在 collapsedSet 实际变化时跑
         if (
           s.collapsedSet.size === prevCollapsed.size

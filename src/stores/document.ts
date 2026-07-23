@@ -985,6 +985,17 @@ export const useDocumentStore = defineStore('document', () => {
     d.scrollTop = scrollTop
   }
 
+  /** 切标签时同步捕获**即将离开的标签**的 PM state + 滚动位。
+   *  tabSwitchToken watch(flush:'sync')触发时 activeId 已指向新标签,
+   *  但 PM view 仍持有旧标签的 EditorState、滚动容器仍在旧位置 —— 正好原子保存。
+   *  doc 已被删除(closeTab)时 no-op。 */
+  function capturePmStateForDoc(docId: string, state: unknown, scrollTop: number) {
+    const d = documents.value.get(docId)
+    if (!d) return
+    d.pmState = markRaw(state as object)
+    d.scrollTop = scrollTop
+  }
+
   /** 切标签恢复用:返回活动标签缓存的 PM state + scrollTop,仅当内容仍匹配(未被外部改)。
    *  内容不匹配 → 返回 null,EditorInner 走 EditorState.create 重建。 */
   function peekActivePmStateForRestore(): { state: unknown, scrollTop: number | undefined } | null {
@@ -1003,6 +1014,14 @@ export const useDocumentStore = defineStore('document', () => {
   /** CM6 源码模式对称缓存(用 any 避免在此处引 CM6 类型)。 */
   function captureActiveCmState(state: unknown, scrollTop: number) {
     const d = activeDoc()
+    if (!d) return
+    d.cmState = markRaw(state as object)
+    d.scrollTop = scrollTop
+  }
+
+  /** CM6 对称:切标签时同步捕获即将离开的标签的 state + 滚动位。 */
+  function captureCmStateForDoc(docId: string, state: unknown, scrollTop: number) {
+    const d = documents.value.get(docId)
     if (!d) return
     d.cmState = markRaw(state as object)
     d.scrollTop = scrollTop
@@ -1231,8 +1250,10 @@ export const useDocumentStore = defineStore('document', () => {
     countDirtyTabsUnder,
     // 每标签 state 保留(Step 3)
     captureActivePmState,
+    capturePmStateForDoc,
     peekActivePmStateForRestore,
     captureActiveCmState,
+    captureCmStateForDoc,
     peekActiveCmStateForRestore,
     findTabByPath,
     // 草稿

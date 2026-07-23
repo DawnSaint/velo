@@ -94,6 +94,9 @@ let lastSelfEmitted = ''
 // 让同 tick 的 modelValue watch 跳过全量替换 dispatch —— 否则缓存恢复的 undo
 // 历史被一次全量 tr 污染(undo 会跨标签回退)。
 let pendingTabRestore = false
+// 跟踪上一个活动标签 id,切标签时据此把旧标签的 CM6 state + scrollTop
+// 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
+let prevActiveId = ''
 
 // 打字机模式开关镜像(组件级,不进 CM6 state —— typewriter 无 decoration,
 // updateListener 闭包读这个布尔即可,无需 focusMode 那种 StateField)。
@@ -447,16 +450,27 @@ emitHeadingContext(view)
 // 切标签:恢复该标签缓存的 CM6 state(保 undo 历史 / 光标),而非 modelValue watch 的全量替换。
 // 注意 CM6 的 setState 是整 state 替换(含 history 字段),undo 历史随缓存走。
 // flush:'sync' 确保先于 modelValue(pre-flush)watch 跑,后者看到 pendingTabRestore 跳过。
+//
+// 滚动位置保留:与 PM 侧对称 —— restore 新标签**之前**先把旧标签的 state +
+// scrollTop 写回 store。setState 后 updateListener 会用旧 scrollTop 误捕一次,
+// 故 restore 后立即 recapture 修正。
 watch(
   () => documentStore.tabSwitchToken,
   () => {
     const view = viewRef.value
     if (!view) return
+    // 同步捕获即将离开的标签的 state + 滚动位
+    if (prevActiveId && prevActiveId !== documentStore.activeId) {
+      documentStore.captureCmStateForDoc(prevActiveId, view.state, view.scrollDOM.scrollTop)
+    }
     const cached = documentStore.peekActiveCmStateForRestore()
+    prevActiveId = documentStore.activeId // 无论 cache 命中与否都更新
     if (!cached) return // 无缓存 → 走 modelValue watch 重建
     pendingTabRestore = true
     view.setState(cached.state as EditorState)
     if (cached.scrollTop != null) view.scrollDOM.scrollTop = cached.scrollTop
+    // setState 触发的 updateListener 用旧 scrollTop 误捕了一次,这里覆写修正
+    documentStore.captureActiveCmState(view.state, view.scrollDOM.scrollTop)
   },
   { flush: 'sync' },
 )
@@ -535,6 +549,7 @@ onMounted(async () => {
   if (!hostRef.value) return
   const view = createView()
   viewRef.value = view
+  prevActiveId = documentStore.activeId
   attachVeloScroll(view.scrollDOM)
 view.focus()
 emitCursorPosition(view)
