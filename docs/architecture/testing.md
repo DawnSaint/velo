@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip 含 underline mark / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip 含 underline mark / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 release.yml，见 ROADMAP `#ci-pipeline`。
 
@@ -66,7 +66,7 @@ src/
 │       └── imagePath.test.ts
 ├── stores/
 │   └── __tests__/
-│       ├── document.test.ts
+│       ├── document.test.ts          openFilePaths / openPathsInTabs 批量并行恢复 / openPathInTab({ silent }) / closeTab 收敛
 │       ├── editor.test.ts
 │       ├── export.test.ts
 │       ├── recentFiles.test.ts
@@ -88,6 +88,7 @@ src/
     └── ProseMirrorEditor/
         ├── __tests__/                    # 编辑器核心:markdownIO / 语法 / 键位 / NodeView / 插件
         │   ├── codeBlockLangSuggest.test.ts  ``` 语言建议下拉(状态检测 / DOM / 键盘导航 / Enter 提交 / Escape / 点击)
+        │   ├── codeHighlight.test.ts     code header widget(装载 / shiki dual-theme token / 语言切换 / 复制 / mermaid 联动折叠 / 祖先折叠时 header 跳过 / frontmatter yaml+toml 高亮)
         │   ├── foldDecoration.test.ts    折叠 plugin(makeStableKey / collectFoldableKeys / apply / 跨 plugin 同步 / fold_placeholder 真实节点:appendTransaction 插入删除、handleClickOn 点击展开、Decoration.node 选中高亮、foldDeleteCommand 整块删除、toggle data-fold-state 同步)
         │   └── foldCrossPlugins.test.ts   跨 plugin 集成(codeLineNumber × fold / mermaid × fold),**必须独立成文件**(module-level Set 泄漏源)
         │   └── tableCellSelection.test.ts CellSelection 拖蓝多选:矩形内右键锚定点击格 / 上/下插行锚定矩形外边界(触 header 时新行变 header + 旧 header 降级为 body) / 左/右插列锚定矩形外边界 / 删行删覆盖 body 行(保底 1 body 行,全在 header 内=noop) / 删列删覆盖列(保底 1 列) / 多列对齐覆盖列一起变 / header 行为 th 时菜单隐藏删除行

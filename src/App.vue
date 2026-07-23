@@ -72,9 +72,6 @@ const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
 const recentFilesStore = useRecentFilesStore()
 
-// 启动时装入空白内容；真实内容由工作区恢复 / 欢迎对话框 / CLI 参数加载。
-documentStore.init('')
-
 // store hydrate + shiki highlighter ready 必须在 ProseMirrorEditor 子组件
 // mount **之前**完成,否则首屏代码块会闪两遍:
 //
@@ -99,6 +96,9 @@ documentStore.init('')
 // true → PM mount,行为一致,不会卡白屏)。
 const settingsReady = ref(false)
 const codeBlockReady = ref(false)
+// 标签恢复完成标志:Phase 1(createTabsFromPaths)或 fallback init 后置 true。
+// 守门编辑器/WelcomeDialog,避免启动期先显示“未命名”Tab 再跳变为恢复的 Tab。
+const tabsReady = ref(false)
 void initSettings()
   .finally(() => { settingsReady.value = true; mark('settings-ready') })
   .then(async () => {
@@ -277,6 +277,35 @@ watch(
     // 通知带自管渲染的 NodeView（mermaid）刷新主题 —— ProseMirror 不会因
     // 这次类名切换产生 transaction，nodeView.update() 不会触发，得我们主动喊
     window.dispatchEvent(new CustomEvent('velo:theme-change'))
+  },
+  { immediate: true },
+)
+
+// 主题色 CSS 变量同步到 <html>。**必须在 setup 顶层注册(不能放 onMounted 内)**:
+// 编辑器 mount 由 codeBlockReady 守门(见上方注释),是一条独立于 onMounted 多个
+// await 的异步链。若 watcher 放在 onMounted 内,loadOutline / loadFold /
+// loadWorkspace 等 await 可能比 initSettings + shiki 更慢,导致编辑器已 mount、
+// 文档已用 SCSS fallback 色(#333 近黑)渲染后,watcher 才注册并 immediate 触发
+// → 首屏闪一遍"默认黑 → 主题色"。放顶层 + immediate:true:init 用 DEFAULT,
+// hydrate 后 store 变化同步触发 watcher 设上用户值,此变化发生在 codeBlockReady
+// 翻 true 之前 → 首帧即正确色,零闪烁。
+// 主题色同步到 document.documentElement:表格拾取条 / insert dot / guide line 等
+// position:fixed 浮层挂在 document.body 上,是 App 根 div 的兄弟节点,无法继承
+// 根 div 上设置的 --md-primary-color。提到 <html> 后全页面所有元素都能读到。
+watch(
+  () => store.primaryColor,
+  (color) => { document.documentElement.style.setProperty('--md-primary-color', color) },
+  { immediate: true },
+)
+
+// 文档内容色(--md-doc-primary-color):默认不跟随主题色,文档内容用各规则兜底的
+// 默认色;用户开启 "主题色影响文档颜色" 后才把主色灌进这个变量。提到 <html> 后
+// .velo-editor 内的文档规则都能读到;关闭时 removeProperty 让 var() 走 fallback。
+watch(
+  [() => store.primaryColor, () => store.themeColorAffectsDoc],
+  ([color, affects]) => {
+    if (affects) document.documentElement.style.setProperty('--md-doc-primary-color', color)
+    else document.documentElement.style.removeProperty('--md-doc-primary-color')
   },
   { immediate: true },
 )
@@ -948,6 +977,15 @@ onMounted(async () => {
     persistedActiveTab = workspaceStore.activeWorkspace.activeTab ?? null
   }
 
+  // Phase 1: 立即创建标签条目(只设 currentFilePath 供 TabBar 显示文件名),
+  // 不读盘。用户先看到 Tab 标题,内容异步加载。Phase 2 fire-and-forget 不阻塞
+  // onMounted 后续步骤(recentFiles hydrate / CLI / draft 等)。
+  if (shouldRestoreActive && persistedOpenTabs.length > 0) {
+    documentStore.createTabsFromPaths(persistedOpenTabs, persistedActiveTab)
+    tabsReady.value = true
+    void documentStore.loadContentIntoTabs(persistedOpenTabs, { silent: true })
+  }
+
   await recentFilesStore.hydrate()
 
   const initialDir = initialPayload.dirs?.[0]
@@ -987,43 +1025,21 @@ onMounted(async () => {
   // startupMode='last-file'也不该拉 recent file —— 否则每次新建窗口都会先蹦出
   // 一个用户的最近文档,违背"新窗口空白"的预期。CLI payload 显式路由的单个文件
   // / 目录由上方 initialFile / initialDir 处理,不走此路径。
-  if (shouldRestoreActive && !initialFile && !initialDir && store.startupMode === 'last-file') {
+  //
+  // **persistedOpenTabs.length === 0 守门**:有工作区持久化标签时跳过 last-file
+  // 单文件打开,已由上方 Phase 1 (createTabsFromPaths) 立即创建全部标签条目 +
+  // Phase 2 (loadContentIntoTabs) 异步加载内容。无持久化标签时仍走 last-file
+  // 作 fallback(打开最近文件到单一标签)。
+  if (shouldRestoreActive && !initialFile && !initialDir && persistedOpenTabs.length === 0 && store.startupMode === 'last-file') {
     const lastPath = recentFilesStore.entries[0]?.path
     if (lastPath) await documentStore.openPathInTab(lastPath)
   }
 
-  // 0.2) 恢复工作区持久化的标签集合(v0.6.x)。
-  //    注意:这里用上面快照到本地的 persistedOpenTabs / persistedActiveTab,
-  //    **不**读 workspaceStore.activeWorkspace.openTabs —— 上面 startupMode='last-file'
-  //    那段会调 openPathInTab 并触发我的 watcher,把 activeWorkspace.openTabs 覆盖成
-  //    当前 documents 状态(只剩 1 个)。用本地副本绕开这个 race。
-  //    副作用:本次 restore 期间 watcher 多次 fire 会让 workspaces[root].openTabs 看似
-  //    与 persistedOpenTabs 不同步,但 debounce 500ms 后会写回完整状态(包含 startupMode
-  //    期间打开的最近文件)。
-  //    openPathInTab 传 { silent: true }:启动期个别文件被外部删,只 console.warn
-  //    不弹原生错误框,避免连弹几个吓到用户。
-  //
-  //    动态窗口(菜单栏"新窗口" / 二次启动 single-instance)不恢复旧窗口的 openTabs
-  //    —— 这些窗口语义上就是"空窗口起步"(CLI payload 显式路由的单个文件/目录除外)。
-  //    shouldRestoreActive 已经为 false 的窗口,persistedOpenTabs 在第 1645 行也被
-  //    短路成 [],所以这里的 gate 是冗余但显式的兜底,防止未来有人改动 1645 行的
-  //    串联逻辑时意外把标签恢复开放给动态窗口。
-  if (shouldRestoreActive && persistedOpenTabs.length > 0) {
-    // 批量并行恢复(v0.6.x):openPathsInTabs 内 IO 阶段 Promise.all 并发 readTextFile,
-    // commit 阶段同步批量写 store,所有 reactive 触发在同一 microtask 内合并,
-    // TabBar 一次性拿到 N 个新 tab —— 不会肉眼可见地"一个个出现"。
-    // 失败路径(silent:true)只 console.warn,不弹原生错误框。
-    const restored = await documentStore.openPathsInTabs(persistedOpenTabs, { silent: true })
-    // 切到上次 activeTab(若仍在 restored 内);否则回退到最后一个装载成功的。
-    const wantActive = persistedActiveTab
-      && restored.includes(persistedActiveTab)
-      ? persistedActiveTab
-      : restored[restored.length - 1]
-    if (wantActive) {
-      const id = documentStore.findTabByPath(wantActive)
-      if (id) documentStore.switchTab(id)
-    }
-  }
+  // Fallback: 没有持久化标签且没有 CLI / last-file 打开文件时,创建空白标签。
+  // init 幂等(已有标签则 no-op)。所有启动路径汇合于此设 tabsReady=true,
+  // Phase 1 已设的重复赋值无害。守门编辑器/WelcomeDialog 不再闪"未命名" Tab。
+  if (documentStore.tabs.length === 0) documentStore.init('')
+  tabsReady.value = true
 
   // 0.25) 启动草稿定时器:dirty 状态下每 30s 落一份;clean 时 store 内部直接 return。
   //      失败仅日志,不抛 —— 草稿写盘不能阻塞主流程。
@@ -1044,27 +1060,6 @@ onMounted(async () => {
     () => outlineStore.collapsedByPath,
     () => { debouncedOutlineSave() },
     { deep: true },
-  )
-
-  // 主题色同步到 document.documentElement:表格拾取条 / insert dot / guide line 等
-  // position:fixed 浮层挂在 document.body 上,是 App 根 div 的兄弟节点,无法继承
-  // 根 div 上设置的 --md-primary-color。提到 <html> 后全页面所有元素都能读到。
-  watch(
-    () => store.primaryColor,
-    (color) => { document.documentElement.style.setProperty('--md-primary-color', color) },
-    { immediate: true },
-  )
-
-  // 文档内容色(--md-doc-primary-color):默认不跟随主题色,文档内容用各规则兜底的
-  // 默认色;用户开启 "主题色影响文档颜色" 后才把主色灌进这个变量。提到 <html> 后
-  // .velo-editor 内的文档规则都能读到;关闭时 removeProperty 让 var() 走 fallback。
-  watch(
-    [() => store.primaryColor, () => store.themeColorAffectsDoc],
-    ([color, affects]) => {
-      if (affects) document.documentElement.style.setProperty('--md-doc-primary-color', color)
-      else document.documentElement.style.removeProperty('--md-doc-primary-color')
-    },
-    { immediate: true },
   )
 
   watch(
@@ -1354,13 +1349,13 @@ watch(editorRef, (v) => {
         />
         <template v-else>
         <Breadcrumbs
-          v-if="codeBlockReady && documentStore.activeId && store.showBreadcrumbs"
+          v-if="codeBlockReady && tabsReady && documentStore.activeId && store.showBreadcrumbs"
           :file-name="documentStore.fileName"
           :headings="headingContext"
           @reveal-heading="onBreadcrumbReveal"
         />
         <div class="flex flex-1 overflow-hidden">
-          <template v-if="codeBlockReady && documentStore.activeId">
+          <template v-if="codeBlockReady && tabsReady && documentStore.activeId">
             <ProseMirrorEditor
               v-if="!documentStore.sourceMode"
               ref="editorRef"
@@ -1394,7 +1389,7 @@ watch(editorRef, (v) => {
           </template>
           <!-- 无标签空状态:WelcomeDialog 作为内联占位,提供新建 / 打开入口 -->
           <WelcomeDialog
-            v-else-if="codeBlockReady && !documentStore.activeId"
+            v-else-if="codeBlockReady && tabsReady && !documentStore.activeId"
             @create-blank="onWelcomeBlank"
             @open-file="onWelcomeOpenFile"
           />

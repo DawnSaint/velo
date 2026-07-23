@@ -717,9 +717,9 @@ describe('codeHighlight helpers', () => {
     // 回归:heading 折叠时,pre 被 velo-folded 隐,但 header widget 是
     // pre 的 side:-1 sibling(不在 pre 内部,velo-folded 影响不到),不跳过
     // 会孤悬在 fold 区段外 → "heading 折叠没收起代码块"。修法:祖先折叠
-    // (!isFolded && isCodeBlockFolded(pos)) 时跳过整个 header(连同 token
-    // inline decoration),展开帧 isCodeBlockFolded 翻 false → header 重建。
-    // 自身折叠(isFolded)不跳过 —— header 是自身折叠的摘要,必须保留
+    // (isCodeBlockAncestorFolded(pos))时跳过整个 header(连同 token
+    // inline decoration),展开帧 isCodeBlockAncestorFolded 翻 false → header 重建。
+    // 自身折叠不跳过 —— header 是自身折叠的摘要,必须保留
     // (由上一条测例锁死)。
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -747,6 +747,59 @@ describe('codeHighlight helpers', () => {
     // 展开 heading → header 回归
     view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hStart }))
     expect(view.dom.querySelector('.velo-code-header-widget')).not.toBeNull()
+    view.destroy()
+  })
+
+  it('code_block 自身折叠后 heading 折叠 → header 也跟着隐(不孤悬)', async () => {
+    // 回归:code_block 先自身折叠(header 作为摘要保留),再折叠 heading。
+    // 旧逻辑 `!isFolded && isCodeBlockFolded(pos)` 在 isFolded=true 时短路,
+    // header 不跳过 → 孤悬在 heading 折叠区段外。修法:改用
+    // isCodeBlockAncestorFolded(pos)(只含祖先折叠,不含自身折叠),
+    // 祖先折叠时无论自身是否折叠都跳过 header。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown('# title\n\n```js\nconst x = 1\n```\n', schema),
+      plugins: [codeHighlightPlugin, foldDecoration],
+    })
+    const view = new EditorView(container, { state })
+    await flushHighlighter()
+
+    // 找 heading contentStart
+    const findHeadingCs = () => {
+      let cs = -1
+      view.state.doc.descendants((n, p) => {
+        if (cs < 0 && n.type.name === 'heading') { cs = p + 1; return false }
+        return true
+      })
+      return cs
+    }
+
+    // 1) 自身折叠 code_block → header 保留(collapsed 摘要)
+    // 用 click fold btn 触发(click handler 手翻 data-fold-state;dispatch
+    // 不经过 handler,widget key 不含 fold state → DOM 复用 → attribute 不变)
+    const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
+    expect(foldBtn).not.toBeNull()
+    foldBtn!.click()
+    const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
+    expect(header).not.toBeNull()
+    expect(header!.getAttribute('data-fold-state')).toBe('collapsed')
+    expect(view.dom.querySelector('pre')?.classList.contains('velo-folded')).toBe(true)
+
+    // 2) 折叠 heading → header 跟着隐(不孤悬)
+    const hCs = findHeadingCs()
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hCs }))
+    expect(view.dom.querySelector('.velo-code-header-widget')).toBeNull()
+
+    // 3) 展开 heading → header 回归(仍是 collapsed 摘要)
+    // header 在 heading 折叠时被 skip,展开时重建 → factory 重跑 →
+    // isFolded 从当前 collapsedSet 读 → code_block 仍自身折叠 → collapsed
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hCs }))
+    const headerAfter = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
+    expect(headerAfter).not.toBeNull()
+    expect(headerAfter!.getAttribute('data-fold-state')).toBe('collapsed')
+
     view.destroy()
   })
 })

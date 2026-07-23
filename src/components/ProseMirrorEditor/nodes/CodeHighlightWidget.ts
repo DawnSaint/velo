@@ -56,7 +56,7 @@ import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
 import { checkSvg, chevronDownSvg, copySvg, wrapTextSvg, nowrapSvg } from '@/components/icons/widgetIcons'
 import { langIconSvg } from './langIcons'
-import { foldKey, isCodeBlockFolded } from './FoldDecoration'
+import { foldKey, isCodeBlockAncestorFolded } from './FoldDecoration'
 import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
 import { mermaidDecoKey } from './MermaidDecoration'
 
@@ -650,12 +650,12 @@ function buildDecorations(
     // 祖先(heading / list_item)折叠把本 code_block 隐了:pre 已被
     // velo-folded display:none,但 header widget 是 pre 的 side:-1 sibling
     // (不在 pre 内部,velo-folded 影响不到),不跳过会孤零零浮在 fold 区段
-    // 外 → heading 折叠"没收起代码块"。跳过整个 header(连同 token inline
-    // decoration 一起,pre 既隐高亮也无意义),展开帧 isCodeBlockFolded 翻
-    // false → header 重建 → 完整回归(同 CodeLineNumberWidget / MermaidDecoration
-    // 范式)。**自身折叠(isFolded)不跳过**:header 是自身折叠的摘要
-    // (行数 + 语言 + 复制),必须保留。
-    if (!isFolded && isCodeBlockFolded(pos)) return
+    // 外 → heading 折叠“没收起代码块”。跳过整个 header(连同 token inline
+    // decoration 一起,pre 既隐高亮也无意义),展开帧 isCodeBlockAncestorFolded
+    // 翻 false → header 重建 → 完整回归(同 CodeLineNumberWidget / MermaidDecoration
+    // 范式)。**自身折叠不跳过**:header 是自身折叠的摘要(行数 + 语言 + 复制),
+    // 必须保留 —— isCodeBlockAncestorFolded 只含祖先折叠,不含自身折叠。
+    if (isCodeBlockAncestorFolded(pos)) return
     if (renderHeader) {
       const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
       decos.push(

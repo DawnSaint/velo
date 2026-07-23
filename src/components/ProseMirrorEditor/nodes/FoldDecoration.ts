@@ -121,9 +121,26 @@ let foldedCodeBlockPosSet: Set<number> = new Set()
 let foldedMermaidPosSet: Set<number> = new Set()
 let foldedTocPosSet: Set<number> = new Set()
 
-/** 公开:codeLineNumberPlugin 调,判断本 code_block 是否处于 fold 范围内。 */
+/** 祖先(heading / list_item)折叠范围内的 code_block 节点 pos 集合。
+ *  与 foldedCodeBlockPosSet 的区别:不含 code_block 自身折叠的 pos。
+ *  CodeHighlightWidget 据此跳过 header widget —— 自身折叠时 header 是摘要
+ *  (行数 + 语言 + 复制)必须保留,但祖先折叠时整个区段都该隐,header
+ *  不能孤悬在外。 */
+let ancestorFoldedCodeBlockPosSet: Set<number> = new Set()
+
+/** 公开:codeLineNumberPlugin 调,判断本 code_block 是否处于 fold 范围内
+ *  (含自身折叠 + 祖先折叠)。行号 gutter 在两种情况下都应跳过(pre 均被
+ *  velo-folded 隐)。 */
 export function isCodeBlockFolded(codeBlockPos: number): boolean {
   return foldedCodeBlockPosSet.has(codeBlockPos)
+}
+
+/** 公开:CodeHighlightWidget 调,判断本 code_block 是否被祖先(heading /
+ *  list_item)折叠隐。与 isCodeBlockFolded 的区别:不含 code_block 自身折叠。
+ *  自身折叠时 header 是摘要必须保留;祖先折叠时整个区段都该隐,header
+ *  不能孤悬在外。 */
+export function isCodeBlockAncestorFolded(codeBlockPos: number): boolean {
+  return ancestorFoldedCodeBlockPosSet.has(codeBlockPos)
 }
 
 /** 公开:MermaidDecoration 调,判断本 mermaid code_block 是否处于 fold 范围
@@ -154,12 +171,14 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
   const nextCode = new Set<number>()
   const nextMermaid = new Set<number>()
   const nextToc = new Set<number>()
+  const nextAncestorFolded = new Set<number>()
   for (const triggerContentStart of collapsedSet) {
     // 越界守卫:切标签时 apply 可能收到上一个标签的 stale pos(与 doc 不匹配),
     // doc.resolve 会抛 "Position X outside of fragment"。越界直接跳过。
     if (triggerContentStart < 0 || triggerContentStart > doc.content.size) continue
     const triggerNode = doc.resolve(triggerContentStart).parent
     // code_block 折叠自身:直接加入 foldedCodeBlockPosSet
+    // (不加入 ancestorFoldedCodeBlockPosSet —— 自身折叠时 header 是摘要)
     if (triggerNode.type.name === 'code_block') {
       const blockPos = triggerContentStart - 1
       if (blockPos < 0 || blockPos >= doc.content.size) continue
@@ -185,6 +204,7 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
       if (p < 0 || p >= doc.content.size) return
       if (n.type.name === 'code_block') {
         nextCode.add(p)
+        nextAncestorFolded.add(p)
         const lang = (n.attrs.language as string) || ''
         if (lang === 'mermaid') nextMermaid.add(p)
       }
@@ -196,6 +216,7 @@ function recomputeFoldedCodeBlockPos(doc: PMNode, collapsedSet: Set<number>) {
   foldedCodeBlockPosSet = nextCode
   foldedMermaidPosSet = nextMermaid
   foldedTocPosSet = nextToc
+  ancestorFoldedCodeBlockPosSet = nextAncestorFolded
 }
 
 // ============================================================

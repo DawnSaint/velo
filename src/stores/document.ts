@@ -548,13 +548,11 @@ export const useDocumentStore = defineStore('document', () => {
         }
         continue
       }
-      // 启动恢复期二次保险:即使 dedupedPaths 已去重,startupMode='last-file' 段
-      // 也会先调一次 openPathInTab(lastPath) 把 lastFile 装到 init 空白 tab 上,
-      // 随后 openPathsInTabs(persistedOpenTabs) 又跑这一遍 —— 此时 active 已经不是
-      // 空白(已挂载 lastFile),canReusePristine=false 会 createTab + loadContent,
-      // 结果同一个 path 出现 2 个 tab,与"openPathInTab 已开则复用"的语义不符。
-      // 这里先 findTabByPath 命中就 skip(已开就不重复装载),保持与 openPathInTab
-      // "已开则切换"语义一致。
+      // 已开标签安全网:findTabByPath 命中就 skip(已开就不重复装载),保持与
+      // openPathInTab "已开则切换"语义一致。App.vue 已在有持久化标签时跳过
+      // last-file 单文件打开(见 persistedOpenTabs.length === 0 守门),两者不再
+      // 先后执行;但这里仍保留检查作通用兜底(调用方可能传入已开 path,或未来
+      // 有其他入口在 openPathsInTabs 之前打开标签)。
       if (findTabByPath(p)) {
         restored.push(p)
         continue
@@ -569,6 +567,104 @@ export const useDocumentStore = defineStore('document', () => {
       }
       loadContent(c, p)
       useRecentFilesStore().push(p)
+      restored.push(p)
+    }
+    return restored
+  }
+
+  /**
+   * 两阶段启动恢复 Phase 1: 立即创建标签条目(只设 currentFilePath 供 TabBar
+   * 显示文件名),**不读盘 / 不装载内容 / 不启 fs:watch**。Phase 2 由
+   * loadContentIntoTabs 异步装载内容。用户先看到 Tab 标题,内容稍后出现。
+   *
+   * content / lastSavedContent 保持 ''(空文档 canonical),dirty = false,
+   * TabBar 显示文件名但不显示修改标记。用户切到某标签时若 Phase 2 尚未
+   * 完成,看到空文档;Phase 2 完成后内容自动出现(EditorState modelValue watch)。
+   *
+   * dedupe / 复用 init 空白标签 / createTab 语义与 openPathsInTabs 对齐;
+   * 已开 path(findTabByPath 命中)跳过。
+   */
+  function createTabsFromPaths(paths: string[], activePath?: string | null): void {
+    if (paths.length === 0) return
+    const seen = new Set<string>()
+    const deduped: string[] = []
+    for (const p of paths) {
+      if (typeof p !== 'string' || !p || seen.has(p)) continue
+      seen.add(p)
+      deduped.push(p)
+    }
+    let pristineConsumed = false
+    for (const p of deduped) {
+      if (findTabByPath(p)) continue
+      const canReusePristine = isPristineBlank(activeDoc()) && !pristineConsumed
+      if (canReusePristine) {
+        pristineConsumed = true
+      }
+      else {
+        const id = createTab()
+        switchTab(id)
+      }
+      const d = activeDoc()!
+      // 只设路径,不装载内容 —— TabBar 能显示文件名,但 content 仍为空
+      d.currentFilePath = p
+      d.virtualFileName = null
+    }
+    // 激活 persistedActiveTab(若在创建的标签中);否则保持最后一个创建的标签
+    if (activePath) {
+      const id = findTabByPath(activePath)
+      if (id) switchTab(id)
+    }
+    void syncTitle()
+  }
+
+  /**
+   * 两阶段启动恢复 Phase 2: 并发读盘 + 同步装载内容到已有标签(由
+   * createTabsFromPaths 创建)。装载包括 content / lastSavedContent / fs:watch /
+   * canonical markdownIO round-trip(loadContentInto 全套副作用)。
+   *
+   * 失败文件走 silent 路径(仅 console.warn),标签保留(currentFilePath 已设,
+   * TabBar 仍显示文件名)但 content 为空 —— 比"删掉标签"更友好(用户知道
+   * 这个文件上次打开过,只是加载失败)。不调 useRecentFilesStore().push:
+   * 恢复的文件已在 recent 列表,fire-and-forget 场景下 hydrate 可能尚未完成,
+   * push 会被覆盖;用户后续交互时自然更新时间戳。
+   */
+  async function loadContentIntoTabs(
+    paths: string[],
+    opts: { silent?: boolean } = {},
+  ): Promise<string[]> {
+    if (paths.length === 0) return []
+    const seen = new Set<string>()
+    const deduped: string[] = []
+    for (const p of paths) {
+      if (typeof p !== 'string' || !p || seen.has(p)) continue
+      seen.add(p)
+      deduped.push(p)
+    }
+    const reads = await Promise.all(deduped.map(async (p) => {
+      try {
+        const c = await readTextFile(p)
+        return { p, c, err: null as unknown }
+      }
+      catch (err) {
+        return { p, c: null as string | null, err }
+      }
+    }))
+    const restored: string[] = []
+    for (const { p, c, err } of reads) {
+      if (c === null) {
+        if (opts.silent) {
+          console.warn(`[tabs-restore] skip ${p}: ${formatError(err)}`)
+        }
+        else {
+          console.error('打开文件失败', p, err)
+          await message(`无法打开 ${p}:${formatError(err)}`, { title: '打开失败', kind: 'error' })
+        }
+        continue
+      }
+      const id = findTabByPath(p)
+      if (!id) continue // 标签可能已在 Phase 1 和 2 之间被关闭
+      const d = documents.value.get(id)!
+      loadContentInto(d, c, p)
       restored.push(p)
     }
     return restored
@@ -1223,6 +1319,8 @@ export const useDocumentStore = defineStore('document', () => {
     openPath,
     openPathInTab,
     openPathsInTabs,
+    createTabsFromPaths,
+    loadContentIntoTabs,
     openPathInNewTab,
     openSampleTab,
     save,

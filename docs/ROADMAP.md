@@ -45,7 +45,7 @@ P2  #system-tray ──→ #daily-note
     #git-integration ──↔── #local-timeline ──→ #recent-locations
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup · #notification（独立）
-    #dark-mode-follow · #font-ui（独立）
+    #font-ui（独立）
                                                                 │
 P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
@@ -151,10 +151,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 与 Git 集成一同实现（共享文件历史数据层）
 
 ### 个性化
-
-- [x] **跟随系统深浅色** `#dark-mode-follow` `P2` `S`
-  - 监听 `prefers-color-scheme` 媒体查询，自动切换暗色模式
-  - 设置面板新增三态开关：跟随系统 / 始终浅色 / 始终暗色
 
 - [ ] **字体配置 UI** `#font-ui` `P2` `S`
   - `editorStore.fontFamily` 已有 store 字段，仅设置面板未暴露
