@@ -19,8 +19,14 @@
 //! `extern "C"` 边界，触发 `panic_cannot_unwind` → `abort()`，导致应用启动即崩溃。
 //! (tao#1171, tauri#15517)
 //!
-//! 本模块中所有 `msg_send!` 调用均用 `objc_exception::r#try` 包裹，
-//! 捕获 ObjC 异常后降级为 warn 日志，避免进程被 abort。
+//! 启动路径 (`install_service_provider`) 的 msg_send 调用已移到纯 ObjC 辅助函数
+//! `macos_service_helper.m`，用 `@try/@catch` 在 ObjC 层吞掉异常，永不把 ObjC 异常
+//! 抛过 FFI 边界。不能用 `objc_exception::r#try`：它内部用 `catch_unwind`，unwinder
+//! 穿越 `extern "C"` 帧时本身触发 `panic_cannot_unwind`，即 catch 机制反而成了
+//! 崩溃源头。
+//!
+//! 运行时 handler (`open_in_velo`) 仍用 `objc_exception::r#try` 包裹 —— 该路径
+//! 不在启动关键路径上，且被 macOS 调用时栈帧结构不同（非 tauri setup 闭包内）。
 //!
 //! 注：objc 0.2.7 的 `exception` 模块是私有的（`mod exception;` 而非 `pub mod`），
 //! 即使启了 `exception` feature 也无法从外部访问；直接依赖 `objc_exception` crate
@@ -34,10 +40,17 @@ use std::path::PathBuf;
 use std::sync::Once;
 
 use objc::declare::ClassDecl;
-use objc::runtime::{Class, Object, Sel, objc_getClass};
+use objc::runtime::{Class, Object, Sel};
 // sel_impl 必须显式引入:objc 0.2.7 的 sel! 宏内部直接调用 sel_impl!()
 // 而非 $crate::sel_impl!(),所以宏展开时 sel_impl 不在作用域会编译失败。
 use objc::{class, msg_send, sel, sel_impl};
+
+// ObjC 辅助函数 (macos_service_helper.m)：用 @try/@catch 在 ObjC 层吞掉异常，
+// 避免 msg_send 异常穿越 extern "C" 边界触发 panic_cannot_unwind (macOS 26 Tahoe)。
+#[link(name = "macos_service_helper", kind = "static")]
+extern "C" {
+    fn velo_register_service_provider(class_name: *const std::os::raw::c_char) -> bool;
+}
 
 const SERVICE_PROVIDER_CLASS: &str = "VeloServiceProvider";
 
@@ -174,29 +187,17 @@ fn install_service_provider() {
         decl.register();
     });
 
-    // 用 objc_exception::r#try 包裹所有 msg_send! 调用，防止 ObjC 异常穿越
-    // extern "C" 边界导致 panic_cannot_unwind → abort (macOS 26)。
+    // 用 ObjC 辅助函数 (macos_service_helper.m) 的 @try/@catch 在 ObjC 层吞掉
+    // 异常，避免 msg_send 异常穿越 extern "C" 边界触发 panic_cannot_unwind → abort
+    // (macOS 26 Tahoe)。
+    //
+    // 不能用 objc_exception::r#try：它内部用 catch_unwind，unwinder 穿越 extern "C"
+    // 帧时本身触发 panic_cannot_unwind，即 catch 机制反而成了崩溃源头。
     // See: https://github.com/tauri-apps/tao/issues/1171
     let name = std::ffi::CString::new(SERVICE_PROVIDER_CLASS).unwrap();
-    let result = unsafe {
-        objc_exception::r#try(|| {
-            // 在运行时查找已注册的类（objc_getClass 返回 *const Class）。
-            // objc_getClass 需要以 null 结尾的 C 字符串;&str.as_ptr() 不保证
-            // null 结尾,用 CString 确保正确。
-            let cls: *const Class = objc_getClass(name.as_ptr()) as *const Class;
-            if cls.is_null() {
-                return;
-            }
-            let provider: *mut Object = msg_send![cls, new];
-            if provider.is_null() {
-                return;
-            }
-            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-            let _: () = msg_send![app, setServiceProvider: provider];
-        })
-    };
-    if result.is_err() {
-        log::warn!("[shell_integration] ObjC 异常: service provider 注册失败");
+    let ok = unsafe { velo_register_service_provider(name.as_ptr()) };
+    if !ok {
+        log::warn!("[shell_integration] service provider 注册失败（ObjC 异常被吞掉）");
     }
 }
 
