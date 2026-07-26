@@ -71,8 +71,8 @@ onMounted(refreshShellState)
       </button>
     </SettingsItem>
 
-    <!-- 文件夹右键菜单：三平台均支持，机制各异（Windows=注册表/macOS=Finder 服务/Linux=action 文件）。 -->
-    <SettingsItem label='文件夹右键菜单增加"在 Velo 中打开"' :keywords="['folder', 'context', 'menu', '右键', '文件夹']" clickable>
+    <!-- 文件夹右键菜单：Windows 和 Linux 支持，机制各异（Windows=注册表/Linux=action 文件）。macOS Finder 服务已移除，待购入 Mac 设备后重新实现。 -->
+    <SettingsItem v-if="platform !== 'macos'" label='文件夹右键菜单增加"在 Velo 中打开"' :keywords="['folder', 'context', 'menu', '右键', '文件夹']" clickable>
       <input
         v-model="folderMenuOn"
         type="checkbox"

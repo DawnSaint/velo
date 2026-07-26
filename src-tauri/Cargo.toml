@@ -13,9 +13,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-# macos_service_helper.m: 编译 ObjC 辅助函数,用 @try/@catch 吞掉 ObjC 异常,
-# 避免 msg_send 异常穿越 extern "C" 边界触发 panic_cannot_unwind (macOS 26 Tahoe)。
-cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "devtools", "webview-data-url"] }
@@ -33,19 +30,6 @@ log = "0.4"
 thiserror = "1"
 tokio = { version = "1", features = ["sync", "time", "rt"] }
 base64 = "0.22"
-
-# macOS Finder 服务(v0.7.x 注册"在 Velo 中打开"文件夹右键菜单):objc
-# objc crate 是轻量 ObjC runtime 绑定,用于向 service provider 注册 openInVelo: handler。
-[target.'cfg(target_os = "macos")'.dependencies]
-# objc crate:ClassDecl 注册类 + msg_send! 调用。
-# objc_exception (0.1.x):仅用于 open_in_velo 运行时 handler 的 msg_send! 包裹,
-# 该路径不在启动关键路径。启动路径 (install_service_provider) 的 msg_send 已移到
-# macos_service_helper.m 用 @try/@catch 处理 —— objc_exception::try 内部用
-# catch_unwind,unwinder 穿越 extern "C" 帧时本身触发 panic_cannot_unwind → abort,
-# 即 catch 机制反而成了崩溃源头 (macOS 26 Tahoe,见 tao#1171, v0.7.5 崩溃报告)。
-# objc 0.2.7 的 exception 模块是私有的,需直接依赖 objc_exception 才能用 try。
-objc = { version = "0.2", features = ["exception"] }
-objc_exception = "0.1"
 
 # Windows PDF 导出:WebView2 ICoreWebView2_7::PrintToPdf
 # Windows 注册表(v0.5.1 注册"在 Velo 中打开"文件夹右键菜单):winreg
