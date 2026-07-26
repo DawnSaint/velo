@@ -141,14 +141,22 @@
 - `docs/ROADMAP.md`：删掉版本完成的条目
 - `docs/DECISIONS.md`：追加该版本的 ADR（如有重大决策）
 
-### 发版流程（release-please 自动化）
+### 发版流程（release-please 自动化 + per-platform 构建）
+
+**Windows（默认平台，自动构建）**：
 
 1. 所有 commit 走 Conventional Commits（见上方格式规约），release-please 自动解析推 semver（feat → minor / fix → patch / `BREAKING CHANGE` → major）
 2. push 到 `master` 后，release-please bot 自动维护一个长期存在的 release PR：
    - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
    - 自动生成根目录 `CHANGELOG.md`（从 commit summary 提取；`docs/RELEASE_NOTES.md` 不受影响，始终手动维护）
-3. 人工 review release PR → merge → release-please 自动创建 tag + GitHub Release
-4. tag push 触发 CI 跨平台构建流水线
+3. 人工 review release PR → merge → release-please 自动创建 tag（`vX.Y.Z`）+ GitHub Release
+4. tag push 触发 `release.yml`，**仅构建 Windows** 并上传到该 Release
+
+**其他平台（手动触发）**：
+
+5. Linux / macOS 通过 GitHub Actions `workflow_dispatch` 手动触发：指定版本号 + 目标平台
+6. 构建完成后创建 per-platform Release，tag 格式 `vX.Y.Z-{platform}`（如 `v0.7.5-linux-x64`、`v0.7.5-macos-arm64`）
+7. 各平台 Release 独立，用户在 GitHub Releases 页面按平台选择下载
 
 
 ### 手动发版（应急）
@@ -162,6 +170,8 @@
 
 ### 配置文件
 
-- `.github/workflows/release-please.yml` — push 到 master 触发
+- `.github/workflows/release-please.yml` — push 到 master 触发，管理版本号 + release PR
+- `.github/workflows/release.yml` — tag push 自动构建 Windows；`workflow_dispatch` 手动构建指定平台
+- `.github/workflows/ci.yml` — push / PR 到 master 触发，type-check + test + build
 - `release-please-config.json` — release-type / extra-files
 - `.release-please-manifest.json` — 版本起点

@@ -1,13 +1,27 @@
 name: Release
 
 # 触发方式：
-#   1. push tag v* —— 正式发版，构建并上传到 GitHub Release（与 release-please 衔接）
-#   2. workflow_dispatch —— 手动触发，只构建，产物作为 artifact 下载验证（不打 tag、不创建 Release）
+#   1. push tag v* —— release-please 创建 tag 后自动触发，仅构建 Windows 并上传到该 Release
+#   2. workflow_dispatch —— 手动构建指定平台，创建 per-platform Release（如 v0.7.5-linux-x64）
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号'
+        required: true
+        type: string
+      platform:
+        description: '目标平台'
+        required: true
+        type: choice
+        options:
+          - linux-x64
+          - macos-arm64
+          - macos-x64
+          - windows-x64
 
 permissions:
   contents: write
@@ -20,14 +34,25 @@ jobs:
         include:
           - platform: ubuntu-22.04
             artifact_id: linux-x64
+            platform_name: Linux x64
           - platform: macos-latest
             artifact_id: macos-arm64
+            platform_name: macOS ARM64
           - platform: macos-15-intel
             artifact_id: macos-x64
+            platform_name: macOS x64
           - platform: windows-latest
             artifact_id: windows-x64
+            platform_name: Windows x64
 
     runs-on: ${{ matrix.platform }}
+
+    # tag push (v*): 仅构建 Windows（默认平台）
+    # workflow_dispatch: 仅构建手动选定的平台
+    if: |
+      (github.event_name == 'push' && matrix.artifact_id == 'windows-x64') ||
+      (github.event_name == 'workflow_dispatch' && matrix.artifact_id == inputs.platform)
+
     steps:
       - uses: actions/checkout@v7
 
@@ -54,18 +79,34 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # ── tag push: 正式发版，构建并上传到 GitHub Release ──
-      # 先从 CHANGELOG.md 提取当前版本片段，传给 tauri-action 的 releaseBody
+      # ── 计算 release tag 和版本号 ──
+      # tag push: 使用 github.ref_name（如 v0.7.5）—— release-please 已创建该 Release
+      # workflow_dispatch: 使用 v{version}-{platform}（如 v0.7.5-linux-x64）—— 创建新的 per-platform Release
+      - name: Compute release tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
+            echo "RELEASE_NAME=Velo v$VERSION" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=v${{ inputs.version }}-${{ matrix.artifact_id }}" >> $GITHUB_ENV
+            echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=Velo v${{ inputs.version }} (${{ matrix.platform_name }})" >> $GITHUB_ENV
+          fi
+
+      # ── 从 CHANGELOG.md 提取当前版本片段，传给 tauri-action 的 releaseBody ──
       # 防御 release-please 未创建 release / 手动打 tag 发版的场景
       - name: Extract changelog for this release
-        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           node << 'SCRIPT' >> "$GITHUB_ENV"
           const fs = require("fs");
-          const version = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+          const version = process.env.VERSION;
           const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
           const escaped = version.replace(/[.\\]/g, "\\$&");
           const regex = new RegExp(`(## \\[${escaped}\\][^\\n]*\\n)([\\s\\S]*?)(?=\\n## \\[|\\n# |$)`);
@@ -75,23 +116,17 @@ jobs:
           SCRIPT
 
       - name: Build and publish to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Velo v__VERSION__'
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: ${{ env.RELEASE_NAME }}
           releaseBody: ${{ env.RELEASE_BODY }}
           releaseDraft: false
           prerelease: false
 
-      # ── workflow_dispatch: 手动测试，只构建不上传 Release ──
-      - name: Build (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
-        run: npm run tauri:build
-
-      # ── 产物完整性校验（不启动 GUI，只验证包结构 / 签名 / 元数据）──
+      # ── 产物完整性校验（仅 workflow_dispatch 手动触发时）──
       # 真正的「能否启动」验证属于 ROADMAP #ci-pipeline 第 5 步 E2E 验收，此处先做轻量门
       - name: Verify deb (Linux)
         if: github.event_name == 'workflow_dispatch' && matrix.artifact_id == 'linux-x64'
