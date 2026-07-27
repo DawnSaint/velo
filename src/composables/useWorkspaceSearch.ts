@@ -8,6 +8,7 @@
 import { nextTick, ref, type Ref } from 'vue'
 import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useNotifyStore } from '@/stores/notify'
 import type { SidebarTab } from '@/stores/persistence'
 import type { FindReplaceBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import {
@@ -27,6 +28,7 @@ export function useWorkspaceSearch(opts: {
 }) {
   const documentStore = useDocumentStore()
   const workspaceStore = useWorkspaceStore()
+  const notify = useNotifyStore()
 
   // 工作区全文搜索(v0.6.x):改为侧栏内嵌 tab,本 ref 仅保留"从选区带入的
   // 初始 query"语义,挂载 / 卸载由 workspaceStore.sidebarTab === 'search'
@@ -184,6 +186,15 @@ export function useWorkspaceSearch(opts: {
     // 状态文案 + 触发 panel 重跑搜索
     workspaceSearchReplaceStatus.value = formatReplaceStatus(result)
     workspaceSearchRerunToken.value++
+
+    // Toast 通知:即使用户已切离搜索面板也能看到替换结果
+    const summary = formatReplaceStatus(result)
+    if (result.failedFiles.length) {
+      notify.warning(summary)
+    }
+    else if (result.replacedCount > 0) {
+      notify.success(summary)
+    }
 
     // 失败明细:进度回调里塞"读了/写了什么文件失败"信息(已经入 result,这里 console 留痕)
     if (result.failedFiles.length) {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useDocumentStore } from '../document'
 import { useRecentFilesStore } from '../recentFiles'
+import { useNotifyStore } from '../notify'
 import { readTextFile, writeTextFile, watch } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
@@ -52,37 +53,36 @@ describe('document store', () => {
       expect(store.dirty).toBe(true) // 基线回滚 → 又变脏
     })
 
-    it('写盘失败:弹原生 message 提示用户,错误原因写入消息体', async () => {
+    it('写盘失败:弹 Toast 提示用户,错误原因写入消息体', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello world')
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(writeTextFile).mockRejectedValueOnce(new Error('disk full'))
 
       const ok = await store.save()
 
       expect(ok).toBe(false)
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+      expect(errorSpy).toHaveBeenCalledTimes(1)
       // 消息体里要有原始原因
-      const [body, options] = vi.mocked(message).mock.calls[0]
+      const [body] = errorSpy.mock.calls[0]
       expect(String(body)).toContain('disk full')
-      // kind: 'error' 弹红色错误图标,跟普通 info 区分
-      expect((options as any)?.kind).toBe('error')
+      // toast 无 kind 选项,仅校验消息体
     })
 
     it('写盘成功:不弹错误提示', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello world')
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(writeTextFile).mockResolvedValueOnce()
 
       const ok = await store.save()
 
       expect(ok).toBe(true)
-      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalled()
     })
   })
 
@@ -335,22 +335,21 @@ describe('document store', () => {
     })
 
 
-    it('另存为写盘失败:弹原生 message 提示用户', async () => {
+    it('另存为写盘失败:弹 Toast 提示用户', async () => {
       const store = await setupOpenedFile('hello', '/old.md')
       store.setContent('hello world') // 真实编辑,触发 dirty
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(saveDialog).mockResolvedValueOnce('/new.md')
       vi.mocked(writeTextFile).mockRejectedValueOnce(new Error('permission denied'))
 
       const ok = await store.saveAs()
 
       expect(ok).toBe(false)
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
-      const [body, options] = vi.mocked(message).mock.calls[0]
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      const [body] = errorSpy.mock.calls[0]
       expect(String(body)).toContain('permission denied')
-      expect((options as any)?.kind).toBe('error')
     })
 
     // 回归:saveAs 写盘后到 startWatchOf 之前的窗口里,如果还挂着旧 watcher,
@@ -615,19 +614,19 @@ describe('document store', () => {
       expect(store.currentFilePath).toBe('/a.md')
     })
 
-    it('openPathInNewTab:读盘失败 → 弹原生 message,不创建空标签', async () => {
+    it('openPathInNewTab:读盘失败 → 弹 Toast,不创建空标签', async () => {
       const store = useDocumentStore()
       store.init('') // 干净空白标签
       const tabsBefore = store.tabs.length
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('No such file'))
 
       const ok = await store.openPathInNewTab('/missing.md')
 
       expect(ok).toBe(false)
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+      expect(errorSpy).toHaveBeenCalledTimes(1)
       // 不污染状态:没创建新空白标签,干净空白还在
       expect(store.tabs.length).toBe(tabsBefore)
       expect(store.currentFilePath).toBeNull()
@@ -1147,24 +1146,23 @@ describe('document store', () => {
     // 阻塞 #2:CLI 启动 / cli-args 走 openPath 失败时用户必须能看到反馈。
     // 之前 readTextFile 抛错会冒泡成 unhandled rejection(那两处都是 void openPath(...)),
     // 用户看到"启动正常但文件不存在",根本不知道发生了什么。
-    it('openPath 读文件失败:弹原生 message 提示,不调 loadContent(不污染状态)', async () => {
+    it('openPath 读文件失败:弹 Toast 提示,不调 loadContent(不污染状态)', async () => {
       const store = useDocumentStore()
       store.init('keep this') // 已有内容 / path
       const before = store.content
       const pathBefore = store.currentFilePath
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('No such file'))
 
       // 不应抛
       await expect(store.openPath('/missing.md')).resolves.toBe(false)
 
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
-      const [body, options] = vi.mocked(message).mock.calls[0]
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      const [body] = errorSpy.mock.calls[0]
       expect(String(body)).toContain('/missing.md')
       expect(String(body)).toContain('No such file')
-      expect((options as any)?.kind).toBe('error')
 
       // 关键:loadContent 没被调 → 状态保持
       expect(store.content).toBe(before)
@@ -1175,14 +1173,14 @@ describe('document store', () => {
       const store = useDocumentStore()
       store.init('keep this')
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       vi.mocked(readTextFile).mockResolvedValueOnce('new content')
 
       const ok = await store.openPath('/new.md')
 
       expect(ok).toBe(true)
-      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalled()
       expect(store.content).toBe('new content\n')
       expect(store.currentFilePath).toBe('/new.md')
       expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/new.md'])
@@ -1325,32 +1323,32 @@ describe('document store', () => {
       expect(store.openFilePaths).toEqual(['/a.md', '/c.md'])
     })
 
-    it('openPathInTab({ silent: true }) 失败时只 console.warn,不弹原生 message', async () => {
+    it('openPathInTab({ silent: true }) 失败时只 console.warn,不弹 Toast', async () => {
       const store = useDocumentStore()
       store.init('')
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       const ok = await store.openPathInTab('/missing.md', { silent: true })
       expect(ok).toBe(false)
-      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalled()
       expect(warnSpy).toHaveBeenCalled()
       warnSpy.mockRestore()
     })
 
-    it('openPathInTab(默认) 失败时弹原生 message', async () => {
+    it('openPathInTab(默认) 失败时弹 Toast', async () => {
       const store = useDocumentStore()
       store.init('')
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
       const ok = await store.openPathInTab('/missing.md')
       expect(ok).toBe(false)
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
+      expect(errorSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -1358,7 +1356,7 @@ describe('document store', () => {
   //  - IO 并行:Promise.all(readTextFile × N),不串行
   //  - commit 同步:循环里无 await,所有 reactive 在同一 microtask 触发
   //  - 复用 init 空白只一次(pristineConsumed 标记)
-  //  - silent 失败路径不弹 message,非 silent 顺次 await message
+  //  - silent 失败路径不弹 Toast,非 silent 顺次弹 Toast
   //  - 返回成功 path 列表(供 caller 决定最终 switchTab)
   describe('openPathsInTabs 批量并行恢复', () => {
     it('空输入 → 返回空数组,不动 store', async () => {
@@ -1427,36 +1425,36 @@ describe('document store', () => {
       expect(store.tabs.length).toBe(2)
     })
 
-    it('silent 失败:console.warn,不弹原生 message', async () => {
+    it('silent 失败:console.warn,不弹 Toast', async () => {
       const store = useDocumentStore()
       store.init('')
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
 
       const restored = await store.openPathsInTabs(['/missing.md'], { silent: true })
 
       expect(restored).toEqual([])
-      expect(vi.mocked(message)).not.toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalled()
       expect(warnSpy).toHaveBeenCalled()
       warnSpy.mockRestore()
     })
 
-    it('非 silent 失败:console.error + 弹原生 message', async () => {
+    it('非 silent 失败:console.error + 弹 Toast', async () => {
       const store = useDocumentStore()
       store.init('')
       vi.mocked(readTextFile).mockRejectedValueOnce(new Error('not found'))
 
-      const { message } = await import('@tauri-apps/plugin-dialog')
-      vi.mocked(message).mockClear()
+      const notify = useNotifyStore()
+      const errorSpy = vi.spyOn(notify, 'error')
 
       const restored = await store.openPathsInTabs(['/missing.md'])
 
       expect(restored).toEqual([])
-      expect(vi.mocked(message)).toHaveBeenCalledTimes(1)
-      const [body] = vi.mocked(message).mock.calls[0]
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      const [body] = errorSpy.mock.calls[0]
       expect(String(body)).toContain('not found')
     })
 

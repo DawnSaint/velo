@@ -1,10 +1,11 @@
 import { ref, computed, markRaw } from 'vue'
 import { defineStore } from 'pinia'
-import { open as openDialog, save as saveDialog, confirm, message } from '@/tauri/dialog'
+import { open as openDialog, save as saveDialog, confirm } from '@/tauri/dialog'
 import { readTextFile, writeTextFile, watch, type UnwatchFn } from '@/tauri/fs'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { MARKDOWN_DIALOG_FILTERS } from '@/utils/markdownPath'
 import { useRecentFilesStore } from './recentFiles'
+import { useNotifyStore } from './notify'
 import {
   saveDraft as saveDraftToFs,
   loadDrafts as loadDraftsFromFs,
@@ -306,6 +307,7 @@ export const useDocumentStore = defineStore('document', () => {
       if (!isDirty) {
         // 干净：直接重载，不打扰用户
         loadContentInto(d, disk, path)
+        useNotifyStore().info(`「${docFileName(d)}」已在外部更新，已自动重新加载`)
         return
       }
       const reload = await confirm(
@@ -399,7 +401,7 @@ export const useDocumentStore = defineStore('document', () => {
   function guardReadOnly(): boolean {
     const d = activeDoc()
     if (d && (d.userReadOnly || d.readOnlyLocked)) {
-      void message('示例文档为只读，请使用"另存为"保存到工作区后再编辑。', { title: '只读文档', kind: 'info' })
+      useNotifyStore().warning('示例文档为只读，请使用"另存为"保存到工作区后再编辑。')
       return true
     }
     return false
@@ -425,7 +427,7 @@ export const useDocumentStore = defineStore('document', () => {
     }
     catch (e) {
       console.error('打开文件失败', path, e)
-      await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      useNotifyStore().error(`无法打开 ${path}:${formatError(e)}`)
       return false
     }
   }
@@ -470,7 +472,7 @@ export const useDocumentStore = defineStore('document', () => {
       }
       else {
         console.error('打开文件失败', path, e)
-        await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+        useNotifyStore().error(`无法打开 ${path}:${formatError(e)}`)
       }
       return false
     }
@@ -544,7 +546,7 @@ export const useDocumentStore = defineStore('document', () => {
         }
         else {
           console.error('打开文件失败', p, err)
-          await message(`无法打开 ${p}:${formatError(err)}`, { title: '打开失败', kind: 'error' })
+          useNotifyStore().error(`无法打开 ${p}:${formatError(err)}`)
         }
         continue
       }
@@ -657,7 +659,7 @@ export const useDocumentStore = defineStore('document', () => {
         }
         else {
           console.error('打开文件失败', p, err)
-          await message(`无法打开 ${p}:${formatError(err)}`, { title: '打开失败', kind: 'error' })
+          useNotifyStore().error(`无法打开 ${p}:${formatError(err)}`)
         }
         continue
       }
@@ -687,7 +689,7 @@ export const useDocumentStore = defineStore('document', () => {
     }
     catch (e) {
       console.error('打开文件失败', path, e)
-      await message(`无法打开 ${path}:${formatError(e)}`, { title: '打开失败', kind: 'error' })
+      useNotifyStore().error(`无法打开 ${path}:${formatError(e)}`)
       return false
     }
     // 与 openPathInTab 复用同一规则:活动标签非干净空白 → 新开一个空白标签再激活。
@@ -773,8 +775,8 @@ export const useDocumentStore = defineStore('document', () => {
       d.lastSavedContent = previousBaseline
       // 写盘失败必须给用户可见反馈 —— 仅 console.error 用户根本看不到。
       // 自动保存 / Ctrl+S / 关闭拦截都会走这里;任一场景下"以为保存成功"
-      // 都会丢数据。弹原生 message 显式告知失败原因。
-      await message(`保存失败:${formatError(e)}`, { title: '保存失败', kind: 'error' })
+      // 都会丢数据。Toast error 显式告知失败原因。
+      useNotifyStore().error(`保存失败:${formatError(e)}`)
       return false
     }
   }
@@ -819,7 +821,7 @@ export const useDocumentStore = defineStore('document', () => {
     }
     catch (e) {
       console.error('另存为失败', e)
-      await message(`另存为失败:${formatError(e)}`, { title: '另存为失败', kind: 'error' })
+      useNotifyStore().error(`另存为失败:${formatError(e)}`)
       return false
     }
   }
@@ -985,7 +987,7 @@ export const useDocumentStore = defineStore('document', () => {
     const d = documents.value.get(id)
     if (!d) return false
     if (d.userReadOnly || d.readOnlyLocked) {
-      void message('示例文档为只读，请使用"另存为"保存到工作区后再编辑。', { title: '只读文档', kind: 'info' })
+      useNotifyStore().warning('示例文档为只读，请使用"另存为"保存到工作区后再编辑。')
       return false
     }
     if (!d.currentFilePath) return saveAsDoc(d)

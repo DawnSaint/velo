@@ -25,13 +25,14 @@ import {
   writeTextFile,
 } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
-import { confirm as nativeConfirm, message as nativeMessage } from '@/tauri/dialog'
+import { confirm as nativeConfirm } from '@/tauri/dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { tauriOnly } from '@/tauri/fs'
 import { newAppWindow } from '@/tauri/window'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
+import { useNotifyStore } from '@/stores/notify'
 import { TREE_DIR_PATH_MIME, TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
@@ -51,6 +52,7 @@ import {
 const workspace = useWorkspaceStore()
 const recentFiles = useRecentFilesStore()
 const documentStore = useDocumentStore()
+const notify = useNotifyStore()
 
 const { rootNode, dirIndex, rebuildFromRoot, loadDirChildren, refreshDir, pruneDirIndexPrefix } = useTreeData()
 
@@ -346,7 +348,7 @@ async function performMove(srcPath: string, dstDir: string) {
   if (srcParentDir === dstDir) return
 
   if (srcNode.isDir && isAncestorOrSelf(srcPath, dstDir)) {
-    await nativeMessage('不能将目录拖入自身或其子目录', { title: '移动失败', kind: 'warning' })
+    notify.warning('不能将目录拖入自身或其子目录')
     return
   }
 
@@ -357,7 +359,7 @@ async function performMove(srcPath: string, dstDir: string) {
     await fsRename(srcPath, newPath)
   }
   catch (e) {
-    await nativeMessage(formatFsError(e, '移动失败'), { title: '移动失败', kind: 'error' })
+    notify.error(formatFsError(e, '移动失败'))
     return
   }
 
@@ -635,7 +637,7 @@ async function confirmAndDelete(node: TreeNode) {
     closeContextMenu()
   }
   catch (e) {
-    await nativeMessage(formatFsError(e, '删除失败'), { title: '删除失败', kind: 'error' })
+    notify.error(formatFsError(e, '删除失败'))
   }
 }
 
@@ -644,7 +646,7 @@ async function confirmAndDelete(node: TreeNode) {
 async function revealInExplorer(node: TreeNode) {
   try { await revealItemInDir(node.fullPath) }
   catch (e) {
-    await nativeMessage(formatFsError(e, '打开文件管理器失败'), { title: '操作失败', kind: 'error' })
+    notify.error(formatFsError(e, '打开文件管理器失败'))
   }
   finally { closeContextMenu() }
 }
@@ -781,7 +783,7 @@ async function pasteInto(dstDir: string) {
 
   // 目录:不能贴入自身或子目录(同 move 的 ancestor 守卫)。
   if (clip.isDir && isAncestorOrSelf(clip.srcPath, dstDir)) {
-    await nativeMessage('不能将目录粘贴到自身或其子目录', { title: '粘贴失败', kind: 'warning' })
+    notify.warning('不能将目录粘贴到自身或其子目录')
     return
   }
 
@@ -805,7 +807,7 @@ async function pasteInto(dstDir: string) {
     }
   }
   catch (e) {
-    await nativeMessage(formatFsError(e, '粘贴失败'), { title: '粘贴失败', kind: 'error' })
+    notify.error(formatFsError(e, '粘贴失败'))
     return
   }
 

@@ -15,9 +15,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
 import { useRecentFilesStore } from '@/stores/recentFiles'
+import { useNotifyStore } from '@/stores/notify'
 import FileTree from '../Sidebar/FileTree.vue'
 import { copyFile, readDir, rename as fsRename, remove as fsRemove, writeTextFile, mkdir as fsMkdir } from '@tauri-apps/plugin-fs'
-import { message } from '@tauri-apps/plugin-dialog'
 import { confirm } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import type { DirEntry } from '@tauri-apps/plugin-fs'
@@ -1122,7 +1122,9 @@ describe('FileTree', () => {
     w.unmount()
   })
 
-  it('粘贴目录到自身子目录 → 拒绝 + 弹 warning(message)', async () => {
+  it('粘贴目录到自身子目录 → 拒绝 + 弹 Toast warning', async () => {
+    const notify = useNotifyStore()
+    const warnSpy = vi.spyOn(notify, 'warning')
     const w = await mountWithDirImpl(
       [entry('parent', true)],
       (path) => path === '/test/root/parent' ? [entry('child', true)] : [],
@@ -1144,10 +1146,7 @@ describe('FileTree', () => {
     await flushPromises()
 
     expect(copyFile).not.toHaveBeenCalled()
-    expect(message).toHaveBeenCalledWith(
-      '不能将目录粘贴到自身或其子目录',
-      expect.objectContaining({ title: '粘贴失败', kind: 'warning' }),
-    )
+    expect(warnSpy).toHaveBeenCalledWith('不能将目录粘贴到自身或其子目录')
     w.unmount()
   })
 

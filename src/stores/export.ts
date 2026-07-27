@@ -16,8 +16,8 @@
 //    `invoke` 的 promise 能正常 resolve,下面才能弹成功 / 失败反馈。
 //    macOS / Linux 当前在 Rust 端返回 PdfError::Unsupported,前端把它映射成
 //    "PDF 导出当前平台暂不支持" 错误提示。
-// 4) **成功 / 失败反馈**:成功弹原生 message(success)告知路径;失败弹 error
-//    (同 document.ts:246)。早先 PDF 导出后主 webview 被 navigate 走导致
+// 4) **成功 / 失败反馈**:成功弹 Toast success 告知路径;失败弹 Toast error
+//    (同 document.ts)。早先 PDF 导出后主 webview 被 navigate 走导致
 //    JS 上下文销毁,既看不到反馈、顶栏也回不来 —— 隐藏窗口方案同时解决这两点。
 //
 // 不动 currentFilePath / lastSavedContent / fs:watch —— 导出是"产出一份
@@ -25,11 +25,12 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { save as saveDialog, message } from '@/tauri/dialog'
+import { save as saveDialog } from '@/tauri/dialog'
 import { writeTextFile } from '@/tauri/fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { useDocumentStore } from './document'
 import { useEditorStore } from './editor'
+import { useNotifyStore } from './notify'
 import type { buildExportHtml } from '@/lib/export/htmlRenderer'
 
 // 懒加载导出渲染:htmlRenderer 顶层静态 import 了 katexCss + jetbrainsCss,二者
@@ -73,13 +74,14 @@ export const useExportStore = defineStore('export', () => {
    * 主入口。流程:
    * 1) saveDialog 拿 target(用户可取消 → return false)
    * 2) 按扩展名 dispatch:HTML / PDF
-   * 3) 失败 → 弹原生 message 告知
-   * 成功 → return true
+   * 3) 失败 → Toast error 告知
+   * 成功 → Toast success + return true
    */
   async function exportDocument(): Promise<boolean> {
+    const notify = useNotifyStore()
     if (exporting.value) return false
     if (!isTauri()) {
-      await message('导出功能仅在桌面端可用', { title: '导出', kind: 'info' })
+      notify.info('导出功能仅在桌面端可用')
       return false
     }
     const docStore = useDocumentStore()
@@ -125,14 +127,14 @@ export const useExportStore = defineStore('export', () => {
     }
     catch (e) {
       console.error('导出失败', e)
-      await message(`导出失败:${formatError(e)}`, { title: '导出失败', kind: 'error' })
+      notify.error(`导出失败:${formatError(e)}`)
     }
     finally {
       exporting.value = false
     }
-    // 成功才弹成功提示 —— 放在 catch 之外,免得 message 本身抛错被当成"导出失败"。
+    // 成功才弹成功提示 —— 放在 catch 之外,免得 toast 本身抛错被当成"导出失败"。
     if (succeeded) {
-      await message(`已导出:${target}`, { title: '导出', kind: 'info' })
+      notify.success(`已导出:${target}`)
       return true
     }
     return false
@@ -140,7 +142,7 @@ export const useExportStore = defineStore('export', () => {
 
   /**
    * HTML 导出:buildExportHtml + writeTextFile
-   * 失败抛错由 exportDocument 外层 catch + message 兜底。
+   * 失败抛错由 exportDocument 外层 catch + Toast 兜底。
    */
   async function exportToHtml(target: string, opts: Parameters<typeof buildExportHtml>[0]): Promise<void> {
     const { buildExportHtml } = await loadExportHtml()

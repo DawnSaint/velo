@@ -6,13 +6,14 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { save as saveDialog, message } from '@tauri-apps/plugin-dialog'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 
 import { useExportStore } from '../export'
 import { useDocumentStore } from '../document'
 import { useEditorStore } from '../editor'
+import { useNotifyStore } from '../notify'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -30,7 +31,7 @@ describe('useExportStore.exportDocument', () => {
     expect(ok).toBe(false)
     expect(writeTextFile).not.toHaveBeenCalled()
     expect(invoke).not.toHaveBeenCalled()
-    expect(message).not.toHaveBeenCalled()
+    expect(useNotifyStore().toasts).toHaveLength(0)
   })
 
   it('writes HTML file when target ends with .html', async () => {
@@ -91,12 +92,13 @@ describe('useExportStore.exportDocument', () => {
     const docStore = useDocumentStore()
     docStore.content = '# x'
     docStore.currentFilePath = '/tmp/x.md'
+    const notify = useNotifyStore()
+    const errorSpy = vi.spyOn(notify, 'error')
     const store = useExportStore()
     const ok = await store.exportDocument()
     expect(ok).toBe(false)
-    expect(message).toHaveBeenCalledWith(
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('disk full'),
-      expect.objectContaining({ title: '导出失败', kind: 'error' }),
     )
   })
 
@@ -106,24 +108,26 @@ describe('useExportStore.exportDocument', () => {
     const docStore = useDocumentStore()
     docStore.content = '# z'
     docStore.currentFilePath = '/tmp/z.md'
+    const notify = useNotifyStore()
+    const errorSpy = vi.spyOn(notify, 'error')
     const store = useExportStore()
     const ok = await store.exportDocument()
     expect(ok).toBe(false)
-    expect(message).toHaveBeenCalledWith(
+    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('not supported'),
-      expect.objectContaining({ title: '导出失败', kind: 'error' }),
     )
   })
 
   it('refuses to run when not in Tauri (browser dev web)', async () => {
     vi.mocked(isTauri).mockReturnValue(false)
+    const notify = useNotifyStore()
+    const infoSpy = vi.spyOn(notify, 'info')
     const store = useExportStore()
     const ok = await store.exportDocument()
     expect(ok).toBe(false)
     expect(saveDialog).not.toHaveBeenCalled()
-    expect(message).toHaveBeenCalledWith(
+    expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('桌面端'),
-      expect.objectContaining({ title: '导出', kind: 'info' }),
     )
   })
 

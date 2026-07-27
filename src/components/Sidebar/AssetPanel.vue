@@ -22,11 +22,12 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
 import { Image as TauriImage } from '@tauri-apps/api/image'
 import { readDir, readFile, remove, copyFile, tauriOnly } from '@/tauri/fs'
-import { save as dialogSave, confirm as dialogConfirm, message as dialogMessage } from '@/tauri/dialog'
+import { save as dialogSave, confirm as dialogConfirm } from '@/tauri/dialog'
 import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/imagePath'
 import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
 import { writeClipboardText } from '@/utils/clipboard'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useNotifyStore } from '@/stores/notify'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { ASSET_IMAGE_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { basename as basenameSync } from './treeUtils'
@@ -43,6 +44,7 @@ const emit = defineEmits<{
 }>()
 
 const workspaceStore = useWorkspaceStore()
+const notify = useNotifyStore()
 
 // ============================================================
 //  类型
@@ -470,7 +472,7 @@ async function onDelete() {
     scheduleOrphanScan()
   }
   catch (e) {
-    await dialogMessage(`删除失败:${e instanceof Error ? e.message : String(e)}`, { title: '删除失败', kind: 'error' })
+    notify.error(`删除失败:${e instanceof Error ? e.message : String(e)}`)
   }
 }
 

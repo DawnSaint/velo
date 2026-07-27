@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { X, Plus, Settings } from '@lucide/vue'
 import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useNotifyStore } from '@/stores/notify'
 import { writeClipboardText } from '@/utils/clipboard'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { message } from '@/tauri/dialog'
 import { relativePathWithinRoot } from '@/utils/statusPath'
 import { basename } from '@/components/Sidebar/treeUtils'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
@@ -13,6 +13,7 @@ import TabContextMenu from './TabContextMenu.vue'
 
 const documentStore = useDocumentStore()
 const workspaceStore = useWorkspaceStore()
+const notify = useNotifyStore()
 
 const props = defineProps<{
   settingsOpen: boolean
@@ -425,8 +426,8 @@ function currentFilePath(): string | null {
 async function copyToClipboardWithToast(text: string, what: string) {
   const ok = await writeClipboardText(text)
   if (!ok) {
-    // 写不进剪贴板时给个原生 message(没 toast 系统);静默吞则用户以为复制了
-    await message(`复制${what}失败,请检查剪贴板权限`, { title: '复制失败', kind: 'error' })
+    // 写不进剪贴板时给个 Toast;静默吞则用户以为复制了
+      notify.error(`复制${what}失败,请检查剪贴板权限`)
   }
   closeContextMenu()
 }
@@ -463,7 +464,7 @@ async function onRevealInExplorer() {
     await revealItemInDir(p)
   }
   catch {
-    await message('打开文件管理器失败', { title: '操作失败', kind: 'error' })
+    notify.error('打开文件管理器失败')
   }
 }
 

@@ -42,6 +42,7 @@ import FileMenuButton from '@/components/FileMenuButton.vue'
 import { ChevronDown } from '@lucide/vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
+import ToastContainer from '@/components/ToastContainer.vue'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
@@ -1440,6 +1441,9 @@ watch(editorRef, (v) => {
       @line-confirm="onLineConfirm"
       @line-cancel="onLineCancel"
     />
+
+    <!-- Toast 通知容器：右上角浮层，Teleport 到 body，不占文档流 -->
+    <ToastContainer />
   </div>
 </template>
 
