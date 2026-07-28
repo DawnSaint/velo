@@ -7,7 +7,7 @@ import type { EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
 import { useEditorStore } from '@/stores/editor'
-import { isCodeBlockFolded } from './FoldDecoration'
+import { isCodeBlockFolded, foldKey } from './FoldDecoration'
 import { mermaidDecoKey } from './MermaidDecoration'
 import { scanDoc } from './docScanCache'
 
@@ -18,6 +18,8 @@ import { scanDoc } from './docScanCache'
 interface LineNumberState {
   /** 当前是否启用行号。设置面板开关切换 → App.vue 走 setMeta 翻这个值。 */
   enabled: boolean
+  /** 缓存的 DecorationSet;null 表示需要全量重建。 */
+  decoSet: DecorationSet | null
 }
 
 /** 工厂:每次调都从 store 同步拿当前值,factory 内不能直接用 ref(模块
@@ -31,7 +33,7 @@ function makeInitialState(): LineNumberState {
     }
   }
   catch { /* pinia 未就绪 / 单元测试场景,fallback false */ }
-  return { enabled }
+  return { enabled, decoSet: null }
 }
 
 export const lineNumbersKey = new PluginKey<LineNumberState>('codeLineNumbers')
@@ -102,21 +104,86 @@ export const codeLineNumberPlugin = new Plugin<LineNumberState>({
   key: lineNumbersKey,
   state: {
     init: makeInitialState,
-    apply(tr, prev) {
+    apply(tr, prev, oldState) {
       const meta = tr.getMeta(lineNumbersKey) as
         | { enabled?: boolean }
         | undefined
-      if (!meta) return prev
-      return {
-        enabled: meta.enabled ?? prev.enabled,
+      if (meta) {
+        return { enabled: meta.enabled ?? prev.enabled, decoSet: null }
       }
+      // fold / mermaid 状态变化 → 行号可见性变化 → 全量重建
+      if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey)) {
+        return { ...prev, decoSet: null }
+      }
+      // selection-only:返回同一引用,PM 跳过 decoration diff
+      if (!tr.docChanged) return prev
+      if (!prev.decoSet || !prev.enabled) return prev
+
+      // 增量:map 旧 set → 只重建 dirty range 内 code_block 的行号
+      let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+      const scan = scanDoc(tr.doc)
+      const oldMermaidState = mermaidDecoKey.getState(oldState)
+      const affected: Array<{ pos: number; node: PMNode }> = []
+      for (const step of tr.steps) {
+        step.getMap().forEach((_os, _oe, ns, ne) => {
+          for (const { node, pos } of scan.codeBlocks) {
+            if (pos + node.nodeSize >= ns && pos <= ne) {
+              if (!affected.some(a => a.pos === pos)) affected.push({ pos, node })
+            }
+          }
+        })
+      }
+      if (affected.length === 0) return { ...prev, decoSet: newSet }
+
+      for (const { pos, node } of affected) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+      const newDecos: Decoration[] = []
+      for (const { node, pos } of affected) {
+        const lang = (node.attrs.language as string) || ''
+        if (lang === 'mermaid') {
+          if (!oldMermaidState || !oldMermaidState.editNodeSet.has(pos + 1)) continue
+        }
+        if (isCodeBlockFolded(pos)) continue
+        const blockStart = pos + 1
+        const blockEnd = pos + node.nodeSize - 1
+        if (blockStart >= blockEnd) continue
+        const code = tr.doc.textBetween(blockStart, blockEnd, '\n', '\n')
+        const lines = code.split('\n')
+        newDecos.push(
+          Decoration.node(pos, pos + node.nodeSize, {
+            'data-velo-gutter': 'true',
+          }, { key: `code-gutter-class:${pos}:${prev.enabled}` }),
+        )
+        let offset = 0
+        for (let i = 0; i < lines.length; i++) {
+          const lineStart = blockStart + offset
+          const lineNum = i + 1
+          newDecos.push(
+            Decoration.widget(lineStart, () => {
+              const span = document.createElement('span')
+              span.className = 'velo-code-lineno'
+              span.contentEditable = 'false'
+              span.textContent = String(lineNum)
+              return span
+            }, { side: -1, key: `code-ln:${pos}:${lineNum}`, ignoreSelection: true }),
+          )
+          offset += lines[i].length + 1
+        }
+      }
+      if (newDecos.length > 0) newSet = newSet.add(tr.doc, newDecos)
+      return { ...prev, decoSet: newSet }
     },
   },
   props: {
     decorations(state) {
       const s = lineNumbersKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s.enabled)
+      if (!s.decoSet) {
+        return buildDecorations(state, s.enabled)
+      }
+      return s.decoSet
     },
   },
 })

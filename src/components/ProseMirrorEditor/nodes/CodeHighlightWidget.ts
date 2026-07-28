@@ -72,6 +72,10 @@ interface CodeHighlightState {
   lightTheme: string
   /** 当前深色主题名(双主题代码块的 dark 变体)。 */
   darkTheme: string
+  /** 缓存的 DecorationSet;null 表示需要全量重建。
+   *  增量更新策略:apply 里 map 旧 set → 只重建 dirty range 内的 code_block
+   *  decoration → 存回 state。decorations() 直接返回缓存,不再每次全量重建。 */
+  decoSet: DecorationSet | null
 }
 
 /** 工厂:每次调都从 store 同步拿当前主题,factory 内不能直接用 ref(模块
@@ -91,6 +95,7 @@ function makeInitialState(): CodeHighlightState {
     highlighter: getHighlighterSync(), // PM mount 时 App.vue codeBlockReady 守门后必然 ready
     lightTheme: light,
     darkTheme: dark,
+    decoSet: null, // 首次 decorations() 调用时全量构建
   }
 }
 
@@ -560,9 +565,136 @@ function getMermaidColors(
 }
 
 // ============================================================
-//  构造 decorations
+//  构造 decorations —— per-node 构建函数
 // ============================================================
 
+/** 为单个 frontmatter 节点构建 token 高亮 inline decoration。 */
+function buildDecosForFrontmatter(
+  doc: PMNode,
+  node: PMNode,
+  pos: number,
+  hl: Highlighter | null,
+  lightTheme: string,
+  darkTheme: string,
+): Decoration[] {
+  if (!hl) return []
+  const lang = (node.attrs.lang as string) || 'yaml'
+  const blockStart = pos + 1
+  const blockEnd = pos + node.nodeSize - 1
+  if (blockStart >= blockEnd) return []
+  const code = doc.textBetween(blockStart, blockEnd, '\n', '\n')
+  const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
+  if (!result) return []
+  return tokensToDecos(result.tokens, blockStart, blockEnd)
+}
+
+/** 为单个 code_block 节点构建 header widget + token 高亮 decoration。 */
+function buildDecosForCodeBlock(
+  doc: PMNode,
+  node: PMNode,
+  pos: number,
+  isFolded: boolean,
+  mermaidExpanded: boolean,
+  hl: Highlighter | null,
+  lightTheme: string,
+  darkTheme: string,
+): Decoration[] {
+  const decos: Decoration[] = []
+  const lang = (node.attrs.language as string) || ''
+  const isMermaid = lang === 'mermaid'
+  const renderHeader = !isMermaid || mermaidExpanded
+  const blockStart = pos + 1
+  const blockEnd = pos + node.nodeSize - 1
+  const code = blockStart < blockEnd
+    ? doc.textBetween(blockStart, blockEnd, '\n', '\n')
+    : ''
+  const isWrapped = isCodeBlockWrapped(pos)
+  if (isCodeBlockAncestorFolded(pos)) return []
+  if (renderHeader) {
+    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
+    decos.push(
+      Decoration.widget(pos, (view, _getPos) => {
+        return makeHeaderDom(
+          pos, lang, () => code, isFolded,
+          () => {
+            if (!view || view.isDestroyed) return
+            view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
+          },
+          isWrapped,
+          () => {
+            if (!view || view.isDestroyed) return
+            view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
+          },
+          (newLang: string) => {
+            if (!view || view.isDestroyed) return
+            setCodeBlockLanguage(view.state, pos, newLang, (tr) => { view.dispatch(tr) })
+          },
+          () => {
+            if (!view || view.isDestroyed) return
+            view.focus()
+            const $pos = view.state.doc.resolve(blockStart)
+            view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
+          },
+          mermaidExpanded,
+        )
+      }, { side: -1, key, ignoreSelection: true, stopEvent: () => true }),
+    )
+  }
+  if (!lang || blockStart >= blockEnd) return decos
+
+  if (lang === 'mermaid') {
+    const colors = getMermaidColors(hl, lightTheme, darkTheme)
+    if (!colors) return decos
+    const mermaidLines = tokenizeMermaid(code)
+    for (const line of mermaidLines) {
+      for (const token of line) {
+        const from = blockStart + token.offset
+        const to = from + token.content.length
+        if (from >= to || from < blockStart || to > blockEnd) continue
+        const c = colors[token.type]
+        if (!c) continue
+        const parts: string[] = []
+        if (c.light) parts.push(`--shiki-light:${c.light}`)
+        if (c.dark) parts.push(`--shiki-dark:${c.dark}`)
+        if (parts.length === 0) continue
+        decos.push(Decoration.inline(from, to, { style: parts.join(';') }))
+      }
+    }
+    return decos
+  }
+
+  if (!hl) return decos
+  const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
+  if (!result) return decos
+  return decos.concat(tokensToDecos(result.tokens, blockStart, blockEnd))
+}
+
+/** shiki tokens → Decoration.inline 数组。 */
+function tokensToDecos(
+  tokens: import('shiki').ThemedToken[][],
+  blockStart: number,
+  blockEnd: number,
+): Decoration[] {
+  const decos: Decoration[] = []
+  for (const line of tokens) {
+    for (const token of line) {
+      const from = blockStart + token.offset
+      const to = from + token.content.length
+      if (from >= to || from < blockStart || to > blockEnd) continue
+      const light = token.variants?.light?.color
+      const dark = token.variants?.dark?.color
+      if (!light && !dark) continue
+      const parts: string[] = []
+      if (light) parts.push(`--shiki-light:${light}`)
+      if (dark) parts.push(`--shiki-dark:${dark}`)
+      if (parts.length === 0) continue
+      decos.push(Decoration.inline(from, to, { style: parts.join(';') }))
+    }
+  }
+  return decos
+}
+
+/** 全量构建:遍历所有 code_block + frontmatter,生成完整 DecorationSet。 */
 function buildDecorations(
   state: EditorState,
   hl: Highlighter | null,
@@ -570,151 +702,19 @@ function buildDecorations(
   darkTheme: string,
 ): DecorationSet {
   const decos: Decoration[] = []
-  // 读 fold 状态:判断 code_block 是否折叠(chevron 方向 + widget key)
   const foldState = foldKey.getState(state)
-  // 读 mermaid 展开态:editNodeSet 含 absolutePos(pos + 1)的 mermaid 处于
-  // "展开源码"态(pre 可见);不在集合里 = "收起 / 显示 SVG"态(pre 被
-  // data-mermaid-source="hidden" 隐藏)。mermaid 的 code header 联动此态:
-  // 展开时显示 header(语言选择 + 复制可用),收起时隐藏(否则 SVG 上方孤零零
-  // 浮着一个 header,与 MermaidDecoration 的 SVG + 切换/删除 toolbar 叠两层)。
   const mermaidState = mermaidDecoKey.getState(state)
   const scan = scanDoc(state.doc)
-  // frontmatter 走对应 lang grammar 高亮(与 code_block 同结构,但无 header widget)
   for (const { node, pos } of scan.frontmatters) {
-    if (!hl) continue
-    const lang = (node.attrs.lang as string) || 'yaml'
-    const blockStart = pos + 1
-    const blockEnd = pos + node.nodeSize - 1
-    if (blockStart >= blockEnd) continue
-    const code = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-    const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
-    if (!result) continue
-    const { tokens } = result
-    for (const line of tokens) {
-      for (const token of line) {
-        const from = blockStart + token.offset
-        const to = from + token.content.length
-        if (from >= to) continue
-        if (from < blockStart || to > blockEnd) continue
-        const light = token.variants?.light?.color
-        const dark = token.variants?.dark?.color
-        if (!light && !dark) continue
-        const parts: string[] = []
-        if (light) parts.push(`--shiki-light:${light}`)
-        if (dark) parts.push(`--shiki-dark:${dark}`)
-        if (parts.length === 0) continue
-        decos.push(
-          Decoration.inline(from, to, {
-            style: parts.join(';'),
-          }),
-        )
-      }
-    }
+    decos.push(...buildDecosForFrontmatter(state.doc, node, pos, hl, lightTheme, darkTheme))
   }
   for (const { node, pos } of scan.codeBlocks) {
-    const lang = (node.attrs.language as string) || ''
-    const isMermaid = lang === 'mermaid'
-    const renderHeader = !isMermaid || Boolean(mermaidState?.editNodeSet.has(pos + 1))
-    const mermaidExpanded = isMermaid && Boolean(mermaidState?.editNodeSet.has(pos + 1))
     const blockStart = pos + 1
-    const blockEnd = pos + node.nodeSize - 1
-    const code = blockStart < blockEnd
-      ? state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-      : ''
     const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
-    const isWrapped = isCodeBlockWrapped(pos)
-    if (isCodeBlockAncestorFolded(pos)) continue
-    if (renderHeader) {
-      const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
-      decos.push(
-        Decoration.widget(pos, (view, _getPos) => {
-          return makeHeaderDom(
-            pos,
-            lang,
-            () => code,
-            isFolded,
-            () => {
-              if (!view || view.isDestroyed) return
-              view.dispatch(view.state.tr.setMeta(foldKey, { toggle: blockStart }))
-            },
-            isWrapped,
-            () => {
-              if (!view || view.isDestroyed) return
-              view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
-            },
-            (newLang: string) => {
-              if (!view || view.isDestroyed) return
-              setCodeBlockLanguage(view.state, pos, newLang, (tr) => {
-                view.dispatch(tr)
-              })
-            },
-            () => {
-              if (!view || view.isDestroyed) return
-              view.focus()
-              const $pos = view.state.doc.resolve(blockStart)
-              view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
-            },
-            mermaidExpanded,
-          )
-        }, {
-          side: -1,
-          key,
-          ignoreSelection: true,
-          stopEvent: () => true,
-        }),
-      )
-    }
-    if (!lang) continue
-    if (blockStart >= blockEnd) continue
-
-    if (lang === 'mermaid') {
-      const colors = getMermaidColors(hl, lightTheme, darkTheme)
-      if (!colors) continue
-      const mermaidLines = tokenizeMermaid(code)
-      for (const line of mermaidLines) {
-        for (const token of line) {
-          const from = blockStart + token.offset
-          const to = from + token.content.length
-          if (from >= to || from < blockStart || to > blockEnd) continue
-          const c = colors[token.type]
-          if (!c) continue
-          const parts: string[] = []
-          if (c.light) parts.push(`--shiki-light:${c.light}`)
-          if (c.dark) parts.push(`--shiki-dark:${c.dark}`)
-          if (parts.length === 0) continue
-          decos.push(
-            Decoration.inline(from, to, {
-              style: parts.join(';'),
-            }),
-          )
-        }
-      }
-      continue
-    }
-
-    if (!hl) continue
-    const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
-    if (!result) continue
-    const { tokens } = result
-    for (const line of tokens) {
-      for (const token of line) {
-        const from = blockStart + token.offset
-        const to = from + token.content.length
-        if (from >= to) continue
-        if (from < blockStart || to > blockEnd) continue
-        const light = token.variants?.light?.color
-        const dark = token.variants?.dark?.color
-        if (!light && !dark) continue
-        const parts: string[] = []
-        if (light) parts.push(`--shiki-light:${light}`)
-        if (dark) parts.push(`--shiki-dark:${dark}`)
-        decos.push(
-          Decoration.inline(from, to, {
-            style: parts.join(';'),
-          }),
-        )
-      }
-    }
+    const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
+    decos.push(...buildDecosForCodeBlock(
+      state.doc, node, pos, isFolded, mermaidExpanded, hl, lightTheme, darkTheme,
+    ))
   }
   return DecorationSet.create(state.doc, decos)
 }
@@ -734,23 +734,116 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       // 主题从 store 读,App.vue setup 顶层 initSettings() 已 hydrate 完。
       return makeInitialState()
     },
-    apply(tr, prev) {
+    apply(tr, prev, oldState) {
       const meta = tr.getMeta(codeHighlightKey) as
         | { highlighter?: Highlighter, lightTheme?: string, darkTheme?: string }
         | undefined
-      if (!meta) return prev
-      return {
-        highlighter: meta.highlighter ?? prev.highlighter,
-        lightTheme: meta.lightTheme ?? prev.lightTheme,
-        darkTheme: meta.darkTheme ?? prev.darkTheme,
+      // 主题/highlighter 变化或语言加载完成 → 全量重建
+      if (meta) {
+        return {
+          highlighter: meta.highlighter ?? prev.highlighter,
+          lightTheme: meta.lightTheme ?? prev.lightTheme,
+          darkTheme: meta.darkTheme ?? prev.darkTheme,
+          decoSet: null,
+        }
       }
+      // fold / mermaid / codeWrap 状态变化 → header 渲染变化 → 全量重建
+      if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey) || tr.getMeta(codeWrapKey)) {
+        return { ...prev, decoSet: null }
+      }
+      // selection-only 交易(光标移动 / 选区变化):decorations 不变,返回同一引用
+      // → PM 跳过 decoration diff,不重建 DOM。
+      if (!tr.docChanged) {
+        return prev
+      }
+      // prev.decoSet 为 null:上一帧标记了全量重建,这里保持 null 让 decorations() 处理
+      if (!prev.decoSet) {
+        return prev
+      }
+
+      // 增量更新:map 旧 set → 只重建 dirty range 内 code_block/frontmatter 的 decoration
+      let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+
+      // 从 tr.steps 提取 dirty ranges(新 doc 坐标)
+      const dirtyRanges: Array<{ from: number; to: number }> = []
+      for (const step of tr.steps) {
+        step.getMap().forEach((_os, _oe, ns, ne) => {
+          dirtyRanges.push({ from: ns, to: ne })
+        })
+      }
+      if (dirtyRanges.length === 0) {
+        return { ...prev, decoSet: newSet }
+      }
+
+      // 找到与 dirty ranges 有交集的 code_block / frontmatter
+      const scan = scanDoc(tr.doc)
+      const foldState = foldKey.getState(oldState)
+      const mermaidState = mermaidDecoKey.getState(oldState)
+
+      const affectedCodeBlocks: Array<{ pos: number; node: PMNode }> = []
+      const affectedFrontmatters: Array<{ pos: number; node: PMNode }> = []
+      for (const range of dirtyRanges) {
+        for (const { node, pos } of scan.codeBlocks) {
+          if (pos + node.nodeSize >= range.from && pos <= range.to) {
+            if (!affectedCodeBlocks.some(cb => cb.pos === pos)) {
+              affectedCodeBlocks.push({ pos, node })
+            }
+          }
+        }
+        for (const { node, pos } of scan.frontmatters) {
+          if (pos + node.nodeSize >= range.from && pos <= range.to) {
+            if (!affectedFrontmatters.some(fm => fm.pos === pos)) {
+              affectedFrontmatters.push({ pos, node })
+            }
+          }
+        }
+      }
+
+      if (affectedCodeBlocks.length === 0 && affectedFrontmatters.length === 0) {
+        return { ...prev, decoSet: newSet }
+      }
+
+      // 移除受影响节点的旧 decoration,再重建添加
+      for (const { pos, node } of affectedCodeBlocks) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+      for (const { pos, node } of affectedFrontmatters) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+
+      const newDecos: Decoration[] = []
+      for (const { node, pos } of affectedFrontmatters) {
+        newDecos.push(...buildDecosForFrontmatter(
+          tr.doc, node, pos, prev.highlighter, prev.lightTheme, prev.darkTheme,
+        ))
+      }
+      for (const { node, pos } of affectedCodeBlocks) {
+        const blockStart = pos + 1
+        const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
+        const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
+        newDecos.push(...buildDecosForCodeBlock(
+          tr.doc, node, pos, isFolded, mermaidExpanded,
+          prev.highlighter, prev.lightTheme, prev.darkTheme,
+        ))
+      }
+      if (newDecos.length > 0) {
+        newSet = newSet.add(tr.doc, newDecos)
+      }
+
+      return { ...prev, decoSet: newSet }
     },
   },
   props: {
     decorations(state) {
       const s = codeHighlightKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme)
+      // decoSet 为 null:全量重建(首次加载 / 主题切换 / fold/mermaid 变化)
+      if (!s.decoSet) {
+        return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme)
+      }
+      return s.decoSet
     },
   },
   view: (view) => {

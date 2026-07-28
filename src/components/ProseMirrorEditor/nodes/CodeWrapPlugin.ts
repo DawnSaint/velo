@@ -38,12 +38,14 @@ import { scanDoc } from './docScanCache'
 // ============================================================
 
 interface CodeWrapState {
-  /** 已 *关闭* wrap 的 code_block node pos 集合。空集 = 全部开启(默认)。 */
-  unwrappedSet: Set<number>
+/** 已 *关闭* wrap 的 code_block node pos 集合。空集 = 全部开启(默认)。 */
+unwrappedSet: Set<number>
+/** 缓存的 DecorationSet;null 表示需要全量重建。 */
+decoSet: DecorationSet | null
 }
 
 function initialState(): CodeWrapState {
-  return { unwrappedSet: new Set() }
+return { unwrappedSet: new Set(), decoSet: null }
 }
 
 export const codeWrapKey = new PluginKey<CodeWrapState>('codeWrap')
@@ -109,19 +111,24 @@ export const codeWrapPlugin = new Plugin<CodeWrapState>({
       const meta = tr.getMeta(codeWrapKey) as
         | { toggle?: number }
         | undefined
+
+      // selection-only:返回同一引用,PM 跳过 decoration diff
+      if (!meta && !tr.docChanged) return prev
+
       let set = prev.unwrappedSet
+
+      // toggle meta:翻转 wrap 状态
       if (meta?.toggle != null) {
         set = new Set(prev.unwrappedSet)
         if (set.has(meta.toggle)) {
-          // 已在 unwrappedSet 中 → 移出 = 恢复默认开启
           set.delete(meta.toggle)
         } else {
-          // 不在 unwrappedSet 中 → 加入 = 关闭 wrap
           set.add(meta.toggle)
         }
       }
-      // Map positions through the transaction (同 fold 的 mapping 范式)
-      if (tr.docChanged) {
+
+      // doc 变化:映射 unwrappedSet 位置(同 fold 的 mapping 范式)
+      if (tr.docChanged && set.size > 0) {
         const nextSet = new Set<number>()
         for (const pos of set) {
           const mapped = tr.mapping.map(pos, -1)
@@ -131,16 +138,68 @@ export const codeWrapPlugin = new Plugin<CodeWrapState>({
         }
         set = nextSet
       }
+
       // 同步 module-level set(apply 阶段,早于 decorations)
       syncModuleSet(tr.doc, set)
-      return { unwrappedSet: set }
+
+      // toggle meta → 全量重建(wrap 状态变化影响 code_block 可见性)
+      if (meta) {
+        return { unwrappedSet: set, decoSet: null }
+      }
+
+      // docChanged only → 增量更新
+      if (!prev.decoSet) {
+        return { unwrappedSet: set, decoSet: null }
+      }
+
+      // map 旧 set 平移 pos
+      let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+
+      // 找到 dirty range 内的 code_block,只重建它们的 decoration
+      const scan = scanDoc(tr.doc)
+      const affected: Array<{ pos: number; node: PMNode }> = []
+      for (const step of tr.steps) {
+        step.getMap().forEach((_os, _oe, ns, ne) => {
+          for (const { node, pos } of scan.codeBlocks) {
+            if (pos + node.nodeSize >= ns && pos <= ne) {
+              if (!affected.some(a => a.pos === pos)) affected.push({ pos, node })
+            }
+          }
+        })
+      }
+      if (affected.length === 0) {
+        return { unwrappedSet: set, decoSet: newSet }
+      }
+
+      // 移除受影响 code_block 的旧 decoration,重建
+      for (const { pos, node } of affected) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+      const newDecos: Decoration[] = []
+      for (const { node, pos } of affected) {
+        if (set.has(pos)) continue // wrap 已关闭,不加 data-velo-wrap
+        newDecos.push(
+          Decoration.node(pos, pos + node.nodeSize, {
+            'data-velo-wrap': 'true',
+          }, { key: `code-wrap:${pos}` }),
+        )
+      }
+      if (newDecos.length > 0) {
+        newSet = newSet.add(tr.doc, newDecos)
+      }
+
+      return { unwrappedSet: set, decoSet: newSet }
     },
   },
   props: {
     decorations(state) {
       const s = codeWrapKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s.unwrappedSet)
+      if (!s.decoSet) {
+        return buildDecorations(state, s.unwrappedSet)
+      }
+      return s.decoSet
     },
   },
 })

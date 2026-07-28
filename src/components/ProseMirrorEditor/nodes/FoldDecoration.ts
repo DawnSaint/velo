@@ -81,13 +81,15 @@ import { scanDoc } from './docScanCache'
 // ============================================================
 
 export interface FoldState {
-  /** 折叠点绝对 pos(contentStart)集合 —— heading / list_item / code_block /
-   *  frontmatter 折叠时,各自的 contentStart 落进 set。见 FOLDABLE_TYPES。 */
-  collapsedSet: Set<number>
+/** 折叠点绝对 pos(contentStart)集合 —— heading / list_item / code_block /
+*  frontmatter 折叠时,各自的 contentStart 落进 set。见 FOLDABLE_TYPES。 */
+collapsedSet: Set<number>
+/** 缓存的 DecorationSet;null 表示需要全量重建。 */
+decoSet: DecorationSet | null
 }
 
 function initialState(): FoldState {
-  return { collapsedSet: new Set() }
+return { collapsedSet: new Set(), decoSet: null }
 }
 
 export const foldKey = new PluginKey<FoldState>('foldDecoration')
@@ -487,10 +489,10 @@ function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
     addFrontmatterDecos(node, pos, deco, decos)
   }
   for (const { node, pos } of scan.headings) {
-    addHeadingDecos(state, node, pos, deco, decos)
+    addHeadingDecos(state.doc, node, pos, deco, decos)
   }
   for (const { node, pos } of scan.listItems) {
-    addListItemDecos(state, node, pos, deco, decos)
+    addListItemDecos(state.doc, node, pos, deco, decos)
   }
   for (const { node, pos } of scan.codeBlocks) {
     addCodeBlockDecos(node, pos, deco, decos)
@@ -512,7 +514,7 @@ function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
 }
 
 function addHeadingDecos(
-  state: EditorState,
+  doc: PMNode,
   node: PMNode,
   pos: number,
   deco: FoldState,
@@ -544,14 +546,14 @@ function addHeadingDecos(
 
   if (!isCollapsed) return
 
-  const range = computeFoldRange(node, contentStart, state.doc)
+  const range = computeFoldRange(node, contentStart, doc)
   if (!range) return
   // 折叠区段首部 placeholder + 区段内每个 block 挂 hidden class
-  applyFoldRange(state, range, contentStart, decos)
+  applyFoldRange(doc, range, contentStart, decos)
 }
 
 function addListItemDecos(
-  state: EditorState,
+  doc: PMNode,
   node: PMNode,
   pos: number,
   deco: FoldState,
@@ -579,9 +581,9 @@ function addListItemDecos(
   )
 
   if (!isCollapsed) return
-  const range = computeFoldRange(node, contentStart, state.doc)
+  const range = computeFoldRange(node, contentStart, doc)
   if (!range) return
-  applyFoldRange(state, range, contentStart, decos)
+  applyFoldRange(doc, range, contentStart, decos)
 }
 
 function addCodeBlockDecos(
@@ -628,13 +630,13 @@ function addFrontmatterDecos(
 }
 
 function applyFoldRange(
-  state: EditorState,
+  doc: PMNode,
   range: [number, number],
   _triggerPos: number,
   decos: Decoration[],
 ) {
   // 把 fold 区段内的每个 block 整块 `display: none`。
-  // **关键**:`state.doc.nodesBetween(from, to)` 会访问**跨越 from-to 的
+  // **关键**:`doc.nodesBetween(from, to)` 会访问**跨越 from-to 的
   // ancestor 节点**(PM 默认行为:遍历所有与范围相交的节点,包括外层
   // 容器)。如果 list_item 折叠,fold range 在 list_item 内部,nodesBetween
   // 会同时给外层 bullet_list / list_item 也挂 velo-folded → display:none,
@@ -645,7 +647,7 @@ function applyFoldRange(
   // 这样外层 bullet_list / list_item(跨越 fold range)不会被挂,只挂
   // fold range 内的 block(nested bullet_list / nested list_item / paragraph
   // 等)。
-  visitBlocksInRange(state.doc, range[0], range[1], (n, p) => {
+  visitBlocksInRange(doc, range[0], range[1], (n, p) => {
     decos.push(Decoration.node(p, p + n.nodeSize, { class: 'velo-folded' }, {
       // selectable: false 阻止 fold 区段被 NodeSelection / 鼠标 drag 选中
       // PM 内部仍按 doc 位置走,键盘 navigation 仍可越过(v1 接受)
@@ -678,6 +680,13 @@ const foldDecoPlugin = new Plugin<FoldState>({
       const meta = tr.getMeta(foldKey) as
         | { initCollapsed?: number[], toggle?: number, remove?: number[] }
         | undefined
+      // selection-only:如果文档中有 fold_placeholder,is-selected 高亮依赖选区,需重建;
+      // 没有 fold_placeholder 时可以安全跳过(返回同一引用)。
+      if (!meta && !tr.docChanged) {
+        if (scanDoc(tr.doc).foldPlaceholders.length === 0) return prev
+        // 有 fold_placeholder:需要重建(选区变化影响 is-selected)
+        return { ...prev, decoSet: null }
+      }
       let collapsedSet = prev.collapsedSet
       let setMutated = false
       if (meta?.initCollapsed) {
@@ -733,14 +742,115 @@ const foldDecoPlugin = new Plugin<FoldState>({
       if (setMutated || tr.docChanged) {
         recomputeFoldedCodeBlockPos(newState.doc, collapsedSet)
       }
-      return { collapsedSet }
+
+      // meta(initCollapsed / toggle / remove / nodeSync)→ 全量重建
+      if (meta) {
+        return { collapsedSet, decoSet: null }
+      }
+
+      // docChanged only → 增量更新
+      if (!prev.decoSet) {
+        return { collapsedSet, decoSet: null }
+      }
+
+      // 检查 dirty range 是否落在折叠区段内,或折叠触发点是否在 dirty range 内。
+      // 这两种情况需要全量重建(fold range 可能已变化,增量无法保证正确性)。
+      const dirtyRanges: Array<{ from: number; to: number }> = []
+      for (const step of tr.steps) {
+        step.getMap().forEach((_os, _oe, ns, ne) => {
+          dirtyRanges.push({ from: ns, to: ne })
+        })
+      }
+
+      let needsFullRebuild = false
+      for (const triggerContentStart of collapsedSet) {
+        const triggerPos = triggerContentStart - 1
+        if (triggerPos < 0 || triggerPos >= newState.doc.content.size) continue
+
+        // 折叠触发点在 dirty range 内 → 全量重建
+        for (const dr of dirtyRanges) {
+          if (triggerPos >= dr.from && triggerPos < dr.to) {
+            needsFullRebuild = true
+            break
+          }
+        }
+        if (needsFullRebuild) break
+
+        // dirty range 落在折叠区段内 → 全量重建
+        const triggerNode = newState.doc.resolve(triggerContentStart).parent
+        if (triggerNode.type.name === 'heading' || triggerNode.type.name === 'list_item') {
+          const blockNode = newState.doc.nodeAt(triggerPos)
+          if (!blockNode) continue
+          const range = computeFoldRange(blockNode, triggerContentStart, newState.doc)
+          if (!range) continue
+          for (const dr of dirtyRanges) {
+            if (dr.from >= range[0] && dr.to <= range[1]) {
+              needsFullRebuild = true
+              break
+            }
+          }
+          if (needsFullRebuild) break
+        }
+      }
+
+      if (needsFullRebuild) {
+        return { collapsedSet, decoSet: null }
+      }
+
+      // 增量:map 旧 set → 只重建 dirty range 内 heading / list_item 的 toggle widget。
+      // 折叠触发点不在 dirty range 内(上面已检查),所以 addHeadingDecos /
+      // addListItemDecos 对这些节点只加 toggle widget(isCollapsed=false 时不
+      // 调 applyFoldRange),不会产生重复 velo-folded。
+      let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+      const scan = scanDoc(tr.doc)
+
+      const affectedHeadings: Array<{ pos: number; node: PMNode }> = []
+      const affectedListItems: Array<{ pos: number; node: PMNode }> = []
+      for (const dr of dirtyRanges) {
+        for (const { node, pos } of scan.headings) {
+          if (pos + node.nodeSize >= dr.from && pos <= dr.to) {
+            if (!affectedHeadings.some(a => a.pos === pos)) affectedHeadings.push({ pos, node })
+          }
+        }
+        for (const { node, pos } of scan.listItems) {
+          if (pos + node.nodeSize >= dr.from && pos <= dr.to) {
+            if (!affectedListItems.some(a => a.pos === pos)) affectedListItems.push({ pos, node })
+          }
+        }
+      }
+
+      if (affectedHeadings.length === 0 && affectedListItems.length === 0) {
+        return { collapsedSet, decoSet: newSet }
+      }
+
+      // 移除受影响节点的旧 decoration,重建
+      for (const { pos, node } of [...affectedHeadings, ...affectedListItems]) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+      const newDecos: Decoration[] = []
+      const foldState: FoldState = { collapsedSet, decoSet: null }
+      for (const { node, pos } of affectedHeadings) {
+        addHeadingDecos(newState.doc, node, pos, foldState, newDecos)
+      }
+      for (const { node, pos } of affectedListItems) {
+        addListItemDecos(newState.doc, node, pos, foldState, newDecos)
+      }
+      if (newDecos.length > 0) {
+        newSet = newSet.add(tr.doc, newDecos)
+      }
+
+      return { collapsedSet, decoSet: newSet }
     },
   },
   props: {
     decorations(state) {
       const s = foldKey.getState(state)
       if (!s) return null
-      return buildDecorations(state, s)
+      if (!s.decoSet) {
+        return buildDecorations(state, s)
+      }
+      return s.decoSet
     },
     // v0.7.2:点击 fold_placeholder 节点 → 展开(与 chevron toggle 等效)
     handleClickOn(view, _pos, node, nodePos, _event, _direct) {

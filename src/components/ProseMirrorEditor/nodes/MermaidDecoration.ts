@@ -28,7 +28,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
-import { isMermaidFolded } from './FoldDecoration'
+import { isMermaidFolded, foldKey } from './FoldDecoration'
 import { scanDoc } from './docScanCache'
 
 // ========== mermaid 懒加载 ==========
@@ -125,31 +125,34 @@ async function renderMermaid(code: string, id: string, theme: 'default' | 'dark'
 // ========== Plugin state ==========
 
 interface MermaidDecoState {
-  svgCache: Map<string, string>
-  errorCache: Map<string, string>
-  pending: Map<string, Promise<RenderOutcome>>
-  /**
-   * 哪些 pos 正在编辑(多个 mermaid 可同时展开;v0.4.6+ 互斥单数 → set 多 pos,
-   * 避免点第二个 toggle 时把第一个自动收起)。
-   * set 的元素是 `$from.start()` 风格的绝对 pos(经过 tr.mapping 跟住 doc 变化)。
-   */
-  editNodeSet: Set<number>
-  /**
-   * 一次性 focus 标记:set of pos,plugin view 的 `update` 钩子见到非空就
-   * focus 每个 pos 一次,然后 dispatch 把它清掉。允许多 mermaid 同时 focus
-   * (用户连续点多个 toggle)。
-   */
-  pendingFocusSet: Set<number>
+svgCache: Map<string, string>
+errorCache: Map<string, string>
+pending: Map<string, Promise<RenderOutcome>>
+/**
+* 哪些 pos 正在编辑(多个 mermaid 可同时展开;v0.4.6+ 互斥单数 → set 多 pos,
+* 避免点第二个 toggle 时把第一个自动收起)。
+* set 的元素是 `$from.start()` 风格的绝对 pos(经过 tr.mapping 跟住 doc 变化)。
+*/
+editNodeSet: Set<number>
+/**
+* 一次性 focus 标记:set of pos,plugin view 的 `update` 钩子见到非空就
+* focus 每个 pos 一次,然后 dispatch 把它清掉。允许多 mermaid 同时 focus
+* (用户连续点多个 toggle)。
+*/
+pendingFocusSet: Set<number>
+/** 缓存的 DecorationSet;null 表示需要全量重建。 */
+decoSet: DecorationSet | null
 }
 
 function initialState(): MermaidDecoState {
-  return {
-    svgCache: new Map(),
-    errorCache: new Map(),
-    pending: new Map(),
-    editNodeSet: new Set(),
-    pendingFocusSet: new Set(),
-  }
+return {
+svgCache: new Map(),
+errorCache: new Map(),
+pending: new Map(),
+editNodeSet: new Set(),
+pendingFocusSet: new Set(),
+decoSet: null,
+}
 }
 
 // ========== Plugin key ==========
@@ -185,53 +188,66 @@ let currentView: EditorView | null = null
 //   2) Decoration.widget 在 pre **之前**挂 SVG(side: -1),点击切到"看源码"态
 //      pre 在上 / SVG 在下 ← 用户要求
 
+/** 为单个 mermaid code_block 构建 Decoration.node(data-mermaid-source) +
+ *  Decoration.widget(SVG)。全量构建和增量构建共用此函数。
+ *  fold 范围内 mermaid 不渲染 widget(见 isMermaidFolded 注释)。 */
+function buildDecosForMermaidBlock(
+  node: PMNode,
+  pos: number,
+  deco: MermaidDecoState,
+): Decoration[] {
+  const decos: Decoration[] = []
+  const source = (node.textContent || '').trim()
+  // 计算绝对 pos:doc 顶级子节点 descendants 给 fragment offset,绝对 pos =
+  // pos + 1(跳过 child 的 open token,即 $from.start() 风格)。
+  const absolutePos = pos + 1
+  // **fold 范围内 mermaid 不渲染 widget**:pre 已被 velo-folded
+  // display:none 隐藏,但 SVG widget 是 pre 的 sibling(锚 side: 1,
+  // 不在 pre 内部,挂 velo-folded 影响不到),不跳过的会在 fold 区间
+  // 外浮一个完整 mermaid → "折叠"视觉不成立。跳过整个 widget(pre +
+  // SVG + toolbar)跟 fold 区段一起隐,展开帧 isMermaidFolded 翻 false
+  // → widget 重建 → mermaid 完整回归(同 foldedCodeBlockPosSet 这条
+  // 路径已经在 apply 阶段同步好)。
+  if (isMermaidFolded(pos)) return decos
+  // 这个 mermaid 是否展开:editNodeSet 包含其绝对 pos(允许多 mermaid 同时展开)。
+  const isEditing = deco.editNodeSet.has(absolutePos)
+  // 1) pre 隐藏 / 显示
+  decos.push(Decoration.node(pos, pos + node.nodeSize, {
+    'data-mermaid-source': isEditing ? 'visible' : 'hidden',
+  }))
+  // 2) widget 锚在 block 末尾→ DOM 顺序 pre → svgArea + toolbar
+  //    视觉上 pre 在上 / SVG 在下(用户要求)。
+  //    side 必须小于下一个 code_block header widget 的 side(-1):
+  //    两个紧邻 block 的 SVG 与 header 会碰撞在同一文档位置(block1 末尾 =
+  //    block2 起始),PM 同位置按 side 升序绘制。若 SVG 用 side 1 > header -1,
+  //    header 会被画到 SVG 上方(用户报"header 在第一个 SVG 上面")。用 -2 使
+  //    SVG 先绘制,紧邻场景 DOM 顺序 = pre1 → SVG1 → header2 → pre2。
+  //    孤立场景(position=block 末尾无后续 block)同样正确:SVG 紧随 pre 之后。
+  const widgetPos = pos + node.nodeSize
+  // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
+  // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
+  const widget = makeMermaidWidget(source, getMermaidTheme(), deco, absolutePos, isEditing, node)
+  decos.push(Decoration.widget(widgetPos, widget, {
+    block: true,
+    side: -2,
+    key: `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}`,
+    ignoreSelection: true,
+    destroy(dom) {
+      const fn = widgetListeners.get(dom as HTMLElement)
+      if (fn) {
+        window.removeEventListener('velo:theme-change', fn)
+        widgetListeners.delete(dom as HTMLElement)
+      }
+    },
+  }))
+  return decos
+}
+
 function buildDecorations(state: EditorState, deco: MermaidDecoState): DecorationSet {
   const decos: Decoration[] = []
   for (const { node, pos } of scanDoc(state.doc).codeBlocks) {
     if ((node.attrs.language as string) !== 'mermaid') continue
-    const source = (node.textContent || '').trim()
-    // 计算绝对 pos:doc 顶级子节点 descendants 给 fragment offset,绝对 pos =
-    // pos + 1(跳过 child 的 open token,即 $from.start() 风格)。
-    const absolutePos = pos + 1
-    // **fold 范围内 mermaid 不渲染 widget**:pre 已被 velo-folded
-    // display:none 隐藏,但 SVG widget 是 pre 的 sibling(锚 side: 1,
-    // 不在 pre 内部,挂 velo-folded 影响不到),不跳过的会在 fold 区间
-    // 外浮一个完整 mermaid → "折叠"视觉不成立。跳过整个 widget(pre +
-    // SVG + toolbar)跟 fold 区段一起隐,展开帧 isMermaidFolded 翻 false
-    // → widget 重建 → mermaid 完整回归(同 foldedCodeBlockPosSet 这条
-    // 路径已经在 apply 阶段同步好)。
-    if (isMermaidFolded(pos)) continue
-    // 这个 mermaid 是否展开:editNodeSet 包含其绝对 pos(允许多 mermaid 同时展开)。
-    const isEditing = deco.editNodeSet.has(absolutePos)
-    // 1) pre 隐藏 / 显示
-    decos.push(Decoration.node(pos, pos + node.nodeSize, {
-      'data-mermaid-source': isEditing ? 'visible' : 'hidden',
-    }))
-    // 2) widget 锚在 block 末尾→ DOM 顺序 pre → svgArea + toolbar
-    //    视觉上 pre 在上 / SVG 在下(用户要求)。
-    //    side 必须小于下一个 code_block header widget 的 side(-1):
-    //    两个紧邻 block 的 SVG 与 header 会碰撞在同一文档位置(block1 末尾 =
-    //    block2 起始),PM 同位置按 side 升序绘制。若 SVG 用 side 1 > header -1,
-    //    header 会被画到 SVG 上方(用户报"header 在第一个 SVG 上面")。用 -2 使
-    //    SVG 先绘制,紧邻场景 DOM 顺序 = pre1 → SVG1 → header2 → pre2。
-    //    孤立场景(position=block 末尾无后续 block)同样正确:SVG 紧随 pre 之后。
-    const widgetPos = pos + node.nodeSize
-    // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
-    // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
-    const widget = makeMermaidWidget(source, getMermaidTheme(), deco, absolutePos, isEditing, node)
-    decos.push(Decoration.widget(widgetPos, widget, {
-      block: true,
-      side: -2,
-      key: `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}`,
-      ignoreSelection: true,
-      destroy(dom) {
-        const fn = widgetListeners.get(dom as HTMLElement)
-        if (fn) {
-          window.removeEventListener('velo:theme-change', fn)
-          widgetListeners.delete(dom as HTMLElement)
-        }
-      },
-    }))
+    decos.push(...buildDecosForMermaidBlock(node, pos, deco))
   }
   return DecorationSet.create(state.doc, decos)
 }
@@ -462,6 +478,9 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
     init: () => initialState(),
     apply(tr, prev) {
       const meta = tr.getMeta(mermaidDecoKey)
+      // selection-only:返回同一引用,PM 跳过 decoration diff
+      if (!meta && !tr.docChanged) return prev
+
       // 不可变:set 新对象,apply 是纯函数
       let { svgCache, errorCache, pending } = prev
       let editNodeSet = new Set(prev.editNodeSet)
@@ -525,14 +544,64 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
         pendingFocusSet = mapped
       }
 
-      return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet }
+      // meta(toggleEditAt / consumeFocus)或 fold 状态变化 → 全量重建
+      // (isMermaidFolded 依赖 fold 插件的 module-level set,fold meta 变化时需重建)
+      if (meta || tr.getMeta(foldKey)) {
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null }
+      }
+
+      // docChanged only → 增量更新
+      if (!prev.decoSet) {
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null }
+      }
+
+      // map 旧 set 平移 pos
+      let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+
+      // 找到 dirty range 内的 mermaid code_block,只重建它们的 decoration
+      const scan = scanDoc(tr.doc)
+      const affected: Array<{ pos: number; node: PMNode }> = []
+      for (const step of tr.steps) {
+        step.getMap().forEach((_os, _oe, ns, ne) => {
+          for (const { node, pos } of scan.codeBlocks) {
+            if ((node.attrs.language as string) !== 'mermaid') continue
+            if (pos + node.nodeSize >= ns && pos <= ne) {
+              if (!affected.some(a => a.pos === pos)) affected.push({ pos, node })
+            }
+          }
+        })
+      }
+      if (affected.length === 0) {
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: newSet }
+      }
+
+      // 移除受影响 mermaid code_block 的旧 decoration,重建
+      const mermaidState: MermaidDecoState = {
+        svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null,
+      }
+      for (const { pos, node } of affected) {
+        const found = newSet.find(pos, pos + node.nodeSize)
+        newSet = newSet.remove(found)
+      }
+      const newDecos: Decoration[] = []
+      for (const { node, pos } of affected) {
+        newDecos.push(...buildDecosForMermaidBlock(node, pos, mermaidState))
+      }
+      if (newDecos.length > 0) {
+        newSet = newSet.add(tr.doc, newDecos)
+      }
+
+      return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: newSet }
     },
   },
   props: {
     decorations(state) {
       const deco = mermaidDecoKey.getState(state)
       if (!deco) return null
-      return buildDecorations(state, deco)
+      if (!deco.decoSet) {
+        return buildDecorations(state, deco)
+      }
+      return deco.decoSet
     },
   },
   view: (view: EditorView) => {
