@@ -72,6 +72,7 @@ import { schema } from '../editor/schema'
 import { chevronDownSvg } from '@/components/icons/widgetIcons'
 import { useFoldStore } from '@/stores/folding'
 import { useDocumentStore } from '@/stores/document'
+import { scanDoc } from './docScanCache'
 // useFoldStore / useDocumentStore 在 view factory 内 lazy 调用 —— 模块顶层
 // 调 pinia 还没就绪,view factory 跑时已经在 component context 内。
 
@@ -480,36 +481,31 @@ function syncToggleState(view: EditorView, s: FoldState) {
 
 function buildDecorations(state: EditorState, deco: FoldState): DecorationSet {
   const decos: Decoration[] = []
+  const scan = scanDoc(state.doc)
 
-  state.doc.descendants((node, pos) => {
-    if (node.type.name === 'frontmatter') {
-      addFrontmatterDecos(node, pos, deco, decos)
-      return
-    }
-    if (node.type.name === 'heading') {
-      addHeadingDecos(state, node, pos, deco, decos)
-      return
-    }
-    if (node.type.name === 'list_item') {
-      addListItemDecos(state, node, pos, deco, decos)
-      return
-    }
-    if (node.type.name === 'code_block') {
-      addCodeBlockDecos(node, pos, deco, decos)
-      return
-    }
-  })
+  for (const { node, pos } of scan.frontmatters) {
+    addFrontmatterDecos(node, pos, deco, decos)
+  }
+  for (const { node, pos } of scan.headings) {
+    addHeadingDecos(state, node, pos, deco, decos)
+  }
+  for (const { node, pos } of scan.listItems) {
+    addListItemDecos(state, node, pos, deco, decos)
+  }
+  for (const { node, pos } of scan.codeBlocks) {
+    addCodeBlockDecos(node, pos, deco, decos)
+  }
 
   // v0.7.2:fold_placeholder 节点在非空选区内时挂 is-selected 高亮
   // (真实节点 contentEditable=false,浏览器原生选区蓝底不覆盖它,
   // 用 Decoration.node 自绘蓝底对齐 ::selection)
   const sel = state.selection
   if (!sel.empty) {
-    state.doc.nodesBetween(sel.from, sel.to, (node, pos) => {
-      if (node.type.name === 'fold_placeholder') {
+    for (const { node, pos } of scan.foldPlaceholders) {
+      if (pos >= sel.from && pos + node.nodeSize <= sel.to) {
         decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-selected' }))
       }
-    })
+    }
   }
 
   return DecorationSet.create(state.doc, decos)
@@ -778,8 +774,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
     // 扫描 fold_placeholder 节点,找到其父 foldable 的 contentStart
     const placeholders = new Map<number, number>() // contentStart → pos
     const orphaned: number[] = []
-    doc.descendants((node, pos) => {
-      if (node.type.name !== 'fold_placeholder') return
+    for (const { pos } of scanDoc(doc).foldPlaceholders) {
       const $pos = doc.resolve(pos)
       let found = false
       for (let depth = $pos.depth; depth > 0; depth--) {
@@ -791,7 +786,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
         }
       }
       if (!found) orphaned.push(pos)
-    })
+    }
 
     // 检查是否已同步
     const setArr = [...set].sort((a, b) => a - b)
@@ -956,28 +951,27 @@ export function collectFoldableKeys(
   doc: PMNode,
 ): Array<{ contentStart: number, stableKey: string, type: string }> {
   const out: Array<{ contentStart: number, stableKey: string, type: string }> = []
-  doc.descendants((node, pos) => {
-    if (node.type.name === 'frontmatter') {
-      const key = makeStableKey(node)
-      if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'frontmatter' })
-      return
-    }
-    if (node.type.name === 'heading' && node.content.size > 0) {
+  const scan = scanDoc(doc)
+  for (const { node, pos } of scan.frontmatters) {
+    const key = makeStableKey(node)
+    if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'frontmatter' })
+  }
+  for (const { node, pos } of scan.headings) {
+    if (node.content.size > 0) {
       const key = makeStableKey(node)
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'heading' })
-      return
     }
-    if (node.type.name === 'list_item' && node.childCount > 1 && node.firstChild) {
+  }
+  for (const { node, pos } of scan.listItems) {
+    if (node.childCount > 1 && node.firstChild) {
       const key = makeStableKey(node)
       if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'list_item' })
-      return
     }
-    if (node.type.name === 'code_block') {
-      const key = makeStableKey(node)
-      if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'code_block' })
-      return
-    }
-  })
+  }
+  for (const { node, pos } of scan.codeBlocks) {
+    const key = makeStableKey(node)
+    if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'code_block' })
+  }
   return out
 }
 

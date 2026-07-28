@@ -31,6 +31,7 @@ import { Plugin, PluginKey } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
+import { scanDoc } from './docScanCache'
 
 // ============================================================
 //  Plugin state
@@ -70,12 +71,11 @@ export function isCodeBlockWrapped(codeBlockPos: number): boolean {
 /** 同步 module-level set:从 doc 实际 code_block 节点校验,过滤已删除的 pos。 */
 function syncModuleSet(doc: PMNode, set: Set<number>): void {
   const next = new Set<number>()
-  doc.descendants((node: PMNode, pos: number) => {
-    if (node.type.name !== 'code_block') return
+  for (const { pos } of scanDoc(doc).codeBlocks) {
     if (set.has(pos)) {
       next.add(pos)
     }
-  })
+  }
   unwrappedCodeBlockPosSet = next
 }
 
@@ -85,16 +85,15 @@ function syncModuleSet(doc: PMNode, set: Set<number>): void {
 
 function buildDecorations(state: EditorState, unwrappedSet: Set<number>): DecorationSet {
   const decos: Decoration[] = []
-  state.doc.descendants((node: PMNode, pos: number) => {
-    if (node.type.name !== 'code_block') return
+  for (const { node, pos } of scanDoc(state.doc).codeBlocks) {
     // 在 unwrappedSet 中 = 用户已关闭 wrap,跳过(不加 data-velo-wrap)
-    if (unwrappedSet.has(pos)) return
+    if (unwrappedSet.has(pos)) continue
     decos.push(
       Decoration.node(pos, pos + node.nodeSize, {
         'data-velo-wrap': 'true',
       }, { key: `code-wrap:${pos}` }),
     )
-  })
+  }
   return DecorationSet.create(state.doc, decos)
 }
 

@@ -29,6 +29,7 @@ import type { EditorView } from 'prosemirror-view'
 import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
 import { isMermaidFolded } from './FoldDecoration'
+import { scanDoc } from './docScanCache'
 
 // ========== mermaid 懒加载 ==========
 //
@@ -186,9 +187,8 @@ let currentView: EditorView | null = null
 
 function buildDecorations(state: EditorState, deco: MermaidDecoState): DecorationSet {
   const decos: Decoration[] = []
-  state.doc.descendants((node: PMNode, pos: number) => {
-    if (node.type.name !== 'code_block') return
-    if ((node.attrs.language as string) !== 'mermaid') return
+  for (const { node, pos } of scanDoc(state.doc).codeBlocks) {
+    if ((node.attrs.language as string) !== 'mermaid') continue
     const source = (node.textContent || '').trim()
     // 计算绝对 pos:doc 顶级子节点 descendants 给 fragment offset,绝对 pos =
     // pos + 1(跳过 child 的 open token,即 $from.start() 风格)。
@@ -200,7 +200,7 @@ function buildDecorations(state: EditorState, deco: MermaidDecoState): Decoratio
     // SVG + toolbar)跟 fold 区段一起隐,展开帧 isMermaidFolded 翻 false
     // → widget 重建 → mermaid 完整回归(同 foldedCodeBlockPosSet 这条
     // 路径已经在 apply 阶段同步好)。
-    if (isMermaidFolded(pos)) return
+    if (isMermaidFolded(pos)) continue
     // 这个 mermaid 是否展开:editNodeSet 包含其绝对 pos(允许多 mermaid 同时展开)。
     const isEditing = deco.editNodeSet.has(absolutePos)
     // 1) pre 隐藏 / 显示
@@ -232,7 +232,7 @@ function buildDecorations(state: EditorState, deco: MermaidDecoState): Decoratio
         }
       },
     }))
-  })
+  }
   return DecorationSet.create(state.doc, decos)
 }
 

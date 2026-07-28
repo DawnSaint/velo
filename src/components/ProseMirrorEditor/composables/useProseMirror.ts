@@ -117,11 +117,24 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
       return
     }
 
-    const doc = typeof opts.initialDoc === 'string'
-      ? opts.fromMarkdown
-        ? opts.fromMarkdown(opts.initialDoc, opts.schema)
-        : (() => { throw new Error('[useProseMirror] initialDoc 是 string 但未提供 fromMarkdown') })()
-      : opts.initialDoc
+    // 大文档(> 2000 行):先创建空 doc 的 view,再异步解析真实 doc。
+    // 避免同步 fromMarkdown 阻塞主线程数百毫秒,让 UI 先渲染编辑器容器。
+    const isLargeStringDoc = typeof opts.initialDoc === 'string'
+      && opts.initialDoc.split('\n').length > 2000
+
+    let doc: PMNode
+    if (typeof opts.initialDoc === 'string') {
+      if (isLargeStringDoc) {
+        // 先用空 paragraph 占位,让 view 立即可交互
+        doc = opts.schema.node('doc', null, [opts.schema.node('paragraph')])
+      } else {
+        doc = opts.fromMarkdown
+          ? opts.fromMarkdown(opts.initialDoc, opts.schema)
+          : (() => { throw new Error('[useProseMirror] initialDoc 是 string 但未提供 fromMarkdown') })()
+      }
+    } else {
+      doc = opts.initialDoc
+    }
 
     const state = EditorState.create({
       schema: opts.schema,
@@ -152,6 +165,22 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
 
     viewRef.value = view
     opts.onReady?.(view)
+
+    // 大文档异步解析:让出一帧让浏览器渲染编辑器容器,再同步解析真实 doc。
+    // 用 requestAnimationFrame 而非 setTimeout(0):rAF 在下次绘制前执行,
+    // 浏览器有机会先 paint 空编辑器(用户看到编辑器已就位,而非白屏)。
+    if (isLargeStringDoc && opts.fromMarkdown && typeof opts.initialDoc === 'string') {
+      const md = opts.initialDoc
+      requestAnimationFrame(() => {
+        if (view.isDestroyed) return
+        const realDoc = opts.fromMarkdown!(md, opts.schema)
+        view.updateState(EditorState.create({
+          schema: opts.schema,
+          doc: realDoc,
+          plugins: opts.plugins,
+        }))
+      })
+    }
   })
 
   onBeforeUnmount(() => {

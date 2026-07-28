@@ -54,6 +54,42 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
+## 0.7.6 — 大文档性能优化 `#large-doc-perf` `P2` `XL`
+
+> WYSIWYG 模式（ProseMirror）在加载/浏览 5000+ 行文档时明显卡顿；源码模式（CodeMirror 6）因内置 viewport 渲染无此问题。本版本聚焦 PM 侧可落地优化，按投入产出比分 Tier 推进。 —— [RESEARCH](./research/pm-large-doc-perf.md)
+
+### Tier 1 — 低风险高收益（不改架构）
+
+- [x] **A1：`content-visibility: auto` CSS 虚拟化** `S`
+  - 纯 CSS，零 JS 改动；WebView2（Chromium 83+）原生支持，不影响 PM selection / decoration / scroll / NodeView
+  - `.ProseMirror > *` 应用 `content-visibility: auto` + `contain-intrinsic-size: auto 1.5em`；`pre` / `table` 用 `auto 100px` 给更合理默认高度
+- [x] **A2：合并 `doc.descendants()` 遍历（scan cache）** `M`
+  - 新增 `docScanCache.ts`：单次遍历收集 code_block / frontmatter / heading / list_item / toc / fold_placeholder，以 doc 对象身份（`===`）做缓存键——零开销命中
+  - 6 个 decoration 插件（codeHighlight / codeLineNumber / codeWrap / fold / mermaid / toc）改为读 scan cache，从 7 次全量遍历降到 1 次
+- [x] **A3：`toMarkdown` 去抖** `S`
+  - `onChange` 回调对 `toMarkdown` 加 debounce：连续打字期间 cancel 重设 timer，停顿后执行序列化
+  - `onBeforeUnmount` flush pending emit 防止最后一次编辑丢失；`lastSelfEmitted` 在实际执行 `toMarkdown` 时才设置
+- [x] **A4：`fromMarkdown` 异步解析** `S`
+  - ~~分块解析（切 chunk + requestIdleCallback 逐步拼接）~~ → 简化为空 paragraph 占位 + `requestAnimationFrame` 延迟解析：大文档先让编辑器立即可交互，下一帧再解析真实 doc 并 `view.updateState`
+
+### Tier 2 — 中等工作量，显著收益
+
+- [ ] **B2：增量 DecorationSet 更新** `M`
+  - 新增 `incrementalDeco.ts`：`extractDirtyRanges`（从 `tr.steps` 提取 dirty range）/ `findAffectedNodes` / `removeDecosInRange` 工具函数
+  - [ ] codeHighlight / codeLineNumber：plugin state 缓存 `decoSet`，docChanged 时 map 旧 set 平移 pos + 只对 dirty range 重建 add/remove；selection-only 返回同引用让 PM 跳过 diff
+  - [ ] codeWrap / fold / mermaid：dirty-range 增量 add/remove 待补（当前 docChanged 仍全量重建）
+- [ ] **B1：viewport 感知 decoration 构建** `L`
+  - 只为视口内（及 buffer）节点构建 decoration，滚动时增量补充；fold 的 `velo-folded` node decoration 需始终全量
+- [ ] **B3：NodeView 延迟创建** `M`
+  - mermaid SVG / KaTeX 公式延迟到进入视口才渲染，滚出后可选销毁昂贵资源
+
+### Tier 3 — 远期
+
+- [ ] **C1：`toMarkdown` / `fromMarkdown` 移入 Web Worker** `XL` `?`
+  - unified pipeline 移入 Worker 不阻塞主线程；需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化
+
+
+
 ## 已知问题
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。

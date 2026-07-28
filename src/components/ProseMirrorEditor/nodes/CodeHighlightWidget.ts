@@ -59,6 +59,7 @@ import { langIconSvg } from './langIcons'
 import { foldKey, isCodeBlockAncestorFolded } from './FoldDecoration'
 import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
 import { mermaidDecoKey } from './MermaidDecoration'
+import { scanDoc } from './docScanCache'
 
 // ============================================================
 //  Plugin state
@@ -577,69 +578,44 @@ function buildDecorations(
   // 展开时显示 header(语言选择 + 复制可用),收起时隐藏(否则 SVG 上方孤零零
   // 浮着一个 header,与 MermaidDecoration 的 SVG + 切换/删除 toolbar 叠两层)。
   const mermaidState = mermaidDecoKey.getState(state)
-  state.doc.descendants((node: PMNode, pos: number) => {
-    // frontmatter 节点走对应 lang grammar 高亮(视为一个语言槽),与 code_block 同
-    // 结构(content:'text*'),但没有 header widget / 语言选择。lang 属性由
-    // markdownIO 注入('yaml' / 'toml'),决定序列化 fence + shiki grammar。
-    // 复用 getTokensCached + dual-theme inline decoration 机制,SCSS
-    // `.velo-editor pre span { color: var(--shiki-light) }` 已经覆盖
-    // frontmatter <pre>(内容在 .velo-editor 内),无需新增样式。
-    if (node.type.name === 'frontmatter') {
-      if (!hl) return
-      const lang = (node.attrs.lang as string) || 'yaml'
-      const blockStart = pos + 1
-      const blockEnd = pos + node.nodeSize - 1
-      if (blockStart >= blockEnd) return
-      const code = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
-      const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
-      if (!result) return
-      const { tokens } = result
-      for (const line of tokens) {
-        for (const token of line) {
-          const from = blockStart + token.offset
-          const to = from + token.content.length
-          if (from >= to) continue
-          if (from < blockStart || to > blockEnd) continue
-          const light = token.variants?.light?.color
-          const dark = token.variants?.dark?.color
-          if (!light && !dark) continue
-          const parts: string[] = []
-          if (light) parts.push(`--shiki-light:${light}`)
-          if (dark) parts.push(`--shiki-dark:${dark}`)
-          if (parts.length === 0) continue
-          decos.push(
-            Decoration.inline(from, to, {
-              style: parts.join(';'),
-            }),
-          )
-        }
+  const scan = scanDoc(state.doc)
+  // frontmatter 走对应 lang grammar 高亮(与 code_block 同结构,但无 header widget)
+  for (const { node, pos } of scan.frontmatters) {
+    if (!hl) continue
+    const lang = (node.attrs.lang as string) || 'yaml'
+    const blockStart = pos + 1
+    const blockEnd = pos + node.nodeSize - 1
+    if (blockStart >= blockEnd) continue
+    const code = state.doc.textBetween(blockStart, blockEnd, '\n', '\n')
+    const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
+    if (!result) continue
+    const { tokens } = result
+    for (const line of tokens) {
+      for (const token of line) {
+        const from = blockStart + token.offset
+        const to = from + token.content.length
+        if (from >= to) continue
+        if (from < blockStart || to > blockEnd) continue
+        const light = token.variants?.light?.color
+        const dark = token.variants?.dark?.color
+        if (!light && !dark) continue
+        const parts: string[] = []
+        if (light) parts.push(`--shiki-light:${light}`)
+        if (dark) parts.push(`--shiki-dark:${dark}`)
+        if (parts.length === 0) continue
+        decos.push(
+          Decoration.inline(from, to, {
+            style: parts.join(';'),
+          }),
+        )
       }
-      return
     }
-    if (node.type.name !== 'code_block') return
+  }
+  for (const { node, pos } of scan.codeBlocks) {
     const lang = (node.attrs.language as string) || ''
-    // mermaid 收起态(显示 SVG,源码隐藏)跳过 code header,仅展开态保留 ——
-    // header 只是 UI 容器,跳过它不影响下方 token 着色旁路(仍给 mermaid 上色)。
-    // 与 CodeLineNumberWidget("mermaid code_block → 无行号")同范式。
     const isMermaid = lang === 'mermaid'
-    // mermaid 展开态(源码可见)时 editNodeSet 含 absolutePos = pos + 1。
-    // 收起态(显示 SVG / 源码隐藏)时不渲染 code header,避免与 MermaidDecoration
-    // 的 SVG + 切换/删除 toolbar 叠两层;展开态仍保留 header(语言选择 + 复制可用)。
-    // mermaidDecoration 未加载时(纯 codeHighlightPlugin 测试场景)mermaidState 为
-    // undefined → 视为收起态 → 跳 header,下方 token 着色旁路仍 fall through。
     const renderHeader = !isMermaid || Boolean(mermaidState?.editNodeSet.has(pos + 1))
-    // mermaid 展开态要隐藏 header 里的 fold chevron —— 避免手闲点 fold 误触发
-    // FoldDecoration 折叠 code_block → isMermaidFolded 把 SVG 也吞掉。mermaid 的
-    // "收"由 mermaid toolbar toggle 承担,header 提供一个 fold 入口只会有害。
     const mermaidExpanded = isMermaid && Boolean(mermaidState?.editNodeSet.has(pos + 1))
-    // header widget —— key 含 lang + 文本 hash + wrap 状态,isWrapped 变时重挂
-    // (wrap 按钮 icon/title 跟随新值)。**折叠状态(isFolded)不放 key**:
-    // 与 heading / frontmatter fold 同范式——fold toggle 复用旧 header DOM +
-    // click handler 手翻 data-fold-state,让 CSS transition 播放 chevron 旋转
-    // (0↔-90deg);若 fold 写进 key → toggle 销毁旧 DOM 新建 → 新 DOM 一开始就
-    // 是终态 → 只会"闪烁一下直接变"。fold-info 可见性由 CSS
-    // `[data-fold-state="expanded"] > .velo-code-fold-info { display:none }`
-    // 随 attribute 翻转,无需重挂。
     const blockStart = pos + 1
     const blockEnd = pos + node.nodeSize - 1
     const code = blockStart < blockEnd
@@ -647,15 +623,7 @@ function buildDecorations(
       : ''
     const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
     const isWrapped = isCodeBlockWrapped(pos)
-    // 祖先(heading / list_item)折叠把本 code_block 隐了:pre 已被
-    // velo-folded display:none,但 header widget 是 pre 的 side:-1 sibling
-    // (不在 pre 内部,velo-folded 影响不到),不跳过会孤零零浮在 fold 区段
-    // 外 → heading 折叠“没收起代码块”。跳过整个 header(连同 token inline
-    // decoration 一起,pre 既隐高亮也无意义),展开帧 isCodeBlockAncestorFolded
-    // 翻 false → header 重建 → 完整回归(同 CodeLineNumberWidget / MermaidDecoration
-    // 范式)。**自身折叠不跳过**:header 是自身折叠的摘要(行数 + 语言 + 复制),
-    // 必须保留 —— isCodeBlockAncestorFolded 只含祖先折叠,不含自身折叠。
-    if (isCodeBlockAncestorFolded(pos)) return
+    if (isCodeBlockAncestorFolded(pos)) continue
     if (renderHeader) {
       const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
       decos.push(
@@ -692,36 +660,16 @@ function buildDecorations(
           side: -1,
           key,
           ignoreSelection: true,
-          // stopEvent:true 让 PM 不拦截来自 widget 内部的事件(mousedown / keydown /
-          // input / focus 等)。不加时 PM 的 eventBelongsToView 认为 widget 内的事件
-          // "属于编辑器" → mousedown → selection 变化 → DOMObserver 反推选区 →
-          // 光标被拉出 input(与 math_block NodeView stopEvent 同源坑,见
-          // editor.md "NodeView 必须实现 stopEvent")。按钮(fold / copy)自己
-          // mousedown preventDefault + stopPropagation,不依赖 stopEvent,这里
-          // 返回 true 对它们无影响。
           stopEvent: () => true,
         }),
       )
     }
-    if (!lang) return
-    if (blockStart >= blockEnd) return
+    if (!lang) continue
+    if (blockStart >= blockEnd) continue
 
-    // ★ mermaid 旁路:shiki mermaid grammar 实际是"摆设"(codeToTokens 全输出
-    // defaultText 默认色,无 scope),不调 shiki codeToTokens,走自写轻量
-    // tokenizer。tokenizeMermaid 输出 {content, offset, type},type 是我们定义
-    // 的 keyword/direction/shape/edge/label/comment。
-    //
-    // **颜色来自当前代码块主题**:getMermaidColors 从 hl.getTheme(light/dark)
-    // .settings 按 scope 提取代表性 hex,写进 inline `--shiki-light:${hex};
-    // --shiki-dark:${hex}` 局部 CSS 变量 —— 跟 shiki token **完全同形**,SCSS
-    // 那边 `color: var(--shiki-light)` 的 cascade 选色机制直接复用:
-    //   - 代码块主题切换(App.vue watch → dispatch setMeta → rebuild)→ 新 hex
-    //   - dark/light 切换(纯 CSS cascade,零重渲)
-    // hl 还没 ready 时 colors 为 null,本次不出 inline decoration(走默认色),
-    // 等 hl ready 后 App.vue / plugin view factory 会 dispatch setMeta 触发 rebuild。
     if (lang === 'mermaid') {
       const colors = getMermaidColors(hl, lightTheme, darkTheme)
-      if (!colors) return
+      if (!colors) continue
       const mermaidLines = tokenizeMermaid(code)
       for (const line of mermaidLines) {
         for (const token of line) {
@@ -741,27 +689,13 @@ function buildDecorations(
           )
         }
       }
-      return
+      continue
     }
 
-    if (!hl) return
-    // inline decoration:code_block 内部的 text 加 token color。
-    // 走 LRU 缓存版本 —— 同 (lang + 两套主题 + content-hash) 命中跳过 shiki 同步分词,
-    // 是 per-keystroke 性能的关键路径(详见 CodeBlockLangs.ts 注释)。
+    if (!hl) continue
     const result = getTokensCached(hl, code, lang, lightTheme, darkTheme)
-    if (!result) return
+    if (!result) continue
     const { tokens } = result
-    // shiki 的 ThemedToken.offset 是"相对于输入 code 字符串开头"的全局偏移
-    // (不是行内偏移),所以直接 blockStart + token.offset 即可。早期实现里
-    // 又加了一层 lineOffsets[li],导致 offset 双重累加 → 高亮错位(单字符
-    // 落错位置,相邻 token 互相覆盖)。
-    //
-    // **dual themes**:`codeToTokensWithThemes` + `defaultColor: false` 模式
-    // 下 token 是 ThemedTokenWithVariants,hex 颜色在 variants.light /
-    // variants.dark 两套里。每个 span 写自己 light/dark 颜色到 inline
-    // style(--shiki-light / --shiki-dark 局部 CSS 变量),pre 自身用
-    // `color: var(--shiki-light)` 走 CSS cascade 选色,切 <html class="dark">
-    // 时翻面到 dark,ProseMirror / shiki 不参与(零重渲)。
     for (const line of tokens) {
       for (const token of line) {
         const from = blockStart + token.offset
@@ -781,7 +715,7 @@ function buildDecorations(
         )
       }
     }
-  })
+  }
   return DecorationSet.create(state.doc, decos)
 }
 

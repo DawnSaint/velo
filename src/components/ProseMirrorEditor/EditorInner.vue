@@ -21,6 +21,7 @@ import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-li
 import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-commands'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
+import type { Node as PMNode } from 'prosemirror-model'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
@@ -617,6 +618,68 @@ let mounted = false
 // 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
 let prevActiveId = ''
 
+// ---- toMarkdown debounce ----
+// 大文档下 toMarkdown 序列化耗时数十毫秒,每次按键同步执行会拖慢输入。
+// debounce 150ms:连续打字期间不序列化,停顿后才触发。
+// - lastSelfEmitted 仍在 emit 时设置(与 modelValue watch 的 echo 检测同步)
+// - 组件卸载时 flush,防止丢失最后一次编辑
+// - 外部 modelValue 变化(切文件 / fs:watch)时 cancel,防止旧 doc 序列化结果覆盖新内容
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let pendingDoc: PMNode | null = null
+const DEBOUNCE_MS = 150
+
+function cancelPendingEmit(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  pendingDoc = null
+}
+
+function flushPendingEmit(): void {
+  if (debounceTimer && pendingDoc) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+    const doc = pendingDoc
+    pendingDoc = null
+    doEmitMarkdown(doc)
+  }
+}
+
+/**
+ * 执行 toMarkdown 序列化 + emit。
+ * 从 onChange 回调和 debounce flush 两处调用。
+ */
+function doEmitMarkdown(doc: PMNode): void {
+  const view = getView()
+  const ranges = view ? getSourceEditRanges(view.state) : []
+  let md: string
+  if (ranges.length > 0) {
+    // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
+    // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
+    // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
+    const schema_ = doc.type.schema
+    let tr = view!.state.tr
+    const restores: { placeholder: string; original: string }[] = []
+    for (let i = ranges.length - 1; i >= 0; i--) {
+      const { from, to } = ranges[i]
+      const original = doc.textBetween(from, to, '\n', '\n')
+      if (!original) continue
+      const placeholder = `veloRaw${i}Placeholder`
+      tr = tr.replaceWith(from, to, schema_.text(placeholder))
+      restores.unshift({ placeholder, original })
+    }
+    md = toMarkdown(tr.doc)
+    for (const { placeholder, original } of restores) {
+      md = md.replace(placeholder, original)
+    }
+  } else {
+    md = toMarkdown(doc)
+  }
+  lastSelfEmitted = md
+  emit('update:modelValue', md)
+}
+
 // 折叠状态同步:文件切换时,把 store 里稳定 key 翻译成当前 doc 的 contentStart
 // 灌进 plugin。文件 path 变化是这个 watch 的唯一信号(modelValue 变可能是
 // 同文件内容回写,不能误触发)。
@@ -670,6 +733,9 @@ function emitHeadingContext() {
 }
 
 watch(() => props.modelValue, async (newVal) => {
+  // 外部 modelValue 变化(切文件 / fs:watch / CLI 打开):cancel pending debounce,
+  // 防止旧 doc 的序列化结果在 150ms 后覆盖新内容。
+  cancelPendingEmit()
   if (pendingTabRestore) {
     // 切标签恢复已由 tabSwitchToken watch 调 view.updateState(cachedState) 处理,
     // 这里不能再 EditorState.create 重建(会丢 undo)。清 flag 跳过。
@@ -679,6 +745,14 @@ watch(() => props.modelValue, async (newVal) => {
   if (newVal === lastSelfEmitted) return
   const view = getView()
   if (!view) return
+
+  // 大文档(> 2000 行):先让浏览器 paint 一帧(清空旧内容 / 显示空白编辑器),
+  // 再同步执行 fromMarkdown(会阻塞主线程数十~数百毫秒)。
+  // 不做分块解析——markdown 语法跨 chunk(代码块 / 列表)处理复杂且易出错,
+  // 单次 yield + 同步解析是最低风险方案。
+  if (newVal.split('\n').length > 2000) {
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
 
   const doc = fromMarkdown(newVal, schema as VeloSchema)
   const openFocus = decideOpenFocus(doc)
@@ -771,33 +845,16 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
   plugins: allPlugins,
   editable: !props.readOnly,
   onChange: (doc) => {
-    const view = getView()
-    const ranges = view ? getSourceEditRanges(view.state) : []
-    let md: string
-    if (ranges.length > 0) {
-      // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
-      // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
-      // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
-      const schema_ = doc.type.schema
-      let tr = view!.state.tr
-      const restores: { placeholder: string; original: string }[] = []
-      for (let i = ranges.length - 1; i >= 0; i--) {
-        const { from, to } = ranges[i]
-        const original = doc.textBetween(from, to, '\n', '\n')
-        if (!original) continue
-        const placeholder = `veloRaw${i}Placeholder`
-        tr = tr.replaceWith(from, to, schema_.text(placeholder))
-        restores.unshift({ placeholder, original })
-      }
-      md = toMarkdown(tr.doc)
-      for (const { placeholder, original } of restores) {
-        md = md.replace(placeholder, original)
-      }
-    } else {
-      md = toMarkdown(doc)
-    }
-    lastSelfEmitted = md
-    emit('update:modelValue', md)
+    // debounce toMarkdown:存储最新 doc,延迟序列化。
+    // 连续打字期间 cancel 旧 timer 重设,停顿 DEBOUNCE_MS 后才执行 toMarkdown。
+    pendingDoc = doc
+    cancelPendingEmit()
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      const d = pendingDoc
+      pendingDoc = null
+      if (d) doEmitMarkdown(d)
+    }, DEBOUNCE_MS)
     // state 缓存走 onSelectionChange(它覆盖 docChanged + selectionSet,更全)
   },
 onSelectionChange: (view) => {
@@ -877,6 +934,9 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
+  // flush pending toMarkdown:防止最后一次编辑丢失
+  flushPendingEmit()
+  cancelPendingEmit()
   const el = containerRef.value
   if (el) {
     el.removeEventListener('wheel', closeTableMenuOnScroll)

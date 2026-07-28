@@ -15,6 +15,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import { trashSvg } from '@/components/icons/widgetIcons'
 import { isTocFolded } from './FoldDecoration'
+import { scanDoc } from './docScanCache'
 
 // ============================================================
 //  Plugin state
@@ -43,12 +44,11 @@ interface HeadingInfo {
 
 function collectHeadings(doc: PMNode): HeadingInfo[] {
   const headings: HeadingInfo[] = []
-  doc.descendants((node: PMNode, pos: number) => {
-    if (node.type.name !== 'heading') return
+  for (const { node, pos } of scanDoc(doc).headings) {
     const text = (node.textContent || '').trim()
-    if (!text) return
+    if (!text) continue
     headings.push({ level: node.attrs.level as number, text, pos, children: [] })
-  })
+  }
   return headings
 }
 
@@ -188,19 +188,15 @@ function buildDecorations(state: EditorState): DecorationSet {
   // headings hash：变化时 widget key 变，触发重建
   const hash = headings.map(h => `${h.level}:${h.text}`).join('|')
 
-  state.doc.descendants((node: PMNode, pos: number) => {
-    if (node.type.name !== 'toc') return
-    // fold 范围内的 toc:widget 是 block-level sibling,不受 velo-folded
-    // display:none 影响(同 mermaid / codeBlockHeader 范式),跳过创建,
-    // 展开 → isTocFolded 翻 false → widget 重建 → TOC 回归。
-    if (isTocFolded(pos)) return
+  for (const { pos } of scanDoc(state.doc).tocs) {
+    if (isTocFolded(pos)) continue
     decos.push(Decoration.widget(pos, (view, getPos) => {
       return makeTocWidget(tree, state.doc, view, getPos)
     }, {
       key: `toc-widget:${pos}:${hash}`,
       block: true,
     }))
-  })
+  }
 
   return DecorationSet.create(state.doc, decos)
 }
