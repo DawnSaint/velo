@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.6](https://github.com/DawnSaint/velo/compare/v0.7.5...v0.7.6) (2026-07-29)
+
+
+### Features
+
+* **editor:** add large document performance optimizations tier 1 ([a2d0d7b](https://github.com/DawnSaint/velo/commit/a2d0d7ba2b79cb9f3829576e4b8a636dbf4f2f98))
+* **editor:** add viewport-aware decoration building (B1) ([76e3d50](https://github.com/DawnSaint/velo/commit/76e3d500b0d77f5dc0f65dd472410f585f4e71cf))
+* **editor:** defer katex nodeview rendering to viewport (B3) ([de735a7](https://github.com/DawnSaint/velo/commit/de735a70f7877b335cd06eee2d5158781661c591))
+* **notification:** add unified toast notification system ([30e473b](https://github.com/DawnSaint/velo/commit/30e473bf352148bcb325fbd7bbb7cae336daf5ee))
+
+
+### Bug Fixes
+
+* **tauri:** escape reserved keyword try and fix inner attribute placement ([c37955a](https://github.com/DawnSaint/velo/commit/c37955a436871c485e4f14a8d9480b7c7839be73))
+* **tauri:** move macOS 26 ObjC exception handling to native helper to prevent startup crash ([1047f2c](https://github.com/DawnSaint/velo/commit/1047f2c6cc2e4783dc631131cee3c1186820ab64))
+* **tauri:** remove macOS Finder Services integration ([8b16ad5](https://github.com/DawnSaint/velo/commit/8b16ad563560aa8db6aa462a1d9d2701e65798b1))
+* **tauri:** use objc_exception crate directly for macOS 26 ObjC exception safety ([925428a](https://github.com/DawnSaint/velo/commit/925428ae9a8ae24bd92c2609300bc791c20e0665))
+
+
+### Performance Improvements
+
+* **editor:** add incremental DecorationSet updates for decoration plugins ([61134b0](https://github.com/DawnSaint/velo/commit/61134b04a1cd78b0b3b4e45785c3c38589f28b32))
+
 ## [0.7.5](https://github.com/DawnSaint/velo/compare/v0.7.4...v0.7.5) (2026-07-23)
 
 

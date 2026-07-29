@@ -1,6 +1,6 @@
 [package]
 name = "velo"
-version = "0.7.5"
+version = "0.7.6"
 description = "Velo Markdown Editor"
 authors = ["you"]
 license = ""
