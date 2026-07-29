@@ -147,6 +147,7 @@ describe('Sidebar', () => {
 
   // #settings-panel 重做:设置激活时大纲区域显示空态(设置类目改为设置页顶部 Tab 切换,
   // 不再借住大纲区域)。避免"看设置时大纲还是上一个文档的"误导。
+  // EditorOutline 挂载但通过 settingsActive prop 显示空态(scroll-spy 被 gate 掉)。
   it('settingsActive + outline tab 显示空态(不渲染文档大纲)', async () => {
     const workspace = useWorkspaceStore()
     workspace.setActiveRoot('/test/ws')
@@ -161,8 +162,8 @@ describe('Sidebar', () => {
     })
     await nextTick()
 
-    // EditorOutline 不挂载(避免 scroll-spy 无意义的 DOM 监听),显示空态文案
-    expect(wrapper.findComponent(EditorOutline).exists()).toBe(false)
+    // EditorOutline 挂载(settingsActive 传入),但显示空态而非文档大纲
+    expect(wrapper.findComponent(EditorOutline).exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'FileTree' }).exists()).toBe(false)
     // 空态显示"暂无标题",不显示文档标题
     expect(wrapper.text()).toContain('暂无标题')

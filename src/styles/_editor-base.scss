@@ -32,11 +32,15 @@
   }
 
   // content-visibility: auto 隐含 contain:paint,会裁剪溢出元素 padding box
-  // 的后代。fold toggle 按钮用 position:absolute + left:-28px(heading)/
-  // left:calc(-28px - 1em)(list_item)浮在元素外部左侧 gutter,被 contain:paint
-  // 裁剪 → 标题 toggle 完全不可见 / 列表 toggle 被截断。
-  // heading / ul / ol 是 .ProseMirror 直接子元素,需关闭 content-visibility
-  // 保留 toggle 可见性(性能影响可忽略:heading / list 通常数量少且体积小)。
+  // 的后代。两类元素需关闭 content-visibility:
+  //  1. fold toggle 按钮用 position:absolute + left:-28px(heading)/
+  //     left:calc(-28px - 1em)(list_item)浮在元素外部左侧 gutter,被 contain:paint
+  //     裁剪 → 标题 toggle 完全不可见 / 列表 toggle 被截断。
+  //  2. hr 选中态在内部 <hr> 上画 outline + outline-offset:2px,而 .velo-hr 的
+  //     padding 仅 1px 0(左右 0px),outline 左右各溢出 2px 超出 padding box
+  //     → 左右被完全裁剪、上下被部分裁剪(同 fold toggle 裁剪原理)。
+  // heading / ul / ol / .velo-hr 是 .ProseMirror 直接子元素,关闭 content-visibility
+  // 保留溢出可见性(性能影响可忽略:这些元素数量少且体积小)。
   .ProseMirror > h1,
   .ProseMirror > h2,
   .ProseMirror > h3,
@@ -44,7 +48,8 @@
   .ProseMirror > h5,
   .ProseMirror > h6,
   .ProseMirror > ul,
-  .ProseMirror > ol {
+  .ProseMirror > ol,
+  .ProseMirror > .velo-hr {
     content-visibility: visible;
   }
 

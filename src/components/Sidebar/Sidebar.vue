@@ -9,7 +9,7 @@
 // onBeforeUnmount 自动 cancel 当前搜索 run,避免悬挂 controller。
 
 import { ref } from 'vue'
-import { List, Image as ImageIcon } from '@lucide/vue'
+import { Image as ImageIcon } from '@lucide/vue'
 import EditorOutline from './EditorOutline.vue'
 import FileTree from './FileTree.vue'
 import AssetPanel from './AssetPanel.vue'
@@ -100,18 +100,17 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
        子组件 FileTree / EditorOutline 自己用 truncate 处理长文本,不需要硬最小宽度。
        overflow-hidden 防止拖到接近 200px 时内部滚动容器溢出。 -->
   <div class="flex h-full min-w-0 flex-col overflow-hidden">
-    <!-- 互斥内容:设置激活时大纲 / 资产面板显示空态(无文档上下文,不挂载
-         EditorOutline scroll-spy / AssetPanel 孤儿扫描,避免无意义的 DOM 监听);
-         files / search 正常渲染(设置保持激活,用户可浏览文件树 / 搜索)。 -->
+    <!-- 互斥内容:设置激活时资产面板显示空态(无文档上下文,不挂载
+         AssetPanel 孤儿扫描);outline 空态由 EditorOutline 自身 props.settingsActive
+         接管。files / search 正常渲染(设置保持激活,用户可浏览文件树 / 搜索)。 -->
     <div class="min-h-0 flex-1">
-      <!-- 设置激活时 outline / assets 显示空态 -->
+      <!-- 设置激活时 assets 显示空态 -->
       <div
-        v-if="settingsActive && (workspace.sidebarTab === 'outline' || workspace.sidebarTab === 'assets')"
+        v-if="settingsActive && workspace.sidebarTab === 'assets'"
         class="flex h-full flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
       >
-        <List v-if="workspace.sidebarTab === 'outline'" :size="32" :stroke-width="1.2" />
-        <ImageIcon v-else :size="32" :stroke-width="1.2" />
-        <span class="text-xs">{{ workspace.sidebarTab === 'outline' ? '暂无标题' : '当前文档没有图片' }}</span>
+        <ImageIcon :size="32" :stroke-width="1.2" />
+        <span class="text-xs">当前文档没有图片</span>
       </div>
       <FileTree
         v-else-if="workspace.sidebarTab === 'files'"
@@ -122,6 +121,7 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
         v-else-if="workspace.sidebarTab === 'outline'"
         :model-value="modelValue"
         :file-path="filePath"
+        :settings-active="settingsActive"
       />
       <AssetPanel
         v-else-if="workspace.sidebarTab === 'assets'"

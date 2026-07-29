@@ -153,7 +153,6 @@ function endDrag(e: PointerEvent) {
       <VeloSelect
         v-model="store.codeLightTheme"
         :options="lightThemeOptions"
-        width-class="w-48"
         aria-label="代码块浅色主题"
       />
     </SettingsItem>
@@ -161,7 +160,6 @@ function endDrag(e: PointerEvent) {
       <VeloSelect
         v-model="store.codeDarkTheme"
         :options="darkThemeOptions"
-        width-class="w-48"
         aria-label="代码块深色主题"
       />
     </SettingsItem>

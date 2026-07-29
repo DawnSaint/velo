@@ -4,6 +4,13 @@
 // hr 基础样式(border-top / margin)在 _editor-typography.scss:87,这里只加选中态。
 // 暗色落地在同 partial(:is(.dark .velo-editor, .velo-editor.dark)),
 // 不集中到 _editor-dark.scss。
+//
+// content-visibility: auto 例外:.velo-hr 是 .ProseMirror 直接子元素,命中
+// `.ProseMirror > *` 的 content-visibility: auto(隐含 contain:paint),会裁剪
+// 溢出 padding box 的后代。选中态 outline-offset:2px 超出 .velo-hr 的 padding
+// (1px 0,左右 0px)→ 左右 outline 被完全裁剪。在 _editor-base.scss 中为
+// `.ProseMirror > .velo-hr` 覆盖 content-visibility: visible 解除裁剪
+// (同 fold toggle 修复,见 _editor-fold.scss 顶部注释)。
 
 .velo-editor {
   .velo-hr {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue'
-import { ChevronRight } from '@lucide/vue'
+import { ChevronRight, List } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { revealHeadingInDom } from '@/utils/revealHeading'
@@ -8,6 +8,8 @@ import { revealHeadingInDom } from '@/utils/revealHeading'
 const props = defineProps<{
   modelValue: string
   filePath: string | null
+  /** 设置页激活时由 Sidebar 传入:显示空态 + 跳过 scroll-spy(无编辑器可监听) */
+  settingsActive?: boolean
 }>()
 
 const outlineStore = useOutlineStore()
@@ -254,8 +256,14 @@ function activateScrollSpy() {
   scheduleAttachScrollListener()
 }
 
-onMounted(() => { activateScrollSpy() })
-onActivated(() => { activateScrollSpy() })
+// settingsActive 时跳过 scroll-spy:设置页无编辑器,监听无意义
+watch(() => props.settingsActive, (active) => {
+  if (active) detachScrollListener()
+  else activateScrollSpy()
+})
+
+onMounted(() => { if (!props.settingsActive) activateScrollSpy() })
+onActivated(() => { if (!props.settingsActive) activateScrollSpy() })
 onDeactivated(detachScrollListener)
 onUnmounted(detachScrollListener)
 </script>
@@ -270,9 +278,13 @@ onUnmounted(detachScrollListener)
        防止窄态时子元素溢出。p-2 pt-2 pr-0 保留 —— pr-2 由内层 pr-2 补回。
   -->
   <div class="flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
-    <!-- 文档完全无标题 -->
-    <div v-if="isDocEmpty" class="py-8 text-center text-xs text-gray-400">
-      暂无标题
+    <!-- 空态:文档无标题 或 设置页激活(无文档上下文) -->
+    <div
+      v-if="isDocEmpty || settingsActive"
+      class="flex h-full flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
+    >
+      <List :size="32" :stroke-width="1.2" />
+      <span class="text-xs">暂无标题</span>
     </div>
 
     <div v-else v-velo-scroll class="min-h-0 flex-1 overflow-y-auto pr-2">

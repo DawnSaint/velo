@@ -72,7 +72,7 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 >
 > 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md)
 >
-> `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新（依赖 v0.5.0 的工作区根 watch）。索引层独立于 editor state，不只看当前文档。
+> `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新。索引层独立于 editor state，不只看当前文档。
 
 - [ ] 工作区索引核心：扫描 `.md` 文件，提取 Markdown links + headings，生成 forwardLinks 索引
 - [ ] 增量更新：文件保存 / fs.watch 触发时刷新对应文件，非全量重扫
@@ -94,12 +94,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 ## P2 — 体验增强
 
 ### 编辑器增强
-
-- [ ] **段落拖拽重排（hover gutter 拽手）** `#block-drag` `P2` `L` `?` —— [RESEARCH](./research/block-drag-reorder.md)
-  - 调研结论：中偏高复杂度，建议先做 PoC（仅 paragraph 之间），验证几何同步 + drop preview 再扩到列表语义
-  - 复用 fold / lineNumber / toc 的 Decoration.widget 范式，不造 NodeView
-  - 注意与 fold chevron 共享 gutter 空间
-
 
 - [ ] **功能更新弹窗** `#changelog-popup` `P2` `S`
   - 版本升级后首启展示 CHANGELOG 摘要
@@ -187,7 +181,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 集成 Ollama：通过 Tauri shell 调 `ollama run`，不依赖云端，隐私零泄露
   - 场景化命令挂在命令面板 `>` 模式下：「润色这段」「展开大纲」「总结全文」「改写更简洁」，选区作为输入
   - 可选：行内补全（类似 Copilot，走本地小模型，只对 markdown 文本补全）
-  - 与 Velo 本地优先定位高度契合，Typora / Zettlr 均无此能力
 
 - [ ] **主题市场** `#theme-market` `P3` `XL` `?`
   - 自定义颜色方案 / 字号规范 / 段落间距整套打包
@@ -218,5 +211,4 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 - [ ] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` `?`
   - unified pipeline 移入 Worker 不阻塞主线程；需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化
-  - v0.7.6 大文档性能优化 Tier 3 遗留项（Tier 1 + Tier 2 已交付）
 

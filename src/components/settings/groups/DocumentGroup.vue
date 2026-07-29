@@ -20,7 +20,6 @@ const startupModeOptions = [
       <VeloSelect
         v-model="store.startupMode"
         :options="startupModeOptions"
-        width-class="w-48"
         aria-label="启动时打开"
       />
     </SettingsItem>

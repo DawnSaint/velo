@@ -41,7 +41,6 @@ const themeModeOptions = [
       <VeloSelect
         v-model="store.themeMode"
         :options="themeModeOptions"
-        width-class="w-40"
         aria-label="主题模式"
       />
     </SettingsItem>
