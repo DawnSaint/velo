@@ -60,6 +60,7 @@ import { foldKey, isCodeBlockAncestorFolded } from './FoldDecoration'
 import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
 import { mermaidDecoKey } from './MermaidDecoration'
 import { scanDoc } from './docScanCache'
+import { getViewport, isInViewport, viewportKey } from './viewportPlugin'
 
 // ============================================================
 //  Plugin state
@@ -671,7 +672,7 @@ function buildDecosForCodeBlock(
 
 /** shiki tokens → Decoration.inline 数组。 */
 function tokensToDecos(
-  tokens: import('shiki').ThemedToken[][],
+  tokens: import('shiki').ThemedTokenWithVariants[][],
   blockStart: number,
   blockEnd: number,
 ): Decoration[] {
@@ -694,7 +695,8 @@ function tokensToDecos(
   return decos
 }
 
-/** 全量构建:遍历所有 code_block + frontmatter,生成完整 DecorationSet。 */
+/** 全量构建:遍历 code_block + frontmatter,生成 DecorationSet。
+ *  B1 viewport 感知:只为视口内(及 buffer)节点构建 decoration,视口外跳过。 */
 function buildDecorations(
   state: EditorState,
   hl: Highlighter | null,
@@ -705,10 +707,13 @@ function buildDecorations(
   const foldState = foldKey.getState(state)
   const mermaidState = mermaidDecoKey.getState(state)
   const scan = scanDoc(state.doc)
+  const viewport = getViewport(state)
   for (const { node, pos } of scan.frontmatters) {
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
     decos.push(...buildDecosForFrontmatter(state.doc, node, pos, hl, lightTheme, darkTheme))
   }
   for (const { node, pos } of scan.codeBlocks) {
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
     const blockStart = pos + 1
     const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
     const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
@@ -734,7 +739,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       // 主题从 store 读,App.vue setup 顶层 initSettings() 已 hydrate 完。
       return makeInitialState()
     },
-    apply(tr, prev, oldState) {
+    apply(tr, prev, oldState, newState) {
       const meta = tr.getMeta(codeHighlightKey) as
         | { highlighter?: Highlighter, lightTheme?: string, darkTheme?: string }
         | undefined
@@ -749,6 +754,10 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       }
       // fold / mermaid / codeWrap 状态变化 → header 渲染变化 → 全量重建
       if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey) || tr.getMeta(codeWrapKey)) {
+        return { ...prev, decoSet: null }
+      }
+      // viewport 变化(滚动)→ 全量重建,buildDecorations 会按新 viewport 过滤
+      if (tr.getMeta(viewportKey)) {
         return { ...prev, decoSet: null }
       }
       // selection-only 交易(光标移动 / 选区变化):decorations 不变,返回同一引用
@@ -814,12 +823,15 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       }
 
       const newDecos: Decoration[] = []
+      const viewport = getViewport(newState)
       for (const { node, pos } of affectedFrontmatters) {
+        if (!isInViewport(pos, node.nodeSize, viewport)) continue
         newDecos.push(...buildDecosForFrontmatter(
           tr.doc, node, pos, prev.highlighter, prev.lightTheme, prev.darkTheme,
         ))
       }
       for (const { node, pos } of affectedCodeBlocks) {
+        if (!isInViewport(pos, node.nodeSize, viewport)) continue
         const blockStart = pos + 1
         const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
         const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))

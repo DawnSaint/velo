@@ -30,6 +30,7 @@ import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
 import { isMermaidFolded, foldKey } from './FoldDecoration'
 import { scanDoc } from './docScanCache'
+import { getViewport, isInViewport, viewportKey } from './viewportPlugin'
 
 // ========== mermaid 懒加载 ==========
 //
@@ -245,8 +246,10 @@ function buildDecosForMermaidBlock(
 
 function buildDecorations(state: EditorState, deco: MermaidDecoState): DecorationSet {
   const decos: Decoration[] = []
+  const viewport = getViewport(state)
   for (const { node, pos } of scanDoc(state.doc).codeBlocks) {
     if ((node.attrs.language as string) !== 'mermaid') continue
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
     decos.push(...buildDecosForMermaidBlock(node, pos, deco))
   }
   return DecorationSet.create(state.doc, decos)
@@ -476,10 +479,13 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
   key: mermaidDecoKey,
   state: {
     init: () => initialState(),
-    apply(tr, prev) {
+    apply(tr, prev, _oldState, newState) {
       const meta = tr.getMeta(mermaidDecoKey)
       // selection-only:返回同一引用,PM 跳过 decoration diff
-      if (!meta && !tr.docChanged) return prev
+      if (!meta && !tr.docChanged) {
+        if (tr.getMeta(viewportKey)) return { ...prev, decoSet: null }
+        return prev
+      }
 
       // 不可变:set 新对象,apply 是纯函数
       let { svgCache, errorCache, pending } = prev
@@ -546,7 +552,8 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
 
       // meta(toggleEditAt / consumeFocus)或 fold 状态变化 → 全量重建
       // (isMermaidFolded 依赖 fold 插件的 module-level set,fold meta 变化时需重建)
-      if (meta || tr.getMeta(foldKey)) {
+      // viewport 变化 → 全量重建
+      if (meta || tr.getMeta(foldKey) || tr.getMeta(viewportKey)) {
         return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null }
       }
 
@@ -584,7 +591,9 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
         newSet = newSet.remove(found)
       }
       const newDecos: Decoration[] = []
+      const viewport = getViewport(newState)
       for (const { node, pos } of affected) {
+        if (!isInViewport(pos, node.nodeSize, viewport)) continue
         newDecos.push(...buildDecosForMermaidBlock(node, pos, mermaidState))
       }
       if (newDecos.length > 0) {

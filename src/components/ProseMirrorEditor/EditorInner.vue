@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -167,6 +167,7 @@ import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
 import { foldDecoration, foldKey, collectFoldableKeys, foldDeleteCommand } from './nodes/FoldDecoration'
+import { viewportPlugin } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { useFoldStore } from '@/stores/folding'
@@ -546,6 +547,9 @@ const basePlugins: Plugin[] = [
   htmlSourceEditPlugin,
   htmlSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
+  // viewportPlugin 必须在 decoration 插件之前：decoration 插件的 buildDecorations
+  // 读 viewportKey.getState(state) 做 viewport 过滤，plugin apply 顺序 = allPlugins 数组顺序
+  viewportPlugin,
   codeHighlightPlugin,
   codeWrapPlugin,
   codeLineNumberPlugin,

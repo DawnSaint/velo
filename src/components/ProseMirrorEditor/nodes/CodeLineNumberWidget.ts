@@ -10,6 +10,7 @@ import { useEditorStore } from '@/stores/editor'
 import { isCodeBlockFolded, foldKey } from './FoldDecoration'
 import { mermaidDecoKey } from './MermaidDecoration'
 import { scanDoc } from './docScanCache'
+import { getViewport, isInViewport, viewportKey } from './viewportPlugin'
 
 // ============================================================
 //  Plugin state
@@ -52,7 +53,9 @@ function buildDecorations(
   if (!enabled) return DecorationSet.empty
   const decos: Decoration[] = []
   const scan = scanDoc(state.doc)
+  const viewport = getViewport(state)
   for (const { node, pos } of scan.codeBlocks) {
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
     const lang = (node.attrs.language as string) || ''
     // mermaid 联动展开态:收起态(显示 SVG / 源码隐藏)行号与 SVG 并排视觉割裂,
     // 跳过;展开态(源码可见,SVG 在 pre 下方)行号有用,保留 —— 与 mermaid code header
@@ -104,7 +107,7 @@ export const codeLineNumberPlugin = new Plugin<LineNumberState>({
   key: lineNumbersKey,
   state: {
     init: makeInitialState,
-    apply(tr, prev, oldState) {
+    apply(tr, prev, oldState, newState) {
       const meta = tr.getMeta(lineNumbersKey) as
         | { enabled?: boolean }
         | undefined
@@ -113,6 +116,10 @@ export const codeLineNumberPlugin = new Plugin<LineNumberState>({
       }
       // fold / mermaid 状态变化 → 行号可见性变化 → 全量重建
       if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey)) {
+        return { ...prev, decoSet: null }
+      }
+      // viewport 变化(滚动)→ 全量重建
+      if (tr.getMeta(viewportKey)) {
         return { ...prev, decoSet: null }
       }
       // selection-only:返回同一引用,PM 跳过 decoration diff
@@ -140,7 +147,9 @@ export const codeLineNumberPlugin = new Plugin<LineNumberState>({
         newSet = newSet.remove(found)
       }
       const newDecos: Decoration[] = []
+      const viewport = getViewport(newState)
       for (const { node, pos } of affected) {
+        if (!isInViewport(pos, node.nodeSize, viewport)) continue
         const lang = (node.attrs.language as string) || ''
         if (lang === 'mermaid') {
           if (!oldMermaidState || !oldMermaidState.editNodeSet.has(pos + 1)) continue

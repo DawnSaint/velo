@@ -29,15 +29,6 @@ export interface ScanResult {
   foldPlaceholders: NodeEntry[]
 }
 
-const EMPTY: ScanResult = {
-  codeBlocks: [],
-  frontmatters: [],
-  headings: [],
-  listItems: [],
-  tocs: [],
-  foldPlaceholders: [],
-}
-
 let cachedDoc: PMNode | null = null
 let cachedResult: ScanResult | null = null
 

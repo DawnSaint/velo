@@ -73,6 +73,7 @@ import { chevronDownSvg } from '@/components/icons/widgetIcons'
 import { useFoldStore } from '@/stores/folding'
 import { useDocumentStore } from '@/stores/document'
 import { scanDoc } from './docScanCache'
+import { viewportKey } from './viewportPlugin'
 // useFoldStore / useDocumentStore 在 view factory 内 lazy 调用 —— 模块顶层
 // 调 pinia 还没就绪,view factory 跑时已经在 component context 内。
 
@@ -683,6 +684,8 @@ const foldDecoPlugin = new Plugin<FoldState>({
       // selection-only:如果文档中有 fold_placeholder,is-selected 高亮依赖选区,需重建;
       // 没有 fold_placeholder 时可以安全跳过(返回同一引用)。
       if (!meta && !tr.docChanged) {
+        // viewport 变化:fold 始终全量(velo-folded 不能因滚出视口而丢失),跳过重建
+        if (tr.getMeta(viewportKey)) return prev
         if (scanDoc(tr.doc).foldPlaceholders.length === 0) return prev
         // 有 fold_placeholder:需要重建(选区变化影响 is-selected)
         return { ...prev, decoSet: null }

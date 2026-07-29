@@ -9,7 +9,7 @@
 // 的 decoration,而非全文档 N 个。
 
 import type { Transaction } from 'prosemirror-state'
-import { DecorationSet, type Decoration } from 'prosemirror-view'
+import { DecorationSet } from 'prosemirror-view'
 
 export interface DirtyRange {
   from: number
@@ -23,9 +23,13 @@ export interface DirtyRange {
 export function extractDirtyRanges(tr: Transaction): DirtyRange[] {
   const ranges: DirtyRange[] = []
   for (const step of tr.steps) {
-    // step.getMap() 给出 [oldFrom, oldTo, newFrom, newTo]
+    // step.getMap().ranges 是 [start, oldSize, newSize] 三元组(可能多组)
     const map = step.getMap()
-    ranges.push({ from: map.slice(2, 3)[0], to: map.slice(3, 4)[0] })
+    for (let i = 0; i < map.ranges.length; i += 3) {
+      const start = map.ranges[i]
+      const newSize = map.ranges[i + 2]
+      ranges.push({ from: start, to: start + newSize })
+    }
   }
   return ranges
 }

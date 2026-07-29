@@ -79,8 +79,8 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - [x] codeHighlight / codeLineNumber：plugin state 缓存 `decoSet`，docChanged 时 map 旧 set 平移 pos + 只对 dirty range 重建 add/remove；selection-only 返回同引用让 PM 跳过 diff
   - [x] codeWrap / fold / mermaid：docChanged 时 map 旧 set + 只对 dirty range 内的节点重建 add/remove；selection-only 返回同引用让 PM 跳过 diff。fold 特殊处理：折叠触发点在 dirty range 内 / dirty range 落在折叠区段内时回退全量重建（保证 velo-folded 正确性）
   - 修复 `StepMap` 索引 bug：`step.getMap()` 返回 `StepMap`（非数组），`m[2]`/`m[3]` 在运行时为 `undefined`；改用 `forEach((oldStart, oldEnd, newStart, newEnd) => ...)` 正确提取 dirty range
-- [ ] **B1：viewport 感知 decoration 构建** `L`
-  - 只为视口内（及 buffer）节点构建 decoration，滚动时增量补充；fold 的 `velo-folded` node decoration 需始终全量
+- [x] **B1：viewport 感知 decoration 构建** `L`
+  - [x] 只为视口内（及 buffer）节点构建 decoration，滚动时增量补充；fold 的 `velo-folded` node decoration 需始终全量
 - [ ] **B3：NodeView 延迟创建** `M`
   - mermaid SVG / KaTeX 公式延迟到进入视口才渲染，滚出后可选销毁昂贵资源
 
