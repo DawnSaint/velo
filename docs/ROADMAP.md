@@ -81,8 +81,8 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 修复 `StepMap` 索引 bug：`step.getMap()` 返回 `StepMap`（非数组），`m[2]`/`m[3]` 在运行时为 `undefined`；改用 `forEach((oldStart, oldEnd, newStart, newEnd) => ...)` 正确提取 dirty range
 - [x] **B1：viewport 感知 decoration 构建** `L`
   - [x] 只为视口内（及 buffer）节点构建 decoration，滚动时增量补充；fold 的 `velo-folded` node decoration 需始终全量
-- [ ] **B3：NodeView 延迟创建** `M`
-  - mermaid SVG / KaTeX 公式延迟到进入视口才渲染，滚出后可选销毁昂贵资源
+- [x] **B3：NodeView 延迟创建** `M`
+  - ~~mermaid SVG / KaTeX 公式延迟到进入视口才渲染，滚出后可选销毁昂贵资源~~ → mermaid 已由 B1 viewport decoration 延迟（widget 仅视口内创建 + `svgCache`）；KaTeX NodeView（math_block / math_inline）用共享 `IntersectionObserver`（`nodes/lazyRender.ts`，rootMargin 1000px）延迟到进入视口才 `katex.render`，滚出后缓存 `innerHTML` 并销毁、重新进入从缓存同步恢复（免 render）
 
 ### Tier 3 — 远期
 

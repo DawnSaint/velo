@@ -97,6 +97,7 @@ src/
         │   └── imageSourceEdit.test.ts  HTML 图片源码编辑:独立 `<img>` → image 节点(htmlSource/htmlAttrs round-trip) / 源码编辑 trigger+commit / preview widget / 嵌套 img → html_block 渲染层 proxyDomURL
         ├── nodes/__tests__/
         │   ├── HtmlNodeView.test.ts   html_block NodeView:块级 HTML 源码切换(点击按钮→code_block 替换→光标移出 commit / Escape 还原) / 独立 img 分流(→ image 节点) / 嵌套 img proxyDomURL 代理
+        │   └── mathLazyRender.test.ts B3 NodeView 延迟渲染:视口外不调 katex.render / 进入视口渲染 / 滚出销毁+缓存 / 缓存同步恢复 / edit 态不销毁(fake IntersectionObserver)
         ├── plugins/__tests__/
         └── findreplace/__tests__/
 

@@ -58,6 +58,32 @@
   opacity: 1;
 }
 
+/* B3: 视口外未渲染的公式占位 —— 进入视口后才调 katex.render，滚出后销毁 DOM
+ * 缓存 innerHTML。block 给 min-height 避免进入视口时高度跳变；inline 最小化
+ * （1000px rootMargin 保证进入可见区前已渲染，占位只在极快滚动时短暂出现）。 */
+.math-lazy-placeholder {
+  pointer-events: none;
+  user-select: none;
+  color: #888;
+  font-style: italic;
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+.math-block-node .math-lazy-placeholder {
+  display: block;
+  min-height: 2em;
+  padding: 8px 0;
+  text-align: center;
+}
+.math-inline-node .math-lazy-placeholder {
+  display: inline-block;
+  padding: 0 4px;
+}
+.dark .math-lazy-placeholder,
+.velo-editor.dark .math-lazy-placeholder {
+  color: #aaa;
+}
+
 /* 公式渲染失败占位 */
 .math-error {
   display: inline-block;

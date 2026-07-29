@@ -23,13 +23,11 @@ export interface DirtyRange {
 export function extractDirtyRanges(tr: Transaction): DirtyRange[] {
   const ranges: DirtyRange[] = []
   for (const step of tr.steps) {
-    // step.getMap().ranges 是 [start, oldSize, newSize] 三元组(可能多组)
-    const map = step.getMap()
-    for (let i = 0; i < map.ranges.length; i += 3) {
-      const start = map.ranges[i]
-      const newSize = map.ranges[i + 2]
-      ranges.push({ from: start, to: start + newSize })
-    }
+    // StepMap.forEach 回调签名:(oldStart, oldEnd, newStart, newEnd)
+    // 取新文档坐标 [newStart, newEnd] 作为 dirty range
+    step.getMap().forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      ranges.push({ from: newStart, to: newEnd })
+    })
   }
   return ranges
 }

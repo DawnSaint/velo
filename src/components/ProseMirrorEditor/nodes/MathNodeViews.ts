@@ -5,6 +5,7 @@ import {
   stopMousedownPropagation,
 } from './TextareaEditor'
 import { createSelectionSync } from './selectionSync'
+import { observeLazy, unobserveLazy } from './lazyRender'
 
 // ========== katex 懒加载 ==========
 //
@@ -126,6 +127,12 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   display.setAttribute('contenteditable', 'false')
   dom.appendChild(display)
 
+  // B3: 视口外不调 katex.render,进入视口才渲染;滚出后缓存 innerHTML 并销毁。
+  // edit 态(光标在节点内 = 节点在视口)始终渲染,不参与销毁。
+  let rendered = false
+  let cachedHtml: string | null = null
+  let inViewport = false
+
   // B1:剥离首尾连续 `$` 得纯 source 给 katex。`$x^2$` → `x^2`、`$$x^2$$` → `x^2`。
   // 与 markdownIO.stripMathDelimiters 同源逻辑(各自本地副本,避免循环依赖)。
   function stripDelimiters(s: string): string {
@@ -167,26 +174,58 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     if (!view.editable) {
       if (dom.dataset.mode !== 'display') {
         dom.dataset.mode = 'display'
-        showDisplay()
+        maybeRender()
       }
       return
     }
     const target = isCursorInNode() ? 'edit' : 'display'
     if (dom.dataset.mode !== target) {
       dom.dataset.mode = target
-      // 切换后立即刷新一次渲染 —— 切到 edit 时 source 可见,渲染层要保持与 source 同步;
-      // 切到 display 时 source 隐藏,渲染层就是用户唯一能看到的,务必是最新。
-      showDisplay()
+      // B3:edit 态(光标在节点内 = 节点在视口)始终渲染;display 态按视口门控 ——
+      // 切到 display 时 source 隐藏,渲染层是用户唯一能看到的,在视口内才渲染。
+      if (target === 'edit') {
+        inViewport = true
+        showDisplay()
+      }
+      else {
+        maybeRender()
+      }
     }
   }
 
   function showDisplay() {
     const value = readValue() // 含 `$` 分隔符,如 `$x^2$` 或 `$$x^2$$`
     const source = stripDelimiters(value) // 剥离首尾 $ 得纯 source 给 katex
+    cachedHtml = null
+    rendered = true
     // 空 source 渲染可见占位 —— 节点不可见会让用户以为"math 节点丢了"。
     // 占位 pointer-events:none 透传到 .math-node mousedown,点击进编辑态。
     if (!source) renderEmptyPlaceholder(display)
     else void renderKatex(source, display, false)
+  }
+
+  // B3: 进入视口 → 渲染(有缓存则同步恢复);滚出 → 缓存 + 销毁。edit 态不销毁。
+  function maybeRender() {
+    if (rendered) return
+    if (cachedHtml) {
+      display.innerHTML = cachedHtml
+      rendered = true
+      return
+    }
+    if (inViewport || dom.dataset.mode === 'edit') showDisplay()
+    // else: 留空/占位,不调 katex(视口外)
+  }
+
+  function onLazy(intersecting: boolean) {
+    inViewport = intersecting
+    if (intersecting) {
+      maybeRender()
+    }
+    else if (rendered && dom.dataset.mode !== 'edit') {
+      cachedHtml = display.innerHTML
+      renderLazyPlaceholder(display, false)
+      rendered = false
+    }
   }
 
   function renderEmptyPlaceholder(target: HTMLElement) {
@@ -204,9 +243,10 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
   const onSelectionChange = () => { syncMode() }
   view.dom.ownerDocument.addEventListener('selectionchange', onSelectionChange)
 
-  // 初始:根据当前 selection 决定 mode,然后跑首次渲染
+  // 初始:根据当前 selection 决定 mode;B3 首次渲染由视口观察触发(无 IO 环境
+  // 如 jsdom 同步按"在视口内"渲染,行为同旧实现)。
   syncMode()
-  if (dom.dataset.mode === 'display') showDisplay()
+  observeLazy(dom, onLazy)
 
   // display 态点击展开:contentDOM 此时 display:none,PM 无法把 DOM selection 放进
   // 隐藏元素 → 光标落到节点边界 → isCursorInNode 不成立 → selectionchange 不触发 →
@@ -242,14 +282,20 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
     update(newNode: any) {
       const valueChanged = readValue() !== readValue(newNode)
       node = newNode
-      // source 变化 → 始终重渲染渲染层(edit 态用户键入时也要看到预览跟着变,
-      // 不能只在 display 态刷;否则用户在 edit 态打 `x^2` 只能看到 `$x^2$` 裸文本,
-      // 看不到渲染后的 x²,完全失去 Obsidian Live Preview 的体验)。
-      if (valueChanged) showDisplay()
+      // source 变化 → 重渲染渲染层(edit 态用户键入时也要看到预览跟着变,不能只在
+      // display 态刷;否则用户在 edit 态打 `x^2` 只能看到 `$x^2$` 裸文本,看不到
+      // 渲染后的 x²,完全失去 Obsidian Live Preview 的体验)。视口外的变更只标脏,
+      // 进入视口时再渲染。
+      if (valueChanged) {
+        cachedHtml = null
+        if (inViewport || dom.dataset.mode === 'edit') showDisplay()
+        else rendered = false
+      }
       syncMode() // 节点移动后 pos 范围变了,重新判定
       return true
     },
     destroy() {
+      unobserveLazy(dom)
       view.dom.ownerDocument.removeEventListener('selectionchange', onSelectionChange)
     },
     ignoreMutation() { return true },
@@ -267,6 +313,12 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   dom.className = 'math-node math-block-node'
   let editing = false
   let editor: ReturnType<typeof createTextareaEditor> | null = null
+  // B3: 视口外不调 katex.render,进入视口才渲染;滚出后缓存 innerHTML 并销毁,
+  // 重新进入从缓存恢复(同步,免 katex.render)。editing 期间不销毁(光标在节点
+  // = 节点在视口,且 textarea 有焦点)。
+  let rendered = false
+  let cachedHtml: string | null = null
+  let inViewport = false
 
   stopMousedownPropagation(dom)
 
@@ -274,9 +326,38 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     if (editing) return
     dom.innerHTML = ''
     dom.classList.remove('is-editing')
+    cachedHtml = null
     // 空 value 渲染可见占位(同上 inline 注释)
-    if (!node.attrs.value) renderEmptyPlaceholder(dom, true)
-    else void renderKatex(node.attrs.value, dom, true)
+    if (!node.attrs.value) {
+      renderEmptyPlaceholder(dom, true)
+      rendered = true
+      return
+    }
+    rendered = true
+    void renderKatex(node.attrs.value, dom, true)
+  }
+
+  // B3: 进入视口 → 渲染(有缓存则同步恢复);滚出 → 缓存 innerHTML + 销毁。
+  function maybeRender() {
+    if (editing || rendered) return
+    if (cachedHtml) {
+      dom.innerHTML = cachedHtml
+      rendered = true
+      return
+    }
+    showDisplay()
+  }
+
+  function onLazy(intersecting: boolean) {
+    inViewport = intersecting
+    if (intersecting) {
+      maybeRender()
+    }
+    else if (rendered && !editing && node.attrs.value) {
+      cachedHtml = dom.innerHTML
+      renderLazyPlaceholder(dom, true)
+      rendered = false
+    }
   }
 
   function startEdit() {
@@ -284,7 +365,7 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     // 阅读模式:不进编辑态(兜底,click / autoEdit 已守卫)
     if (!view.editable) return
     editing = true
-    const renderedHtml = dom.innerHTML
+    inViewport = true
     dom.classList.add('is-editing')
 
     editor = createTextareaEditor({
@@ -308,10 +389,14 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
         showDisplay()
       },
     })
-    // 初始预览就是 dom.innerHTML 捕获的渲染结果,直接显示;input 监听负责后续重新渲染。
-    // 仅在原本有 value 时恢复 — 空节点的 dom 现在是 .math-empty-placeholder,
-    // 把它塞回 preview 里会污染 dom(querySelector('.math-empty-placeholder') 仍能命中)。
-    if (renderedHtml && node.attrs.value) editor.setPreviewHtml(renderedHtml)
+    // B3:预览优先复用缓存 innerHTML,其次已渲染的 dom,最后现场 render 进 preview。
+    // 空 value 不渲染预览(同旧逻辑 — 空节点的 dom 是占位,不该塞进 preview)。
+    if (node.attrs.value) {
+      if (cachedHtml) editor.setPreviewHtml(cachedHtml)
+      else if (rendered) editor.setPreviewHtml(dom.innerHTML)
+      else void renderKatex(node.attrs.value, editor.preview, true)
+    }
+    cachedHtml = null
     dom.innerHTML = ''
     dom.appendChild(editor.container)
     editor.textarea.addEventListener('input', () => {
@@ -327,7 +412,11 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     if (!editing) startEdit()
   })
 
-  showDisplay()
+  // B3: 注册视口观察(无 IO 环境如 jsdom 同步按"在视口内"渲染,行为同旧实现)。
+  // 先挂 lazy 占位:视口外首帧就有 min-height,避免进入视口时高度跳变;
+  // 进入视口 maybeRender → showDisplay 会清掉占位换上 katex。
+  renderLazyPlaceholder(dom, true)
+  observeLazy(dom, onLazy)
 
   // 选中态同步:与 image / hr 同范式,抽取到 selectionSync.ts 共用。
   // math_block 是 block atom,编辑态下跳过选中框(textarea UI 视觉冲突)。
@@ -358,12 +447,17 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
       // 同 inline：只在 value 真的变了才重渲染
       const valueChanged = node.attrs.value !== newNode.attrs.value
       node = newNode
-      if (!editing && valueChanged) showDisplay()
+      if (valueChanged) {
+        cachedHtml = null
+        if (inViewport || editing) showDisplay()
+        else rendered = false
+      }
       return true
     },
     selectNode() { selectionSync.syncSelected() },
     deselectNode() { selectionSync.syncSelected() },
     destroy() {
+      unobserveLazy(dom)
       editor?.dispose()
       selectionSync.destroy()
     },
@@ -394,6 +488,19 @@ function renderEmptyPlaceholder(dom: HTMLElement, block: boolean): void {
   placeholder.className = 'math-empty-placeholder'
   placeholder.textContent = block ? '点击编辑公式' : '公式'
   dom.appendChild(placeholder)
+}
+
+/**
+ * B3: 视口外的 math 节点渲染轻量占位 —— 不调 katex.render，进入视口后才渲染。
+ * block 给 min-height 避免进入视口时高度跳变；inline 最小化（行内零宽无妨，
+ * 1000px rootMargin 保证进入可见区前已渲染，占位只在极快滚动时短暂出现）。
+ */
+function renderLazyPlaceholder(target: HTMLElement, block: boolean): void {
+  target.innerHTML = ''
+  const ph = document.createElement(block ? 'div' : 'span')
+  ph.className = 'math-lazy-placeholder'
+  ph.textContent = block ? '公式' : 'ƒ'
+  target.appendChild(ph)
 }
 
 /**
