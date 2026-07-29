@@ -179,7 +179,7 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
 
 - [ ] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
-  - 消费 release.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
+  - 消费 build.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
   - Phase 1: `continue-on-error`（report 不阻塞 release attach）；Phase 2: 稳定后移除，硬门
   - 前置：`cargo install tauri-driver` + 匹配的 `msedgedriver.exe`；appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore
 

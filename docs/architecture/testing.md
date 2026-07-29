@@ -44,7 +44,7 @@
 
 覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip 含 underline mark / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
 
-**E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 release.yml，见 ROADMAP `#ci-pipeline`。
+**E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 build.yml，见 ROADMAP `#ci-pipeline`。
 
 ---
 
@@ -192,7 +192,7 @@ npm run test:e2e              # onPrepare 自动 tauri:build:debug + killStaleVe
 
 - **Windows only**;`e2e/helpers/platform.ts` 非 Windows 平台 `process.exit(0)` 不报错
 - **不并行**:`tauri-plugin-single-instance` 让多 session 互相路由,`maxInstances: 1` 是硬约束;`taskkill /F /IM velo.exe /T` 在 `onPrepare` / `afterSession` / `onComplete` 三处兜底清残留
-- **CI 挂钩走 release.yml**(`windows-latest` 作业消费刚构建的产物跑 multi-window.spec),详见 ROADMAP `#ci-pipeline`;落空前开发者本机手动跑(npm run test:e2e)
+- **CI 挂钩走 build.yml**(`windows-latest` 作业消费刚构建的产物跑 multi-window.spec),详见 ROADMAP `#ci-pipeline`;落空前开发者本机手动跑(npm run test:e2e)
 - **构建走 debug profile**(`tauri build --debug --no-bundle`):无需 installer,Cargo 增量后续秒级
 
 ---
@@ -254,7 +254,7 @@ debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `s
 
 - GitHub Actions `.github/workflows/ci.yml` 走 `push` 到 master + `PR`;步骤 checkout → setup-node → `npm ci` → `npm test`(vitest,ubuntu)
 - 不挂覆盖率阈值,只挂“测试通过”门
-- **E2E 挂钩 release.yml**:vitest 单测是每个 PR 的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → 挂到 ROADMAP `#ci-pipeline` 落地时同仓库新建的 `release.yml`(windows-latest 作业)产物;设计细节见 ROADMAP
+- **E2E 挂钩 build.yml**:vitest 单测是每个 PR 的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → 挂到 ROADMAP `#ci-pipeline` 落地时同仓库新建的 `build.yml`(windows-latest 作业)产物;设计细节见 ROADMAP
 
 ---
 

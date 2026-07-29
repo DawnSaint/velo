@@ -150,7 +150,7 @@
    - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
    - 自动生成根目录 `CHANGELOG.md`（从 commit summary 提取；`docs/RELEASE_NOTES.md` 不受影响，始终手动维护）
 3. 人工 review release PR → merge → release-please 自动创建 tag（`vX.Y.Z`）+ GitHub Release
-4. tag push 触发 `release.yml`（workflow 名 **Build**），**同时构建 Windows + macOS ARM64** 并上传到该 Release
+4. tag push 触发 `build.yml`（workflow 名 **Build**），**同时构建 Windows + macOS ARM64** 并上传到该 Release
 
 **其他平台（手动构建，不创建 Release）**：
 
@@ -170,7 +170,7 @@
 ### 配置文件
 
 - `.github/workflows/release-please.yml` — push 到 master 触发，管理版本号 + release PR
-- `.github/workflows/release.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release；`workflow_dispatch` 手动构建指定平台（仅 artifact，不创建 Release）
+- `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release；`workflow_dispatch` 手动构建指定平台（仅 artifact，不创建 Release）
 - `.github/workflows/ci.yml` — push / PR 到 master 触发，type-check + test + build
 - `release-please-config.json` — release-type / extra-files
 - `.release-please-manifest.json` — 版本起点

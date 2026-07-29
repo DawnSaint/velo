@@ -8,8 +8,7 @@ name: Build
 # 设计取舍：
 #   - Release 只由 release-please 的 tag push 路径创建，手动构建只产出 artifact，
 #     避免 tauri-action 在 tagName 不存在时自动创建新 Release 条目。
-#   - matrix 上下文在 job 级别 if 中不可用（仅 step 级别可用），
-#     所以拆成多个独立 job 而非用 matrix + if 过滤。
+#   - tag push 的两个平台用 matrix 合并（共享 setup 链），仅 verify 步骤按 matrix.os 条件分支。
 on:
   push:
     tags:
@@ -29,14 +28,21 @@ on:
 permissions:
   contents: write
 
-# ── 共享步骤：计算 release 信息（从 CHANGELOG.md 提取当前版本片段）──
-# 两个 release job 逻辑相同，只是 runner 不同，所以内联而非 anchor（YAML anchor 可读性差）
-
 jobs:
-  # ── tag push (v*): 构建 Windows 并上传到 release-please 的 Release ──
-  release-windows:
+  # ── tag push (v*): 构建并上传到 release-please 的 Release ──
+  build-release:
     if: github.event_name == 'push'
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact-name: Velo-windows-x64
+            artifact-path: src-tauri/target/release/bundle/nsis/*.exe
+          - os: macos-latest
+            artifact-name: Velo-macos-arm64
+            artifact-path: src-tauri/target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -57,45 +63,20 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # tag push: 使用 github.ref_name（如 v0.7.5）—— release-please 已创建该 Release
-      - name: Compute release info
-        shell: bash
-        run: |
-          echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "RELEASE_NAME=Velo v$VERSION" >> $GITHUB_ENV
-
-      # 从 CHANGELOG.md 提取当前版本片段，传给 tauri-action 的 releaseBody
-      - name: Extract changelog for this release
-        shell: bash
-        env:
-          VERSION: ${{ env.RELEASE_VERSION }}
-        run: |
-          node << 'SCRIPT' >> "$GITHUB_ENV"
-          const fs = require("fs");
-          const version = process.env.VERSION;
-          const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
-          const escaped = version.replace(/[.\\]/g, "\\$&");
-          const regex = new RegExp(`(## \\[${escaped}\\][^\\n]*\\n)([\\s\\S]*?)(?=\\n## \\[|\\n# |$)`);
-          const match = changelog.match(regex);
-          const body = match ? match[1] + match[2].trimEnd() : `Release ${version}`;
-          process.stdout.write(`RELEASE_BODY<<EOF\n${body}\nEOF\n`);
-          SCRIPT
-
+      # tag push: release-please 已创建 Release（含 changelog body），
+      # tauri-action 只需找到该 Release 并上传产物，不传 releaseBody 以保留原始内容。
       - name: Build and publish to GitHub Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: ${{ env.RELEASE_NAME }}
-          releaseBody: ${{ env.RELEASE_BODY }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Velo ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false
 
       - name: Verify exe (Windows)
+        if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
           $exe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe | Select-Object -First 1
@@ -104,76 +85,8 @@ jobs:
           $exe.VersionInfo | Format-List ProductName, ProductVersion, FileVersion
           Write-Host "exe 校验通过"
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: Velo-windows-x64
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ── tag push (v*): 构建 macOS ARM64 并上传到 release-please 的 Release ──
-  release-macos:
-    if: github.event_name == 'push'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: 'npm'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Compute release info
-        shell: bash
-        run: |
-          echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "RELEASE_NAME=Velo v$VERSION" >> $GITHUB_ENV
-
-      - name: Extract changelog for this release
-        shell: bash
-        env:
-          VERSION: ${{ env.RELEASE_VERSION }}
-        run: |
-          node << 'SCRIPT' >> "$GITHUB_ENV"
-          const fs = require("fs");
-          const version = process.env.VERSION;
-          const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
-          const escaped = version.replace(/[.\]/g, "\$&");
-          const regex = new RegExp(`(## \[${escaped}\][^\n]*\n)([\s\S]*?)(?=\n## \[|\n# |$)`);
-          const match = changelog.match(regex);
-          const body = match ? match[1] + match[2].trimEnd() : `Release ${version}`;
-          process.stdout.write(`RELEASE_BODY<<EOF\n${body}\nEOF\n`);
-          SCRIPT
-
-      - name: Build and publish to GitHub Release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: ${{ env.RELEASE_NAME }}
-          releaseBody: ${{ env.RELEASE_BODY }}
-          releaseDraft: false
-          prerelease: false
-
       - name: Verify dmg (macOS)
+        if: matrix.os == 'macos-latest'
         run: |
           dmg=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -1)
           echo "=== dmg: $dmg ==="
@@ -183,9 +96,8 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Velo-macos-arm64
-          path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
           if-no-files-found: ignore
           retention-days: 7
 
