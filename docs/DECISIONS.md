@@ -239,3 +239,13 @@
 - **Context**: html_block 是 atom 节点（`contentEditable=false`），编辑其源码需要一个文本编辑面。候选:A NodeView 内嵌 textarea（math_block 范式）vs B 点击按钮把 html_block 替换成 `code_block { language:'html' }`（有 contentDOM 的普通可编辑节点）。A 的致命坑:PM 对 atom 节点自动设 `contentEditable=false`，dom 嵌在 `view.dom`（`contentEditable=true`）内；用户点击 textarea 时 mousedown 冒泡到 `view.dom`，虽然 `stopEvent:()=>true` 让 PM JS handler 提前返回，但**浏览器原生 contenteditable 行为仍被触发**（尝试在 view.dom 放光标）→ textarea 失焦 → blur → 误退出编辑 session。`stopEvent` / `stopPropagation` 都不防浏览器原生 contenteditable 焦点抢夺。
 - **Decision**: 选 B。点击按钮 dispatch 把 html_block 替换成 code_block（有 contentDOM），用户在 code_block 内编辑是 PM 原生行为，点击 / 拖选 / IME 全部正常，彻底绕开 `contentEditable=false` 问题。session 由 `htmlSourceEditPlugin` 管理（同 html_inline / imageEdit 范式：光标移出 commit / Escape 还原）。code_block `{ code:true }` 天然保留换行，Enter 只换行不拆段。
 - **Consequences**: 无 textarea 焦点问题，编辑体验与普通代码块一致。代价:html_block ↔ code_block 替换是整节点替换（非原地编辑），视觉上有一次"闪烁"切换。**后续任何"atom 节点需要源码编辑"场景优先评估 code_block / 纯文本替换方案，不走 NodeView textarea**（除非节点内容不含换行且可安全替换为 inline 文本，如 html_inline）。
+
+---
+
+## v0.7.6 — 大文档性能优化
+
+### ADR-20260729-001: ProseMirror 装饰管线从全量重建改为增量 + 视口感知
+
+- **Context**: WYSIWYG 模式在 5000+ 行文档下卡顿，根因是 6+ 个 decoration 插件每次 transaction 都全量 `doc.descendants()` 遍历 + 全量重建 DecorationSet。候选:A 保持全量重建但加 debounce（治标不治本，大文档单次遍历仍慢）；B 增量更新 DecorationSet（从 `tr.steps` 提取 dirty range，只对变动区域重建）+ 视口感知（只为可见区域构建装饰）；C 移入 Web Worker（架构改动大，echo 哨兵需异步化）。
+- **Decision**: 选 B。三层组合：① `docScanCache.ts` 单次遍历收集所有装饰目标节点（doc 对象身份做缓存键，零开销命中），从 7 次全量遍历降到 1 次；② `incrementalDeco.ts` 从 `tr.steps` 提取 dirty range，plugin state 缓存 DecorationSet，docChanged 时 map 旧 set 平移 pos + 只对 dirty range 重建 add/remove，selection-only 返回同引用让 PM 跳过 diff；③ `viewportPlugin` 跟踪可见 doc pos 范围，装饰构建时只为视口内节点创建，滚动时增量补充。KaTeX NodeView 用共享 `IntersectionObserver` 延迟渲染。fold 的 `velo-folded` node decoration 始终全量（折叠状态需全局一致）。
+- **Consequences**: 大文档浏览 / 编辑性能显著改善，主线程开销大幅降低。代价:增量更新逻辑复杂（`StepMap.forEach` 提取 dirty range、fold 特殊回退全量重建），后续新增 decoration 插件需遵循增量范式。C1（Web Worker）留作远期方向，增量 + 视口感知已满足当前性能需求。

@@ -44,7 +44,7 @@ P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #
 P2  #system-tray ──→ #daily-note
     #git-integration ──↔── #local-timeline ──→ #recent-locations
     #wikilink ──→ #go-to-def · #find-refs
-    #block-drag · #table-enhance · #md-lint · #changelog-popup · #notification（独立）
+    #block-drag · #table-enhance · #md-lint · #changelog-popup
     #font-ui（独立）
                                                                 │
 P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
@@ -53,41 +53,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 ```
 
 
-
-## 0.7.6 — 大文档性能优化 `#large-doc-perf` `P2` `XL`
-
-> WYSIWYG 模式（ProseMirror）在加载/浏览 5000+ 行文档时明显卡顿；源码模式（CodeMirror 6）因内置 viewport 渲染无此问题。本版本聚焦 PM 侧可落地优化，按投入产出比分 Tier 推进。 —— [RESEARCH](./research/pm-large-doc-perf.md)
-
-### Tier 1 — 低风险高收益（不改架构）
-
-- [x] **A1：`content-visibility: auto` CSS 虚拟化** `S`
-  - 纯 CSS，零 JS 改动；WebView2（Chromium 83+）原生支持，不影响 PM selection / decoration / scroll / NodeView
-  - `.ProseMirror > *` 应用 `content-visibility: auto` + `contain-intrinsic-size: auto 1.5em`；`pre` / `table` 用 `auto 100px` 给更合理默认高度
-- [x] **A2：合并 `doc.descendants()` 遍历（scan cache）** `M`
-  - 新增 `docScanCache.ts`：单次遍历收集 code_block / frontmatter / heading / list_item / toc / fold_placeholder，以 doc 对象身份（`===`）做缓存键——零开销命中
-  - 6 个 decoration 插件（codeHighlight / codeLineNumber / codeWrap / fold / mermaid / toc）改为读 scan cache，从 7 次全量遍历降到 1 次
-- [x] **A3：`toMarkdown` 去抖** `S`
-  - `onChange` 回调对 `toMarkdown` 加 debounce：连续打字期间 cancel 重设 timer，停顿后执行序列化
-  - `onBeforeUnmount` flush pending emit 防止最后一次编辑丢失；`lastSelfEmitted` 在实际执行 `toMarkdown` 时才设置
-- [x] **A4：`fromMarkdown` 异步解析** `S`
-  - ~~分块解析（切 chunk + requestIdleCallback 逐步拼接）~~ → 简化为空 paragraph 占位 + `requestAnimationFrame` 延迟解析：大文档先让编辑器立即可交互，下一帧再解析真实 doc 并 `view.updateState`
-
-### Tier 2 — 中等工作量，显著收益
-
-- [x] **B2：增量 DecorationSet 更新** `M`
-  - 新增 `incrementalDeco.ts`：`extractDirtyRanges`（从 `tr.steps` 提取 dirty range）/ `findAffectedNodes` / `removeDecosInRange` 工具函数
-  - [x] codeHighlight / codeLineNumber：plugin state 缓存 `decoSet`，docChanged 时 map 旧 set 平移 pos + 只对 dirty range 重建 add/remove；selection-only 返回同引用让 PM 跳过 diff
-  - [x] codeWrap / fold / mermaid：docChanged 时 map 旧 set + 只对 dirty range 内的节点重建 add/remove；selection-only 返回同引用让 PM 跳过 diff。fold 特殊处理：折叠触发点在 dirty range 内 / dirty range 落在折叠区段内时回退全量重建（保证 velo-folded 正确性）
-  - 修复 `StepMap` 索引 bug：`step.getMap()` 返回 `StepMap`（非数组），`m[2]`/`m[3]` 在运行时为 `undefined`；改用 `forEach((oldStart, oldEnd, newStart, newEnd) => ...)` 正确提取 dirty range
-- [x] **B1：viewport 感知 decoration 构建** `L`
-  - [x] 只为视口内（及 buffer）节点构建 decoration，滚动时增量补充；fold 的 `velo-folded` node decoration 需始终全量
-- [x] **B3：NodeView 延迟创建** `M`
-  - ~~mermaid SVG / KaTeX 公式延迟到进入视口才渲染，滚出后可选销毁昂贵资源~~ → mermaid 已由 B1 viewport decoration 延迟（widget 仅视口内创建 + `svgCache`）；KaTeX NodeView（math_block / math_inline）用共享 `IntersectionObserver`（`nodes/lazyRender.ts`，rootMargin 1000px）延迟到进入视口才 `katex.render`，滚出后缓存 `innerHTML` 并销毁、重新进入从缓存同步恢复（免 render）
-
-### Tier 3 — 远期
-
-- [ ] **C1：`toMarkdown` / `fromMarkdown` 移入 Web Worker** `XL` `?`
-  - unified pipeline 移入 Worker 不阻塞主线程；需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化
 
 
 
@@ -195,13 +160,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 ### 通知与反馈
 
-- [x] **消息通知机制** `#notification` `P2` `M`
-  - 统一的 Toast 通知系统，用于在完成某些操作后给用户即时反馈（如保存成功、导出完成、替换完成等）
-  - 替代散落在各处的原生 `message` 弹框 / 静默成功，提供一致的非阻塞反馈
-  - 方案：自建轻量 Toast 组件（零依赖，完全可控）—— 复用项目已有 Teleport + TransitionGroup + lucide + Tailwind + 暗色模式体系
-  - 通知类型：成功 / 信息 / 警告 / 错误，自动消失 + 手动关闭
-  - 需覆盖的初始场景：导出完成 ✓ / 替换完成 ✓ / 保存失败 ✓ / 外部修改检测 ✓ / 草稿恢复（DraftRecoveryDialog 保持不变）
-
 ### 资产面板工程级未引用 `#asset-orphan` `P2` `M` `← #workspace-index`
 
 > 把 v0.6.4 资产面板的孤儿判定从「本 markdown 没引用过」升级为「整个工作区没被任何 markdown 引用过」，避免用户误以为其他文档仍引用的图片是孤儿而误删。
@@ -257,4 +215,8 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] **插入时选 MxN 尺寸**:当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
   - [ ] **列宽持久化**:当前列宽拖拽(`columnResizing`)只改变运行期显示,保存后再打开会回落默认。效果 = 拖拽结果进 schema + markdownIO 双向携带,刷新 / 重开后保持用户设过的列宽;未显式设宽的列保持默认。
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
+
+- [ ] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` `?`
+  - unified pipeline 移入 Worker 不阻塞主线程；需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化
+  - v0.7.6 大文档性能优化 Tier 3 遗留项（Tier 1 + Tier 2 已交付）
 

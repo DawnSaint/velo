@@ -16,6 +16,11 @@ import {
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 
+// macOS overlay 标题栏(titleBarStyle: Overlay)会居中显示 title 文本,
+// 与自定义 header 的菜单按钮 / tab 页重叠。设为空字符串可隐藏标题栏文本
+// (交通灯仍正常显示)。UA 检测与 App.vue 保持一致(platform 已 deprecated)。
+const isMacOS = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent)
+
 // Tauri 的错误形态不一致:writeTextFile 拒绝时是 Error,readTextFile 拒绝时
 // 可能是 string。统一抽成字符串塞进 message 弹窗。
 function formatError(e: unknown): string {
@@ -219,7 +224,9 @@ export const useDocumentStore = defineStore('document', () => {
     const d = activeDoc()
     const name = d ? docFileName(d) : '未命名'
     const isDirty = d ? d.content !== d.lastSavedContent : false
-    const next = `${name}${isDirty ? ' •' : ''} - Velo Editor`
+    // macOS overlay 标题栏隐藏 title 文本(见文件顶部 isMacOS 注释)。
+    // 非 macOS 保留完整标题(Windows 任务栏 / Linux 窗口列表需要)。
+    const next = isMacOS ? '' : `${name}${isDirty ? ' •' : ''} - Velo Editor`
     if (next === lastTitle) return
     lastTitle = next
     // 浏览器(纯 vite dev,无 Tauri)环境下 getCurrentWindow()

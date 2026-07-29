@@ -67,10 +67,12 @@ fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String,
     .disable_drag_drop_handler();
 
     // macOS: 原生装饰 + overlay 标题栏,交通灯浮在自定义 header 左上角。
+    // 标题设为空:overlay 标题栏会居中显示 title 文本,与自定义 header 的
+    // 菜单按钮 / tab 重叠;空字符串隐藏文本(交通灯仍显示)。
     // Windows/Linux: 无原生装饰,前端自绘 WindowControls。
     #[cfg(target_os = "macos")]
     {
-        builder = builder.decorations(true).title_bar_style(tauri::TitleBarStyle::Overlay);
+        builder = builder.title("").decorations(true).title_bar_style(tauri::TitleBarStyle::Overlay);
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -289,6 +291,8 @@ pub fn run() {
             // 窗口装饰平台适配:
             //   macOS  — tauri.conf.json 已设 decorations:true + titleBarStyle:Overlay,
             //            直接 show 即可,交通灯浮在 header 上。
+            //            title 设为空(同 create_app_window),避免 overlay 标题栏
+            //            居中显示 "Velo" 与 header 菜单/tab 重叠。
             //   Win/Linux — tauri.conf.json 的 decorations:true 会导致原生标题栏闪烁,
             //            这里先 set_decorations(false) 再 show,避免闪现。
             //   (tauri.conf.json 不支持平台条件配置,所以统一设 true 再在此覆写)
@@ -296,6 +300,10 @@ pub fn run() {
                 #[cfg(not(target_os = "macos"))]
                 {
                     let _ = win.set_decorations(false);
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = win.set_title("");
                 }
                 let _ = win.show();
             }

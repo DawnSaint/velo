@@ -15,6 +15,11 @@
 //  - .velo-editor 的 padding-left 是冗余保险(防止首行 heading 在最左
 //    位置时 toggle 浮出去,但一般不需要,因为 .velo-editor 父级 px-8 已经
 //    让出 32px)。
+//  - **content-visibility: auto 例外**:A1 性能优化给 `.ProseMirror > *` 加了
+//    `content-visibility: auto`(隐含 `contain:paint`),会裁剪溢出元素 padding
+//    box 的后代。toggle 按钮的负 left 定位正好在元素外部,被 contain:paint 裁剪。
+//    在 `_editor-base.scss` 中为 `.ProseMirror > h1~h6 / ul / ol` 覆盖
+//    `content-visibility: visible` 解除裁剪(见该文件注释)。
 
 // ============================================================
 //  Block 上下文:position:relative 作为 toggle 绝对定位锚点
