@@ -432,8 +432,6 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   // 外部(dollarEnterToMathBlock keymap)在创建节点前 trigger(node),NodeView
   // 初始化时 has() + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit(),
   // 确保 textarea focus 不被外层 ProseMirror 的 transaction 重入抢掉。
-  // 走 click 触发那条路在测试里发现 setTimeout 时机不稳(NodeView 还没 attach
-  // 完就 click),改走 NodeView 自检路径更可靠。
   if (autoEditMathBlocks.has(node)) {
     autoEditMathBlocks.delete(node)
     // 阅读模式:不自动进编辑态(`$$`+Enter 在 editable=false 时不触发,WeakSet 标记

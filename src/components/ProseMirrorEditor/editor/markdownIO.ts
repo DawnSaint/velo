@@ -283,14 +283,9 @@ export function extractLangsFromDoc(md: string): string[] {
   return [...seen]
 }
 
-// URL 在解析时已被 encodeLinkUrlSpaces 转成 %20,PM doc 里存的是原始可读形式
-// (decode 回来);toMarkdown / linkClick 等都假设 doc 里的 href 是 "可读形式"，
-// 不会再二次 encode。
-// 注:remarkEncodeLinkUrls 只在 parse 前替换文本,实际产出的 mdast link 节点
-// URL 字段已经含 %20(被解析器"吃"进去),但 mdast → PM 转换时通常把 URL 当
-// opaque 字符串透传,所以 href 字段会以 %20 形式进 doc —— 这是个隐患,
-// 必须在 mdast → PM 的 link 分支里 decode 回可读形式。
-// 修复:mdastInlineToPM 的 case 'link' 处统一 decodeURIComponent。
+// remarkEncodeLinkUrls 在 parse 前把 URL 内部空格 encode 成 %20,mdast link 节点的
+// url 字段因此含 %20。mdast → PM 的 link 分支(decodeURIComponent)把它还原为可读形式,
+// 保 toMarkdown / linkClick 看到的 href 是用户友好形态,不会再二次 encode。
 
 /**
  * mdast 块级节点 → 0..N 个 PM 节点(0 个发生在不支持的节点被吞掉时)。

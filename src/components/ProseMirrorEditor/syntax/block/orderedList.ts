@@ -1,5 +1,3 @@
-// `1. ` / `42. ` → ordered_list
-
 import { TextSelection } from 'prosemirror-state'
 import { Fragment } from 'prosemirror-model'
 import type { BlockSyntax } from '../../editor/syntaxRegistry'

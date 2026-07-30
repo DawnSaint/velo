@@ -11,7 +11,6 @@ const emit = defineEmits<{
   'reveal-heading': [heading: HeadingBreadcrumb]
 }>()
 
-/** 生成标题层级标记:# = h1, ## = h2, … */
 function levelMarker(level: number): string {
   return '#'.repeat(level)
 }

@@ -18,7 +18,6 @@ export function setHeading(schema: Schema, level: 1 | 2 | 3 | 4 | 5 | 6): Shortc
     const headingType = schema.nodes.heading
     if (!headingType) return false
     const { from, to } = state.selection
-    // 简化:选区跨同一级 heading 视为"已在该级"
     let alreadyAtLevel = false
     state.doc.nodesBetween(from, to, (node) => {
       if (!alreadyAtLevel

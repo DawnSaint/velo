@@ -82,7 +82,7 @@ export function resolveShikiLang(lang: string): string {
  *    frontmatter 位于文档顶部,miss 时 fallback 到近黑的 --shiki-light 默认色,
  *    闪烁最刺眼,因此 yaml 必须进。
  *  - 不进 = 走运行时 ensureLanguage 懒加载,该语言的代码块首帧闪黑一次,之后缓存在
- *    hljs 里不再闪(仅首次 miss 的代价)。C#/Go/Rust 等长尾语言归此类。
+ *    shiki 里不再闪(仅首次 miss 的代价)。C#/Go/Rust 等长尾语言归此类。
  *  - 不消费 shiki grammar 的永远不进:mermaid 走自写 tokenizeMermaid 完全旁路
  *    shiki(codeHighlightPlugin 注释明写"shiki mermaid grammar 是'摆设'"),
  *    塞进 baseline 纯粹白加载。

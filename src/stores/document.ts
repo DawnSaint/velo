@@ -42,8 +42,8 @@ function formatError(e: unknown): string {
  * `sourceMode` / `autoSave*` / `draftScope` / `focusRequestToken` / 草稿恢复列表
  * 是窗口级全局状态,留在 store 根,不下沉到 DocState。
  *
- * `pmState` / `cmState` / `scrollTop` 是 Step 3「切标签保留 undo/滚动/光标」用的
- * 缓存槽;赋值时必须用 `markRaw` 包裹(EditorState / CM6 state 不可深响应化)。
+ * `pmState` / `cmState` / `scrollTop` 是「切标签保留 undo/滚动/光标」用的缓存槽;
+ * 赋值时必须用 `markRaw` 包裹(EditorState / CM6 state 不可深响应化)。
  */
 interface DocState {
   id: string
@@ -60,7 +60,7 @@ interface DocState {
   /** 该文档自己的 fs:watch 句柄;每个标签各自监听自己的文件 */
   unwatch: UnwatchFn | null
   externalCheckInFlight: boolean
-  // Step 3 缓存(Step 1 未使用,占位)
+  // 切标签保留 undo/滚动/光标 的缓存槽
   pmState?: unknown
   cmState?: unknown
   scrollTop?: number
@@ -98,7 +98,7 @@ export const useDocumentStore = defineStore('document', () => {
   const draftScope = ref<string | null>(null)
   // newDoc 的「显式切换意图」信号;全局(EditorInner watch)
   const focusRequestToken = ref(0)
-  // 切标签信号;Step 3 用来触发 EditorInner 恢复缓存 state
+  // 切标签信号;用来触发 EditorInner 恢复缓存 state
   const tabSwitchToken = ref(0)
   const pendingRecoveryDrafts = ref<Draft[]>([])
 
@@ -423,7 +423,7 @@ export const useDocumentStore = defineStore('document', () => {
    * 不在 store 内 catch 就会变成 unhandled rejection,用户看不到任何提示,
    * 会以为启动正常只是文件不存在。
    *
-   * Step 1:仍装载到 active doc(单标签行为);Step 2 起 openPathInTab 负责复用/新开标签。
+   * 现状:openPathInTab 负责复用/新开标签(已开则 switchTab / 未开则 createTab+load)。
    */
   async function openPath(path: string): Promise<boolean> {
     try {
@@ -843,9 +843,6 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   // ========== 多标签原语 ==========
-  //
-  // Step 1:store 内 API 就绪,但 App.vue 仍走单标签路径(openPath 装载到 active doc)。
-  // Step 2 起,打开入口改走 openPathInTab(已开则 switchTab / 未开则 createTab+load)。
 
   /** 新建一个空白标签并入集合,返回 id(不自动激活)。
    *  空文档的 markdownIO canonical 形式是 ''(WYSIWYG 单空段 ↔ 源码模式 1 行空行),
@@ -1073,7 +1070,7 @@ export const useDocumentStore = defineStore('document', () => {
     return n
   }
 
-  // ========== 每标签 EditorState 保留(Step 3)==========
+  // ========== 每标签 EditorState 保留 ==========
   //
   // 切标签若只换 content,EditorInner 的 modelValue watch 会 view.updateState(
   // EditorState.create(...)) 重建 state,丢 undo 历史 / 滚动 / 光标。这里在 DocState

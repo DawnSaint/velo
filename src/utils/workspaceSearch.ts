@@ -139,7 +139,7 @@ async function scanMarkdownFiles(
       if (e.isDirectory) {
         if (e.name.startsWith('.')) continue
         try { queue.push(await join(dir, e.name)) }
-        catch { /* join 极少失败,静默 */ }
+        catch { /* 单条失败不影响整次 walk */ }
       }
       else if (isMarkdownPath(e.name)) {
         const entry = await makeEntry(scopeDir, dir, e.name)
@@ -393,13 +393,11 @@ export async function applyWorkspaceReplace(
     return result
   }
 
-  // 按 fullPath 去重,保留首次出现的 relPath(用于失败原因提示)
+  // 按 fullPath 去重
   const uniquePaths = new Set<string>()
-  const pathRelMap = new Map<string, string>()
   for (const h of hits) {
     if (!uniquePaths.has(h.fullPath)) {
       uniquePaths.add(h.fullPath)
-      pathRelMap.set(h.fullPath, h.relPath)
     }
   }
 

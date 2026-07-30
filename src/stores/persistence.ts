@@ -39,10 +39,10 @@ export interface PersistedSettings {
     showBreadcrumbs?: boolean
     /** 主题色是否影响文档内容颜色(可选,默认 false)。 */
     themeColorAffectsDoc?: boolean
-    /** ActivityBar 视图入口顺序(可选,v0.6.1)。仅含 files/outline/search 3 项;
+    /** ActivityBar 视图入口顺序(可选,v0.6.1)。含 files/outline/search/assets 4 项;
      *  'settings' 固定底部不在内。缺失项由 normalizeActivityBarConfig 按默认序补齐。 */
     activityBarOrder?: ActivityBarItem[]
-    /** ActivityBar 被隐藏的入口(可选,v0.6.1)。可含 settings。 */
+    /** ActivityBar 被隐藏的入口(可选,v0.6.1)。仅含可隐藏的视图入口(不含 settings)。 */
     activityBarHidden?: ActivityBarItem[]
   }
   document: {

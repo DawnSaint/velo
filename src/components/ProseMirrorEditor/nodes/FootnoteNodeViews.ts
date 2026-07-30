@@ -266,14 +266,4 @@ const footnoteNumberPlugin = new Plugin({
 
 const footnoteEditPlugin = footnoteNumberPlugin
 
-// ============================================================
-//  历史:输入规则 `[^id]` → footnote_reference
-//
-//  v0.4.0 ~ v0.4.1 这里有 footnoteReferenceInputRule;v0.4.1.x 起迁到
-//  syntax/inline/footnoteRef.ts,由 syntaxAutoFormatPlugin 调度。
-//  关键改进:不再依赖"键入紧贴匹配末尾",先输 `]` 再前面补 `[^xxx` 也能触发。
-// ============================================================
-
-
-
 export { footnoteEditPlugin, footnoteNumberPlugin }

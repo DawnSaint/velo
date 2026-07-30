@@ -10,14 +10,14 @@ export type StartupMode = 'last-file' | 'new-doc'
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 /** 左侧 ActivityBar 的可配置入口(v0.6.1)。
- *  - 'files' / 'outline' / 'search' 三个**视图入口**可拖拽重排 + 可隐藏
+ *  - 'files' / 'outline' / 'search' / 'assets' 四个**视图入口**可拖拽重排 + 可隐藏
  *  - 'settings' 固定在底部(不可拖拽),可隐藏
  *  - 「文件」下拉(FileMenuButton)固定在顶部,不参与排序 / 隐藏 —— 主命令入口,
  *    拖拽会与 #trigger slot-ref 注册链冲突,隐藏会孤立文件命令
  *  ActivityBar.vue 与 App.vue 共用此类型;canonical home 在 store 而非组件。 */
 export type ActivityBarItem = 'files' | 'outline' | 'search' | 'assets' | 'settings'
 
-/** 可自定义的 3 个视图入口(顺序即从上到下)。'settings' 固定底部 —— 既不可重排也不可隐藏。 */
+/** 可自定义的 4 个视图入口(顺序即从上到下)。'settings' 固定底部 —— 既不可重排也不可隐藏。 */
 const DEFAULT_ACTIVITY_BAR_ORDER: ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
 const ACTIVITY_BAR_REORDERABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
 const ACTIVITY_BAR_HIDEABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
@@ -58,7 +58,7 @@ export const useEditorStore = defineStore('editor', () => {
   // 与 sidebarWidth / sidebarTab 的 per-workspace 语义对照:功能栏布局是用户
   // 跨工作区一致的偏好,不应每个工作区各存一份。详见 docs/architecture/file-tree.md。
   //
-  // `activityBarOrder` 只含 3 个可重排视图入口;'settings' 固定底部 —— 既不在
+  // `activityBarOrder` 只含 4 个可重排视图入口;'settings' 固定底部 —— 既不在
   // order 内、也不可被 hidden(始终显示)。两 ref 在方法里始终 reassign 新数组
   // (不 in-place mutate),保证 App.vue 浅 watch 能感知变化触发落盘。
   const activityBarOrder = ref<ActivityBarItem[]>([...DEFAULT_ACTIVITY_BAR_ORDER])
@@ -74,7 +74,7 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   /** 拖拽重排:把 from 移到 to 的 before / after。from===to / 任一不在可重排集 → no-op。
-   *  仅作用于 3 个视图入口(settings 固定底部,不走此方法)。 */
+   *  仅作用于 4 个视图入口(settings 固定底部,不走此方法)。 */
   function reorderActivityBar(from: ActivityBarItem, to: ActivityBarItem, position: 'before' | 'after') {
     if (from === to) return
     if (!ACTIVITY_BAR_REORDERABLE.includes(from) || !ACTIVITY_BAR_REORDERABLE.includes(to)) return
@@ -184,8 +184,8 @@ export const useEditorStore = defineStore('editor', () => {
 })
 
 /** 防御性归一化:磁盘 JSON 可能被手改 / 旧版本污染 / 缺字段。
- *  - order:过滤未知项 + dedupe + 按默认序补齐缺失的 3 个视图入口
- *  - hidden:仅保留可隐藏的 3 个视图入口(剔除 settings —— 固定显示)+ dedupe
+ *  - order:过滤未知项 + dedupe + 按默认序补齐缺失的 4 个视图入口
+ *  - hidden:仅保留可隐藏的 4 个视图入口(剔除 settings —— 固定显示)+ dedupe
  *  任何非法输入都回退到默认空配置,不抛 —— 配置损坏不能阻塞 UI。 */
 export function normalizeActivityBarConfig(rawOrder: unknown, rawHidden: unknown): {
   order: ActivityBarItem[]

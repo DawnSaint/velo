@@ -875,8 +875,8 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
     // 正常路径下这是 noop —— state.highlighter 已经被 init 填好,apply
     // 改写后值不变)。
     //
-    // 后续"用户在 settings 面板切主题"路径由 App.vue 4.5 段 watch 走
-    // `ensureTheme` 追加 + dispatch setMeta 触发 rebuild,跟这里正交。
+    // 后续"用户在 settings 面板切主题"路径由 App.vue 的 codeLightTheme/codeDarkTheme
+    // watch 走 `ensureTheme` 追加 + dispatch setMeta 触发 rebuild,跟这里正交。
     ;(async () => {
       const store = useEditorStore()
       // ensureTheme 需要 valid theme id,空字符串(NO_THEME)用 DEFAULT 兼容;

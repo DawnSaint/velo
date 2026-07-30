@@ -2,8 +2,6 @@ import { onActivated, onBeforeUnmount, onDeactivated, onMounted } from 'vue'
 
 /**
  * 视口约束：把菜单坐标 clamp 到视口内，贴边留 8px 安全距。
- *
- * 各菜单的预估宽高不同（TabBar 192×320、FileTree 160×220 等），由调用方传入。
  */
 export function clampToViewport(
   clientX: number,

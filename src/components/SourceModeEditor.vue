@@ -559,10 +559,8 @@ emitHeadingContext(view)
   if (props.focusMode) {
     view.dispatch({ effects: setCmFocusMode.of(true) })
   }
-  // markdown grammar 首次进源码模式才加载(BASELINE_LANGS 不含 markdown)。
-  // 首帧 build 时 grammar 可能还没装 → getTokensSync 返回 null → 空 decoration;
-  // resolve 后须 dispatch setShikiTheme effect 触发一次 rebuild 才出 token,否则
-  // 要等用户敲第一个字符(docChanged)才染色。
+  // 确保 markdown grammar 已注册(启动期 baseline 已兜底,此处为防御性),
+  // 并触发首帧 rebuild 出 token(await 期间组件可能已卸载,下方守卫)。
   await ensureMarkdownGrammar()
   // await 期间组件可能已卸载(用户切走),守卫后再 dispatch
   if (viewRef.value !== view) return

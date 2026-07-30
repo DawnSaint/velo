@@ -1,7 +1,7 @@
 // 统一命令面板项(v0.6.2)
 //
 // 合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板:单一浮层,首字符分发模式
-// ('' = file,'>' = command;后续 @ / # / : 各自提交接入)。无工作区时 Ctrl+P
+// ('' = file,'>' = command;@ 标题跳转,: 行号跳转 已接入;# 待接入)。无工作区时 Ctrl+P
 // 仍静默(对齐原 ROADMAP 问答约定),Ctrl+Shift+P 命令面板在无工作区时仍可开
 // (workspace 类命令 disabled 保留可见)。
 

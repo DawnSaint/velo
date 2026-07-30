@@ -12,7 +12,6 @@ export function wrapInBulletList(schema: Schema): ShortcutCommand {
   return (state, dispatch) => {
     const listItemType = schema.nodes.list_item
     if (!listItemType) return false
-    // wrapInList 接 list_item 类型,自动创建 bullet_list 或 ordered_list 父节点
     return wrapInList(listItemType)(state, dispatch)
   }
 }

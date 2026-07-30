@@ -427,16 +427,5 @@ async function openExternal(url: string): Promise<void> {
   }
 }
 
-// ============================================================
-//  历史:实时 [text](url) → link mark
-//
-//  v0.4.0 ~ v0.4.1 这里有一个 linkAutoFormatPlugin(全文 appendTransaction
-//  扫描)+ 一个 @deprecated 的 linkInputRule。v0.4.1.x 起这两段都迁到
-//  syntax registry(syntax/inline/link.ts),由 plugins/syntaxAutoFormat
-//  统一调度。本文件只保留:
-//   - linkClickPlugin / linkClickPluginKey:点击进入源码编辑态 + session 状态
-//   - linkEditEscapeKeymap:Escape 退出编辑态
-//
-//  syntaxAutoFormatPlugin 通过 linkClickPluginKey.getState 读 session 范围,
-//  与之相交的 textblock 不抢用户改源码 —— 这是 session 唯一的对外接口。
-// ============================================================
+// linkClickPluginKey 是 session 唯一的对外接口:syntaxAutoFormatPlugin 通过它的
+// getState 读 session 范围,与之相交的 textblock 不抢用户改源码。

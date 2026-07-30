@@ -420,11 +420,7 @@ const hrNodeViewPlugin = new Plugin({
   },
 })
 
-// image upload 拦截 paste/drop:走 saveImageAsset。
-// 原 imageUploadPlugin 的 saveAndInsert 直接 view.state.schema.nodes.image 拿类型,
-// 行为已通过现 schema 完整。无需新代码。
-// 但上传调 onUpload 行为(预设 /Paste placeholder)没了 —— 我们走极简版,这里
-// 也不需要 onUpload,直接 save+insert 即可。
+// image upload 拦截 paste/drop:走 saveImageAsset,直接 save+insert。
 
 // ============================================================
 //  装入顺序:keymap 放最前(headingBackspace 抢在默认 baseKeymap 前),

@@ -8,8 +8,6 @@
 //   - `([^=\n]+?)` inner 不含换行 / `=`(惰性,跨不过下个 `==`)
 //   - `(?![\w|/])` 闭口后不是单词 / `/`
 //
-// inner 不含 `=`,所以 `====` 这种空字符串会跳过(`+?` 至少 1 字符)。
-//
 // registry 顺序放最末 —— highlight 是新增 mark,不抢前面的 link / footnote /
 // math / strike / emphasis 匹配机会。
 

@@ -1,7 +1,7 @@
 // 工作区根目录 fs.watch(v0.5.0)
 //
 // 单 recursive 句柄挂在 activeRoot。回调拿 watch event 推断脏目录,
-// 100ms debounce 后让 Sidebar.refreshDir 重拉那棵子树。**不做 path diff**,
+// 120ms debounce 后让 Sidebar.refreshDir 重拉那棵子树。**不做 path diff**,
 // 重拉整 dir 简单可靠,目录中数十个文件 readDir < 5ms。
 //
 // 与"当前文件 watch"(documentStore.startWatchOf)共存:当前文件也落在根树
@@ -64,7 +64,6 @@ export function useWorkspaceWatch(opts: {
     }, 120)
   }
 
-  /** 从 fs.watch 事件中的路径反推所属目录,以便定位要刷新哪棵子树。 */
   function dirnameOf(p: string): string {
     const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
     return i <= 0 ? p : p.slice(0, i)

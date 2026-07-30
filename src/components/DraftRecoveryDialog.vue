@@ -22,7 +22,6 @@ function fileName(path: string | null): string {
   return parts[parts.length - 1] || path
 }
 
-// 相对时间:刚刚 / X 分钟前 / X 小时前 / X 天前
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts
   if (diff < 60_000) return '刚刚'
@@ -31,7 +30,6 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)} 天前`
 }
 
-// 内容预览:去掉换行 / 多余空白,截前 200 字
 function preview(content: string): string {
   const flat = content.replace(/\s+/g, ' ').trim()
   return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat

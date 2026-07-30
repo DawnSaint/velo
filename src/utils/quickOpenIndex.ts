@@ -41,7 +41,7 @@ function normalizeSep(s: string): string {
 
 async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
   const out: QuickOpenEntry[] = []
-  // BFS 遍历目录,readDir 异常单条吞掉(权限 / 死链),不阻塞整次索引。
+  // 单条 readDir 失败不影响整次 walk
   const queue: string[] = [root]
   while (queue.length) {
     const dir = queue.shift()!

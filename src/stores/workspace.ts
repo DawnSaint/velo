@@ -368,7 +368,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ws[k] = snapshotWorkspaceState(v)
     }
     return {
-      version: 3,
+      version: WORKSPACES_VERSION,
       active: activeRoot.value,
       workspaces: ws,
     }

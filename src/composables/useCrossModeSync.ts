@@ -101,7 +101,6 @@ export function useCrossModeSync(opts: {
     view?.focus()
   }
 
-  /** Breadcrumbs 点击跳转:复用 onRevealHeading 逻辑(HeadingBreadcrumb.text → displayText) */
   function onBreadcrumbReveal(h: HeadingBreadcrumb) {
     onRevealHeading({ level: h.level, displayText: h.text })
   }
