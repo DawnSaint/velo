@@ -313,7 +313,7 @@ onUnmounted(detachScrollListener)
         <button
           :class="[
             'truncate text-left text-sm transition-colors rounded px-1 py-1',
-            'hover:bg-gray-200 dark:hover:bg-gray-800',
+            'hover:bg-[var(--surface-hover)]',
             item.key === currentKey
               ? 'font-bold'
               : 'text-gray-700 dark:text-gray-300',

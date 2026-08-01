@@ -955,7 +955,7 @@ function displayName(node: TreeNode): string {
               v-model="inlineNew!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
+              class="min-w-0 flex-1 rounded-sm border border-[var(--surface-border)] bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:text-gray-100"
               :title="inlineNew!.error ?? ''"
               data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
@@ -980,7 +980,7 @@ function displayName(node: TreeNode): string {
               v-model="inlineRename!.value"
               type="text"
               spellcheck="false"
-              class="min-w-0 flex-1 rounded-sm border border-gray-200 bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:text-gray-100"
+              class="min-w-0 flex-1 rounded-sm border border-[var(--surface-border)] bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:text-gray-100"
               :title="inlineRename!.error ?? ''"
               data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
@@ -993,9 +993,9 @@ function displayName(node: TreeNode): string {
           <div
             v-else
             :style="indentStyle(item.depth)"
-            class="group flex cursor-pointer items-center gap-1 h-7.5 pr-2 text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-800"
+            class="group flex cursor-pointer items-center gap-1 h-7.5 pr-2 text-sm transition-colors hover:bg-[var(--surface-hover)]"
             :class="{
-              'bg-gray-200 dark:bg-gray-800': !item.node.isDir && item.node.fullPath === activeFile,
+              'bg-[var(--surface-pressed)]': !item.node.isDir && item.node.fullPath === activeFile,
               'ring-1 ring-blue-400 dark:ring-blue-500': item.node.isDir && item.node.fullPath === dragOverTarget,
             }"
             :title="item.node.fullPath"
@@ -1068,7 +1068,7 @@ function displayName(node: TreeNode): string {
 
 <style scoped lang="scss">
 /* revealFile 加的临时高亮 class —— 1500ms 后由 revealFile 内部移除。
- * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 bg-gray-200 更亮)。 */
+ * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 surface-pressed 更亮)。 */
 .reveal-flash {
   background-color: rgb(219 234 254);   /* blue-100 */
   outline: 2px solid rgb(59 130 246);  /* blue-500 */

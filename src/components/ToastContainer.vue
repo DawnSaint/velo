@@ -39,7 +39,7 @@ const iconColorFor: Record<ToastType, string> = {
       <div
         v-for="toast in notify.toasts"
         :key="toast.id"
-        class="flex items-start gap-2.5 rounded-lg bg-white px-4 py-3 shadow-lg ring-1 ring-black/5 dark:bg-[#1e1e1e] dark:shadow-black/40 dark:ring-white/10"
+        class="flex items-start gap-2.5 rounded-lg bg-[var(--surface-3)] px-4 py-3 shadow-[var(--shadow-popover)] ring-1 ring-black/5 dark:ring-white/10"
         role="alert"
       >
         <component

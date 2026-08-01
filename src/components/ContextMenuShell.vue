@@ -61,7 +61,7 @@ onMounted(async () => {
     <div
       ref="rootEl"
       v-bind="$attrs"
-      class="fixed z-[1100] min-w-48 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:bg-gray-800 dark:text-gray-200"
+      class="fixed z-[1100] min-w-48 text-gray-600 rounded-lg bg-[var(--surface-3)] py-1 text-xs shadow-[var(--shadow-popover)] dark:text-gray-200"
       :class="minWidthClass"
       :style="{ left: `${posLeft}px`, top: `${posTop}px` }"
       role="menu"

@@ -14,6 +14,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { open as openDialog } from '@/tauri/dialog'
+import { WORKSPACES_VERSION } from './persistence'
 import type { PersistedWorkspaces, SidebarTab, WorkspaceState, WorkspacePatch } from './persistence'
 
 /** 侧栏宽度常量(v0.5.5)。在 store clamp 与 composable clamp 双处用到,

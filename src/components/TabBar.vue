@@ -484,75 +484,79 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-w-0 flex-1 items-stretch border-b border-gray-200 dark:border-gray-800">
-    <div ref="tabStripRef" class="tab-bar flex min-w-0 items-end" @mouseleave="onTabStripLeave" @wheel="onTabStripWheel">
-      <div
-        v-for="(tab, i) in displayTabs"
-        :key="tab.id"
-        class="tab group"
-        :style="tabStyle"
-        :class="{
-          'tab-active': tab.displayActive,
-          'tab-divider': i > 0 && !tab.displayActive && !displayTabs[i - 1].displayActive,
-          'tab-divider-left': i === 0 && !tab.displayActive,
-          'tab-divider-right': i === displayTabs.length - 1 && !tab.displayActive,
-          'tab-dragging': draggingId === tab.id,
-          'tab-drop-before': dropTarget?.tabId === tab.id && dropTarget.side === 'before',
-          'tab-drop-after': dropTarget?.tabId === tab.id && dropTarget.side === 'after',
-        }"
-        role="tab"
-        :aria-selected="tab.displayActive"
-        :title="tab.isSettings ? '设置' : (tab.fileName + (tab.dirty ? ' •' : ''))"
-        tabindex="0"
-        draggable="true"
-        @click="tab.isSettings ? onSettingsTabClick() : onTabClick(tab.id)"
-        @auxclick.middle.prevent="tab.isSettings ? onCloseSettings() : onClose(tab.id)"
-        @keydown.enter="tab.isSettings ? onSettingsTabClick() : documentStore.switchTab(tab.id)"
-        @dragstart="onDragStart($event, tab.id)"
-        @dragover="onDragOver($event, tab.id)"
-        @dragleave="onDragLeave(tab.id)"
-        @drop="onTabDrop($event)"
-        @dragend="onDragEnd"
-        @contextmenu.prevent="tab.isSettings ? undefined : onTabContextMenu($event, tab.id)"
-      >
-        <div class="tab-content flex w-full items-center gap-1">
-          <template v-if="tab.isSettings">
-            <Settings :size="13" class="shrink-0 text-gray-500 dark:text-gray-400" />
-            <span class="tab-title">设置</span>
-            <button
-              type="button"
-              class="tab-close"
-              title="关闭设置"
-              @click.stop="onCloseSettings"
-            >
-              <X :size="13" />
-            </button>
-          </template>
-          <template v-else>
-            <span class="tab-dot" :class="{ 'tab-dot-on': tab.dirty }" />
-            <span class="tab-title">{{ tab.fileName }}</span>
-            <button
-              type="button"
-              class="tab-close"
-              :title="`关闭 ${tab.fileName}`"
-              @click.stop="onClose(tab.id)"
-            >
-              <X :size="13" />
-            </button>
-          </template>
+  <div class="flex h-full min-w-0 flex-1 items-stretch">
+    <div class="flex min-w-0 flex-col">
+      <!-- 顶部拖拽热区:header 加高后 tab 上方留白,可拖动整个窗口 -->
+      <div data-tauri-drag-region class="min-h-0 flex-1" />
+      <div ref="tabStripRef" class="tab-bar flex shrink-0 min-w-0 items-end" @mouseleave="onTabStripLeave" @wheel="onTabStripWheel">
+        <div
+          v-for="(tab, i) in displayTabs"
+          :key="tab.id"
+          class="tab group"
+          :style="tabStyle"
+          :class="{
+            'tab-active': tab.displayActive,
+            'tab-divider': i > 0 && !tab.displayActive && !displayTabs[i - 1].displayActive,
+            'tab-divider-left': i === 0 && !tab.displayActive,
+            'tab-divider-right': i === displayTabs.length - 1 && !tab.displayActive,
+            'tab-dragging': draggingId === tab.id,
+            'tab-drop-before': dropTarget?.tabId === tab.id && dropTarget.side === 'before',
+            'tab-drop-after': dropTarget?.tabId === tab.id && dropTarget.side === 'after',
+          }"
+          role="tab"
+          :aria-selected="tab.displayActive"
+          :title="tab.isSettings ? '设置' : (tab.fileName + (tab.dirty ? ' •' : ''))"
+          tabindex="0"
+          draggable="true"
+          @click="tab.isSettings ? onSettingsTabClick() : onTabClick(tab.id)"
+          @auxclick.middle.prevent="tab.isSettings ? onCloseSettings() : onClose(tab.id)"
+          @keydown.enter="tab.isSettings ? onSettingsTabClick() : documentStore.switchTab(tab.id)"
+          @dragstart="onDragStart($event, tab.id)"
+          @dragover="onDragOver($event, tab.id)"
+          @dragleave="onDragLeave(tab.id)"
+          @drop="onTabDrop($event)"
+          @dragend="onDragEnd"
+          @contextmenu.prevent="tab.isSettings ? undefined : onTabContextMenu($event, tab.id)"
+        >
+          <div class="tab-content flex w-full items-center gap-1">
+            <template v-if="tab.isSettings">
+              <Settings :size="13" class="shrink-0 text-gray-500 dark:text-gray-400" />
+              <span class="tab-title">设置</span>
+              <button
+                type="button"
+                class="tab-close"
+                title="关闭设置"
+                @click.stop="onCloseSettings"
+              >
+                <X :size="13" />
+              </button>
+            </template>
+            <template v-else>
+              <span class="tab-dot" :class="{ 'tab-dot-on': tab.dirty }" />
+              <span class="tab-title">{{ tab.fileName }}</span>
+              <button
+                type="button"
+                class="tab-close"
+                :title="`关闭 ${tab.fileName}`"
+                @click.stop="onClose(tab.id)"
+              >
+                <X :size="13" />
+              </button>
+            </template>
+          </div>
         </div>
-      </div>
 
-      <button
-        type="button"
-        class="tab-new"
-        title="新标签 (Ctrl+N)"
-        @click="documentStore.newDoc()"
-        @dragover="onDragOverNewTab"
-        @drop="onDropToEnd"
-      >
-        <Plus :size="15" />
-      </button>
+        <button
+          type="button"
+          class="tab-new"
+          title="新标签 (Ctrl+N)"
+          @click="documentStore.newDoc()"
+          @dragover="onDragOverNewTab"
+          @drop="onDropToEnd"
+        >
+          <Plus :size="15" />
+        </button>
+      </div>
     </div>
     <!-- 拖拽区(填满标签右侧空白);标签溢出时缩到 0 -->
     <span data-tauri-drag-region class="flex-1" />
@@ -584,7 +588,7 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 
 /* tab 条溢出处理:tab 总宽超过可用空间时横向滚动,不溢出到窗口控制按钮区。
- * 隐藏原生滚动条(滚轮 / 触摸板横向滚动),不引入浮动 thumb —— tab 条高 32px,
+ * 隐藏原生滚动条(滚轮 / 触摸板横向滚动),不引入浮动 thumb —— tab 条高 36px,
  * 浮动 thumb 反而干扰。 */
 .tab-bar {
   overflow-x: auto;
@@ -597,23 +601,22 @@ onBeforeUnmount(() => {
 
 /* 默认宽 200px;溢出时 flex-shrink 等等比压缩至 min-width 80px。
  * 非活动标签无边框,仅相邻两个非活动标签之间用竖线分隔(类右上角三件套)。
- * hover 高亮落在内层 .tab-content(.tab 留 2px padding 作间隔,呈内嵌灰块);
+ * hover 高亮落在内层 .tab-content(.tab 留 4px padding 作间隔,呈内嵌灰块);
  * 活动标签 bg 在 .tab 上铺满到底,与编辑器衔接。 */
 .tab {
   position: relative;
   display: inline-flex;
-  height: 32px;
-  padding: 2px 4px;
+  height: 34px;
+  padding: 4px;
   flex: 0 1 auto;
   width: 200px;
   min-width: 80px;
-  border: 1px solid transparent;
   background: transparent;
   color: rgb(107 114 128);
   user-select: none;
 
   &:not(.tab-active):hover .tab-content {
-    background: rgb(229 231 235);
+    background: var(--surface-hover);
     color: rgb(55 65 81);
   }
 
@@ -631,22 +634,17 @@ onBeforeUnmount(() => {
   }
   &::before { left: 0; }
   &::after { right: 0; }
-  // 首 tab 分割线对齐到 border-box 外边缘,与激活态左边框重合
-  // (::before 默认 left:0 是 padding-box 基准,比 border 内缩 1px)
-  &.tab-divider-left::before { left: -1px; }
   &.tab-divider::before,
   &.tab-divider-left::before,
   &.tab-divider-right::after {
-    background: rgb(229 231 235);
+    background: var(--surface-border);
   }
 
   &.tab-active {
-    background: #fff;
+    background: var(--surface-2);
     color: rgb(31 41 55);
-    border-color: rgb(229 231 235);
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
-    border-bottom-color: #fff;
     transition: none;
   }
 
@@ -706,7 +704,7 @@ onBeforeUnmount(() => {
 }
 .tab-close:hover {
   opacity: 1 !important;
-  background: rgb(229 231 235);
+  background: var(--surface-hover);
 }
 
 .tab-new {
@@ -717,12 +715,12 @@ onBeforeUnmount(() => {
   height: 24px;
   flex-shrink: 0;
   margin-left: 4px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   color: rgb(156 163 175);
   border-radius: 4px;
   transition: background-color 100ms ease, color 100ms ease;
   &:hover {
-    background: rgb(229 231 235);
+    background: var(--surface-hover);
     color: rgb(55 65 81);
   }
 }
@@ -730,34 +728,31 @@ onBeforeUnmount(() => {
 .dark .tab {
   color: rgb(156 163 175);
   &:not(.tab-active):hover .tab-content {
-    background: rgb(38 38 38);
+    background: var(--surface-hover);
     color: rgb(209 213 219);
   }
-  &.tab-divider-left::before { left: -1px; }
   &.tab-divider::before,
   &.tab-divider-left::before,
   &.tab-divider-right::after {
-    background: rgb(55 65 81);
+    background: var(--surface-border);
   }
   &.tab-drop-before::before,
   &.tab-drop-after::after {
     background: rgb(96 165 250);
   }
   &.tab-active {
-    background: #1e1e1e;
+    background: var(--surface-2);
     color: rgb(229 231 235);
-    border-color: rgb(31 41 55);
-    border-bottom-color: #1e1e1e;
   }
 }
 .dark .tab-close:hover {
-  background: rgb(55 65 81);
+  background: var(--surface-hover);
 }
 .dark .tab-dot-on {
   background: rgb(251 191 36);
 }
 .dark .tab-new:hover {
-  background: rgb(38 38 38);
+  background: var(--surface-hover);
   color: rgb(209 213 219);
 }
 </style>

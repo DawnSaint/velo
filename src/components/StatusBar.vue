@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
 
 <template>
   <footer
-    class="relative z-20 flex h-7 shrink-0 items-center gap-1 border-t border-gray-200 bg-white pr-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-[#111] dark:text-gray-400"
+    class="relative z-20 flex h-7 shrink-0 items-center gap-1 border-t border-[var(--surface-border)] bg-[var(--surface-0)] pr-2 text-xs text-gray-500 dark:text-gray-400"
     data-statusbar-popover
   >
     <button
@@ -102,7 +102,7 @@ onBeforeUnmount(() => {
     </button>
     <div
       v-if="workspaceMenuOpen"
-      class="absolute bottom-7 left-0 z-30 w-80 overflow-hidden rounded-lg bg-white py-1 text-xs text-gray-600 shadow-lg dark:bg-gray-800 dark:text-gray-200"
+      class="absolute bottom-7 left-0 z-30 w-80 overflow-hidden rounded-lg bg-[var(--surface-3)] py-1 text-xs text-gray-600 shadow-[var(--shadow-popover)] dark:text-gray-200"
       role="menu"
     >
       <div v-if="roots.length" class="max-h-64 overflow-auto py-1">
@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div v-else class="px-3 py-2 text-gray-400 dark:text-gray-500">暂无历史工作区</div>
-      <div class="my-1 border-t border-gray-100 dark:border-gray-700" />
+      <div class="my-1 border-t border-[var(--surface-border)]" />
       <button type="button" class="workspace-menu-item" role="menuitem" @click="pickWorkspace">
         打开文件夹…
       </button>
@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="statsOpen"
-      class="absolute bottom-7 right-0 z-30 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-700 dark:bg-[#1e1e1e]"
+      class="absolute bottom-7 right-0 z-30 w-56 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-3)] p-3 shadow-[var(--shadow-popover)]"
       role="dialog"
       aria-label="文档统计"
     >
@@ -241,7 +241,7 @@ onBeforeUnmount(() => {
 
 button.statusbar-segment:not(:disabled):hover,
 button.statusbar-segment:not(:disabled):focus-visible {
-  background: rgb(243 244 246);
+  background: var(--surface-hover);
   color: rgb(75 85 99);
   outline: none;
 }
@@ -253,7 +253,7 @@ button.statusbar-segment:disabled {
 
 :global(.dark button.statusbar-segment:not(:disabled):hover),
 :global(.dark button.statusbar-segment:not(:disabled):focus-visible) {
-  background: rgb(55 65 81);
+  background: var(--surface-hover);
   color: rgb(209 213 219);
 }
 
@@ -272,7 +272,7 @@ button.statusbar-segment:disabled {
 .workspace-menu-item:not(:disabled):hover,
 .workspace-menu-item:not(:disabled):focus-visible,
 .workspace-menu-item-active {
-  background: rgb(243 244 246);
+  background: var(--surface-hover);
   color: rgb(75 85 99);
   outline: none;
 }
@@ -280,7 +280,7 @@ button.statusbar-segment:disabled {
 :global(.dark .workspace-menu-item:not(:disabled):hover),
 :global(.dark .workspace-menu-item:not(:disabled):focus-visible),
 :global(.dark .workspace-menu-item-active) {
-  background: rgb(55 65 81);
+  background: var(--surface-hover);
   color: rgb(229 231 235);
 }
 

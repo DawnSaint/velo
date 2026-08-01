@@ -2,8 +2,8 @@
 // 「文件」下拉面板(v0.6.x):
 //  - 收纳原侧栏 FileActionsPanel 命令入口 + 原顶栏 RecentFilesButton + 开发
 //    模式欢迎按钮,统一暴露为单个面板触发器。视觉与 TabContextMenu /
-//    FileTreeContextMenu 对齐(同 min-w-48 / 圆角白底 / dark:bg-gray-800 /
-//    hover:bg-gray-100 / dark:hover:bg-gray-700);不抽通用 ContextMenu 组件 —
+//    FileTreeContextMenu 对齐(同 min-w-48 / 圆角 surface-3 底 /
+//    surface-hover);不抽通用 ContextMenu 组件 —
 //    这里多带 shortcut、子菜单展开与外部触发器范式,与右键菜单的"是否显示
 //    某项"分支逻辑不重合,合并会让判断散到调用方。
 //  - 触发器:通过 `#trigger` 插槽由调用方提供(顶栏用紧凑图标按钮,ActivityBar
@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
       <button
         :ref="registerRef"
         type="button"
-        class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
         title="文件"
         aria-label="文件"
         aria-haspopup="menu"
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
           v-if="open && menuPos"
           ref="menuRef"
           data-file-menu-panel="main"
-          class="velo-file-menu fixed z-50 min-w-48 border border-gray-200 text-gray-600 rounded-lg bg-white py-1 text-xs shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          class="velo-file-menu fixed z-50 min-w-48 border border-[var(--surface-border)] text-gray-600 rounded-lg bg-[var(--surface-3)] py-1 text-xs shadow-[var(--shadow-popover)] dark:text-gray-200"
           :style="{ left: `${menuPos.x}px`, top: `${menuPos.y}px` }"
           role="menu"
           @contextmenu.prevent
@@ -297,13 +297,13 @@ onBeforeUnmount(() => {
           <template v-for="(group, groupIndex) in groups" :key="groupIndex">
             <div
               v-if="groupIndex > 0"
-              class="my-1 border-t border-gray-100 dark:border-gray-700"
+              class="my-1 border-t border-[var(--surface-border)]"
             />
           <button
             v-for="row in group.rows"
             :key="row.key"
             type="button"
-            class="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-gray-700"
+            class="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             :class="{ 'velo-file-menu-recent-active': row.key === 'recent' && submenu === 'recent' }"
             :disabled="row.disabled"
             :aria-label="row.label"
@@ -326,7 +326,7 @@ onBeforeUnmount(() => {
             />
             <span
               v-else-if="row.shortcut"
-              class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-400 dark:bg-gray-700 dark:text-gray-500"
+              class="shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 font-mono text-[11px] text-gray-400 dark:text-gray-500"
             >{{ row.shortcut }}</span>
           </button>
         </template>
@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
       <div
         v-if="open && submenu === 'recent' && submenuPos"
         data-file-menu-panel="recent"
-        class="velo-file-menu-submenu fixed z-50 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs text-gray-600 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+        class="velo-file-menu-submenu fixed z-50 w-80 overflow-hidden rounded-lg border border-[var(--surface-border)] bg-[var(--surface-3)] py-1 text-xs text-gray-600 shadow-[var(--shadow-popover)] dark:text-gray-200"
         :style="{ left: `${submenuPos.x}px`, top: `${submenuPos.y}px` }"
         role="menu"
         aria-label="最近文件"
@@ -351,7 +351,7 @@ onBeforeUnmount(() => {
             v-for="entry in visibleRecent"
             :key="entry.path"
             type="button"
-            class="mx-1 flex w-[calc(100%-0.5rem)] flex-col gap-0.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+            class="mx-1 flex w-[calc(100%-0.5rem)] flex-col gap-0.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
             :title="normalizeDisplayPath(entry.path)"
             role="menuitem"
             @click="openRecent(entry.path)"

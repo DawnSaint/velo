@@ -11,11 +11,11 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="flex flex-1 min-w-0 flex-col items-center justify-center bg-white dark:bg-[#1e1e1e]">
+  <div class="flex flex-1 min-w-0 flex-col items-center justify-center bg-[var(--surface-2)]">
     <div class="w-full max-w-sm px-6">
       <div class="mt-4 flex flex-col gap-3">
         <button
-          class="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+          class="flex w-full items-center gap-3 rounded-2xl border border-[var(--surface-border)] p-3 text-left transition-colors hover:border-gray-300 hover:bg-[var(--surface-hover)] dark:hover:border-gray-600"
           @click="$emit('create-blank')"
         >
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
@@ -28,7 +28,7 @@ defineEmits<{
         </button>
 
         <button
-          class="flex w-full items-center gap-3 rounded-2xl border border-gray-200 p-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+          class="flex w-full items-center gap-3 rounded-2xl border border-[var(--surface-border)] p-3 text-left transition-colors hover:border-gray-300 hover:bg-[var(--surface-hover)] dark:hover:border-gray-600"
           @click="$emit('open-file')"
         >
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">

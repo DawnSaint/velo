@@ -31,7 +31,7 @@ function levelMarker(level: number): string {
     <template v-for="(h, i) in headings" :key="i">
       <ChevronRight class="size-3 shrink-0 text-gray-300 dark:text-gray-600" />
       <button
-        class="flex min-w-0 max-w-[200px] items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+        class="flex min-w-0 max-w-[200px] items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-700 dark:hover:text-gray-200"
         :title="h.text"
         @click="emit('reveal-heading', h)"
       >

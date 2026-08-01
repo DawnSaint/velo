@@ -155,14 +155,14 @@ onBeforeUnmount(() => {
         v-model="query"
         type="text"
         placeholder="搜索设置"
-        class="w-48 h-8 rounded-2xl border border-gray-200 bg-white pl-8 pr-6 text-xs text-gray-900/80 outline-none focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+        class="w-48 h-8 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-2)] pl-8 pr-6 text-xs text-gray-900/80 outline-none focus:border-[var(--md-primary-color)] dark:text-gray-100/80"
         @keydown="onKeydown"
         @focus="open = results.length > 0"
       >
       <button
         v-if="query"
         type="button"
-        class="absolute right-1.5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        class="absolute right-1.5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
         title="清空"
         @click="clearQuery"
       >
@@ -173,7 +173,7 @@ onBeforeUnmount(() => {
     <!-- 下拉结果列表 -->
     <div
       v-if="open && rows.length > 0"
-      class="absolute right-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-[#252525]"
+      class="absolute right-0 top-full z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-lg border border-[var(--surface-border)] bg-[var(--surface-3)] py-1 shadow-[var(--shadow-popover)]"
     >
       <button
         v-for="(row, idx) in rows"
@@ -182,8 +182,8 @@ onBeforeUnmount(() => {
         type="button"
         class="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors"
         :class="idx === selectedIndex
-          ? 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100'
-          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/50'"
+          ? 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100'
+          : 'text-gray-700 hover:bg-[var(--surface-hover)] dark:text-gray-300'"
         @click="selectedIndex = idx; commitSelection()"
         @mouseenter="selectedIndex = idx"
       >

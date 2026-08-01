@@ -147,7 +147,7 @@
   resize: none;
   overflow: hidden;
   outline: none;
-  background: #fff;
+  background: var(--surface-2);
   color: #333;
 }
 .edit-preview {
@@ -169,7 +169,7 @@
 
 .dark .edit-textarea,
 .velo-editor.dark .edit-textarea {
-  background: #1e1e1e;
+  background: var(--surface-2);
   color: #d4d4d4;
   border-color: var(--md-doc-primary-color, #1F71D9);
 }

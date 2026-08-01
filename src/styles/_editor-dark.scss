@@ -8,7 +8,7 @@
 
 :is(.dark .velo-editor, .velo-editor.dark) {
   color: #d4d4d4;
-  background: #1e1e1e;
+  background: var(--surface-2);
 
   .ProseMirror ::selection {
     background: #264f78;
@@ -60,12 +60,17 @@
     border-top-color: #444;
   }
 
-  // h4-h6 稍微提亮,确保可读性
-  :is(h4, h5, h6) {
-    filter: brightness(1.3);
+  // 标题在暗色下用亮化后的主色,避免深色主色与暗背景融为一体。
+  // color-mix 把主色掺 30% 白;themeColorAffectsDoc 关闭时 fallback 到 #e0e0e0,
+  // 掺白后接近纯白,保证暗色下标题始终可读。
+  :is(h1, h2, h3, h4, h5, h6) {
+    color: color-mix(in srgb, var(--md-doc-primary-color, #e0e0e0) 70%, white);
+  }
+  h2 {
+    border-bottom-color: color-mix(in srgb, var(--md-doc-primary-color, #555) 40%, transparent);
   }
 
-  // 暗色模式链接颜色:亮模式的 #576b95 在 #1e1e1e 上对比度低,改用淡蓝
+  // 暗色模式链接颜色:亮模式的 #576b95 在暗色画布上对比度低,改用淡蓝
   a {
     color: #7aa6d8;
   }

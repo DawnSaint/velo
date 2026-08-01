@@ -168,10 +168,42 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 
 ## CSS 变量管理
 
+### 海拔系统 (elevation system)
+
+四级 surface 变量 + 配套 border / hover / pressed / shadow，定义在 `index.scss` 顶部 `:root`(亮) 和 `.dark`(暗)。组件只管「我是第几层」(`bg-[var(--surface-N)]`)，不关心当前是亮是暗——切换时改的是变量表。
+
+**设计原则**:
+- 暗色靠「填色叠白」做台阶(每层 ~5% 白)，阴影退役；亮色靠「阴影 + 边框」做浮起，填色退到灰里把舞台让给白纸。两套引擎镜像但手段相反，不可简单取反。
+- 全程微冷色相(B 通道略高于 R)，亮暗共用同一条中性轴，切换时只是「同一条轴滑到另一端」。
+- 海拔灰阶里不混强调色——主题色只点交互 / 选中 / 标题。
+
+| 变量 | 亮色 | 暗色 | 语义 |
+|------|------|------|------|
+| `--surface-0` | `#e9ebf0` | `#15171c` | chrome 根(活动栏 / 顶栏 / 状态栏)——最深(暗)/ 最灰(亮) |
+| `--surface-1` | `#f3f4f8` | `#1b1e24` | 侧栏——抬一档 |
+| `--surface-2` | `#fbfbfd` | `#22262d` | 编辑区画布——基准面(步进 0 点) |
+| `--surface-3` | `#ffffff` | `#2a2f38` | 浮起(卡片 / popover / dialog)——最高档 |
+| `--surface-border` | `rgba(16,24,40,.07)` | `rgba(255,255,255,.06)` | 层间发丝线(暗 ≤ .08，亮带蓝调墨色) |
+| `--surface-hover` | `rgba(16,24,40,.05)` | `rgba(255,255,255,.05)` | 行 hover 叠加(4–6%) |
+| `--surface-pressed` | `rgba(16,24,40,.09)` | `rgba(255,255,255,.09)` | pressed / 选中 / toggle active 叠加(8–12%) |
+| `--shadow-card` | `0 1px 2px … + 0 4px 12px -2px …` | `none` | 卡片浮起阴影(亮色有值，暗色靠填色不靠阴影) |
+| `--shadow-popover` | `0 8px 24px rgba(16,24,40,.12)` | `0 8px 24px rgba(0,0,0,.5)` | 遮罩级浮层阴影(亮暗都有，暗色更重) |
+
+**外推规则**（第五层 / 第六层从现有变量推，不记新数）:
+- 下拉 / popover = `--surface-3` + `--shadow-popover`
+- 行 hover = `--surface-hover`(或叠 6–8% 强调色，二选一)
+- pressed / 选中 = `--surface-pressed`
+- 禁用态 = 文字透明度降到 38–45%，不新建灰
+
+**使用方式**: Tailwind 任意值语法 `bg-[var(--surface-N)]` / `border-[var(--surface-border)]` / `shadow-[var(--shadow-popover)]`；scoped style 中直接 `background: var(--surface-N)`。组件不再写 `dark:bg-[#xxx]` 硬编码——变量表自动翻面。
+
 ### 已定义的变量
 
 | 变量 | 定义位置 | 用途 | 动态注入 |
 |------|---------|------|---------|
+| `--surface-0/1/2/3` | `index.scss` `:root` / `.dark` | 海拔四级填色 | ✗ 静态（dark 切换靠 CSS cascade） |
+| `--surface-border` / `--surface-hover` / `--surface-pressed` | 同上 | 海拔配套叠加层 | ✗ 静态 |
+| `--shadow-card` / `--shadow-popover` | 同上 | 浮层阴影 | ✗ 静态 |
 | `--md-primary-color` | `App.vue` 设到 `<html>` | 主题强调色(UI chrome / 导出) | ✓ store.primaryColor |
 | `--md-doc-primary-color` | `App.vue` 设到 `<html>`(条件) | 文档内容强调色 | ✓ store.primaryColor(仅 themeColorAffectsDoc 开启时注入) |
 | `--md-font-family` | 同上 | 正文字体族 | ✓ props.fontFamily |
@@ -183,6 +215,8 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 ### 禁令
 
 - **不要定义"看起来可自定义但从未被注入"的变量**。如果颜色不需要运行时切换，直接写硬编码值，不要包 `var(--xxx, fallback)`——这会让维护者误以为变量可以自定义。
+- **UI chrome 背景色一律走海拔变量**。新增组件的背景色用 `bg-[var(--surface-N)]`，不要写 `bg-white dark:bg-[#xxx]` 硬编码——变量表自动翻面，组件只管「我是第几层」。
+- **海拔灰阶里不混强调色**。`--surface-*` 变量保持中性微冷；主题色只点交互 / 选中 / 标题。一旦往台阶里掺强调色，整个海拔会被染色、显脏，且用户换主题色时灰阶会跑偏。
 - **不要在 scoped style 中硬编码与 Tailwind 调色板重复的 RGB 值**。如果颜色与 Tailwind gray-100 等一致，优先在模板里用 Tailwind class；确需在 scoped style 中引用时用 `var(--color-gray-100)`（Tailwind v4 暴露的 CSS 变量）或注释标明对应的 Tailwind 色阶。
 
 ---

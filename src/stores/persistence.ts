@@ -348,7 +348,7 @@ const WORKSPACES_FILE = 'velo-workspaces.json'
 // v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600)。
 // v3(v0.5.6):active 降级为 main 冷启动 hint;多窗口保存走 patch merge。
 // v4(v0.6.x):WorkspaceState 新增 openTabs + activeTab(标签持久化,恢复工作区时重开上次的标签集)。
-const WORKSPACES_VERSION = 4
+export const WORKSPACES_VERSION = 4
 
 export type SidebarTab = 'outline' | 'files' | 'search' | 'assets'
 

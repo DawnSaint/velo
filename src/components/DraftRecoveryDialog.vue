@@ -61,10 +61,10 @@ function onBackdropClick(e: MouseEvent) {
         @click="onBackdropClick"
       >
         <div
-          class="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl dark:bg-[#1e1e1e] dark:shadow-black/60"
+          class="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-[var(--surface-3)] shadow-[var(--shadow-popover)]"
         >
           <!-- 头部 -->
-          <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+          <div class="border-b border-[var(--surface-border)] px-6 py-4">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
               恢复未保存的草稿
             </h2>
@@ -79,7 +79,7 @@ function onBackdropClick(e: MouseEvent) {
               <li
                 v-for="draft in drafts"
                 :key="draft.id"
-                class="group flex items-start gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:border-gray-600 dark:hover:bg-[#262626]"
+                class="group flex items-start gap-3 rounded-lg border border-[var(--surface-border)] p-3 transition-colors hover:border-gray-300 hover:bg-[var(--surface-hover)] dark:hover:border-gray-600"
               >
                 <div class="min-w-0 flex-1">
                   <div class="flex items-baseline gap-2">
@@ -109,7 +109,7 @@ function onBackdropClick(e: MouseEvent) {
                     恢复
                   </button>
                   <button
-                    class="rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                    class="rounded-md border border-[var(--surface-border)] px-3 py-1 text-xs text-gray-600 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-300"
                     @click="onDiscard(draft.id)"
                   >
                     丢弃
@@ -120,7 +120,7 @@ function onBackdropClick(e: MouseEvent) {
           </div>
 
           <!-- 底部 -->
-          <div class="flex items-center justify-between gap-3 border-t border-gray-200 px-6 py-3 dark:border-gray-700">
+          <div class="flex items-center justify-between gap-3 border-t border-[var(--surface-border)] px-6 py-3">
             <button
               class="text-sm text-gray-500 transition-colors hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
               @click="drafts.forEach(d => onDiscard(d.id))"
@@ -128,7 +128,7 @@ function onBackdropClick(e: MouseEvent) {
               全部丢弃
             </button>
             <button
-              class="rounded-md border border-gray-300 px-4 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              class="rounded-md border border-[var(--surface-border)] px-4 py-1.5 text-sm text-gray-700 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-200"
               @click="onDismiss"
             >
               暂不处理

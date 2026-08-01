@@ -317,7 +317,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
   <div
     v-if="open"
     data-fr-panel
-    class="absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-gray-200 bg-white shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-[#252525]/85"
+    class="absolute right-4 top-4 z-10 w-[min(30rem,calc(100%-2rem))] select-none rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-3)] shadow-[var(--shadow-popover)] backdrop-blur"
     @keydown.stop
     @click.stop
   >
@@ -339,7 +339,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
           type="text"
           data-fr-input="find"
           placeholder="查找"
-          class="w-full rounded-xl border border-gray-200 bg-white py-1 pl-6 pr-7 text-xs text-gray-900/80 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+          class="w-full rounded-xl border border-[var(--surface-border)] bg-[var(--surface-3)] py-1 pl-6 pr-7 text-xs text-gray-900/80 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:text-gray-100/80"
           :class="{ 'border-red-400 focus:border-red-400 focus:ring-red-400/25 dark:border-red-500': hasError }"
           @keydown="onFindKeydown"
         />
@@ -347,7 +347,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
           v-if="query"
           type="button"
           data-fr-input="find-clear"
-          class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
           title="清空"
           @click="clearQuery"
         >
@@ -363,7 +363,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
       <button
         type="button"
         :disabled="matches.length === 0"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-30 dark:text-gray-400"
         title="上一个 (Shift+Enter)"
         @click="findPrev"
       >
@@ -372,7 +372,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
       <button
         type="button"
         :disabled="matches.length === 0"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
         title="下一个 (Enter)"
         @click="findNext"
       >
@@ -380,8 +380,8 @@ function onReplaceKeydown(e: KeyboardEvent) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': caseSensitive }"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+        :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': caseSensitive }"
         title="区分大小写"
         @click="caseSensitive = !caseSensitive"
       >
@@ -389,8 +389,8 @@ function onReplaceKeydown(e: KeyboardEvent) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': wholeWord }"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+        :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': wholeWord }"
         title="全词匹配"
         @click="wholeWord = !wholeWord"
       >
@@ -398,8 +398,8 @@ function onReplaceKeydown(e: KeyboardEvent) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': regex }"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+        :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': regex }"
         title="正则表达式"
         @click="regex = !regex"
       >
@@ -407,7 +407,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+        class="flex size-7 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
         title="关闭 (Esc)"
         @click="close"
       >
@@ -425,13 +425,13 @@ function onReplaceKeydown(e: KeyboardEvent) {
         type="text"
         data-fr-input="replace"
         placeholder="替换为"
-        class="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-2 py-1 text-xs text-gray-900/80 outline-none transition-colors focus:outline-none focus:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-[#1e1e1e] dark:text-gray-100/80"
+        class="min-w-0 flex-1 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-3)] px-2 py-1 text-xs text-gray-900/80 outline-none transition-colors focus:outline-none focus:border-[var(--md-primary-color)] dark:text-gray-100/80"
         @keydown="onReplaceKeydown"
       >
       <button
         type="button"
         :disabled="matches.length === 0"
-        class="shrink-0 rounded px-2 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800"
+        class="shrink-0 rounded px-2 py-1 text-xs text-gray-600 transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-30 dark:text-gray-300"
         title="替换当前 (Enter)"
         @click="replaceCurrent"
       >
@@ -440,7 +440,7 @@ function onReplaceKeydown(e: KeyboardEvent) {
       <button
         type="button"
         :disabled="matches.length === 0"
-        class="shrink-0 rounded px-2 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:text-gray-300 dark:hover:bg-gray-800"
+        class="shrink-0 rounded px-2 py-1 text-xs text-gray-600 transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-30 dark:text-gray-300"
         title="全部替换"
         @click="replaceAll"
       >

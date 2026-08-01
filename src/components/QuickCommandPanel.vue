@@ -636,12 +636,12 @@ onBeforeUnmount(() => {
     >
       <div
         ref="panelRef"
-        class="mt-[4vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-[#1a1a1a]"
+        class="mt-[4vh] flex max-h-[62vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-[var(--surface-border)] bg-[var(--surface-3)] shadow-[var(--shadow-popover)]"
         :class="mode === 'line' ? 'self-start' : ''"
         data-quick-command-panel
         data-testid="quick-command-panel"
       >
-        <div class="shrink-0 px-3 py-2" :class="mode === 'line' ? '' : 'border-b border-gray-200 dark:border-gray-800'">
+        <div class="shrink-0 px-3 py-2" :class="mode === 'line' ? '' : 'border-b border-[var(--surface-border)]'">
           <div class="flex items-center gap-2">
             <input
               ref="inputRef"
@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
                   row.disabled ? 'cursor-default opacity-50' : 'cursor-pointer',
                   selection.section === sectionIdx && selection.index === rowIdx
                     ? ''
-                    : row.disabled ? '' : 'hover:bg-gray-100 dark:hover:bg-gray-800/60',
+                    : row.disabled ? '' : 'hover:bg-[var(--surface-hover)]',
                 ]"
                 :style="selection.section === sectionIdx && selection.index === rowIdx ? {
                   backgroundColor: 'color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent)',
@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
                 </template>
                 <!-- command 行:图标盒 + 标题命中加粗 + 副标 + 快捷键 -->
                 <template v-else>
-                  <span class="flex size-5 shrink-0 items-center justify-center rounded bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300" aria-hidden="true">
+                  <span class="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--surface-pressed)] text-gray-500 dark:text-gray-300" aria-hidden="true">
                     <component :is="row.icon" :size="14" />
                   </span>
                   <span class="min-w-0 flex-1">
@@ -732,7 +732,7 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="row.shortcut"
-                    class="ml-auto shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                    class="ml-auto shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:text-gray-400"
                   >
                     {{ row.shortcut }}
                   </span>

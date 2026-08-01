@@ -1201,7 +1201,7 @@ watch(editorRef, (v) => {
     class="flex h-screen flex-col text-gray-900 dark:text-gray-100"
   >
     <header
-      class="flex h-9 shrink-0 items-stretch bg-gray-100 text-gray-700 dark:bg-[#111] dark:text-gray-300"
+      class="flex h-9.5 shrink-0 items-stretch bg-[var(--surface-0)] text-gray-700 dark:text-gray-300"
       :data-tauri-drag-region="isMacOS || undefined"
     >
       <!-- macOS 交通灯避让区:overlay 标题栏下交通灯浮在 header 左上角,
@@ -1212,10 +1212,8 @@ watch(editorRef, (v) => {
         class="shrink-0"
         style="width: 78px"
       />
-      <!-- 文件菜单入口(v0.7.x):原 ActivityBar 顶部的 FileMenuButton 移到此处，
-           占据原 logo 那 48px 列宽,触发器改为向下箭头,点击在按钮正下方展开
-           文件下拉面板。 -->
-      <div class="flex shrink-0 items-center justify-center border-b border-gray-200 dark:border-gray-800" style="width: 47px">
+      <!-- 点击在按钮正下方展开文件下拉面板。 -->
+      <div class="flex shrink-0 items-center justify-center w-11">
         <FileMenuButton
           :is-tauri="tauri"
           :exporting="exportStore.exporting"
@@ -1240,8 +1238,8 @@ watch(editorRef, (v) => {
             <button
               :ref="registerRef"
               type="button"
-              class="flex h-6 w-6 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-              :class="{ 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-200': open }"
+              class="flex w-full items-center justify-center rounded-md text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              :class="{ 'text-gray-700 dark:text-gray-200': open }"
               title="文件"
               aria-label="文件"
               aria-haspopup="menu"
@@ -1254,26 +1252,18 @@ watch(editorRef, (v) => {
         </FileMenuButton>
       </div>
 
-      <!-- 顶栏标签栏(v0.6.0 多标签):TabBar 自己根 div 含 pl-3 + border-b -->
+      <!-- 顶栏标签栏(v0.6.0 多标签) -->
       <TabBar :settings-open="settingsOpen" :settings-active="settingsActive" @reveal-in-tree="revealFileInTree" @tab-clicked="onTabClicked" @close-settings="closeSettings" @focus-settings="settingsActive = true" @focus-doc="settingsActive = false" />
 
-      <!-- 右侧段:仅窗口控制。wrapper 自带 border-b(分界线)+ items-stretch,
-           让 WindowControls 撑满顶栏可用高度(border 之上),按钮不再越过分界线;
-           去掉右内边距,按钮贴齐窗口右缘。
-           v0.6.x 早期曾放过 dev 模式欢迎入口(MessageSquare) + 与 WindowControls 之间的
-           1px 竖线,本次按用户偏好移除 —— dev 用户现在通过 Ctrl+Shift+P 命令面板
-           或首次启动触发入口即可重看欢迎对话框,不需要常驻 chrome。 -->
+      <!-- 右侧段:仅窗口控制。wrapper items-stretch 让 WindowControls 撑满顶栏高度,按钮贴齐窗口右缘。 -->
       <!-- macOS 原生装饰自带交通灯(关闭/最小化/全屏),不需要自绘窗口按钮;
            Windows/Linux 无原生装饰,继续用 WindowControls。 -->
-      <div v-if="!isMacOS" class="ml-auto flex shrink-0 items-stretch border-b border-gray-200 dark:border-gray-800">
+      <div v-if="!isMacOS" class="ml-auto flex shrink-0 items-stretch">
         <WindowControls v-if="tauri" />
       </div>
     </header>
 
-    <!-- 主体(v0.6.0 形态,本次回滚):三列 flex-row —— ActivityBar / 侧栏 / 编辑器。
-         header 在外层 flex-col 第一行,所以 ActivityBar / 侧栏从 y=36 起;不再"接顶"。
-         视觉上是「顶栏 → 中间一格工作区 → 底部 StatusBar」的三段式,与 v0.6.0 一致。 -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden bg-[var(--surface-0)]">
       <ActivityBar
         :active="activeActivity"
         @select-files="onSelectSidebarActivity('files')"
@@ -1289,40 +1279,38 @@ watch(editorRef, (v) => {
            时销毁 FileTree 并触发根目录 loading。splitter 仍随 leftPanelView 隐藏,
            避免 0 宽侧栏旁出现孤立分隔线。 -->
       <aside
-        class="shrink-0 overflow-hidden"
+        class="shrink-0 overflow-hidden bg-[var(--surface-1)]"
         :style="{ width: `${displaySidebarWidth}px` }"
       >
-        <div class="h-full overflow-hidden">
-          <KeepAlive>
-            <Sidebar
-              v-if="leftPanelView === 'sidebar'"
-              ref="sidebarRef"
-              :model-value="documentStore.content"
-              :file-path="documentStore.currentFilePath"
-              :workspace-search-initial-query="workspaceSearchInitialQuery"
-              :workspace-search-scope-dir="workspaceSearchScopeDir"
-              :workspace-search-replace-status="workspaceSearchReplaceStatus"
-              :workspace-search-rerun-token="workspaceSearchRerunToken"
-              :settings-active="settingsActive"
-              @workspace-search-close="onWorkspaceSearchClose"
-              @workspace-search-open-result="openWorkspaceSearchResult"
-              @workspace-search-clear-scope="onWorkspaceSearchClearScope"
-              @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
-              @search-in-folder="onSearchInFolder"
-              @locate-image="onLocateImage"
-              @reorganize-asset="onReorganizeAsset"
-            />
-          </KeepAlive>
-        </div>
+        <KeepAlive>
+          <Sidebar
+            v-if="leftPanelView === 'sidebar'"
+            ref="sidebarRef"
+            :model-value="documentStore.content"
+            :file-path="documentStore.currentFilePath"
+            :workspace-search-initial-query="workspaceSearchInitialQuery"
+            :workspace-search-scope-dir="workspaceSearchScopeDir"
+            :workspace-search-replace-status="workspaceSearchReplaceStatus"
+            :workspace-search-rerun-token="workspaceSearchRerunToken"
+            :settings-active="settingsActive"
+            @workspace-search-close="onWorkspaceSearchClose"
+            @workspace-search-open-result="openWorkspaceSearchResult"
+            @workspace-search-clear-scope="onWorkspaceSearchClearScope"
+            @workspace-search-apply-replace="onWorkspaceSearchApplyReplace"
+            @search-in-folder="onSearchInFolder"
+            @locate-image="onLocateImage"
+            @reorganize-asset="onReorganizeAsset"
+          />
+        </KeepAlive>
       </aside>
 
-      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1);常态不画硬线,
-           视觉分隔由编辑器区的 .velo-editor-shadow::before 渐变负责;
-           hover/drag 时 ::before 出现 3px 主题色硬线作拖拽抓取反馈。
+      <!-- 侧栏分隔条(v0.5.5):4px 透明点击热区(w-1);常态由 ::before
+           画朝右渐变 shadow 作视觉分隔(从 splitter 左缘延伸到编辑器区内);
+           hover/drag 时 ::after 出现 3px 主题色硬线作拖拽抓取反馈。
            CSS 规则在 index.scss。收起时不渲染。 -->
       <div
         v-if="leftPanelView"
-        class="velo-splitter w-1 shrink-0 cursor-col-resize bg-transparent"
+        class="velo-splitter w-1 shrink-0 cursor-col-resize bg-[var(--surface-2)]"
         :class="{ 'velo-splitter-dragging': sidebarSplitter.isDragging.value }"
         data-testid="sidebar-splitter"
         @mousedown="onSplitterMouseDown"
@@ -1337,7 +1325,7 @@ watch(editorRef, (v) => {
            mount 早于 `await getHighlighter()` resolve,plugin 第一次跑
            decorations 时 hl 仍是 null,代码块先按 SCSS 默认色渲染,等
            setMeta 触发后才有 token 色 → 用户看到"先默认后用户"闪烁。 -->
-      <div class="flex flex-1 flex-col min-w-0" :class="{ 'velo-editor-shadow': leftPanelView }">
+      <div class="relative flex flex-1 flex-col min-w-0 overflow-hidden bg-[var(--surface-2)]">
         <!-- 设置页(#settings-panel 重做):整页接管编辑器主区域,顶部 Tab 切换类目
              (编辑器 / 外观 / 文档 / 系统)。取代旧流式布局 + 侧栏大纲虚拟模式导航。
              设置 tab 后台保留:切文档 tab 只失活(v-if 用 settingsActive),

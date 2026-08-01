@@ -25,6 +25,52 @@
 // Tailwind v4 通过独立 .css 入口 @import "tailwindcss" 接入 (Sass 会拦截 .scss 里的 @import)
 // 真实的 base / components / utilities 由 src/main.ts 里同步引入的 tailwind.css 提供
 
+/* ── 海拔系统 (elevation system) ──
+   四级 surface 变量 + 配套 border / hover / pressed / shadow。
+   亮暗各一份，组件只管「我是第几层」(bg-[var(--surface-N)])，
+   不关心当前是亮是暗——切换时改的是这张变量表。
+
+   **设计原则**:
+   - 暗色靠「填色叠白」做台阶(每层 ~5% 白)，阴影退役；亮色靠
+     「阴影 + 边框」做浮起，填色退到灰里把舞台让给白纸。两套引擎
+     镜像但手段相反，不可简单取反。
+   - 全程微冷色相(B 通道略高于 R)，亮暗共用同一条中性轴，切换时
+     只是「同一条轴滑到另一端」，不会像换了一层皮。
+   - 海拔灰阶里不混强调色——主题色只点交互 / 选中 / 标题。
+
+   **变量语义**:
+   --surface-0  chrome 根(活动栏 / 顶栏 / 状态栏)——最深(暗)/ 最灰(亮)
+   --surface-1  侧栏——抬一档
+   --surface-2  编辑区画布——基准面(步进 0 点)
+   --surface-3  浮起(卡片 / popover / dialog)——最高档
+   --surface-border   层间发丝线(暗 ≤ .08，亮带蓝调墨色)
+   --surface-hover    行 hover 叠加(4–6% 白/黑)
+   --surface-pressed  pressed / 选中叠加(8–12%)
+   --shadow-card      卡片浮起阴影(亮色有值，暗色 none)
+   --shadow-popover   遮罩级浮层阴影(亮暗都有，暗色更重) */
+:root {
+  --surface-0: #e9ebf0;
+  --surface-1: #f3f4f8;
+  --surface-2: #fbfbfd;
+  --surface-3: #ffffff;
+  --surface-border: rgba(16, 24, 40, 0.07);
+  --surface-hover: rgba(16, 24, 40, 0.05);
+  --surface-pressed: rgba(16, 24, 40, 0.09);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 12px -2px rgba(16, 24, 40, 0.06);
+  --shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.12);
+}
+.dark {
+  --surface-0: #15171c;
+  --surface-1: #1b1e24;
+  --surface-2: #22262d;
+  --surface-3: #2a2f38;
+  --surface-border: rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-pressed: rgba(255, 255, 255, 0.09);
+  --shadow-card: none;
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
 @layer base {
   html,
   body,
@@ -38,12 +84,13 @@
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--surface-0);
     color: #1a1a1a;
   }
 
   .dark body,
   body.dark {
-    background-color: #1a1a1a;
+    background-color: var(--surface-0);
     color: #e5e5e5;
   }
 
@@ -143,15 +190,42 @@
 }
 
 /* 侧栏分隔条(v0.5.5)。
- * 4px 透明点击热区;常态不画硬线,视觉分隔由编辑器区的
- * .velo-editor-shadow::before 渐变负责(见下方);hover 或
- * .velo-splitter-dragging 时 ::before 出现 3px 主题色硬线作为拖拽抓取反馈。
+ * 4px 透明点击热区(w-1);常态由 ::before 画朝右渐变 shadow 作视觉分隔
+ * (从 splitter 左缘 / sidebar 右缘延伸 10px,覆盖 4px splitter + 6px 编辑器区),
+ * hover 或 .velo-splitter-dragging 时 ::after 出现 3px 主题色硬线作拖拽抓取反馈。
+ *
+ * shadow 画在 splitter::before 而非编辑器区::before,因为编辑器区的
+ * overflow-hidden 会裁剪负偏移部分(left:-4px),导致 shadow 与功能区之间
+ * 出现 4px 空隙。splitter 自身无 overflow,::before 可自由向右延伸。
+ *
+ * z-index:1 使 splitter 的 stacking context 整体浮在编辑器区(z-index:auto)
+ * 及其内容之上,shadow 和 hover 线都不会被编辑器子组件的不透明背景覆盖。
+ * ::after 在 ::before 之后绘制(DOM 顺序),确保 hover 线盖在 shadow 渐变之上。
+ *
  * 全局样式(与 .velo-scroll 同级),不跟任何组件绑定。 */
 .velo-splitter {
   position: relative;
   z-index: 1;
 }
+
+/* shadow 渐变:splitter 左缘(sidebar 右缘)→ 右 10px 渐变到透明。
+   亮色用带蓝调的墨色 rgba(16,24,40,…) 而非纯黑——纯黑投影发脏。 */
 .velo-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(16, 24, 40, 0.08), transparent);
+}
+.dark .velo-splitter::before {
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.4), transparent);
+}
+
+/* hover/drag 拖拽线:3px 主题色硬线,画在 ::after 确保盖在 shadow 之上。 */
+.velo-splitter::after {
   content: '';
   position: absolute;
   top: 0;
@@ -162,34 +236,8 @@
   background-color: transparent;
   transition: background-color 120ms ease;
 }
-.velo-splitter:hover::before,
-.velo-splitter.velo-splitter-dragging::before {
+.velo-splitter:hover::after,
+.velo-splitter.velo-splitter-dragging::after {
   background-color: var(--md-primary-color, #1F71D9);
-}
-
-
-/* 功能区与编辑器区的视觉分隔(v0.5.5 shadow 方案)。
- * 在编辑器区左边缘用 ::before 伪元素画朝右渐变的 shadow,替代旧的 1px 硬线。
- * 为什么不画在 .velo-splitter 上:ProseMirrorEditor / SourceModeEditor /
- * SettingsPage 根 div 都有 position:relative + 不透明背景(bg-white /
- * dark:bg-[#1e1e1e]),会覆盖 splitter 投射过去的 box-shadow。改画在编辑器区
- * 自身内部,::before 的 z-index:1 确保在编辑器内容(z-index:auto)之上。
- * 仅在侧栏可见时由 App.vue 绑定 .velo-editor-shadow class 激活。 */
-.velo-editor-shadow {
-  position: relative;
-}
-.velo-editor-shadow::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 10px;
-  pointer-events: none;
-  z-index: 1;
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.04), transparent);
-}
-.dark .velo-editor-shadow::before {
-  background: linear-gradient(to right, rgba(0, 0, 0, 0.4), transparent);
 }
 

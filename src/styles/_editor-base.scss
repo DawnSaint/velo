@@ -41,6 +41,10 @@
   //     → 左右被完全裁剪、上下被部分裁剪(同 fold toggle 裁剪原理)。
   // heading / ul / ol / .velo-hr 是 .ProseMirror 直接子元素,关闭 content-visibility
   // 保留溢出可见性(性能影响可忽略:这些元素数量少且体积小)。
+  // 3. 图片选中态:outline + outline-offset:2px 画在 .image-frame 上,frame 是
+  //    inline-block 居中在 .velo-image-inline(block) 内,wrapper 又在 <p> 内。
+  //    <p> 无 padding,outline 上下各溢出 2px 超出 <p> padding box → 上下被裁剪
+  //    (左右因 wrapper 撑满 <p> 宽度而不溢出,故仅上下丢失)。
   .ProseMirror > h1,
   .ProseMirror > h2,
   .ProseMirror > h3,
@@ -49,7 +53,8 @@
   .ProseMirror > h6,
   .ProseMirror > ul,
   .ProseMirror > ol,
-  .ProseMirror > .velo-hr {
+  .ProseMirror > .velo-hr,
+  .ProseMirror > p:has(.velo-image-inline) {
     content-visibility: visible;
   }
 

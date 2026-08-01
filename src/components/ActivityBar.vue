@@ -3,8 +3,7 @@
 //  - 入口:工作区 / 大纲 / 全局搜索 / 资产(可拖拽重排 + 可隐藏)+ 设置(固定底部)。
 //    「文件」下拉面板(FileMenuButton)已从这里移出,改挂在 App.vue 顶栏 logo 位
 //    (向下箭头触发),ActivityBar 不再承载文件命令入口。
-//  - 视觉:38×42 主色块按钮,active 用 `color-mix(in srgb, var(--md-primary-color) 12%, transparent)`
-//    + 主色文本;hover 走 rgba 半透明,亮/暗双主题均一致。
+//  - 视觉:38×40 按钮,active 仅主色文本;hover 仅切文字色,无背景。
 //  - 高度:在 App.vue 外层 flex-row 直接接顶(不再压在 header 之下),与
 //    leftPanelView 的侧栏(sidebar / settings)同列高对齐。
 //
@@ -17,7 +16,7 @@
 //  - 拖拽范式对齐 TabBar(HTML5 draggable + dropTarget={key,side});差异:
 //    纵向列表 → 用 clientY 判 before/after(TabBar 横向用 clientX)。
 
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Files, List, Search, Settings, Image as ImageIcon } from '@lucide/vue'
 import ActivityBarContextMenu from './ActivityBarContextMenu.vue'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
@@ -25,7 +24,7 @@ import { useEditorStore, type ActivityBarItem } from '@/stores/editor'
 
 export type { ActivityBarItem }
 
-defineProps<{
+const props = defineProps<{
   active: ActivityBarItem | null
 }>()
 const emit = defineEmits<{
@@ -162,18 +161,61 @@ function onResetActivityBar() {
   editorStore.resetActivityBar()
   closeContextMenu()
 }
+
+// ========== active 指示器滑动动效(参考 SettingsPage Tab 下划线) ==========
+// 单一 accent 元素根据当前激活按钮的 DOM 位置(top)滑动,CSS transition 驱动平滑过渡。
+const navRef = ref<HTMLElement | null>(null)
+const accentTop = ref(0)
+const accentVisible = ref(false)
+const ACCENT_HEIGHT = 36
+
+function updateAccent() {
+  const nav = navRef.value
+  const key = props.active
+  if (!nav || !key) {
+    accentVisible.value = false
+    return
+  }
+  const el = nav.querySelector<HTMLElement>(`[data-activity-key="${key}"]`)
+  if (!el) {
+    accentVisible.value = false
+    return
+  }
+  const navRect = nav.getBoundingClientRect()
+  const elRect = el.getBoundingClientRect()
+  accentTop.value = elRect.top - navRect.top + (elRect.height - ACCENT_HEIGHT) / 2
+  accentVisible.value = true
+}
+
+onMounted(() => {
+  nextTick(() => updateAccent())
+})
+watch(() => props.active, () => {
+  nextTick(() => updateAccent())
+})
+watch(() => editorStore.visibleActivityBarItems, () => {
+  nextTick(() => updateAccent())
+}, { deep: true })
 </script>
 
 <template>
   <nav
-    class="activity-bar flex w-12 shrink-0 flex-col items-center justify-between py-2 border-r border-gray-200 text-gray-900 dark:border-gray-800 dark:bg-[#1a1a1a] dark:text-gray-100"
+    ref="navRef"
+    class="activity-bar relative flex w-11 shrink-0 flex-col items-center justify-between bg-[var(--surface-0)] py-2 text-gray-900 dark:text-gray-100"
     aria-label="功能栏"
     @contextmenu.prevent="onActivityContextMenu"
   >
+    <span
+      class="activity-bar__accent"
+      :class="{ 'activity-bar__accent--visible': accentVisible }"
+      :style="{ top: `${accentTop}px` }"
+      aria-hidden="true"
+    />
     <div class="flex flex-col items-center gap-1">
       <button
         v-for="item in editorStore.visibleActivityBarItems"
         :key="item"
+        :data-activity-key="item"
         class="activity-bar__button"
         :class="{
           'activity-bar__button--active': active === item,
@@ -196,6 +238,7 @@ function onResetActivityBar() {
     </div>
 
     <button
+      data-activity-key="settings"
       class="activity-bar__button"
       :class="{ 'activity-bar__button--active': active === 'settings' }"
       title="设置"
@@ -203,7 +246,6 @@ function onResetActivityBar() {
       :aria-pressed="active === 'settings'"
       @click="selectItem('settings')"
     >
-      <span class="activity-bar__accent" aria-hidden="true" />
       <Settings :size="20" aria-hidden="true" />
     </button>
   </nav>
@@ -225,24 +267,21 @@ function onResetActivityBar() {
   position: relative;
   display: inline-flex;
   width: 38px;
-  height: 42px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   border-radius: 13px;
   color: #9ca3af;
   transition:
     color 140ms ease,
-    background-color 140ms ease,
     transform 140ms ease;
 }
 
 .activity-bar__button:hover {
-  background: rgba(148, 163, 184, 0.16);
   color: #4b5563;
 }
 
-:global(.dark.activity-bar__button:hover) {
-  background: rgba(255, 255, 255, 0.08);
+:global(.dark .activity-bar__button:hover) {
   color: #e5e7eb;
 }
 
@@ -252,12 +291,30 @@ function onResetActivityBar() {
 }
 
 .activity-bar__button--active {
-  background: color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent);
   color: var(--md-primary-color, #1F71D9);
 }
 
 .activity-bar__button--active:hover {
   color: var(--md-primary-color, #1F71D9);
+}
+
+/* active 左侧竖条指示器(单一共享元素,参考 SettingsPage Tab 下划线滑动):
+ * 根据 active 按钮的 DOM 位置算 top,CSS transition 驱动滑动;
+ * left:0 贴 nav 左缘;height 固定 20px 在按钮内垂直居中。 */
+.activity-bar__accent {
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 36px;
+  border-radius: 1px;
+  background: var(--md-primary-color, #1F71D9);
+  opacity: 0;
+  transition: top 200ms ease-out, opacity 140ms ease;
+  pointer-events: none;
+}
+
+.activity-bar__accent--visible {
+  opacity: 1;
 }
 
 /* 拖拽重排视觉(v0.6.1):被拖项半透明;落点上下 2px 主色横线。

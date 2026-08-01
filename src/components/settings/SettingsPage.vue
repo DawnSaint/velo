@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
 <template>
   <!-- 右内容:顶部 Tab 栏 + 分组内容(所有分组 v-show 共存,纵向滚动)。顶栏由 TabBar 的设置 tab 承担。
        flex-1 + min-w-0 确保侧栏开合时内容区被"压缩"而非被"推动"(见 file-tree.md min-w-0 链)。 -->
-  <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#1e1e1e]">
+  <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-2)]">
     <!-- 分组内容:居中限宽,纵向滚动,所有分组同时挂载(v-show 切换可见性),
          让搜索索引覆盖未激活分组的设置项。Tab 栏放内容容器顶部(取代各分组组件
          的 h2 标题),靠左摆放,下划线宽度与内容区一致(max-w-2xl)。 -->
@@ -122,7 +122,7 @@ onBeforeUnmount(() => {
       <div class="mx-auto max-w-2xl px-8 py-12">
         <!-- Tab 栏:每个分组一个 Tab,点击切换类目。下划线为单一带 transition 的元素,
              根据 activeGroupId 变化滑动到对应 Tab 位置。搜索框放右侧空白处。 -->
-        <div class="relative flex items-center gap-1 border-b border-gray-200 pb-2 dark:border-gray-800">
+        <div class="relative flex items-center gap-1 border-b border-[var(--surface-border)] pb-2">
           <button
             v-for="(group, idx) in groups"
             :key="group.id"

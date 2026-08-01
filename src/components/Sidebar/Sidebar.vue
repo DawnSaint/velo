@@ -147,7 +147,7 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
     <!-- 当前文件(无工作区时仍显示当前在编辑的) -->
     <div
       v-if="!workspace.activeRoot && documentStore.currentFilePath"
-      class="shrink-0 truncate border-t border-gray-200 px-4 py-2 text-xs text-gray-500 dark:border-gray-800"
+      class="shrink-0 truncate border-t border-[var(--surface-border)] px-4 py-2 text-xs text-gray-500"
       :title="documentStore.currentFilePath ?? ''"
     >
       {{ documentStore.fileName }}

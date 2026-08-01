@@ -17,12 +17,12 @@
   transition: background-color 150ms ease;
 
   &:hover {
-    background: rgb(243 244 246); // gray-100
+    background: var(--surface-hover);
   }
 
   html.dark & {
     &:hover {
-      background: rgb(55 65 81); // gray-700
+      background: var(--surface-hover);
     }
   }
 }
@@ -65,9 +65,9 @@
 
 .ctx-menu-separator {
   margin: 0.25rem 0;
-  border-top: 1px solid rgb(243 244 246); // gray-100
+  border-top: 1px solid var(--surface-border);
 
   html.dark & {
-    border-top-color: rgb(55 65 81); // gray-700
+    border-top-color: var(--surface-border);
   }
 }

@@ -437,7 +437,7 @@ function isCollapsed(fullPath: string): boolean {
     data-testid="workspace-search-panel"
   >
     <div class="my-3 shrink-0 px-2">
-      <div class="flex items-center gap-1 rounded-xl border border-gray-200 bg-white mx-2 pl-1 pr-2 h-8 transition-colors focus-within:border-[var(--md-primary-color)] dark:border-gray-700 dark:bg-gray-900">
+      <div class="flex items-center gap-1 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-2)] mx-2 pl-1 pr-2 h-8 transition-colors focus-within:border-[var(--md-primary-color)]">
         <div class="relative min-w-0 flex-1 flex items-center">
           <button
             class="absolute top-1/2 -translate-y-1/2 flex w-6 h-6 shrink-0 items-center justify-center rounded text-gray-500 transition-colors dark:text-gray-400"
@@ -461,8 +461,8 @@ function isCollapsed(fullPath: string): boolean {
         </div>
         <div class="flex items-center gap-0.5">
           <button
-            class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-            :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': caseSensitive }"
+            class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+            :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': caseSensitive }"
             title="区分大小写"
             data-testid="workspace-search-case"
             @click="caseSensitive = !caseSensitive"
@@ -470,8 +470,8 @@ function isCollapsed(fullPath: string): boolean {
             Aa
           </button>
           <button
-            class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-            :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': wholeWord }"
+            class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+            :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': wholeWord }"
             title="全词匹配"
             data-testid="workspace-search-word"
             @click="wholeWord = !wholeWord"
@@ -479,8 +479,8 @@ function isCollapsed(fullPath: string): boolean {
             W
           </button>
           <button
-            class="rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-            :class="{ 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100': regex }"
+            class="rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-gray-500 transition-colors hover:bg-[var(--surface-hover)] dark:text-gray-400"
+            :class="{ 'bg-[var(--surface-pressed)] text-gray-900 dark:text-gray-100': regex }"
             title="正则表达式"
             data-testid="workspace-search-regex"
             @click="regex = !regex"
@@ -490,7 +490,7 @@ function isCollapsed(fullPath: string): boolean {
         </div>
         <button
           v-if="isSearching"
-          class="rounded px-2 py-0.5 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+          class="rounded px-2 py-0.5 text-[11px] text-gray-500 hover:bg-[var(--surface-hover)] dark:text-gray-400"
           data-testid="workspace-search-stop"
           @click="stopSearch"
         >
@@ -499,7 +499,7 @@ function isCollapsed(fullPath: string): boolean {
       </div>
       <div
         v-if="showReplace"
-        class="mx-2 mt-2 flex items-center gap-2 rounded-xl border border-gray-200 bg-white pl-3 pr-2 h-8 dark:border-gray-700 dark:bg-gray-900"
+        class="mx-2 mt-2 flex items-center gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-2)] pl-3 pr-2 h-8"
       >
         <input
           ref="replacementInputRef"
@@ -512,7 +512,7 @@ function isCollapsed(fullPath: string): boolean {
           @keydown.enter.prevent="applyReplace(canReplaceOne ? 'one' : 'all')"
         />
         <button
-          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-gray-500 hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400"
           :disabled="!canReplaceOne"
           title="替换当前选中条目所在文件的所有命中"
           data-testid="workspace-search-replace-one"
@@ -521,7 +521,7 @@ function isCollapsed(fullPath: string): boolean {
           替换
         </button>
         <button
-          class="shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+          class="shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold text-gray-500 hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400"
           :disabled="!canReplaceAll"
           title="替换当前所有结果"
           data-testid="workspace-search-replace-all"
@@ -533,13 +533,13 @@ function isCollapsed(fullPath: string): boolean {
       <!-- scope chip:仅当 scopeDir 是工作区根的子目录时显示 -->
       <div
         v-if="scopeLabel"
-        class="mx-2 mt-2 inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+        class="mx-2 mt-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--surface-pressed)] px-2 py-0.5 text-[11px] text-gray-600 dark:text-gray-300"
         data-testid="workspace-search-scope-chip"
       >
         <Folder class="size-3 shrink-0" :stroke-width="2" />
         <span class="min-w-0 truncate" :title="props.scopeDir ?? ''">{{ scopeLabel }}</span>
         <button
-          class="ml-0.5 inline-flex items-center justify-center rounded-full p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700"
+          class="ml-0.5 inline-flex items-center justify-center rounded-full p-0.5 hover:bg-[var(--surface-pressed)]"
           title="清除 scope,回到工作区根"
           data-testid="workspace-search-scope-clear"
           @click="clearScope"
@@ -573,7 +573,7 @@ function isCollapsed(fullPath: string): boolean {
         <template v-for="(group, groupIdx) in groups" :key="group.file.fullPath">
           <button
             type="button"
-            class="sticky top-0 z-10 flex w-full items-center gap-2 px-2 py-1 text-left text-xs bg-white transition-colors hover:bg-gray-100 dark:bg-[#202020] dark:hover:bg-gray-800"
+            class="sticky top-0 z-10 flex w-full items-center gap-2 px-2 py-1 text-left text-xs bg-[var(--surface-1)] transition-colors hover:bg-[var(--surface-hover)]"
             :data-testid="`workspace-search-group-${groupIdx}`"
             :aria-expanded="!isCollapsed(group.file.fullPath)"
             :title="group.file.relPath"
@@ -608,7 +608,7 @@ function isCollapsed(fullPath: string): boolean {
           -->
           <div
             v-if="!isCollapsed(group.file.fullPath)"
-            class="ml-[14px] border-l border-gray-200 pl-3 dark:border-gray-800"
+            class="ml-[14px] border-l border-[var(--surface-border)] pl-3"
           >
             <div
               v-for="(hit, hitIdx) in group.hits"
