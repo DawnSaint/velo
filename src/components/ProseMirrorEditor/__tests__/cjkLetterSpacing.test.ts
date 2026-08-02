@@ -119,9 +119,8 @@ describe('cjkLetterSpacingPlugin', () => {
     expect(cjkSpans(view)[0]!.textContent).toBe('你好')
 
     // 在「你」和「好」之间插入「们」
-    const pos = 1 // paragraph 内容偏移: pos 0 = paragraph start, pos 1 = before 「你」
-    // 找到精确位置:doc 第一个 paragraph,内容从 pos+1 开始
-    const paraStart = 1 // <p> 的内容起始 pos
+    // <p> 的内容起始 pos = 1，pos 2 = 「你」之后
+    const paraStart = 1
     view.dispatch(view.state.tr.insertText('们', paraStart + 1)) // 插入到「你」之后
 
     const spans = cjkSpans(view)

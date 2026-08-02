@@ -20,6 +20,7 @@ import { extractLangsFromDoc } from '@/components/ProseMirrorEditor/editor/markd
 import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
 import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
 import { cjkSpacingKey } from '@/components/ProseMirrorEditor/plugins/cjkLetterSpacing'
+import { autoPairKey } from '@/components/ProseMirrorEditor/plugins/autoPair'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { useWorkspaceWatch } from '@/composables/useWorkspaceWatch'
@@ -1147,6 +1148,19 @@ onMounted(async () => {
       view.dispatch(view.state.tr.setMeta(cjkSpacingKey, { enabled }))
     },
   )
+
+  // 4.5.x.x.x) 括号自动配对(v0.7.7):用户改 store.autoPairEnabled →
+  // dispatch setMeta(autoPairKey, { enabled }) → plugin state.apply 更新开关。
+  // 不开 immediate:plugin state.init 已从 store 同步读初值,首挂时开关状态已就位。
+  watch(
+    () => store.autoPairEnabled,
+    (enabled) => {
+      const view = editorRef.value?.getEditorView()
+      if (!view || view.isDestroyed) return
+      view.dispatch(view.state.tr.setMeta(autoPairKey, { enabled }))
+    },
+  )
+
 
   // 5) 关闭拦截:脏 → 弹原生确认。dev web 端没有 Tauri runtime,getCurrentWindow
   //    / onCloseRequested / confirm 这些 Tauri 同步 API 一调就 throw,所以整段

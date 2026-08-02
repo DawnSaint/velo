@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -171,6 +171,7 @@ import { viewportPlugin } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { cjkLetterSpacingPlugin } from './plugins/cjkLetterSpacing'
+import { autoPairPlugin } from './plugins/autoPair'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { frontmatterBackspaceCommand } from './syntax/block/frontmatter'
@@ -564,6 +565,7 @@ const basePlugins: Plugin[] = [
   focusModePlugin,
   typewriterModePlugin,
   cjkLetterSpacingPlugin,
+  autoPairPlugin,
 ]
 
 // 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /

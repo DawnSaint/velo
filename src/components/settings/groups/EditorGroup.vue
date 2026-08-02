@@ -182,5 +182,14 @@ function endDrag(e: PointerEvent) {
       >
     </SettingsItem>
 
+    <!-- 括号自动配对:输入开括号时自动插入闭括号。支持 () [] {} + CJK 括号（）（【】「」『』《》〈〉）。 -->
+    <SettingsItem label="括号自动配对" :keywords="['auto', 'pair', 'bracket', '括号', '配对', '自动']" clickable>
+      <input
+        v-model="store.autoPairEnabled"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
   </section>
 </template>

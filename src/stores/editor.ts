@@ -55,7 +55,9 @@ export const useEditorStore = defineStore('editor', () => {
    * 纯视觉装饰,plugin `cjkLetterSpacingPlugin` 读这个字段决定是否
    * 挂 Decoration.inline(.cjk-spacing),不进 schema / 不进 markdown 序列化。 */
   const cjkLetterSpacing = ref(false)
-
+  /** 括号自动配对(可选开关,默认开启)。
+   * 输入开括号时自动插入闭括号。plugin `autoPairPlugin` 读这个字段。 */
+  const autoPairEnabled = ref(true)
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
   // 持久化是**全局 UI 偏好**(走 velo-settings.json),不是 per-workspace ——
@@ -140,6 +142,7 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.showBreadcrumbs === 'boolean') showBreadcrumbs.value = e.showBreadcrumbs
     if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
     if (typeof e.cjkLetterSpacing === 'boolean') cjkLetterSpacing.value = e.cjkLetterSpacing
+    if (typeof e.autoPairEnabled === 'boolean') autoPairEnabled.value = e.autoPairEnabled
     // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。
     hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
   }
@@ -158,6 +161,7 @@ export const useEditorStore = defineStore('editor', () => {
       showBreadcrumbs: showBreadcrumbs.value,
       themeColorAffectsDoc: themeColorAffectsDoc.value,
       cjkLetterSpacing: cjkLetterSpacing.value,
+      autoPairEnabled: autoPairEnabled.value,
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
     }
@@ -177,6 +181,7 @@ export const useEditorStore = defineStore('editor', () => {
     showBreadcrumbs,
     themeColorAffectsDoc,
     cjkLetterSpacing,
+    autoPairEnabled,
     activityBarOrder,
     activityBarHidden,
     visibleActivityBarItems,

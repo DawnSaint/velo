@@ -102,22 +102,22 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 > ProseMirror Decoration 插件，对 CJK 字符段（汉字 / 假名 / 谚文 / 注音符号）添加 CSS `letter-spacing`，纯视觉层不改文档内容。
 
-- [ ] 新增 `cjkLetterSpacing` ProseMirror 插件：正则扫描文本节点 CJK 字符段 → `Decoration.inline` 包裹 `.cjk-spacing` class；增量更新（`tr.mapping.maps` 提 dirty range，只扫变更段）；代码块内禁用
-- [ ] 设置项：`useEditorStore` 新增 `cjkLetterSpacing`（string: "0" 关闭 / "0.05em" 开启），`PersistedSettings.editor` 补字段，`AppearanceGroup.vue` 加开关
-- [ ] SCSS：`.velo-editor .cjk-spacing { letter-spacing: var(--cjk-letter-spacing, 0.05em) }`，`pre/code` 内 `letter-spacing: 0`
-- [ ] test：装饰计算（纯 CJK / CJK+Latin 混排 / CJK 标点分段 / 多段落）、增量更新（插入 / 删除 / 段间插入位移）、设置开关切换
+- [x] 新增 `cjkLetterSpacing` ProseMirror 插件：正则扫描文本节点 CJK 字符段 → `Decoration.inline` 包裹 `.cjk-spacing` class；增量更新（`tr.mapping.maps` 提 dirty range，只扫变更段）；代码块内禁用
+- [x] 设置项：`useEditorStore` 新增 `cjkLetterSpacing`（bool，默认 false），`PersistedSettings.editor` 补字段，`AppearanceGroup.vue` 加开关
+- [x] SCSS：`.velo-editor .cjk-spacing { letter-spacing: var(--cjk-letter-spacing, 0.1em) }`，`pre/code` 内 `letter-spacing: 0`
+- [x] test：装饰计算（纯 CJK / CJK+Latin 混排 / CJK 标点分段 / 多段落）、增量更新（插入 / 删除 / 段间插入位移）、设置开关切换
 
 #### Phase 2 — CJK 括号自动配对 `#cjk-autopair` `P1` `M` `← #cjk-letter-spacing`
 
-> 输入层 ProseMirror 插件，键入 CJK 开括号时自动插入闭括号。支持 `（）` `【】` `「」` `『』` `《》` `〈〉` 及弯引号 `""` `''`（可选）。
+> 输入层 ProseMirror 插件，键入 CJK 开括号时自动插入闭括号。支持 `（）` `【】` `「」` `『』` `《》` `〈〉`。弯引号配对已移除（由 Phase 3 智能引号规则接管）。
 
-- [ ] 新增 `autoPair` ProseMirror 插件：`handleTextInput` 拦截单字符输入 → 查配对表 → 插入开+闭括号，光标居中；选区时包裹选区
-- [ ] 闭括号跳越：已有闭括号时再键入同字符 → 光标跳过（不重复插入）
-- [ ] 成对删除：Backspace 在配对中间 → 同时删除两侧
-- [ ] Tab / Shift+Tab 跳越：Tab 跳过闭括号，Shift+Tab 跳回开括号（代码块 / 行内代码内不触发，让 Tab 缩进）
-- [ ] IME 守卫：组合输入期间全量拦截，防止干扰 CJK 输入法
-- [ ] 设置项：`autoPairEnabled`（bool，默认 true）、`autoPairCJKStyle`（"off" / "auto"）、`autoPairCurlyQuotes`（bool，默认 false）
-- [ ] test：配对插入 / 选区包裹 / 跳越 / 成对删除 / IME 守卫 / 代码块内不触发
+- [x] 新增 `autoPair` ProseMirror 插件：`handleTextInput` 拦截单字符输入 → 查配对表 → 插入开+闭括号，光标居中；选区时包裹选区
+- [x] 闭括号跳越：已有闭括号时再键入同字符 → 光标跳过（不重复插入）
+- [x] 成对删除：Backspace 在配对中间 → 同时删除两侧
+- [x] Tab / Shift+Tab 跳越：Tab 跳过闭括号，Shift+Tab 跳回开括号（代码块 / 行内代码内不触发，让 Tab 缩进）
+- [x] IME 守卫：组合输入期间全量拦截，防止干扰 CJK 输入法
+- [x] 设置项：`autoPairEnabled`（bool，默认 true），单总开关
+- [x] test：配对插入 / 选区包裹 / 跳越 / 成对删除 / IME 守卫 / 代码块内不触发
 
 #### Phase 3 — CJK 智能排版格式化器 `#cjk-formatter` `P1` `L` `← #cjk-autopair`
 

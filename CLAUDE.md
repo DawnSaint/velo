@@ -97,8 +97,9 @@
 - **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先询问
 - **修 bug 先看对应架构模块的"先记住 / 禁令速查"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
-- **测试**：开发中只跑改动相关的测试文件（如 `vitest run markdownIO`），尽量不主动跑全量测试；`vitest run` 全量 + `vue-tsc --noEmit` 仅在明确需要 commit 时执行
-- **类型严格**：TypeScript strict 模式；`vue-tsc --noEmit` 0 错是 commit 前门，开发中不主动跑
+- **测试**：开发中只跑改动相关的测试文件（如 `vitest run markdownIO`），尽量不主动跑全量测试
+- **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check
+- **commit 前必做**：提交前必须依次跑 `npm run type-check`（类型检查）和 `npm run test`（全量测试），两者都 0 错 / 全绿才可 commit；`npm run build` 非提交门禁（CI 会跑），它含 `vite build` 能抓到 type-check 抓不到的打包 / import 问题，CI 中保留
 
 ### 新增语法支持 checklist
 
