@@ -389,6 +389,12 @@ const nodes: Record<string, NodeSpec> = {
     marks: '',
     parseDOM: [{
       tag: 'sup[data-type="footnote_reference"]',
+      // priority 必须高于 superscript mark 的 `sup` 通用规则(默认 50),否则
+      // 粘贴 <sup data-type="footnote_reference"> 时 DOMParser.matchTag 先命中
+      // superscript mark(mark 规则在 schemaRules 里先于 node 插入、同优先级时
+      // 排在前),脚注被吞成带 superscript mark 的普通文本,丢失 .footnote-ref-node
+      // 样式与 Ctrl+click 跳转功能。详见 editor.md 踩坑记录。
+      priority: 100,
     }],
     toDOM: () => [
       'sup',

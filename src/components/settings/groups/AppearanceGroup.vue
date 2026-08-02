@@ -44,5 +44,15 @@ const themeModeOptions = [
         aria-label="主题模式"
       />
     </SettingsItem>
+
+    <!-- CJK 字间距:给中文/日文/韩文字符添加微量字间距,提升排版可读性。纯视觉装饰,不影响文档内容。 -->
+    <SettingsItem label="CJK 字间距" :keywords="['cjk', '中文', '字间距', 'letter', 'spacing', '汉字', '排版']" clickable>
+      <input
+        v-model="store.cjkLetterSpacing"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
   </section>
 </template>

@@ -51,6 +51,10 @@ export const useEditorStore = defineStore('editor', () => {
    * 默认 false —— 文档内容使用各规则兜底的默认色,不受用户主色影响;
    * 开启后文档内容色跟随 --md-primary-color(旧行为)。 */
   const themeColorAffectsDoc = ref(false)
+  /** CJK 字间距(可选开关,默认关闭)。
+   * 纯视觉装饰,plugin `cjkLetterSpacingPlugin` 读这个字段决定是否
+   * 挂 Decoration.inline(.cjk-spacing),不进 schema / 不进 markdown 序列化。 */
+  const cjkLetterSpacing = ref(false)
 
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
@@ -135,6 +139,7 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.showCodeLineNumbers === 'boolean') showCodeLineNumbers.value = e.showCodeLineNumbers
     if (typeof e.showBreadcrumbs === 'boolean') showBreadcrumbs.value = e.showBreadcrumbs
     if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
+    if (typeof e.cjkLetterSpacing === 'boolean') cjkLetterSpacing.value = e.cjkLetterSpacing
     // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。
     hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
   }
@@ -152,6 +157,7 @@ export const useEditorStore = defineStore('editor', () => {
       showCodeLineNumbers: showCodeLineNumbers.value,
       showBreadcrumbs: showBreadcrumbs.value,
       themeColorAffectsDoc: themeColorAffectsDoc.value,
+      cjkLetterSpacing: cjkLetterSpacing.value,
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
     }
@@ -170,6 +176,7 @@ export const useEditorStore = defineStore('editor', () => {
     showCodeLineNumbers,
     showBreadcrumbs,
     themeColorAffectsDoc,
+    cjkLetterSpacing,
     activityBarOrder,
     activityBarHidden,
     visibleActivityBarItems,

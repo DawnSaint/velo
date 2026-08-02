@@ -19,6 +19,7 @@ import {
 import { extractLangsFromDoc } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
 import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
+import { cjkSpacingKey } from '@/components/ProseMirrorEditor/plugins/cjkLetterSpacing'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { useWorkspaceWatch } from '@/composables/useWorkspaceWatch'
@@ -1131,6 +1132,19 @@ onMounted(async () => {
       const view = editorRef.value?.getEditorView()
       if (!view || view.isDestroyed) return
       view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled }))
+    },
+  )
+
+  // 4.5.x.x) CJK 字间距(v0.7.7):用户改 store.cjkLetterSpacing →
+  // dispatch setMeta(cjkSpacingKey, { enabled }) → plugin.decorations()
+  // 重跑(enabled=true 挂 .cjk-spacing Decoration.inline / false 返回 empty)。
+  // 不开 immediate:plugin state.init 已从 store 同步读初值,首挂时开关状态已就位。
+  watch(
+    () => store.cjkLetterSpacing,
+    (enabled) => {
+      const view = editorRef.value?.getEditorView()
+      if (!view || view.isDestroyed) return
+      view.dispatch(view.state.tr.setMeta(cjkSpacingKey, { enabled }))
     },
   )
 

@@ -39,7 +39,8 @@
 > 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
 
 ```
-P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
+P1  #cjk-letter-spacing ──→ #cjk-autopair ──→ #cjk-formatter（v0.7.7）
+    #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P2  #system-tray ──→ #daily-note
     #git-integration ──↔── #local-timeline ──→ #recent-locations
@@ -89,6 +90,51 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] 上下文片段：每条反链展示引用处前后 N 行文本
 - [ ] 点击条目跳转到引用位置（打开目标文件 + 定位光标）
 
+
+
+### CJK 中文排版增强（v0.7.7） `#cjk-typography` `P1` `XL`
+
+> 移植自 vmark 项目的三套 CJK 排版机制，分三阶段交付。v0.7.7 的主要功能。
+>
+> 来源项目 `C:\桌面\vmark` 基于 Tiptap + React，三套机制均为框架无关的纯 TypeScript / ProseMirror 逻辑，可移植到 velo 的纯 ProseMirror + Vue 架构。
+
+#### Phase 1 — CJK 字间距装饰 `#cjk-letter-spacing` `P1` `S`
+
+> ProseMirror Decoration 插件，对 CJK 字符段（汉字 / 假名 / 谚文 / 注音符号）添加 CSS `letter-spacing`，纯视觉层不改文档内容。
+
+- [ ] 新增 `cjkLetterSpacing` ProseMirror 插件：正则扫描文本节点 CJK 字符段 → `Decoration.inline` 包裹 `.cjk-spacing` class；增量更新（`tr.mapping.maps` 提 dirty range，只扫变更段）；代码块内禁用
+- [ ] 设置项：`useEditorStore` 新增 `cjkLetterSpacing`（string: "0" 关闭 / "0.05em" 开启），`PersistedSettings.editor` 补字段，`AppearanceGroup.vue` 加开关
+- [ ] SCSS：`.velo-editor .cjk-spacing { letter-spacing: var(--cjk-letter-spacing, 0.05em) }`，`pre/code` 内 `letter-spacing: 0`
+- [ ] test：装饰计算（纯 CJK / CJK+Latin 混排 / CJK 标点分段 / 多段落）、增量更新（插入 / 删除 / 段间插入位移）、设置开关切换
+
+#### Phase 2 — CJK 括号自动配对 `#cjk-autopair` `P1` `M` `← #cjk-letter-spacing`
+
+> 输入层 ProseMirror 插件，键入 CJK 开括号时自动插入闭括号。支持 `（）` `【】` `「」` `『』` `《》` `〈〉` 及弯引号 `""` `''`（可选）。
+
+- [ ] 新增 `autoPair` ProseMirror 插件：`handleTextInput` 拦截单字符输入 → 查配对表 → 插入开+闭括号，光标居中；选区时包裹选区
+- [ ] 闭括号跳越：已有闭括号时再键入同字符 → 光标跳过（不重复插入）
+- [ ] 成对删除：Backspace 在配对中间 → 同时删除两侧
+- [ ] Tab / Shift+Tab 跳越：Tab 跳过闭括号，Shift+Tab 跳回开括号（代码块 / 行内代码内不触发，让 Tab 缩进）
+- [ ] IME 守卫：组合输入期间全量拦截，防止干扰 CJK 输入法
+- [ ] 设置项：`autoPairEnabled`（bool，默认 true）、`autoPairCJKStyle`（"off" / "auto"）、`autoPairCurlyQuotes`（bool，默认 false）
+- [ ] test：配对插入 / 选区包裹 / 跳越 / 成对删除 / IME 守卫 / 代码块内不触发
+
+#### Phase 3 — CJK 智能排版格式化器 `#cjk-formatter` `P1` `L` `← #cjk-autopair`
+
+> 框架无关的纯 TypeScript 库，操作 markdown 文本字符串。手动触发（命令 / 快捷键），非每次键入自动执行。交付完整的「智能中英文间距 + 全角标点 + 直角引号」。
+
+- [ ] 移植 `cjkFormatter/` 库（~15 文件，零外部依赖）：
+  - `formatter.ts` — 流水线编排（解析 → 分段 → 规则 → 重建 → 完整性校验）
+  - `markdownParser.ts` — 保护区扫描（13 类：代码块 / 行内代码 / URL / 数学 / frontmatter / HTML / wiki link / 脚注 / 表格分隔行 / 缩进代码 / 分割线 / 引用区）
+  - `segments.ts` — 可格式化段提取与重建
+  - `latinSpanScanner.ts` — 技术子段保护（URL / 邮箱 / 版本号 / 时间 / 千分位 / 域名 / 小数）
+  - `quotePairing.ts` — 栈式引号配对（撇号 / 角分符号 / 年代缩写识别 + 4 模式：off / curly-everywhere / contextual / corner-for-cjk）
+  - `integrity.ts` — 格式化后结构模式计数校验（不一致则回滚原文）
+  - `rules/` — 5 组规则：通用（省略号 / 换行折叠）、全角归一（字母数字 / 标点 / 括号 / 方括号）、间距（中英文 / 括号 / 货币单位 / 斜杠）、破折号与引号（破折号转换 / 智能引号 / 嵌套直角引号 / 引号间距）、清理（连续标点限制 / 行尾空格 / 空格折叠）
+- [ ] WYSIWYG 集成层：逐块序列化 `toMarkdown(block)` → `formatMarkdown()` → `fromMarkdown()` → 替换原块（保 undo / 光标 / 选区语义，参照 vmark `wysiwygAdapterCjk.ts`）
+- [ ] 命令注册：「格式化 CJK（全文）」+「格式化 CJK（选区）」+「格式化 CJK（当前块）」，挂入快捷键 `editor/shortcuts/bindings.ts`
+- [ ] 设置项：`useEditorStore` 新增 `cjkFormatting` 段（20+ 开关：ellipsisNormalization / fullwidthPunctuation / cjkEnglishSpacing / smartQuoteConversion / quoteStyle / cjkCornerQuotes 等），`PersistedSettings.editor` 补字段，设置页新增 CJK 排版分组
+- [ ] test：5 组规则各自单元测试（中英文间距 / 全角标点上下文 / 直角引号转换 / 嵌套引号 / 货币单位 / 省略号 / 连续标点限制）、保护区不被破坏（代码块 / URL / 数学 / 链接语法）、完整性校验回滚、WYSIWYG 往返（undo / 光标保持）
 
 
 ## P2 — 体验增强

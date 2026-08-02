@@ -143,4 +143,16 @@
     outline: none;
     padding: 0.25em 0;
   }
+
+  // CJK 字间距:Decoration.inline 给 CJK 字符段挂 .cjk-spacing,
+  // 纯视觉层不改文档内容。代码块 / 行内代码内 letter-spacing 归零。
+  // 用 CSS 变量方便后续设置面板提供自定义值(v0.7.7 Phase 1 先固定 0.1em)。
+  .cjk-spacing {
+    letter-spacing: var(--cjk-letter-spacing, 0.1em);
+  }
+  pre, code {
+    .cjk-spacing {
+      letter-spacing: 0;
+    }
+  }
 }

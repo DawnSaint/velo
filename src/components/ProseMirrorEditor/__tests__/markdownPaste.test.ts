@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
+import { DOMParser, DOMSerializer } from 'prosemirror-model'
 import { schema } from '../editor/schema'
 import { markdownPastePlugin } from '../plugins/markdownPastePlugin'
 import { toMarkdown } from '../editor/markdownIO'
@@ -207,5 +208,44 @@ describe('markdownPastePlugin: 边界 / 异常', () => {
     expect(doc.child(1).type.name).toBe('paragraph')
     expect(doc.child(2).type.name).toBe('footnote_definition')
     cleanup()
+  })
+})
+
+// 脚注剪贴板 HTML round-trip 回归(parseDOM priority)
+//
+// 复现路径:复制 footnote_reference → serializeForClipboard 走 DOMSerializer
+// (toDOM,含 data-type)→ 剪贴板 text/html = <sup data-type="footnote_reference">;
+// 粘贴时 parseFromClipboard 有 html → asText=false → DOMParser.fromSchema HTML
+// 路径。superscript mark 的 parseDOM `sup` 是通配规则,与 footnote_reference 的
+// `sup[data-type="footnote_reference"]` 冲突;schemaRules 同 priority(默认 50)时
+// mark 排在 node 前 → matchTag 先命中 superscript mark → 脚注被吞成上标文本。
+// footnote_reference parseDOM 设 priority:100 后 node 规则优先命中,脚注原样还原。
+describe('footnote_reference 剪贴板 HTML round-trip(parseDOM priority)', () => {
+  it('serialize → DOMParser.parseSlice 还原为 footnote_reference(非 superscript mark 文本)', () => {
+    const fnRef = schema.nodes.footnote_reference.create(null, [schema.text('1')])
+    const para = schema.node('paragraph', null, [fnRef])
+
+    // 1. DOMSerializer 序列化(同 serializeForClipboard 路径,走 toDOM 而非 NodeView)
+    const serializer = DOMSerializer.fromSchema(schema)
+    const wrap = document.createElement('div')
+    wrap.appendChild(serializer.serializeFragment(schema.node('doc', null, [para]).content))
+    const html = wrap.innerHTML
+    // HTML 必须带 data-type(来自 schema toDOM),否则 parseDOM 根本无法匹配 footnote_reference
+    expect(html).toContain('data-type="footnote_reference"')
+
+    // 2. DOMParser.parseSlice 回解析(同 parseFromClipboard 的 HTML 路径)
+    const dom = document.createElement('div')
+    dom.innerHTML = html
+    const slice = DOMParser.fromSchema(schema).parseSlice(dom)
+
+    // 3. 解析结果应是 footnote_reference 节点,而非带 superscript mark 的普通文本
+    const top = slice.content.firstChild!
+    expect(top.type.name).toBe('paragraph')
+    expect(top.childCount).toBe(1)
+    const child = top.child(0)
+    expect(child.type.name).toBe('footnote_reference')
+    expect(child.textContent).toBe('1')
+    // 被吞成上标时 child 会是 text 节点且带 superscript mark —— 两条断言同时守住
+    expect(child.marks.some(m => m.type.name === 'superscript')).toBe(false)
   })
 })
