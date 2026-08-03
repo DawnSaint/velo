@@ -5,6 +5,7 @@ import { BUNDLED_THEMES, NO_THEME } from '@/components/ProseMirrorEditor/nodes/C
 import { THEME_PALETTES } from '@/components/ProseMirrorEditor/nodes/themePalettes'
 import SettingsItem from '../SettingsItem.vue'
 import VeloSelect, { type VeloSelectOption } from '../VeloSelect.vue'
+import VeloMultiSelect, { type VeloMultiSelectOption } from '../VeloMultiSelect.vue'
 
 const store = useEditorStore()
 
@@ -108,6 +109,35 @@ function endDrag(e: PointerEvent) {
   dragPointerId.value = null
   sliderTrackRef.value?.releasePointerCapture(e.pointerId)
 }
+
+/* ---------- 辅助输入 ---------- */
+// 多选下拉，控制实时输入插件的开关（.auto / autoPairEnabled）。
+// 选项：间距优化、括号自动配对、全角标点、破折号
+const inputAssistOptions: VeloMultiSelectOption[] = [
+  { value: 'spacing', label: '间距优化' },
+  { value: 'autopair', label: '括号自动配对' },
+  { value: 'punctuation', label: '全角标点' },
+  { value: 'dash', label: '破折号' },
+]
+
+const inputAssistValue = computed<string[]>({
+  get() {
+    const result: string[] = []
+    if (store.cjkFormatting.cjkEnglishSpacing.auto) result.push('spacing')
+    if (store.autoPairEnabled) result.push('autopair')
+    if (store.cjkFormatting.fullwidthPunctuation.auto) result.push('punctuation')
+    if (store.cjkFormatting.dashConversion.auto) result.push('dash')
+    return result
+  },
+  set(v: string[]) {
+    const set = new Set(v)
+    store.cjkFormatting.cjkEnglishSpacing.auto = set.has('spacing')
+    store.autoPairEnabled = set.has('autopair')
+    store.cjkFormatting.fullwidthPunctuation.auto = set.has('punctuation')
+    store.cjkFormatting.dashConversion.auto = set.has('dash')
+  },
+})
+
 </script>
 
 <template>
@@ -182,14 +212,15 @@ function endDrag(e: PointerEvent) {
       >
     </SettingsItem>
 
-    <!-- 括号自动配对:输入开括号时自动插入闭括号。支持 () [] {} + CJK 括号（）（【】「」『』《》〈〉）。 -->
-    <SettingsItem label="括号自动配对" :keywords="['auto', 'pair', 'bracket', '括号', '配对', '自动']" clickable>
-      <input
-        v-model="store.autoPairEnabled"
-        type="checkbox"
-        role="switch"
-        class="velo-switch"
-      >
+    <SettingsItem label="辅助输入" :keywords="['assist', 'input', '辅助', '输入', '间距', '括号', '配对', '全角', '标点', '破折号', '自动']">
+      <VeloMultiSelect
+        v-model="inputAssistValue"
+        :options="inputAssistOptions"
+        width-class="w-48"
+        aria-label="辅助输入"
+        all-label="全部"
+        none-label="无"
+      />
     </SettingsItem>
   </section>
 </template>

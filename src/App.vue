@@ -21,6 +21,9 @@ import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighl
 import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
 import { cjkSpacingKey } from '@/components/ProseMirrorEditor/plugins/cjkLetterSpacing'
 import { autoPairKey } from '@/components/ProseMirrorEditor/plugins/autoPair'
+import { cjkAutoFormatKey } from '@/components/ProseMirrorEditor/plugins/cjkAutoFormat'
+import { schema } from '@/components/ProseMirrorEditor/editor/schema'
+import { cmdFormatCJK, cmdFormatCJKDocument } from '@/components/ProseMirrorEditor/editor/shortcuts/commands/cjkCommands'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { useWorkspaceWatch } from '@/composables/useWorkspaceWatch'
@@ -832,6 +835,22 @@ const {
   currentSelectionText,
 })
 
+// ========== CJK 智能排版格式化 ==========
+// 通过命令面板触发,快捷键已在 bindings.ts 注册走 PM keymap。
+function formatCJK() {
+  const view = editorRef.value?.getEditorView()
+  if (!view || view.isDestroyed) return
+  cmdFormatCJK(schema)(view.state, view.dispatch.bind(view), view)
+  view.focus()
+}
+
+function formatCJKDocument() {
+  const view = editorRef.value?.getEditorView()
+  if (!view || view.isDestroyed) return
+  cmdFormatCJKDocument(schema)(view.state, view.dispatch.bind(view), view)
+  view.focus()
+}
+
 // ========== composable: 命令面板项 ==========
 const commandPaletteItems = useCommandPaletteItems({
   tauri,
@@ -852,6 +871,8 @@ const commandPaletteItems = useCommandPaletteItems({
   openWorkspaceSearch,
   showSidebarTab,
   openRecentFile,
+  formatCJK,
+  formatCJKDocument,
 })
 
 // ========== composable: 全局快捷键 ==========
@@ -1149,17 +1170,39 @@ onMounted(async () => {
     },
   )
 
-  // 4.5.x.x.x) 括号自动配对(v0.7.7):用户改 store.autoPairEnabled →
-  // dispatch setMeta(autoPairKey, { enabled }) → plugin state.apply 更新开关。
-  // 不开 immediate:plugin state.init 已从 store 同步读初值,首挂时开关状态已就位。
-  watch(
-    () => store.autoPairEnabled,
-    (enabled) => {
-      const view = editorRef.value?.getEditorView()
-      if (!view || view.isDestroyed) return
-      view.dispatch(view.state.tr.setMeta(autoPairKey, { enabled }))
-    },
-  )
+// 4.5.x.x.x) 括号自动配对 + 智能引号(v0.7.7):
+// autoPairEnabled / smartQuoteConversion.auto / cjkCornerQuotes 变化 →
+// dispatch setMeta(autoPairKey, { ... }) → plugin state.apply 更新开关。
+// 智能引号逻辑已合并到 autoPairPlugin 内部，独立于 autoPairEnabled。
+watch(
+() => ({
+enabled: store.autoPairEnabled,
+smartQuoteConversion: store.cjkFormatting.smartQuoteConversion.auto,
+cjkCornerQuotes: store.cjkFormatting.cjkCornerQuotes,
+}),
+(cfg) => {
+const view = editorRef.value?.getEditorView()
+if (!view || view.isDestroyed) return
+view.dispatch(view.state.tr.setMeta(autoPairKey, cfg))
+},
+{ deep: true },
+)
+
+// 4.5.x.x.x.x) 中文排版实时格式化(v0.7.7):全角标点 + 中英文间距 + 破折号。
+// 读 .auto（输入时自动校准层），.format 由 cjkFormatter 库在格式化命令时读取。
+watch(
+() => ({
+cjkEnglishSpacing: store.cjkFormatting.cjkEnglishSpacing.auto,
+fullwidthPunctuation: store.cjkFormatting.fullwidthPunctuation.auto,
+dashConversion: store.cjkFormatting.dashConversion.auto,
+}),
+(cfg) => {
+const view = editorRef.value?.getEditorView()
+if (!view || view.isDestroyed) return
+view.dispatch(view.state.tr.setMeta(cjkAutoFormatKey, cfg))
+},
+{ deep: true },
+)
 
 
   // 5) 关闭拦截:脏 → 弹原生确认。dev web 端没有 Tauri runtime,getCurrentWindow

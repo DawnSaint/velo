@@ -54,6 +54,22 @@ const CLOSING_CHARS = new Set(Object.values(ALL_PAIRS))
 /** Characters that should use smart quote detection (don't pair after word char) */
 const SMART_QUOTE_CHARS = new Set(["'"])
 
+/** 开引号上下文：前方是空白、行首或开括号 */
+const OPENING_CONTEXT = new Set([
+  '', ' ', '\t', '\n',
+  '(', '\uFF08', // （
+  '[', '\u3010', // 【
+  '{',
+  '\u300C', // 「
+  '\u300E', // 『
+  '\u300A', // 《
+  '\u3008', // 〈
+])
+
+function isOpenContext(before: string): boolean {
+  return OPENING_CONTEXT.has(before)
+}
+
 /** Get the closing character for an opening character */
 function getClosingChar(openChar: string): string | null {
   return ALL_PAIRS[openChar] ?? null
@@ -165,9 +181,11 @@ function getCharBefore(state: EditorState, pos: number): string {
 
 interface AutoPairConfig {
   enabled: boolean
+  smartQuoteConversion: boolean
+  cjkCornerQuotes: boolean
 }
 
-/** Handle text input — auto-pair opening characters */
+/** Handle text input — smart quote conversion + auto-pair opening characters */
 function handleTextInput(
   view: PMEditorView,
   from: number,
@@ -175,13 +193,36 @@ function handleTextInput(
   text: string,
   config: AutoPairConfig,
 ): boolean {
-  if (!config.enabled) return false
   if (text.length !== 1) return false
+
+  const { state } = view
+
+  // 智能引号转换（优先于自动配对，独立于 autoPairEnabled 开关）
+  if (config.smartQuoteConversion && !isInCodeBlock(state) && !isInInlineCode(state)) {
+    if (text === '"') {
+      const before = getCharBefore(state, from)
+      const open = isOpenContext(before)
+      const quote = config.cjkCornerQuotes
+        ? (open ? '\u300C' : '\u300D')  // 「 」
+        : (open ? '\u201C' : '\u201D')  // “ ”
+      view.dispatch(state.tr.insertText(quote, from, to))
+      return true
+    }
+    if (text === "'" && !isAfterWordChar(state, from)) {
+      const before = getCharBefore(state, from)
+      const open = isOpenContext(before)
+      view.dispatch(state.tr.insertText(
+        open ? '\u2018' : '\u2019', from, to,
+      ))
+      return true
+    }
+  }
+
+  // 自动配对（仅在 autoPairEnabled 开启时）
+  if (!config.enabled) return false
 
   const closing = getClosingChar(text)
   if (!closing) return false
-
-  const { state } = view
 
   if (!shouldAutoPair(state, from, text)) return false
 
@@ -295,6 +336,8 @@ function handleShiftTabJump(view: PMEditorView, config: AutoPairConfig): boolean
 
 interface AutoPairState {
   enabled: boolean
+  smartQuoteConversion: boolean
+  cjkCornerQuotes: boolean
 }
 
 export const autoPairKey = new PluginKey<AutoPairState>('veloAutoPair')
@@ -302,11 +345,16 @@ export const autoPairKey = new PluginKey<AutoPairState>('veloAutoPair')
 /** 从 store 同步读初值;store 未就绪 / 单元测试场景 fallback。 */
 function makeInitialState(): AutoPairState {
   let enabled = true
+  let smartQuoteConversion = true
+  let cjkCornerQuotes = false
   try {
     const store = useEditorStore()
     if (typeof store.autoPairEnabled === 'boolean') enabled = store.autoPairEnabled
+    const cfg = store.cjkFormatting
+    smartQuoteConversion = cfg.smartQuoteConversion.auto
+    cjkCornerQuotes = cfg.cjkCornerQuotes
   } catch { /* pinia not ready / test fallback */ }
-  return { enabled }
+  return { enabled, smartQuoteConversion, cjkCornerQuotes }
 }
 
 export const autoPairPlugin = new Plugin<AutoPairState>({
@@ -316,7 +364,11 @@ export const autoPairPlugin = new Plugin<AutoPairState>({
     apply(tr, prev) {
       const meta = tr.getMeta(autoPairKey) as Partial<AutoPairState> | undefined
       if (meta) {
-        return { enabled: meta.enabled ?? prev.enabled }
+        return {
+          enabled: meta.enabled ?? prev.enabled,
+          smartQuoteConversion: meta.smartQuoteConversion ?? prev.smartQuoteConversion,
+          cjkCornerQuotes: meta.cjkCornerQuotes ?? prev.cjkCornerQuotes,
+        }
       }
       return prev
     },

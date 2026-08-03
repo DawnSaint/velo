@@ -2,6 +2,8 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 import type { PersistedSettings } from './persistence'
+import type { CJKFormattingSettings, RuleScopes } from '@/lib/cjkFormatter'
+import { createDefaultFormatting, RULE_DEFS } from '@/lib/cjkFormatter'
 
 /** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
 export type StartupMode = 'last-file' | 'new-doc'
@@ -58,6 +60,14 @@ export const useEditorStore = defineStore('editor', () => {
   /** 括号自动配对(可选开关,默认开启)。
    * 输入开括号时自动插入闭括号。plugin `autoPairPlugin` 读这个字段。 */
   const autoPairEnabled = ref(true)
+  /** 排版格式化设置。
+   * 每条规则有 auto（输入时自动校准）和 format（格式化命令时校准）两个独立开关，
+   * 由 RuleScopes 类型承载；RULE_DEFS 声明规则能力 + UI 元数据。
+   * 实时层：cjkAutoFormatPlugin(全角标点 + 中英文间距) + autoPairPlugin(智能引号)
+   *   读对应规则的 .auto
+   * 手动层：cjkCommands + cjkFormatter 库(全部规则)
+   *   读对应规则的 .format */
+  const cjkFormatting = ref<CJKFormattingSettings>(createDefaultFormatting())
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
   // 持久化是**全局 UI 偏好**(走 velo-settings.json),不是 per-workspace ——
@@ -143,6 +153,30 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
     if (typeof e.cjkLetterSpacing === 'boolean') cjkLetterSpacing.value = e.cjkLetterSpacing
     if (typeof e.autoPairEnabled === 'boolean') autoPairEnabled.value = e.autoPairEnabled
+    // 排版格式化设置: RuleScopes 字段向后兼容旧版 boolean，非规则字段逐字段守门
+    if (e.cjkFormatting && typeof e.cjkFormatting === 'object') {
+      const src = e.cjkFormatting as unknown as Record<string, unknown>
+      const dst = cjkFormatting.value as unknown as Record<string, unknown>
+      // RuleScopes 字段: 旧版 boolean → { auto: v, format: v }; 新版 { auto, format } → 逐字段守门
+      for (const def of RULE_DEFS) {
+        const val = src[def.key]
+        if (typeof val === 'boolean') {
+          ;(dst[def.key] as RuleScopes).auto = val
+          ;(dst[def.key] as RuleScopes).format = val
+        } else if (val && typeof val === 'object') {
+          const obj = val as { auto?: unknown; format?: unknown }
+          if (typeof obj.auto === 'boolean') (dst[def.key] as RuleScopes).auto = obj.auto
+          if (typeof obj.format === 'boolean') (dst[def.key] as RuleScopes).format = obj.format
+        }
+      }
+      // 非规则字段
+      if (src.quoteStyle === 'curly' || src.quoteStyle === 'corner' || src.quoteStyle === 'guillemets') {
+        cjkFormatting.value.quoteStyle = src.quoteStyle
+      }
+      if (typeof src.cjkCornerQuotes === 'boolean') cjkFormatting.value.cjkCornerQuotes = src.cjkCornerQuotes
+      if (typeof src.trailingSpaceRemoval === 'boolean') cjkFormatting.value.trailingSpaceRemoval.format = src.trailingSpaceRemoval
+      if (typeof src.skipReferenceSections === 'boolean') cjkFormatting.value.skipReferenceSections = src.skipReferenceSections
+    }
     // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。
     hydrateActivityBarConfig(e.activityBarOrder, e.activityBarHidden)
   }
@@ -162,6 +196,7 @@ export const useEditorStore = defineStore('editor', () => {
       themeColorAffectsDoc: themeColorAffectsDoc.value,
       cjkLetterSpacing: cjkLetterSpacing.value,
       autoPairEnabled: autoPairEnabled.value,
+      cjkFormatting: { ...cjkFormatting.value },
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
     }
@@ -182,6 +217,7 @@ export const useEditorStore = defineStore('editor', () => {
     themeColorAffectsDoc,
     cjkLetterSpacing,
     autoPairEnabled,
+    cjkFormatting,
     activityBarOrder,
     activityBarHidden,
     visibleActivityBarItems,
