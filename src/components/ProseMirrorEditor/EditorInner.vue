@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+<script setup lang="ts">
 
 // 装配策略:
 // - schema / markdownIO 来自 ./editor/
@@ -171,6 +171,7 @@ import { viewportPlugin } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { cjkLetterSpacingPlugin } from './plugins/cjkLetterSpacing'
+import { cjkAutoFormatPlugin } from './plugins/cjkAutoFormat'
 import { autoPairPlugin } from './plugins/autoPair'
 import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
@@ -565,6 +566,7 @@ const basePlugins: Plugin[] = [
   focusModePlugin,
   typewriterModePlugin,
   cjkLetterSpacingPlugin,
+  cjkAutoFormatPlugin,
   autoPairPlugin,
 ]
 

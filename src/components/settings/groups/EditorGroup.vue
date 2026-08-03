@@ -112,12 +112,11 @@ function endDrag(e: PointerEvent) {
 
 /* ---------- 辅助输入 ---------- */
 // 多选下拉，控制实时输入插件的开关（.auto / autoPairEnabled）。
-// 选项：间距优化、括号自动配对、全角标点、破折号
 const inputAssistOptions: VeloMultiSelectOption[] = [
-  { value: 'spacing', label: '间距优化' },
-  { value: 'autopair', label: '括号自动配对' },
-  { value: 'punctuation', label: '全角标点' },
-  { value: 'dash', label: '破折号' },
+  { value: 'spacing', label: '中英文间距', desc: '中文与英文/数字之间自动插入空格' },
+  { value: 'autopair', label: '括号自动配对', desc: '输入开括号时自动插入闭括号' },
+  { value: 'punctuation', label: '全角标点', desc: '中文后键入半角标点自动转全角' },
+  { value: 'dash', label: '破折号', desc: '键入 -- 自动转为 ——' },
 ]
 
 const inputAssistValue = computed<string[]>({
@@ -135,6 +134,49 @@ const inputAssistValue = computed<string[]>({
     store.autoPairEnabled = set.has('autopair')
     store.cjkFormatting.fullwidthPunctuation.auto = set.has('punctuation')
     store.cjkFormatting.dashConversion.auto = set.has('dash')
+  },
+})
+
+/* ---------- 格式化规则 ---------- */
+// 多选下拉，控制格式化命令时应用的规则（.format 作用域）。
+// 17 条底层规则聚合为 9 个展示分组，每组共享一个开关。
+interface FormatRuleGroup {
+  label: string
+  desc: string
+  keys: (keyof typeof store.cjkFormatting)[]
+}
+const FORMAT_RULE_GROUPS: FormatRuleGroup[] = [
+  { label: '中英文间距', desc: '中文与英文/数字之间插入空格', keys: ['cjkEnglishSpacing'] },
+  { label: '符号间距', desc: '中文与括号、货币、斜杠之间的间距', keys: ['cjkParenthesisSpacing', 'currencySpacing', 'slashSpacing'] },
+  { label: '全角标点', desc: '半角标点（, . ! ?）转为全角（，。！？）', keys: ['fullwidthPunctuation'] },
+  { label: '全角字母数字', desc: '全角字母数字转为半角', keys: ['fullwidthAlphanumeric'] },
+  { label: '破折号', desc: '连续短横线 -- 转为破折号 —— 并调整间距', keys: ['dashConversion', 'emdashSpacing'] },
+  { label: '智能引号', desc: '直引号 " 转为弯引号 “”', keys: ['smartQuoteConversion'] },
+  { label: '引号优化', desc: '上下文引号样式、引号间距、嵌套引号', keys: ['contextualQuotes', 'quoteSpacing', 'singleQuoteSpacing', 'cjkNestedQuotes'] },
+  { label: '省略号', desc: '三个点 ... 转为省略号 ……', keys: ['ellipsisNormalization'] },
+  { label: '空白清理', desc: '折叠多余空行、连续空格、行尾空格', keys: ['newlineCollapsing', 'spaceCollapsing', 'trailingSpaceRemoval'] },
+]
+
+const formatRuleOptions: VeloMultiSelectOption[] = FORMAT_RULE_GROUPS.map(g => ({
+  value: g.label,
+  label: g.label,
+  desc: g.desc,
+}))
+
+const formatRuleValue = computed<string[]>({
+  get() {
+    return FORMAT_RULE_GROUPS
+      .filter(g => g.keys.every(k => (store.cjkFormatting[k] as { format: boolean }).format))
+      .map(g => g.label)
+  },
+  set(v: string[]) {
+    const set = new Set(v)
+    for (const g of FORMAT_RULE_GROUPS) {
+      const on = set.has(g.label)
+      for (const k of g.keys) {
+        ;(store.cjkFormatting[k] as { format: boolean }).format = on
+      }
+    }
   },
 })
 
@@ -218,6 +260,16 @@ const inputAssistValue = computed<string[]>({
         :options="inputAssistOptions"
         width-class="w-48"
         aria-label="辅助输入"
+        all-label="全部"
+        none-label="无"
+      />
+    </SettingsItem>
+    <SettingsItem label="格式化规则" :keywords="['format', 'rule', '格式化', '规则', '排版', '间距', '标点', '引号', '空白', '破折号']">
+      <VeloMultiSelect
+        v-model="formatRuleValue"
+        :options="formatRuleOptions"
+        width-class="w-48"
+        aria-label="格式化规则"
         all-label="全部"
         none-label="无"
       />

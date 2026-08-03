@@ -23,7 +23,7 @@ import { cjkSpacingKey } from '@/components/ProseMirrorEditor/plugins/cjkLetterS
 import { autoPairKey } from '@/components/ProseMirrorEditor/plugins/autoPair'
 import { cjkAutoFormatKey } from '@/components/ProseMirrorEditor/plugins/cjkAutoFormat'
 import { schema } from '@/components/ProseMirrorEditor/editor/schema'
-import { cmdFormatCJK, cmdFormatCJKDocument } from '@/components/ProseMirrorEditor/editor/shortcuts/commands/cjkCommands'
+import { cmdFormatCJKDocument } from '@/components/ProseMirrorEditor/editor/shortcuts/commands/cjkCommands'
 import ProseMirrorEditor from '@/components/ProseMirrorEditor/index.vue'
 import SourceModeEditor from '@/components/SourceModeEditor.vue'
 import { useWorkspaceWatch } from '@/composables/useWorkspaceWatch'
@@ -836,15 +836,8 @@ const {
 })
 
 // ========== CJK 智能排版格式化 ==========
-// 通过命令面板触发,快捷键已在 bindings.ts 注册走 PM keymap。
+// 通过命令面板(Ctrl+Shift+P)或快捷键(Ctrl+Shift+L)触发,格式化全文。
 function formatCJK() {
-  const view = editorRef.value?.getEditorView()
-  if (!view || view.isDestroyed) return
-  cmdFormatCJK(schema)(view.state, view.dispatch.bind(view), view)
-  view.focus()
-}
-
-function formatCJKDocument() {
   const view = editorRef.value?.getEditorView()
   if (!view || view.isDestroyed) return
   cmdFormatCJKDocument(schema)(view.state, view.dispatch.bind(view), view)
@@ -872,7 +865,6 @@ const commandPaletteItems = useCommandPaletteItems({
   showSidebarTab,
   openRecentFile,
   formatCJK,
-  formatCJKDocument,
 })
 
 // ========== composable: 全局快捷键 ==========

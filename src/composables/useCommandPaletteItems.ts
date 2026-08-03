@@ -33,6 +33,7 @@ export function useCommandPaletteItems(opts: {
   openWorkspaceSearch: () => void
   showSidebarTab: (tab: SidebarTab) => void
   openRecentFile: (path: string) => void | Promise<unknown>
+  formatCJK: () => void
 }): ComputedRef<CommandPaletteItem[]> {
   const documentStore = useDocumentStore()
   const exportStore = useExportStore()
@@ -159,6 +160,15 @@ export function useCommandPaletteItems(opts: {
         group: 'app',
         keywords: ['source mode', 'wysiwyg', 'markdown source'],
         run: () => documentStore.toggleSourceMode(),
+      },
+      {
+        id: 'editor.formatCJK',
+        title: '格式化排版',
+        subtitle: '智能中英文间距 / 全角标点 / 引号 / 空白清理',
+        shortcut: 'Ctrl+Shift+L',
+        group: 'app',
+        keywords: ['format', 'cjk', '排版', '格式化', '中英文', '间距', '全角', '标点', '引号', '空白', '中文'],
+        run: () => opts.formatCJK(),
       },
       {
         id: 'settings.open',

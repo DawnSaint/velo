@@ -11,6 +11,8 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 export interface VeloMultiSelectOption {
   value: string
   label: string
+  /** 选项下方的一行灰色描述文字 */
+  desc?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -230,18 +232,21 @@ onBeforeUnmount(() => {
           @click="toggleOption(option)"
           @mouseenter="highlightIndex = idx"
         >
-          <span class="flex items-center gap-2">
-            <span
-              class="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-              :class="selectedSet.has(option.value)
-                ? 'border-[var(--md-primary-color,#1F71D9)] bg-[var(--md-primary-color,#1F71D9)] text-white'
-                : 'border-gray-300 dark:border-gray-500'"
-            >
-              <svg v-if="selectedSet.has(option.value)" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 5L4 7L8 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+          <span class="flex flex-col gap-0.5 min-w-0">
+            <span class="flex items-center gap-2">
+              <span
+                class="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                :class="selectedSet.has(option.value)
+                  ? 'border-[var(--md-primary-color,#1F71D9)] bg-[var(--md-primary-color,#1F71D9)] text-white'
+                  : 'border-gray-300 dark:border-gray-500'"
+              >
+                <svg v-if="selectedSet.has(option.value)" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5L4 7L8 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span class="velo-select-option__label">{{ option.label }}</span>
             </span>
-            <span class="velo-select-option__label">{{ option.label }}</span>
+            <span v-if="option.desc" class="pl-6 text-[11px] leading-tight text-gray-400 dark:text-gray-500">{{ option.desc }}</span>
           </span>
         </div>
       </div>

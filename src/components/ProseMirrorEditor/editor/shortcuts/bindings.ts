@@ -15,6 +15,7 @@ import { registerShortcut } from './registry'
 import { toggleMarkWithWrap } from './commands/markCommands'
 import { setHeading, setParagraph } from './commands/blockCommands'
 import { wrapInBulletList, wrapInOrderedList, wrapInBlockquote, wrapInCodeBlock } from './commands/listCommands'
+import { cmdFormatCJKDocument } from './commands/cjkCommands'
 import {
   insertTable2x2,
   cmdAddRowAfter,
@@ -230,4 +231,15 @@ registerShortcut({
   command: cmdMoveColumn(1),
   label: '表格:右移列',
   group: 'table',
+})
+
+// ============================================================
+//  排版格式化
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-Shift-l',
+  command: cmdFormatCJKDocument(schema),
+  label: '格式化排版',
+  group: 'text',
 })

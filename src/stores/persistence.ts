@@ -43,6 +43,8 @@ export interface PersistedSettings {
     cjkLetterSpacing?: boolean
     /** 括号自动配对(可选,默认 true)。 */
     autoPairEnabled?: boolean
+    /** CJK 智能排版格式化设置(可选)。细粒度开关控制中英文间距 / 全角标点 / 直角引号等。 */
+    cjkFormatting?: import('@/lib/cjkFormatter').CJKFormattingSettings
     /** ActivityBar 视图入口顺序(可选,v0.6.1)。含 files/outline/search/assets 4 项;
      *  'settings' 固定底部不在内。缺失项由 normalizeActivityBarConfig 按默认序补齐。 */
     activityBarOrder?: ActivityBarItem[]

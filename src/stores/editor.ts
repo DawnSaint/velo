@@ -174,7 +174,6 @@ export const useEditorStore = defineStore('editor', () => {
         cjkFormatting.value.quoteStyle = src.quoteStyle
       }
       if (typeof src.cjkCornerQuotes === 'boolean') cjkFormatting.value.cjkCornerQuotes = src.cjkCornerQuotes
-      if (typeof src.trailingSpaceRemoval === 'boolean') cjkFormatting.value.trailingSpaceRemoval.format = src.trailingSpaceRemoval
       if (typeof src.skipReferenceSections === 'boolean') cjkFormatting.value.skipReferenceSections = src.skipReferenceSections
     }
     // ActivityBar:normalize 防御(未知项过滤 / 缺失项补默认)后灌入。

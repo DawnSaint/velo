@@ -121,9 +121,9 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 #### Phase 3 — CJK 智能排版格式化器 `#cjk-formatter` `P1` `L` `← #cjk-autopair`
 
-> 框架无关的纯 TypeScript 库，操作 markdown 文本字符串。手动触发（命令 / 快捷键），非每次键入自动执行。交付完整的「智能中英文间距 + 全角标点 + 直角引号」。
+> 分两层交付 CJK 智能排版：(1) 实时输入层 — `cjkAutoFormatPlugin` 键入时自动全角标点 + 中英文间距，`autoPairPlugin` 键入时自动智能引号/直角引号转换；(2) 手动触发层 — 框架无关的纯 TypeScript 库操作 markdown 文本字符串，命令触发时做完整规则集格式化（含括号间距 / 货币 / 破折号 / 嵌套引号等实时层不覆盖的清理类规则）。
 
-- [ ] 移植 `cjkFormatter/` 库（~15 文件，零外部依赖）：
+- [x] 移植 `cjkFormatter/` 库（~15 文件，零外部依赖）：
   - `formatter.ts` — 流水线编排（解析 → 分段 → 规则 → 重建 → 完整性校验）
   - `markdownParser.ts` — 保护区扫描（13 类：代码块 / 行内代码 / URL / 数学 / frontmatter / HTML / wiki link / 脚注 / 表格分隔行 / 缩进代码 / 分割线 / 引用区）
   - `segments.ts` — 可格式化段提取与重建
@@ -131,10 +131,10 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - `quotePairing.ts` — 栈式引号配对（撇号 / 角分符号 / 年代缩写识别 + 4 模式：off / curly-everywhere / contextual / corner-for-cjk）
   - `integrity.ts` — 格式化后结构模式计数校验（不一致则回滚原文）
   - `rules/` — 5 组规则：通用（省略号 / 换行折叠）、全角归一（字母数字 / 标点 / 括号 / 方括号）、间距（中英文 / 括号 / 货币单位 / 斜杠）、破折号与引号（破折号转换 / 智能引号 / 嵌套直角引号 / 引号间距）、清理（连续标点限制 / 行尾空格 / 空格折叠）
-- [ ] WYSIWYG 集成层：逐块序列化 `toMarkdown(block)` → `formatMarkdown()` → `fromMarkdown()` → 替换原块（保 undo / 光标 / 选区语义，参照 vmark `wysiwygAdapterCjk.ts`）
-- [ ] 命令注册：「格式化 CJK（全文）」+「格式化 CJK（选区）」+「格式化 CJK（当前块）」，挂入快捷键 `editor/shortcuts/bindings.ts`
-- [ ] 设置项：`useEditorStore` 新增 `cjkFormatting` 段（20+ 开关：ellipsisNormalization / fullwidthPunctuation / cjkEnglishSpacing / smartQuoteConversion / quoteStyle / cjkCornerQuotes 等），`PersistedSettings.editor` 补字段，设置页新增 CJK 排版分组
-- [ ] test：5 组规则各自单元测试（中英文间距 / 全角标点上下文 / 直角引号转换 / 嵌套引号 / 货币单位 / 省略号 / 连续标点限制）、保护区不被破坏（代码块 / URL / 数学 / 链接语法）、完整性校验回滚、WYSIWYG 往返（undo / 光标保持）
+- [x] WYSIWYG 集成层：逐块序列化 `toMarkdown(block)` → `formatMarkdown()` → `fromMarkdown()` → 替换原块（保 undo / 光标 / 选区语义，参照 vmark `wysiwygAdapterCjk.ts`）
+- [x] 命令注册：「格式化 CJK（全文）」+「格式化 CJK（选区）」+「格式化 CJK（当前块）」，挂入快捷键 `editor/shortcuts/bindings.ts`
+- [x] 设置项：`useEditorStore` 新增 `cjkFormatting` 段（20+ 开关：ellipsisNormalization / fullwidthPunctuation / cjkEnglishSpacing / smartQuoteConversion / quoteStyle / cjkCornerQuotes 等），`PersistedSettings.editor` 补字段，设置页新增 CJK 排版分组
+- [x] test：5 组规则各自单元测试（中英文间距 / 全角标点上下文 / 直角引号转换 / 嵌套引号 / 货币单位 / 省略号 / 连续标点限制）、保护区不被破坏（代码块 / URL / 数学 / 链接语法）、完整性校验回滚、WYSIWYG 往返（undo / 光标保持）
 
 
 ## P2 — 体验增强
