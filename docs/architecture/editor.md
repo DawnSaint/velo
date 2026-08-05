@@ -65,6 +65,9 @@
 | findHighlight | 查找替换高亮 |
 | focusModePlugin | 专注模式:光标所在顶层块挂 `.velo-focus-active` class,CSS 层降其余块透明度 |
 | typewriterModePlugin | 打字机模式:光标锁视口中线,`handleScrollToSelection` 抑制 PM 最小滚动 + rAF 居中(见设计要点) |
+| cjkLetterSpacingPlugin | CJK 字间距装饰:`Decoration.inline` 给汉字 / 假名 / 谚文段包裹 `.cjk-spacing` class,CSS `letter-spacing` 驱动;增量更新(`tr.mapping.maps` 提 dirty range);代码块内禁用;设置开关控制 |
+| cjkAutoFormatPlugin | CJK 实时输入格式化:`handleTextInput` 拦截键入,即时全角标点转换 + 中英文间距 + 智能引号 / 直角引号;只修正当前键入字符,不改已有文本 |
+| autoPairPlugin | CJK 括号自动配对:`handleTextInput` 拦截 CJK 开括号 → 插入开+闭括号光标居中;闭括号跳越 / 成对删除 / Tab+Shift+Tab 跳越;IME 守卫;代码块 / 行内代码内不触发 |
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册;含 Alt+方向键(移动当前行/列,与 Mod-Shift-Arrow 共用 cmdMoveRow/cmdMoveColumn,后者支持 TextSelection-in-cell) |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
@@ -182,6 +185,7 @@
   1. **必须注册**:`syntax/index.ts` 缺 `registerInlineSyntax(htmlTagSyntax)` 等于整条语法静默失效 —— 不报任何错,用户敲完整段都不转(已踩坑:v0.5.7 之前的 syntax/index.ts 漏注册,文档里有 htmlTag 但实际不生效)。注册位置放 inline 队列最后(`highlight` 之后),不影响其他 syntax 抢匹配
   - **只匹配完整闭合**:regex 是 `PAIRED | SELF_CLOSE`,`<TAG>content</TAG>` 或 `<TAG/>` 才转。**不**做"敲到一半就转开标签"的优化 —— 用户期望边敲边编辑,过早转 atom 反而把光标锁在 atom 之后,backspace 删不掉刚敲的 `<kbd>`,体验更差
   - **`<` 在 prose text 里的反斜杠转义是正常行为**:敲到一半的 `<kbd>` 留 plain text,`toMarkdown` 走 `mdast-util-to-markdown` 的 `safe()` 加 `\<` 反斜杠转义(prose text 里的 `<` 后接字母或 `/` 属于 unsafe 模式,CommonMark 规范要求)。完整闭合转 atom 后这条转义路径自动消失。**不要**在编辑器层去对抗 round-trip 完整性(`safe` 是为重 parse 时 `<` 不被误当 HTML 起始)
+- **CJK 排版两层架构(v0.7.7)**: 分实时输入层 + 手动格式化层(见 DECISIONS ADR-20260805-001)。**实时层**三个插件在 `allPlugins` 末尾依次排列:`cjkLetterSpacingPlugin`(纯装饰,无输入拦截)→ `cjkAutoFormatPlugin`(`handleTextInput` 拦截单字符做全角标点 / 中英文间距 / 智能引号)→ `autoPairPlugin`(`handleTextInput` 拦截 CJK 开括号做配对)。`cjkAutoFormatPlugin` 在 `autoPairPlugin` **之前**:智能引号转换可能把键入的 `'` 变成 `"` 或 `「`,需要先于 autoPair 的括号配对逻辑判定;但 autoPair 的闭括号跳越(Tab / Shift+Tab)不与 cjkAutoFormat 冲突(跳越只移光标不插字符)。**手动层**走 `cjkFormatter/` 库(`src/lib/cjkFormatter/`),命令触发时逐块 `toMarkdown → formatMarkdown → fromMarkdown` 往返,保 undo / 光标;与实时层部分规则重叠(中英文间距等),用户可分别开关各子项。两层正交:关掉实时层不影响手动格式化,反之亦然。**设置项分两组**:`editor.cjkLetterSpacing` + `editor.autoPairEnabled` 控制实时层开关;`editor.cjkFormatting.*`(20+ 子项)控制手动格式化规则集 + 实时层的全角标点 / 智能引号 / 中英文间距子项。
 
 ---
 

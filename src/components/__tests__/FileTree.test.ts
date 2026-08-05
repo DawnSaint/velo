@@ -888,11 +888,11 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  // ── 展开箭头隐藏:空目录(v0.5.1) ──
+  // ── 展开箭头:空目录也显示(v0.5.2) ──
 
-  it('已加载且为空的子目录 → 不显示展开箭头(避免误导用户可展开)', async () => {
+  it('已加载且为空的子目录 → 仍显示展开箭头', async () => {
     // 根 = sub(目录) + note.md(过滤后剩 sub),并先展开 sub → readDir 返回空。
-    // 期望:sub row 的箭头 SVG 不渲染(空目录无可展开内容)。
+    // 期望:sub row 的箭头 SVG 仍渲染(空目录也保留展开 affordance)。
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
     workspace.setDirExpanded('/test/root/sub', true)
@@ -910,10 +910,9 @@ describe('FileTree', () => {
     await nextTick()
 
     const subRow = findRowByName(wrapper, 'sub')!
-    // 空目录(children = []) → 箭头 SVG 缺席;
-    // 占位 span 仍在(留出对齐空间),但不含 SVG。
+    // 空目录(children = []) → 箭头 SVG 仍存在
     const arrowSvgs = subRow.element.querySelectorAll('span.size-4 > svg')
-    expect(arrowSvgs.length).toBe(0)
+    expect(arrowSvgs.length).toBe(1)
     wrapper.unmount()
   })
 
@@ -996,9 +995,9 @@ describe('FileTree', () => {
 
   // ── 1 级"空目录"探测(v0.5.1) ──
 
-  it('父目录加载后会后台探测每个子目录是否为空 → 空子目录箭头立即隐藏', async () => {
+  it('父目录加载后空子目录与有内容子目录均显示箭头', async () => {
     // 根 = [empty/, hasItems/];empty/ readDir → [];hasItems/ readDir → [note.md]。
-    // 探测完成后:empty row 无箭头;hasItems row 有箭头(因为未加载,默认显示)。
+    // 探测完成后:两者均显示箭头(空目录也保留展开 affordance)。
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
     vi.mocked(readDir).mockImplementation(async (p) => {
@@ -1019,8 +1018,8 @@ describe('FileTree', () => {
     const emptyRow = findRowByName(wrapper, 'empty')!
     const hasItemsRow = findRowByName(wrapper, 'hasItems')!
 
-    expect(emptyRow.element.querySelectorAll('span.size-4 > svg').length).toBe(0) // 探测发现空 → 无箭头
-    expect(hasItemsRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 有 child → 箭头保留
+    expect(emptyRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 空目录也有箭头
+    expect(hasItemsRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 有 child → 箭头
     wrapper.unmount()
   })
 

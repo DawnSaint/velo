@@ -853,8 +853,9 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
   onChange: (doc) => {
     // debounce toMarkdown:存储最新 doc,延迟序列化。
     // 连续打字期间 cancel 旧 timer 重设,停顿 DEBOUNCE_MS 后才执行 toMarkdown。
-    pendingDoc = doc
+    // 注意:cancelPendingEmit 必须在 pendingDoc 赋值之前调,它会清 pendingDoc=null。
     cancelPendingEmit()
+    pendingDoc = doc
     debounceTimer = setTimeout(() => {
       debounceTimer = null
       const d = pendingDoc

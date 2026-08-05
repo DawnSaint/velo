@@ -14,8 +14,8 @@
 // 行内 input(新建 / 重命名)走「行内编辑」(对齐 VSCode / Finder),不再用 modal。
 // 数据 / IO 抽到 `useTreeData` composable,纯函数抽到 `treeUtils`,本文件只剩 UI 状态机。
 
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
-import { ChevronRight, File, Folder, Image } from '@lucide/vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { Check, ChevronRight, ChevronsDownUp, File, FilePlus, FolderPlus, Image, RefreshCw } from '@lucide/vue'
 import {
   copyFile as fsCopyFile,
   mkdir as fsMkdir,
@@ -150,8 +150,29 @@ const flatItems = computed<VisualItem[]>(() => {
   return out
 })
 
-function indentStyle(depth: number): { paddingLeft: string } {
-  return { paddingLeft: `${12 + depth * 12}px` }
+function indentStyle(depth: number): CSSProperties {
+  // 层级指示线:每个深度画一条 1px 竖线,对齐祖先行 chevron 图标的中心(12*i+8)。
+  // 用 background-image (solid color) + background-size:1px 100% + background-position
+  // 而非 gradient 硬停止 —— 后者在 transparent↔color 同位置切换时会被浏览器抗锯齿,
+  // 不同 x 位置因子像素对齐差异导致线条视觉粗细不一。
+  const images: string[] = []
+  const sizes: string[] = []
+  const positions: string[] = []
+  for (let i = 1; i <= depth; i++) {
+    const x = 12 * i + 8
+    images.push('linear-gradient(var(--surface-border), var(--surface-border))')
+    sizes.push('1px 100%')
+    positions.push(`${x}px 0`)
+  }
+  return {
+    paddingLeft: `${12 + depth * 12}px`,
+    ...(images.length && {
+      backgroundImage: images.join(', '),
+      backgroundSize: sizes.join(', '),
+      backgroundPosition: positions.join(', '),
+      backgroundRepeat: 'no-repeat',
+    }),
+  }
 }
 
 async function chooseWorkspace() {
@@ -420,6 +441,42 @@ const clipboard = ref<{ srcPath: string, isDir: boolean } | null>(null)
 
 function isRootNode(node: TreeNode): boolean {
   return workspace.activeRoot !== null && node.fullPath === workspace.activeRoot
+}
+
+/** 全部折叠:清空所有子目录展开状态,根保持展开(用户仍可见顶层文件)。 */
+function collapseAll() {
+  const root = workspace.activeRoot
+  if (!root) return
+  const ws = workspace.workspaces[root]
+  if (ws) {
+    for (const d of [...ws.expandedDirs]) workspace.setDirExpanded(d, false)
+  }
+  rootCollapsed.value = false
+}
+
+/** 鼠标是否悬停在工作区文件列表区域 → 控制根行工具按钮的显隐 */
+const workspaceHovered = ref(false)
+
+/** 刷新按钮状态:idle → loading(旋转)→ success(✓)→ idle */
+const refreshState = ref<'idle' | 'loading' | 'success'>('idle')
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 刷新工作区根:重新读取根目录子项。保证最小 500ms 旋转可见,完成后闪✓,延时恢复。 */
+async function refreshRoot() {
+  if (refreshState.value !== 'idle') return
+  if (!workspace.activeRoot) return
+  refreshState.value = 'loading'
+  try {
+    await Promise.all([
+      refreshDir(workspace.activeRoot),
+      new Promise(resolve => setTimeout(resolve, 500)),
+    ])
+  }
+  finally {
+    refreshState.value = 'success'
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => { refreshState.value = 'idle' }, 1200)
+  }
 }
 
 function onRowContextMenu(event: MouseEvent, node: TreeNode) {
@@ -877,6 +934,9 @@ function resetTransientUi() {
   closeContextMenu()
   cancelInline()
   clearHoverExpandTimer()
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
+  refreshState.value = 'idle'
+  stickyHeaders.value = []
 }
 
 onMounted(attachGlobalListeners)
@@ -884,10 +944,93 @@ onActivated(attachGlobalListeners)
 onDeactivated(() => {
   detachGlobalListeners()
   resetTransientUi()
+  if (scrollRafId !== null) { cancelAnimationFrame(scrollRafId); scrollRafId = null }
 })
 onBeforeUnmount(() => {
   detachGlobalListeners()
   resetTransientUi()
+  if (scrollRafId !== null) { cancelAnimationFrame(scrollRafId); scrollRafId = null }
+})
+
+// ========== Sticky 目录头(滚动时级联粘贴)==========
+//
+// 根目录始终粘贴顶部;滚动到子目录时,子目录粘贴在根下方,以此类推。
+// 实现方式:scroll 事件(rAF 节流)→ 查询所有目录行的 offsetTop →
+// 判断哪些目录已滚过阈值且子树仍可见 → 渲染 overlay。
+
+const ROW_HEIGHT = 30 // h-7.5 = 1.875rem = 30px
+const scrollContainerRef = ref<HTMLElement | null>(null)
+let scrollRafId: number | null = null
+const stickyHeaders = ref<{ node: TreeNode; depth: number }[]>([])
+
+function onScroll() {
+  if (scrollRafId !== null) return
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    updateStickyHeaders()
+  })
+}
+
+function updateStickyHeaders() {
+  const container = scrollContainerRef.value
+  if (!container) { stickyHeaders.value = []; return }
+
+  const rows = container.querySelectorAll<HTMLElement>('[data-row-depth]')
+  if (!rows.length) { stickyHeaders.value = []; return }
+
+  const st = container.scrollTop
+  if (st <= 0) { stickyHeaders.value = []; return }
+
+  // 构建行信息数组(offsetTop + depth + isDir + path)
+  const rowInfos: { offsetTop: number; depth: number; isDir: boolean; path: string }[] = []
+  for (const el of rows) {
+    rowInfos.push({
+      offsetTop: el.offsetTop,
+      depth: Number(el.dataset.rowDepth),
+      isDir: el.dataset.rowIsDir === 'true',
+      path: el.dataset.rowPath!,
+    })
+  }
+
+  const headers: { node: TreeNode; depth: number }[] = []
+
+  for (let i = 0; i < rowInfos.length; i++) {
+    const info = rowInfos[i]
+    if (!info.isDir) continue
+
+    const threshold = info.depth * ROW_HEIGHT
+    // 条件 1:已滚过阈值
+    if (info.offsetTop - st > threshold) continue
+
+    // 条件 2:子树仍可见 —— 下一个 depth<=当前的同级/祖先级行还没滚过阈值
+    let endOffsetTop = Infinity
+    for (let j = i + 1; j < rowInfos.length; j++) {
+      if (rowInfos[j].depth <= info.depth) {
+        endOffsetTop = rowInfos[j].offsetTop
+        break
+      }
+    }
+    if (endOffsetTop - st <= threshold) continue
+
+    const node = dirIndex.get(info.path)
+    if (node) headers.push({ node, depth: info.depth })
+  }
+
+  stickyHeaders.value = headers
+}
+
+function stickyIsExpanded(node: TreeNode): boolean {
+  if (isRootNode(node)) return !rootCollapsed.value
+  return workspace.isDirExpanded(node.fullPath)
+}
+
+function stickyDisplayName(node: TreeNode): string {
+  return isRootNode(node) ? rootDisplay.value : node.name
+}
+
+// flatItems 变化时(展开/折叠/CRUD)重新计算 sticky
+watch([flatItems, rootCollapsed], () => {
+  nextTick(updateStickyHeaders)
 })
 
 const rootDisplay = computed(() => {
@@ -909,7 +1052,7 @@ function displayName(node: TreeNode): string {
 <template>
   <!-- min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px。行内 truncate 由
        各 row 自己处理。overflow-hidden 防窄态溢出。 -->
-  <div ref="treeRootRef" class="flex h-full min-w-0 flex-col overflow-hidden">
+  <div ref="treeRootRef" class="relative flex h-full min-w-0 flex-col overflow-hidden" @mouseenter="workspaceHovered = true" @mouseleave="workspaceHovered = false">
     <!-- 空态:没选工作区(根名已下沉成 flatItems 第一行,v0.5.1) -->
     <div v-if="!workspace.activeRoot" class="flex flex-1 items-center justify-center px-4">
       <button
@@ -924,8 +1067,10 @@ function displayName(node: TreeNode): string {
     <div
       v-else
       v-velo-scroll
+      ref="scrollContainerRef"
       class="min-h-0 flex-1 overflow-y-auto"
       :class="{ 'bg-blue-50/40 dark:bg-blue-950/20': dragOverTarget !== null && dragOverTarget === workspace.activeRoot }"
+      @scroll.passive="onScroll"
       @dragover.self="onContainerDragOver"
       @drop.self="onContainerDrop"
       @dragleave.self="dragOverTarget = null"
@@ -947,9 +1092,13 @@ function displayName(node: TreeNode): string {
             :style="indentStyle(item.depth)"
             class="flex items-center gap-1 h-8 pr-2 text-xs"
           >
-            <span class="flex size-4 shrink-0" />
-            <Folder v-if="item.subKind === 'newDir'" class="size-3.5 shrink-0 text-gray-400" />
-            <File v-else class="size-3.5 shrink-0 text-gray-400" />
+            <span v-if="item.subKind === 'newDir'" class="flex size-4 shrink-0 items-center justify-center">
+              <ChevronRight class="size-3 text-gray-400" :stroke-width="2.5" />
+            </span>
+            <template v-else>
+              <span class="flex size-4 shrink-0" />
+              <File class="size-3.5 shrink-0 text-gray-400" />
+            </template>
             <input
               :ref="bindInlineInputEl"
               v-model="inlineNew!.value"
@@ -971,10 +1120,14 @@ function displayName(node: TreeNode): string {
             :style="indentStyle(item.depth)"
             class="flex items-center gap-1 h-8 pr-2 text-xs"
           >
-            <span class="flex size-4 shrink-0" />
-            <Folder v-if="item.node.isDir" class="size-4 shrink-0 text-gray-400" />
-            <Image v-else-if="isImageName(item.node.name)" class="size-4 shrink-0 text-gray-400" />
-            <File v-else class="size-4 shrink-0 text-gray-400" />
+            <span v-if="item.node.isDir" class="flex size-4 shrink-0 items-center justify-center">
+              <ChevronRight class="size-3 text-gray-400" :stroke-width="2.5" />
+            </span>
+            <template v-else>
+              <span class="flex size-4 shrink-0" />
+              <Image v-if="isImageName(item.node.name)" class="size-4 shrink-0 text-gray-400" />
+              <File v-else class="size-4 shrink-0 text-gray-400" />
+            </template>
             <input
               :ref="bindInlineInputEl"
               v-model="inlineRename!.value"
@@ -1000,6 +1153,9 @@ function displayName(node: TreeNode): string {
             }"
             :title="item.node.fullPath"
             :data-testid="isRootNode(item.node) ? 'workspace-root' : `file-row-${item.node.name}`"
+            :data-row-depth="item.depth"
+            :data-row-path="item.node.fullPath"
+            :data-row-is-dir="item.node.isDir"
             draggable="true"
             @click="onFileClick(item.node)"
             @auxclick.middle.prevent="onRowAuxClick(item.node)"
@@ -1015,19 +1171,65 @@ function displayName(node: TreeNode): string {
                  旋转跟随 item.expanded:根折叠时 rotate=0,展开时 rotate-90 -->
             <span class="flex size-4 shrink-0 items-center justify-center">
               <ChevronRight
-                v-if="item.node.isDir && (isRootNode(item.node) || !(item.node.children && item.node.children.length === 0))"
+                v-if="item.node.isDir"
                 class="size-3 text-gray-400 transition-transform"
                 :class="{ 'rotate-90': item.expanded }"
                 :stroke-width="2.5"
               />
             </span>
-            <!-- 图标(目录 / 图片 / .md 文件) -->
-            <Folder v-if="item.node.isDir" class="size-3.5 shrink-0 text-gray-400" />
-            <Image v-else-if="isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" />
-            <File v-else class="size-3.5 shrink-0 text-gray-400" />
-            <span class="truncate text-gray-500 dark:text-gray-300">
+            <!-- 图标(图片 / .md 文件;目录不显示图标) -->
+            <Image v-if="!item.node.isDir && isImageName(item.node.name)" class="size-3.5 shrink-0 text-gray-400" />
+            <File v-else-if="!item.node.isDir" class="size-3.5 shrink-0 text-gray-400" />
+            <span class="truncate text-gray-700 dark:text-gray-200">
               {{ displayName(item.node) }}
             </span>
+            <!-- 根行工具按钮:hover 工作区时显示 -->
+            <div
+              v-if="isRootNode(item.node)"
+              class="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100"
+              :class="{ 'opacity-100': workspaceHovered }"
+            >
+              <button
+                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title="新建文件"
+                data-testid="root-action-new-file"
+                @click.stop="openInlineNew(workspace.activeRoot!, 'newFile')"
+              >
+                <FilePlus class="size-3.5" :stroke-width="2" />
+              </button>
+              <button
+                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title="新建文件夹"
+                data-testid="root-action-new-dir"
+                @click.stop="openInlineNew(workspace.activeRoot!, 'newDir')"
+              >
+                <FolderPlus class="size-3.5" :stroke-width="2" />
+              </button>
+              <button
+                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                :class="{ 'text-green-600 dark:text-green-400': refreshState === 'success' }"
+                :title="refreshState === 'success' ? '已刷新' : '刷新'"
+                data-testid="root-action-refresh"
+                :disabled="refreshState !== 'idle'"
+                @click.stop="refreshRoot"
+              >
+                <Check v-if="refreshState === 'success'" class="size-3.5" :stroke-width="2.5" />
+                <RefreshCw
+                  v-else
+                  class="size-3.5"
+                  :class="{ 'animate-spin': refreshState === 'loading' }"
+                  :stroke-width="2"
+                />
+              </button>
+              <button
+                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title="全部折叠"
+                data-testid="root-action-collapse-all"
+                @click.stop="collapseAll"
+              >
+                <ChevronsDownUp class="size-3.5" :stroke-width="2" />
+              </button>
+            </div>
           </div>
         </template>
         <!-- 根子项为空时显示占位(根 row 已先行渲染,这里只补"空目录"提示)。
@@ -1037,6 +1239,78 @@ function displayName(node: TreeNode): string {
           class="py-0.5 pl-6 text-xs text-gray-400"
         >
           空目录
+        </div>
+      </div>
+    </div>
+
+    <!-- Sticky 目录头 overlay:滚动时级联粘贴根 → 子目录 → 子子目录...
+         overlay 在 scrollContainer 外层(treeRootRef 内),absolute top-0 不随滚动移动。
+         最后一行带 shadow 模拟"浮起"层级分隔。 -->
+    <div
+      v-if="stickyHeaders.length"
+      class="pointer-events-none absolute inset-x-0 top-0 z-10"
+    >
+      <div
+        v-for="(h, idx) in stickyHeaders"
+        :key="h.node.fullPath"
+        :style="indentStyle(h.depth)"
+        class="pointer-events-auto flex cursor-pointer items-center gap-1 h-7.5 pr-2 text-sm bg-[var(--surface-1)] transition-colors hover:bg-[var(--surface-0)]"
+        :class="{ 'sticky-shadow': idx === stickyHeaders.length - 1 }"
+        :title="h.node.fullPath"
+        @click="onFileClick(h.node)"
+      >
+        <span class="flex size-4 shrink-0 items-center justify-center">
+          <ChevronRight
+            class="size-3 text-gray-400 transition-transform"
+            :class="{ 'rotate-90': stickyIsExpanded(h.node) }"
+            :stroke-width="2.5"
+          />
+        </span>
+        <span class="truncate text-gray-700 dark:text-gray-200">
+          {{ stickyDisplayName(h.node) }}
+        </span>
+        <!-- 根行工具按钮:sticky 根也展示,hover 工作区时可见 -->
+        <div
+          v-if="isRootNode(h.node)"
+          class="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100"
+          :class="{ 'opacity-100': workspaceHovered }"
+        >
+          <button
+            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            title="新建文件"
+            @click.stop="openInlineNew(workspace.activeRoot!, 'newFile')"
+          >
+            <FilePlus class="size-3.5" :stroke-width="2" />
+          </button>
+          <button
+            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            title="新建文件夹"
+            @click.stop="openInlineNew(workspace.activeRoot!, 'newDir')"
+          >
+            <FolderPlus class="size-3.5" :stroke-width="2" />
+          </button>
+          <button
+            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            :class="{ 'text-green-600 dark:text-green-400': refreshState === 'success' }"
+            :title="refreshState === 'success' ? '已刷新' : '刷新'"
+            :disabled="refreshState !== 'idle'"
+            @click.stop="refreshRoot"
+          >
+            <Check v-if="refreshState === 'success'" class="size-3.5" :stroke-width="2.5" />
+            <RefreshCw
+              v-else
+              class="size-3.5"
+              :class="{ 'animate-spin': refreshState === 'loading' }"
+              :stroke-width="2"
+            />
+          </button>
+          <button
+            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            title="全部折叠"
+            @click.stop="collapseAll"
+          >
+            <ChevronsDownUp class="size-3.5" :stroke-width="2" />
+          </button>
         </div>
       </div>
     </div>
@@ -1067,6 +1341,17 @@ function displayName(node: TreeNode): string {
 </template>
 
 <style scoped lang="scss">
+/* sticky 目录头:最后一行底部加浅 shadow,模拟"浮起"层级分隔。
+ * 亮色用淡墨色,暗色用淡黑,与 splitter shadow 同色系。 */
+.sticky-shadow {
+  box-shadow: 0 4px 6px -4px rgba(16, 24, 40, 0.12);
+  border-bottom: 1px solid var(--surface-border);
+}
+.dark .sticky-shadow {
+  box-shadow: 0 4px 8px -4px rgba(0, 0, 0, 0.6);
+  border-bottom: none;
+}
+
 /* revealFile 加的临时高亮 class —— 1500ms 后由 revealFile 内部移除。
  * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 surface-pressed 更亮)。 */
 .reveal-flash {

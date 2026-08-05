@@ -51,9 +51,14 @@ src/components/icons/
 |------|------|---------|
 | 文件 | `File` | ActivityBar(v0.6.x 文件入口), FileTree, QuickOpenPanel, CommandPalette |
 | 文件+加号(新建) | `FilePlusCorner` | CommandPalette |
+| 新建文件 | `FilePlus` | FileTree(根行工具按钮) |
 | 文件+放大镜(快速打开) | `FileSearch` | CommandPalette |
 | 文件+向上箭头(打开) | `FileUp` | CommandPalette |
 | 文件夹 | `Folder` | FileTree |
+| 新建文件夹 | `FolderPlus` | FileTree(根行工具按钮) |
+| 刷新 | `RefreshCw` | FileTree(根行工具按钮,idle/loading 旋转/success) |
+| 全部折叠 | `ChevronsDownUp` | FileTree(根行工具按钮) |
+| 成功对勾 | `Check` | FileTree(刷新成功反馈) |
 | 文件夹打开 | `FolderOpen` | CommandPalette |
 | 图片 | `Image` | FileTree |
 | 新窗口(Mac 风格) | `AppWindowMac` | CommandPalette |
