@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.7](https://github.com/DawnSaint/velo/compare/v0.7.6...v0.7.7) (2026-08-05)
+
+
+### Features
+
+* **editor:** add CJK letter spacing and auto-pair plugins ([6dc659b](https://github.com/DawnSaint/velo/commit/6dc659b08d2cc24a565794321286e3103f131114))
+* **editor:** add CJK letter spacing decoration plugin (Phase 1) ([6dfac7a](https://github.com/DawnSaint/velo/commit/6dfac7a0a044a48332ce073ef0f26d7d213dbe46))
+* **editor:** add CJK smart formatting library and manual trigger pipeline ([3b54e55](https://github.com/DawnSaint/velo/commit/3b54e5503a8623164256c6807f93028b9b63a5dc))
+* **editor:** add input assist multi-select in settings ([928350a](https://github.com/DawnSaint/velo/commit/928350af0211005708e53387a89662850b2b8147))
+* **editor:** file tree sticky headers, and UI refinements ([bb241ec](https://github.com/DawnSaint/velo/commit/bb241ec775fcc37a71f93e89bd5186f44b637a87))
+
 ## [0.7.6](https://github.com/DawnSaint/velo/compare/v0.7.5...v0.7.6) (2026-07-29)
 
 
