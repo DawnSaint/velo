@@ -753,14 +753,18 @@ watch(() => props.modelValue, async (newVal) => {
   if (!view) return
 
   // 大文档(> 2000 行):先让浏览器 paint 一帧(清空旧内容 / 显示空白编辑器),
-  // 再同步执行 fromMarkdown(会阻塞主线程数十~数百毫秒)。
+  // 再同步执行 EditorState.create(会阻塞主线程数十~数百毫秒)。
   // 不做分块解析——markdown 语法跨 chunk(代码块 / 列表)处理复杂且易出错,
   // 单次 yield + 同步解析是最低风险方案。
   if (newVal.split('\n').length > 2000) {
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   }
 
-  const doc = fromMarkdown(newVal, schema as VeloSchema)
+  // C0: 优先消费 loadContentInto 存入的 pendingPmDoc,跳过冗余 fromMarkdown。
+  //     pendingPmDoc 在 rAF 之后消费,避免延迟期间被另一个 loadContentInto 覆盖。
+  //     无 pendingPmDoc 时(fs:watch 外部改动未走 loadContentInto 等)回退到 fromMarkdown。
+  const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
+  const doc = pendingDoc ?? fromMarkdown(newVal, schema as VeloSchema)
   const openFocus = decideOpenFocus(doc)
   view.updateState(EditorState.create({
     schema,
@@ -847,7 +851,13 @@ watch(() => useDocumentStore().focusRequestToken, async (n, prev) => {
 const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop } = useProseMirror({
   schema: schema as VeloSchema,
   initialDoc: props.modelValue,
-  fromMarkdown: (md, s) => fromMarkdown(md, s as VeloSchema),
+  fromMarkdown: (md, s) => {
+    // C0: useProseMirror onMounted / rAF 回调中优先消费 pendingPmDoc,
+    //     跳过冗余 fromMarkdown(初始装载路径)。
+    const pending = documentStore.consumePendingPmDoc() as PMNode | null
+    if (pending) return pending
+    return fromMarkdown(md, s as VeloSchema)
+  },
   plugins: allPlugins,
   editable: !props.readOnly,
   onChange: (doc) => {

@@ -1584,4 +1584,70 @@ describe('document store', () => {
       expect(store.openFilePaths).toEqual(['/interview.md', '/other.md'])
     })
   })
+
+  // 9. C0 + C0b: pendingPmDoc 传递 + 大文档跳过 canonical round-trip
+  // C0: loadContentInto 解析的 PM Node 存入 pendingPmDoc,EditorInner 消费后跳过冗余 fromMarkdown
+  // C0b: > 2000 行的文档跳过 toMarkdown canonical round-trip,直接用 raw 内容
+  describe('C0 + C0b: pendingPmDoc + 大文档跳过 canonical', () => {
+    it('loadContent 后 consumePendingPmDoc 返回 PM Node,二次消费返回 null(一次性)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.loadContent('# hello', '/p.md')
+
+      const pmDoc = store.consumePendingPmDoc()
+      expect(pmDoc).not.toBeNull()
+      // 二次消费返回 null
+      expect(store.consumePendingPmDoc()).toBeNull()
+    })
+
+    it('init 不设 pendingPmDoc(空白文档不经 loadContentInto)', () => {
+      const store = useDocumentStore()
+      store.init('# hello')
+      expect(store.consumePendingPmDoc()).toBeNull()
+    })
+
+    it('小文档(≤ 2000 行):content 是 canonical 形式(CRLF 被规范化)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const rawDisk = 'hello\r\nworld\r\n'
+      store.loadContent(rawDisk, '/p.md')
+
+      expect(store.content).not.toBe(rawDisk)
+      expect(store.content).toBe('hello\nworld\n')
+      expect(store.dirty).toBe(false)
+    })
+
+    it('大文档(> 2000 行):content 是 raw 形式(跳过 canonical round-trip)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const lines = Array.from({ length: 2001 }, (_, i) => `line ${i}`)
+      const rawDisk = lines.join('\n')
+      store.loadContent(rawDisk, '/p.md')
+
+      // content 与 rawDisk 字节相等(跳过了 toMarkdown canonical)
+      expect(store.content).toBe(rawDisk)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('大文档(> 2000 行)CRLF:content 保留 CRLF(跳过 canonical)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const lines = Array.from({ length: 2001 }, (_, i) => `line ${i}`)
+      const rawDisk = lines.join('\r\n')
+      store.loadContent(rawDisk, '/p.md')
+
+      // CRLF 保留(未经过 toMarkdown 规范化)
+      expect(store.content).toBe(rawDisk)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('大文档也设置 pendingPmDoc(C0 对所有文档生效,不限于小文档)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const lines = Array.from({ length: 2001 }, (_, i) => `line ${i}`)
+      store.loadContent(lines.join('\n'), '/p.md')
+
+      expect(store.consumePendingPmDoc()).not.toBeNull()
+    })
+  })
 })

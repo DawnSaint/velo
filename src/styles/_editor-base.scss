@@ -45,6 +45,13 @@
   //    inline-block 居中在 .velo-image-inline(block) 内,wrapper 又在 <p> 内。
   //    <p> 无 padding,outline 上下各溢出 2px 超出 <p> padding box → 上下被裁剪
   //    (左右因 wrapper 撑满 <p> 宽度而不溢出,故仅上下丢失)。
+  // 4. mermaid widget(block Decoration.widget,是 .ProseMirror 直接子元素):
+  //    实际高度可达 ~450px(SVG max-height 400 + margin + padding + toolbar),
+  //    而 contain-intrinsic-size 默认仅 1.5em(~24px)。scrollToSelection(表格
+  //    操作的 scrollIntoView)改 scrollTop 后,content-visibility:auto 按新位置
+  //    渲染/跳过 widget,高度在 24px ↔ 450px 间跳变;overflow-anchor:none 使
+  //    浏览器不补偿 → 视口跳到表格上方。mermaid 块数量少,关闭 content-visibility
+  //    的性能影响可忽略。
   .ProseMirror > h1,
   .ProseMirror > h2,
   .ProseMirror > h3,
@@ -54,7 +61,8 @@
   .ProseMirror > ul,
   .ProseMirror > ol,
   .ProseMirror > .velo-hr,
-  .ProseMirror > p:has(.velo-image-inline) {
+  .ProseMirror > p:has(.velo-image-inline),
+  .ProseMirror > .mermaid-node {
     content-visibility: visible;
   }
 

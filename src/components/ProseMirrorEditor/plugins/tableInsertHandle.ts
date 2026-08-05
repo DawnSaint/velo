@@ -323,8 +323,21 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
     } else {
       guideEl.style.display = "block"
       guideEl.style.top = `${linePos}px`
-      guideEl.style.left = `${Math.round(tableRect.left - ox)}px`
-      guideEl.style.width = `${Math.round(tableRect.right - tableRect.left)}px`
+      // 横线需按 .tableWrapper 可见区域裁剪,避免表格横向滚动时延伸出滚动区域:
+      // 浮层挂在编辑器滚动容器内(而非 .tableWrapper 内),编辑器的 overflow:auto 只裁剪
+      // 自身边界,不裁剪 .tableWrapper 的水平边界 —— 横线从 tableRect.left 画到
+      // tableRect.right (整表宽),超出 .tableWrapper 的部分需手动裁掉。
+      const { clipLeft, clipRight } = getWrapperClipX()
+      const hostLeft = tableRect.left - ox
+      const hostRight = tableRect.right - ox
+      const visibleLeft = Math.max(hostLeft, clipLeft - ox)
+      const visibleRight = Math.min(hostRight, clipRight - ox)
+      if (visibleRight <= visibleLeft) {
+        guideEl.style.display = "none"
+      } else {
+        guideEl.style.left = `${Math.round(visibleLeft)}px`
+        guideEl.style.width = `${Math.round(visibleRight - visibleLeft)}px`
+      }
       guideEl.style.height = "1px"
     }
   }
@@ -431,13 +444,16 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
         : Math.round(tableRect.bottom)
       const top = Math.max(runningTop, thisTop)
       const h = Math.max(1, nextTopRaw - top)
-      el.style.left = `${Math.round(tableRect.left - PICK_WIDTH - ox)}px`
+      // 行条水平位置固定在 .tableWrapper 左边缘(clipLeft),不随 tableRect.left 走 ——
+      // 浮层挂在编辑器滚动容器内(而非 .tableWrapper 内),.tableWrapper 的 overflow-x:auto
+      // 不会裁剪行条;若用 tableRect.left 定位,表格横向滚动时行条跟着移出可视区。
+      // 行条显示条件:表格左边缘未完全滚出 .tableWrapper 左边界(可视区内至少还有一部分表格)。
+      const rowHandleLeft = clipLeft - PICK_WIDTH - ox
+      el.style.left = `${Math.round(rowHandleLeft)}px`
       el.style.top = `${Math.round(top - oy)}px`
       el.style.width = `${Math.round(PICK_WIDTH)}px`
       el.style.height = `${h}px`
-      // 行条在表格左侧(tableRect.left - PICK_WIDTH),不在 .tableWrapper 水平滚动区内,
-      // 不需要 .tableWrapper 水平裁剪(编辑器容器的 overflow:auto 已足够)。
-      el.style.display = ""
+      el.style.display = (tableRect.right >= clipLeft - 2) ? "" : "none"
       runningTop = nextTopRaw
     })
 
@@ -452,16 +468,24 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
         : Math.round(tableRect.right)
       const left = Math.max(runningLeft, thisLeft)
       const w = Math.max(1, nextLeftRaw - left)
-      el.style.left = `${Math.round(left - ox)}px`
       // 同 renderPickHandles:用 anchor cell 的 top 而非 tableRect.top,
       // 消除 border-collapse 下 table bounding rect 与可视上边框的 ~1px 偏移。
       const colHandleTop = cell ? cell.getBoundingClientRect().top : tableRect.top
       el.style.top = `${Math.round(colHandleTop - PICK_WIDTH - oy)}px`
-      el.style.width = `${w}px`
       el.style.height = `${Math.round(PICK_WIDTH)}px`
-      // 列条水平位置跟随 cell;表格横向滚出 .tableWrapper 视区时隐藏。
-      const colHandleCenterX = left + w / 2
-      el.style.display = (colHandleCenterX >= clipLeft - 2 && colHandleCenterX <= clipRight + 2) ? "" : "none"
+      // 列条按 .tableWrapper 可见区域自然裁剪(与横向 insert guide line 一致):
+      // 不再做整体 show/hide,而是把 left/width 裁剪到 [clipLeft, clipRight] 范围,
+      // 部分可见的条以裁剪后的宽度显示,避免逐条隐藏/显示造成的断裂感。
+      // 完全在可视区外的条才 display:none。
+      const visibleLeft = Math.max(left, clipLeft)
+      const visibleRight = Math.min(left + w, clipRight)
+      if (visibleRight <= visibleLeft) {
+        el.style.display = "none"
+      } else {
+        el.style.display = ""
+        el.style.left = `${Math.round(visibleLeft - ox)}px`
+        el.style.width = `${Math.round(visibleRight - visibleLeft)}px`
+      }
       runningLeft = nextLeftRaw
     })
   }
@@ -490,7 +514,10 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
       let refX: number, refY: number
       if (anchor instanceof HTMLTableRowElement) {
         const rowRect = (anchor as HTMLTableRowElement).getBoundingClientRect()
-        refX = tableRect.left
+        // 行 dot 固定在 .tableWrapper 左边缘(clipLeft),不随 tableRect.left 走 ——
+        // 与行拾取条(pick-row)一致:表格超宽横向滚动时 dot 始终贴在可视区左侧,
+        // 而非跟着表格内容滚走。
+        refX = clipLeft
         refY = dir === "before" ? tableRect.top : rowRect.bottom
         x = refX - DOT_OFFSET
         y = refY
@@ -503,10 +530,12 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
       }
       el.style.left = `${Math.round(x - 10 - ox)}px`
       el.style.top = `${Math.round(y - 10 - oy)}px`
-      // 水平裁剪只对列 dot 生效(列 dot 跟随 cell 水平位置,表格横向滚动时会滚出 .tableWrapper)。
-      // 行 dot 在表格左侧(tableRect.left - DOT_OFFSET),不在 .tableWrapper 水平滚动区内,不裁剪。
+      // 水平可见性:列 dot 跟随 cell 水平位置,表格横向滚动时滚出 .tableWrapper 视区则隐藏;
+      // 行 dot 固定在 .tableWrapper 左边缘,只要表格未完全滚出左边界就保持可见(与行拾取条一致)。
       const isColDot = !(anchor instanceof HTMLTableRowElement)
-      const inView = !isColDot || (x >= clipLeft - 2 && x <= clipRight + 2)
+      const inView = isColDot
+        ? (x >= clipLeft - 2 && x <= clipRight + 2)
+        : (tableRect.right >= clipLeft - 2)
       el.style.display = inView ? "flex" : "none"
       // hover 中的 dot 随重定位同步刷新 guide line(scroll/resize 导致 table 平移时
       // guide line 不会自动跟,需在此用最新坐标重算)。
@@ -528,8 +557,10 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
     hoveredDot = null
     hideGuide()
     const tableRect = table.getBoundingClientRect()
+    const { clipLeft } = getWrapperClipX()
 
     // 行圆点:首行(含 header)上方一个 before + 每行底部一个 after
+    // 行 dot 水平位置固定在 .tableWrapper 左边缘(clipLeft),与行拾取条一致;
     const rows = table.querySelectorAll("tr")
     rows.forEach((row, rowIdx) => {
       const rowRect = (row as HTMLTableRowElement).getBoundingClientRect()
@@ -543,7 +574,7 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
       if (rowIdx === 0) {
         const dot = createDot(
           { type: "row", dir: "before", cellPos, anchor: row },
-          tableRect.left - DOT_OFFSET,
+          clipLeft - DOT_OFFSET,
           tableRect.top,
           v,
         )
@@ -553,7 +584,7 @@ export function createTableInsertHandlePlugin(opts: TableInsertHandleOptions): P
       // 每行底部:after
       const dot = createDot(
         { type: "row", dir: "after", cellPos, anchor: row },
-        tableRect.left - DOT_OFFSET,
+        clipLeft - DOT_OFFSET,
         rowRect.bottom,
         v,
       )

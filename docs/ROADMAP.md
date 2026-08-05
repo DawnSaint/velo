@@ -64,6 +64,30 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
+## v0.7.8 — 大文档打开性能优化
+
+> `#large-doc-perf-open` `P1`
+>
+> 5000+ 行文档打开延迟数秒，Obsidian 同等文档瞬间打开。瓶颈分析：打开链路 3 次同步 markdownIO 调用（`fromMarkdown` × 2 + `toMarkdown` × 1）在主线程阻塞 ~0.8–2s，加上 `EditorState.create` + `view.updateState` 全量 DOM 创建 ~200–500ms。v0.7.6 已优化的增量装饰 + 视口感知 + content-visibility 针对的是**编辑/浏览**期性能，不解决**打开**期阻塞。
+
+- [ ] **C0: 消除冗余 parse — 传递 PM Node** `#large-doc-perf-c0` `P1` `S`
+  - `DocState` 加 `pendingPmDoc` 字段；`loadContentInto` 的 `fromMarkdown` 结果直接存入，`EditorInner` modelValue watch 优先消费跳过第二次 `fromMarkdown`
+  - 3 次 markdownIO → 2 次，预计节省 ~200–500ms
+  - 一次性消费（consume 后置 null），不影响 fs:watch / 切标签恢复等路径
+
+- [ ] **C0b: 大文档跳过 canonical round-trip** `#large-doc-perf-c0b` `P1` `S`
+  - `loadContentInto` 按行数阈值（> 500 行）跳过 `toMarkdown(fromMarkdown(c))` 规范化，直接用 raw 内容 + `pendingPmDoc`
+  - 与 C0 叠加后 3 次 markdownIO → 1 次，再节省 ~100–300ms
+  - 取舍：非 canonical 文件（CRLF / 多余空行）type+delete dirty 不归零——可接受边缘问题；`checkExternalChange` 的 canonical fallback 不受影响
+
+- [ ] **C2: EditorState 延迟初始化** `#large-doc-perf-c2` `P2` `M`
+  - profiling 定位最重的插件 `init`，非关键插件 lazy init
+  - `foldDecoration` 的 `collectFoldableKeys` 延迟到 `setMeta(foldKey)` dispatch 时
+
+- ~~**C1: `toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` `?`~~（已列 P3 远期方向，C0 + C0b 落地后视剩余延迟决定是否推进）
+
+
+
 ## P1 — 核心功能
 
 ### 知识库 — 工作区索引 `#workspace-index` `P1` `L`

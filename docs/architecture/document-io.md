@@ -41,7 +41,7 @@
 4. `!dirty` → 静默 reload
 5. `dirty` → 弹确认
 
-`loadContentInto` 把磁盘内容 canonicalize 后同时塞进 `content` 与 `lastSavedContent`,所以基线是 canonical 形式而非磁盘原文。save() 写的是 canonical,写完后 `disk === lastSavedContent` 走 fast path;但未保存时磁盘仍是 raw 原文,直接与 canonical 基线比会误判外部修改,因此 step 2 在 exact match 失败后把 disk 也 canonicalize 再比。
+`loadContentInto` 把磁盘内容 canonicalize 后同时塞进 `content` 与 `lastSavedContent`,所以基线是 canonical 形式而非磁盘原文。save() 写的是 canonical,写完后 `disk === lastSavedContent` 走 fast path;但未保存时磁盘仍是 raw 原文,直接与 canonical 基线比会误判外部修改,因此 step 2 在 exact match 失败后把 disk 也 canonicalize 再比。**大文档(> 2000 行)跳过 canonical round-trip**(C0b):`content` 与 `lastSavedContent` 直接用 raw 磁盘内容,省 `toMarkdown` 100–300ms;代价是 CRLF / 多余空行等非 canonical 文件 type+delete dirty 不归零。`checkExternalChange` 的 canonical fallback 不受影响。
 
 ## 崩溃恢复
 
@@ -66,5 +66,6 @@
 
 - **fs.watch 生命周期 race**: `startWatchOf` / `stopWatch` fire-and-forget 理论可泄漏；`checkExternalChange` 早退故无实际影响。
 - **`setContent` 不推进基线**: 编辑器每次按键都回写 `content`,但 `lastSavedContent` 绝不在 `setContent` 里推进。曾用过 `echosToAccept` 计数器让编辑器"规范化回吐"推进基线,但计数器无法区分"编辑器 echo"与"用户真实编辑"—— 用户恰好在 echo 到达前敲键时,编辑被误吞成 echo,把 `lastSavedContent` 推向新内容。后果:切窗口再 focus 时 `checkExternalChange` 看到 `disk(旧) !== lastSavedContent(新) !== content(新)` + `dirty=true`,弹出"文件在编辑器外被修改"误报。基线推进只走 `loadContent` / `save` / `saveAs` / `recoverDraft` 四个入口。
+- **`pendingPmDoc` 跳过冗余 fromMarkdown(C0)**: `loadContentInto` 解析出的 PM Node 存入 `DocState.pendingPmDoc`(`markRaw` 包裹),`EditorInner` 在 modelValue watch 与 `useProseMirror` fromMarkdown 回调中通过 `consumePendingPmDoc()` 一次性消费,跳过第二次 `fromMarkdown` 调用。打开链路从 3 次 markdownIO(`fromMarkdown` × 2 + `toMarkdown` × 1)降到 2 次(小文档)或 1 次(大文档 + C0b)。消费后置 `undefined`,不影响 fs:watch / 切标签恢复等路径。
 - **`loadContent` 把磁盘内容过一遍 markdownIO canonical**: `markdownIO` round-trip(multi-empty-lines / html inline 等)在 `toMarkdown` 后不与磁盘原文字节相等 —— 用户打开一个 6 空行的文件,即使不编辑,`content` 与 `lastSavedContent` 也会因为 round-trip drift 永远不一致,出现"输入再删回原状也一直 dirty"的 bug。修法:`loadContent` 里把磁盘内容走 `toMarkdown(fromMarkdown(c, schema))`,canonical 形式**同时**塞进 `content` 与 `lastSavedContent`(`content` 也对齐 canonical 而非原文)。后续编辑器 emit 的 canonical 与基线一致,edit + revert 归零;代价是打开磁盘文件时即时规范化(典型 markdown 编辑器行为),多空行等 whitespace drift 在保存时被消除。**不要在 `setContent` 里做这件事**,否则又退化成 echo 误吞(见上条)。
 - **尾部空行 `toMarkdown` 出口补偿**(`markdownIO.ts`): `processor.stringify` 按 CommonMark 规范强制文档以单 `\n` 收尾并吃掉尾部空段,导致尾部空行每 round 丢 2 `\n`。但 PM doc 里尾部空段是活的(`<br />` 占位转成的空 paragraph),只是被 stringify 吃掉。`toMarkdown` 出口按 doc 尾部连续空段数 K 补 `\n`(K≥1 时 strip 尾 `\n` 后补 `2K+1` 个),使 `toMarkdown(fromMarkdown(x))` 对尾部空行严格 idempotent —— 2+ 个尾部空行字节守恒。**不要**改 `preprocessBlankLines` 公式做这事:段间占位的 ceil 公式对段间已结构闭合,改它只增风险不解决尾部(stringify 才是吃尾部空段的元凶)。边界:恰好 1 个尾部空行(`X\n\n`,N=2)CommonMark 不可表示,fromMarkdown 不产空段,塌缩成 0 —— 与 VSCode/Typora 同行为,无法绕开除非放弃 remark-parse。

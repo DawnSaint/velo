@@ -64,6 +64,12 @@ interface DocState {
   pmState?: unknown
   cmState?: unknown
   scrollTop?: number
+  /**
+   * loadContentInto 解析出的 PM Node,供 EditorInner 一次性消费,
+   * 跳过 modelValue watch / useProseMirror 里的冗余 fromMarkdown 调用(C0)。
+   * markRaw 包裹;consume 后置 undefined。
+   */
+  pendingPmDoc?: unknown
 }
 
 let docIdSeq = 0
@@ -361,22 +367,44 @@ export const useDocumentStore = defineStore('document', () => {
    * 第三个参数 `readOnlyLocked` 控制锁:sample 装载时传 true(永久只读),
    * 真实文件 / 新建文档传 false(用户可自由翻)。装载时同时重置 `userReadOnly`
    * —— 切到新文件相当于"新的开始",用户之前的偏好不应该带过来。 */
+  /**
+   * 行数超过此阈值时跳过 canonical round-trip(toMarkdown),直接用 raw 内容。
+   * 取舍:非 canonical 文件(CRLF / 多余空行)打开后 type+delete dirty 不归零,
+   * 但大文档下 toMarkdown 耗时 100–300ms,不值得为边缘 dirty 场景买单。
+   */
+  const CANON_SKIP_THRESHOLD = 2000
+
   function loadContentInto(d: DocState, c: string, path: string | null, readOnlyLocked_ = false) {
     d.currentFilePath = path
     // 切换到真实文件时清掉虚拟名(sample 装载后由 caller 单独 setVirtualFileName)
     d.virtualFileName = null
     d.readOnlyLocked = readOnlyLocked_
     d.userReadOnly = false
-    // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
-    // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
-    // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
-    // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
-    // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
-    // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
-    // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
-    const canonical = toMarkdown(fromMarkdown(c, pmSchema))
-    d.content = canonical
-    d.lastSavedContent = canonical
+
+    // C0: fromMarkdown 只调一次,PM Node 存入 pendingPmDoc 供 EditorInner 消费,
+    //     跳过 modelValue watch / useProseMirror 里的第二次 fromMarkdown。
+    // C0b: 大文档(> CANON_SKIP_THRESHOLD 行)跳过 toMarkdown canonical round-trip,
+    //      直接用 raw 内容作 content / lastSavedContent,省 100–300ms。
+    //      小文档仍 canonical round-trip 以保证 dirty 归零语义(type+delete 回原状 = clean)。
+    const pmDoc = fromMarkdown(c, pmSchema)
+    d.pendingPmDoc = markRaw(pmDoc)
+
+    if ((c ?? '').split('\n').length > CANON_SKIP_THRESHOLD) {
+      d.content = c
+      d.lastSavedContent = c
+    } else {
+      // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
+      // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
+      // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
+      // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
+      // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
+      // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
+      // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
+      const canonical = toMarkdown(pmDoc)
+      d.content = canonical
+      d.lastSavedContent = canonical
+    }
+
     // 内容已外部替换 → Step 3 的 cached editor state 失效,切回时重建
     d.pmState = undefined
     d.cmState = undefined
@@ -1113,6 +1141,19 @@ export const useDocumentStore = defineStore('document', () => {
     return { state: d.pmState, scrollTop: d.scrollTop }
   }
 
+  /**
+   * 一次性消费活动标签的 pendingPmDoc(C0)。EditorInner 在 modelValue watch
+   * 或 useProseMirror fromMarkdown 回调中调用,跳过冗余的第二次 fromMarkdown。
+   * 消费后置 undefined,后续调用返回 null。
+   */
+  function consumePendingPmDoc(): unknown {
+    const d = activeDoc()
+    if (!d) return null
+    const pmDoc = d.pendingPmDoc
+    d.pendingPmDoc = undefined
+    return pmDoc ?? null
+  }
+
   /** CM6 源码模式对称缓存(用 any 避免在此处引 CM6 类型)。 */
   function captureActiveCmState(state: unknown, scrollTop: number) {
     const d = activeDoc()
@@ -1356,6 +1397,7 @@ export const useDocumentStore = defineStore('document', () => {
     captureActivePmState,
     capturePmStateForDoc,
     peekActivePmStateForRestore,
+    consumePendingPmDoc,
     captureActiveCmState,
     captureCmStateForDoc,
     peekActiveCmStateForRestore,
