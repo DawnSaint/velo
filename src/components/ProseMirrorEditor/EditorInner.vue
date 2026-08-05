@@ -22,6 +22,7 @@ import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-co
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import type { Node as PMNode } from 'prosemirror-model'
+import type { EditorView } from 'prosemirror-view'
 import { fromMarkdown, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
@@ -166,7 +167,7 @@ import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
-import { foldDecoration, foldKey, collectFoldableKeys, foldDeleteCommand } from './nodes/FoldDecoration'
+import { foldDecoration, foldKey, foldDeleteCommand } from './nodes/FoldDecoration'
 import { viewportPlugin } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
@@ -623,6 +624,9 @@ let mounted = false
 // 跟踪上一个活动标签 id,切标签时据此把旧标签的 PM state + scrollTop
 // 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
 let prevActiveId = ''
+// C2: 折叠恢复 rAF 句柄,切文件 / 首挂时延迟 dispatch initCollapsedKeys,让编辑器先渲染未折叠内容
+// C3: 大文档 loading 遮罩 —— fromMarkdown 在双 rAF 后同步执行,遮罩让用户看到即时反馈
+const docLoading = ref(false)
 
 // ---- toMarkdown debounce ----
 // 大文档下 toMarkdown 序列化耗时数十毫秒,每次按键同步执行会拖慢输入。
@@ -686,43 +690,9 @@ function doEmitMarkdown(doc: PMNode): void {
   emit('update:modelValue', md)
 }
 
-// 折叠状态同步:文件切换时,把 store 里稳定 key 翻译成当前 doc 的 contentStart
-// 灌进 plugin。文件 path 变化是这个 watch 的唯一信号(modelValue 变可能是
-// 同文件内容回写,不能误触发)。
-// 旧路径上的折叠 pos 灌 store 走 plugin view hook 的 diff 同步(见
-// FoldDecoration.ts view.update 注释),本 watch 只负责"新文件灌入折叠 pos"。
+// 折叠状态持久化 store —— scheduleFoldRestore 读取当前文件的稳定 key 集合
 const foldStore = useFoldStore()
-let lastSeenFilePath: string | null = null
-
-/**
- * 把 store 里的稳定 key 集合翻译成当前 doc 的 contentStart 数组。
- * 翻译失败的 key(用户改了 block 内容,key 变了)直接丢 —— 旧 block 已
- * 不存在,保留无意义;这是稳定 key 设计的取舍(见 stores/folding.ts 注释)。
- */
-function foldKeysToPositions(
-  doc: ReturnType<typeof fromMarkdown>,
-  keys: string[],
-): number[] {
-  if (keys.length === 0) return []
-  const set = new Set(keys)
-  const positions: number[] = []
-  for (const { contentStart, stableKey } of collectFoldableKeys(doc)) {
-    if (set.has(stableKey)) positions.push(contentStart)
-  }
-  return positions
-}
-
-watch(() => useDocumentStore().currentFilePath, async (newPath) => {
-  if (newPath === lastSeenFilePath) return
-  lastSeenFilePath = newPath
-  if (!mounted) return
-  const view = getView()
-  if (!view) return
-  // 取新 doc:同 tick 内 modelValue watch 已 updateState,这里直接读
-  const positions = foldKeysToPositions(view.state.doc, foldStore.getKeysFor(newPath))
-  if (positions.length === 0) return
-  view.dispatch(view.state.tr.setMeta(foldKey, { initCollapsed: positions }))
-})
+let pendingFoldRestoreRAF: number | null = null
 
 function emitCursorPosition() {
   const view = getView()
@@ -752,11 +722,13 @@ watch(() => props.modelValue, async (newVal) => {
   const view = getView()
   if (!view) return
 
-  // 大文档(> 2000 行):先让浏览器 paint 一帧(清空旧内容 / 显示空白编辑器),
-  // 再同步执行 EditorState.create(会阻塞主线程数十~数百毫秒)。
-  // 不做分块解析——markdown 语法跨 chunk(代码块 / 列表)处理复杂且易出错,
-  // 单次 yield + 同步解析是最低风险方案。
+  // C3: 大文档(> 2000 行)双 rAF + loading 遮罩。
+  // loadContentInto 已跳过同步 fromMarkdown(C3),pendingPmDoc 为 null →
+  // fallback 走 fromMarkdown(newVal)。双 rAF 确保浏览器先 paint 遮罩再阻塞:
+  // 第一帧:Vue 更新 DOM 加遮罩;第二帧:浏览器 paint 遮罩 → fromMarkdown 阻塞。
   if (newVal.split('\n').length > 2000) {
+    docLoading.value = true
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   }
 
@@ -772,6 +744,7 @@ watch(() => props.modelValue, async (newVal) => {
     plugins: allPlugins,
     selection: openFocus.selection,
   }))
+  docLoading.value = false
   // 切换文档时把视口滚动位置归零 —— PM updateState 会尽量保留旧视口
   // 位置(尤其旧文档短、视口足以装下新文档时),即便 selection 已经在
   // doc 顶部,viewport 仍可能停在旧位置。
@@ -784,6 +757,8 @@ watch(() => props.modelValue, async (newVal) => {
   // 切回时 peekActivePmStateForRestore 返回 null → 走重建 + resetScrollToTop,
   // 滚动位置丢失。这里在装载后立即缓存。
   documentStore.captureActivePmState(view.state, 0)
+  // C2: 延迟折叠恢复到下一帧 —— view.updateState 已完成,单 rAF 即可
+  scheduleFoldRestore(view)
   // 等同 tick 的 props 副作用跑完(典型:从只读 sample 切到新建文件时,
   // readOnly watch 在同一 tick 内把 view.editable 从 false 翻 true)。
   // 否则 view.focus() 在 editable=false 状态下调用,PM 拒键盘事件,
@@ -802,6 +777,40 @@ emitHeadingContext()
 })
 
 const documentStore = useDocumentStore()
+
+/**
+ * C2: 延迟折叠恢复 —— 通过 rAF 把 initCollapsedKeys dispatch 推迟到下一帧,
+ * 让编辑器先以未折叠状态渲染(paint),再在下一帧应用折叠。大文档下折叠区段
+ * display:none 的 Decoration.node 构建开销可观,延后一帧可显著降低首屏 TTI。
+ *
+ * key→pos 翻译在 foldDecoration.apply 内部完成(经 initCollapsedKeys meta),
+ * 复用 scanDoc 缓存 + 确保翻译用的是 view.updateState 后的正确 doc。
+ *
+ * @param delay onReady 路径传 true:大文档 useProseMirror 在 rAF 里才
+ *   view.updateState 真实 doc,双 rAF 确保折叠恢复在真实 doc 就绪后执行。
+ *   modelValue watch 路径传 false:view.updateState 已同步完成,单 rAF 足够。
+ */
+function scheduleFoldRestore(view: EditorView, delay = false) {
+  if (pendingFoldRestoreRAF != null) cancelAnimationFrame(pendingFoldRestoreRAF)
+  const path = documentStore.currentFilePath
+  if (!path) return
+  const keys = foldStore.getKeysFor(path)
+  if (keys.length === 0) return
+  const fire = () => {
+    pendingFoldRestoreRAF = null
+    if (view.isDestroyed) return
+    view.dispatch(view.state.tr.setMeta(foldKey, { initCollapsedKeys: keys }))
+  }
+  if (delay) {
+    pendingFoldRestoreRAF = requestAnimationFrame(() => {
+      if (view.isDestroyed) return
+      pendingFoldRestoreRAF = requestAnimationFrame(fire)
+    })
+  } else {
+    pendingFoldRestoreRAF = requestAnimationFrame(fire)
+  }
+}
+
 // 切标签:恢复该标签缓存的 PM state(保 undo 历史 / 光标),而非 modelValue watch 的重建路径。
 // flush:'sync' 确保 tabSwitchToken 自增后立即恢复,先于 modelValue(pre-flush)watch 跑;
 // 后者看到 pendingTabRestore=true 跳过重建。
@@ -891,7 +900,17 @@ emitHeadingContext()
       registerTableEditorView(view)
       // 首挂时也缓存初始 PM state,覆盖「组件首挂 + modelValue watch 不 fire」的场景
       documentStore.captureActivePmState(view.state, 0)
+      // C2: 首挂折叠恢复 —— delay=true(双 rAF)应对大文档 useProseMirror rAF 异步加载真实 doc
+      scheduleFoldRestore(view, true)
     }
+    // C3: 大文档冷启动 —— useProseMirror 在双 rAF 后才 fromMarkdown + view.updateState,
+    // 期间显示 loading 遮罩,onLargeDocReady 回调关闭
+    if (props.modelValue.split('\n').length > 2000) {
+      docLoading.value = true
+    }
+  },
+onLargeDocReady: () => {
+docLoading.value = false
   },
 })
 
@@ -954,6 +973,7 @@ onBeforeUnmount(() => {
   // flush pending toMarkdown:防止最后一次编辑丢失
   flushPendingEmit()
   cancelPendingEmit()
+  if (pendingFoldRestoreRAF != null) cancelAnimationFrame(pendingFoldRestoreRAF)
   const el = containerRef.value
   if (el) {
     el.removeEventListener('wheel', closeTableMenuOnScroll)
@@ -967,6 +987,14 @@ onBeforeUnmount(() => {
 <template>
   <!-- 挂载容器:ref 拿给 useProseMirror 内部 EditorView 挂 contentDOM 用 -->
   <div ref="containerRef" class="velo-editor-mount h-full w-full" data-testid="pm-editor" />
+  <!-- C3: 大文档 loading 遮罩 —— fromMarkdown 阻塞主线程时给用户即时视觉反馈 -->
+  <div
+    v-if="docLoading"
+    class="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-2)]"
+    data-testid="doc-loading-overlay"
+  >
+    <div class="h-7 w-7 animate-spin rounded-full border-[3px] border-[var(--surface-border)] border-t-[var(--surface-pressed)]" />
+  </div>
   <TableContextMenu
     v-if="showTableMenu"
     ref="tableMenuRef"

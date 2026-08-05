@@ -27,6 +27,8 @@ export interface ScanResult {
   listItems: NodeEntry[]
   tocs: NodeEntry[]
   foldPlaceholders: NodeEntry[]
+  footnoteReferences: NodeEntry[]
+  footnoteDefinitions: NodeEntry[]
 }
 
 let cachedDoc: PMNode | null = null
@@ -46,6 +48,8 @@ export function scanDoc(doc: PMNode): ScanResult {
     listItems: [],
     tocs: [],
     foldPlaceholders: [],
+    footnoteReferences: [],
+    footnoteDefinitions: [],
   }
 
   doc.descendants((node: PMNode, pos: number) => {
@@ -67,6 +71,12 @@ export function scanDoc(doc: PMNode): ScanResult {
         break
       case 'fold_placeholder':
         result.foldPlaceholders.push({ pos, node })
+        break
+      case 'footnote_reference':
+        result.footnoteReferences.push({ pos, node })
+        break
+      case 'footnote_definition':
+        result.footnoteDefinitions.push({ pos, node })
         break
     }
   })

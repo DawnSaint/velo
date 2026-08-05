@@ -668,6 +668,9 @@ function applyFoldRange(
 /**
  * Plugin state apply。
  *  - setMeta `initCollapsed: number[]` → 覆盖整个 set(file 切换 / 启动时灌入)
+ *  - setMeta `initCollapsedKeys: string[]`(C2)→ 传入稳定 key 集合,apply 内部
+ *    经 collectFoldableKeys 翻译为当前 doc 的 contentStart(复用 scanDoc 缓存,
+ *    确保 key→pos 翻译用的是正确的 doc)
  *  - setMeta `toggle: number` → 单点 toggle
  *  - setMeta `remove: number[]`(v0.7.2)→ 从 set 批量移除(选区删除折叠内容时
  *    清理折叠点,避免部分选中 heading 后留下指向已删内容的 stale 折叠)
@@ -679,7 +682,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
     init: () => initialState(),
     apply(tr, prev, _oldState, newState) {
       const meta = tr.getMeta(foldKey) as
-        | { initCollapsed?: number[], toggle?: number, remove?: number[] }
+        | { initCollapsed?: number[], initCollapsedKeys?: string[], toggle?: number, remove?: number[] }
         | undefined
       // selection-only:如果文档中有 fold_placeholder,is-selected 高亮依赖选区,需重建;
       // 没有 fold_placeholder 时可以安全跳过(返回同一引用)。
@@ -694,6 +697,14 @@ const foldDecoPlugin = new Plugin<FoldState>({
       let setMutated = false
       if (meta?.initCollapsed) {
         collapsedSet = new Set(meta.initCollapsed)
+        setMutated = true
+      }
+      // C2: initCollapsedKeys — 传入稳定 key 集合,在 apply 内部翻译为 pos。
+      // 这比 EditorInner 预先翻译更高效:1) 复用 scanDoc 缓存(scanDoc 在
+      // decoration 插件首次 buildDecorations 时已预热);2) 确保翻译用的是
+      // 正确的 newState.doc(而非 watch 时序下可能 stale 的 view.state.doc)。
+      else if (meta?.initCollapsedKeys && meta.initCollapsedKeys.length > 0) {
+        collapsedSet = keysToContentStarts(newState.doc, meta.initCollapsedKeys)
         setMutated = true
       }
       else if (typeof meta?.toggle === 'number') {
@@ -1086,6 +1097,19 @@ export function collectFoldableKeys(
     if (key) out.push({ contentStart: pos + 1, stableKey: key, type: 'code_block' })
   }
   return out
+}
+
+/** C2: 把 store 里的稳定 key 集合翻译成当前 doc 的 contentStart 数组。
+ *  在 apply 内部调用,确保翻译用的是正确的 newState.doc + 复用 scanDoc 缓存。
+ *  翻译失败的 key(用户改了 block 内容,key 变了)直接丢。 */
+function keysToContentStarts(doc: PMNode, keys: string[]): Set<number> {
+  if (keys.length === 0) return new Set()
+  const set = new Set(keys)
+  const positions = new Set<number>()
+  for (const { contentStart, stableKey } of collectFoldableKeys(doc)) {
+    if (set.has(stableKey)) positions.add(contentStart)
+  }
+  return positions
 }
 
 // ============================================================

@@ -2,15 +2,20 @@ import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
+import { scanDoc } from './docScanCache'
 
 // ============================================================
 //  1. 编号核心
 // ============================================================
 
 /**
- * 扫一遍 doc 树,收集 footnote_reference / footnote_definition 的位置:
+ * 收集 footnote_reference / footnote_definition 的位置:
  * - refs:label → 所有 footnote_reference 的位置(供 backref 跳转)
  * - defs:label → footnote_definition 的位置(供 orphan 检测和正反向跳转)
+ *
+ * C2: 改用 scanDoc 缓存替代独立 doc.descendants() 遍历。
+ * footnoteEditPlugin.init 与 decoration 插件共享同一次遍历,大文档打开时
+ * 省去一次全量 doc 扫描。
  */
 export function computeNumbering(doc: PMNode): {
   refs: Map<string, number[]> // label → ref 位置列表
@@ -19,25 +24,19 @@ export function computeNumbering(doc: PMNode): {
   const refs = new Map<string, number[]>()
   const defs = new Map<string, number>()
 
-  doc.descendants((n, pos) => {
-    const name = n.type.name
-    if (name !== 'footnote_reference' && name !== 'footnote_definition') return
-    // footnote_reference 的 label 是 text content(schema 里 content:'text*');
-    // footnote_definition 的 label 是 firstChild(footnote_label 节点)的 text content
-    // —— schema 不再用 attrs.label(label 是 PM 节点 text content,与 reference 同范式)。
-    const label = name === 'footnote_reference'
-      ? (n.textContent || '')
-      : ((n.firstChild?.textContent ?? '') || '')
-    if (name === 'footnote_reference') {
-      if (!refs.has(label)) {
-        refs.set(label, [])
-      }
-      refs.get(label)!.push(pos)
-    }
-    else {
-      defs.set(label, pos)
-    }
-  })
+  const scan = scanDoc(doc)
+  // footnote_reference 的 label 是 text content(schema 里 content:'text*');
+  // footnote_definition 的 label 是 firstChild(footnote_label 节点)的 text content
+  // —— schema 不再用 attrs.label(label 是 PM 节点 text content,与 reference 同范式)。
+  for (const { node, pos } of scan.footnoteReferences) {
+    const label = node.textContent || ''
+    if (!refs.has(label)) refs.set(label, [])
+    refs.get(label)!.push(pos)
+  }
+  for (const { node, pos } of scan.footnoteDefinitions) {
+    const label = (node.firstChild?.textContent ?? '') || ''
+    defs.set(label, pos)
+  }
 
   return { refs, defs }
 }

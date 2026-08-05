@@ -1585,10 +1585,11 @@ describe('document store', () => {
     })
   })
 
-  // 9. C0 + C0b: pendingPmDoc 传递 + 大文档跳过 canonical round-trip
-  // C0: loadContentInto 解析的 PM Node 存入 pendingPmDoc,EditorInner 消费后跳过冗余 fromMarkdown
-  // C0b: > 2000 行的文档跳过 toMarkdown canonical round-trip,直接用 raw 内容
-  describe('C0 + C0b: pendingPmDoc + 大文档跳过 canonical', () => {
+// 9. C0 + C0b + C3: pendingPmDoc 传递 + 大文档跳过 canonical + 大文档延迟 fromMarkdown
+// C0: loadContentInto 解析的 PM Node 存入 pendingPmDoc,EditorInner 消费后跳过冗余 fromMarkdown
+// C0b: > 2000 行的文档跳过 toMarkdown canonical round-trip,直接用 raw 内容
+// C3: > 2000 行的文档进一步跳过同步 fromMarkdown,pendingPmDoc 为 null,延迟到 modelValue watch
+describe('C0 + C0b + C3: pendingPmDoc + 大文档跳过 canonical + 延迟 fromMarkdown', () => {
     it('loadContent 后 consumePendingPmDoc 返回 PM Node,二次消费返回 null(一次性)', () => {
       const store = useDocumentStore()
       store.init('')
@@ -1641,13 +1642,15 @@ describe('document store', () => {
       expect(store.dirty).toBe(false)
     })
 
-    it('大文档也设置 pendingPmDoc(C0 对所有文档生效,不限于小文档)', () => {
+    it('大文档不设置 pendingPmDoc(C3:fromMarkdown 延迟到 modelValue watch)', () => {
       const store = useDocumentStore()
       store.init('')
       const lines = Array.from({ length: 2001 }, (_, i) => `line ${i}`)
       store.loadContent(lines.join('\n'), '/p.md')
 
-      expect(store.consumePendingPmDoc()).not.toBeNull()
+      // C3: 大文档跳过同步 fromMarkdown,pendingPmDoc 为 null,
+      // EditorInner modelValue watch 的 fallback 在双 rAF 后执行 fromMarkdown
+      expect(store.consumePendingPmDoc()).toBeNull()
     })
   })
 })

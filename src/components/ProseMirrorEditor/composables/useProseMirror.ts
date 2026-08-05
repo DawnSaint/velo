@@ -48,6 +48,12 @@ export interface UseProseMirrorOptions {
    */
   onReady?: (view: EditorView) => void
   /**
+   * 大文档(> 2000 行)异步加载完成后的钩子。onReady 时 view 还是空 paragraph,
+   * 真实 doc 在双 rAF 后才 view.updateState。此回调在 updateState 后立即触发,
+   * caller 用来关闭 loading 遮罩。小文档不触发此回调。
+   */
+  onLargeDocReady?: () => void
+  /**
    * 只读模式。true 时 EditorView.editable 返回 false,ProseMirror 不响应任何
    * 编辑操作(键盘输入 / 粘贴 / 拖放均被忽略)。用于示例文档等不允许直接修改的场景。
    */
@@ -166,19 +172,23 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     viewRef.value = view
     opts.onReady?.(view)
 
-    // 大文档异步解析:让出一帧让浏览器渲染编辑器容器,再同步解析真实 doc。
-    // 用 requestAnimationFrame 而非 setTimeout(0):rAF 在下次绘制前执行,
-    // 浏览器有机会先 paint 空编辑器(用户看到编辑器已就位,而非白屏)。
+    // 大文档异步解析:双 rAF 让浏览器先 paint 空编辑器 + loading 遮罩,再同步解析真实 doc。
+    // 第一帧:onReady 已触发,caller 设 docLoading=true → Vue 更新 DOM 加遮罩。
+    // 第二帧:浏览器 paint 遮罩后才执行 fromMarkdown(阻塞 ~0.5–2s),遮罩可见。
     if (isLargeStringDoc && opts.fromMarkdown && typeof opts.initialDoc === 'string') {
       const md = opts.initialDoc
       requestAnimationFrame(() => {
         if (view.isDestroyed) return
-        const realDoc = opts.fromMarkdown!(md, opts.schema)
-        view.updateState(EditorState.create({
-          schema: opts.schema,
-          doc: realDoc,
-          plugins: opts.plugins,
-        }))
+        requestAnimationFrame(() => {
+          if (view.isDestroyed) return
+          const realDoc = opts.fromMarkdown!(md, opts.schema)
+          view.updateState(EditorState.create({
+            schema: opts.schema,
+            doc: realDoc,
+            plugins: opts.plugins,
+          }))
+          opts.onLargeDocReady?.()
+        })
       })
     }
   })

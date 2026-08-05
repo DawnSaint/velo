@@ -386,13 +386,16 @@ export const useDocumentStore = defineStore('document', () => {
     // C0b: 大文档(> CANON_SKIP_THRESHOLD 行)跳过 toMarkdown canonical round-trip,
     //      直接用 raw 内容作 content / lastSavedContent,省 100–300ms。
     //      小文档仍 canonical round-trip 以保证 dirty 归零语义(type+delete 回原状 = clean)。
-    const pmDoc = fromMarkdown(c, pmSchema)
-    d.pendingPmDoc = markRaw(pmDoc)
-
+    // C3: 大文档进一步跳过 loadContentInto 里的同步 fromMarkdown —— 不设 pendingPmDoc,
+    //     modelValue watch 的 fallback 在双 rAF 后执行 fromMarkdown,让浏览器先 paint
+    //     loading 遮罩。小文档仍同步 fromMarkdown + pendingPmDoc(延迟 < 50ms 无感知)。
     if ((c ?? '').split('\n').length > CANON_SKIP_THRESHOLD) {
+      d.pendingPmDoc = undefined
       d.content = c
       d.lastSavedContent = c
     } else {
+      const pmDoc = fromMarkdown(c, pmSchema)
+      d.pendingPmDoc = markRaw(pmDoc)
       // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
       // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
       // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进

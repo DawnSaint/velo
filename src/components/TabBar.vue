@@ -647,6 +647,12 @@ onBeforeUnmount(() => {
     border-top-right-radius: 8px;
     transition: none;
   }
+  /* tab 变 active 时 .tab-content 的 hover 背景必须瞬间消失(无 transition)。
+   * 否则 100ms 过渡在双 rAF(~33ms)内未完成,fromMarkdown 阻塞主线程后
+   * 浏览器冻结在半褪色状态,大文档加载期间 tab 一直显示残留 hover 灰底。 */
+  &.tab-active .tab-content {
+    transition: none;
+  }
 
   &.tab-dragging {
     opacity: 0.5;
