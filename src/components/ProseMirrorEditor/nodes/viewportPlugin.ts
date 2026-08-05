@@ -10,6 +10,14 @@
 // - viewport=null 表示不做 viewport 过滤（初始状态 / 无滚动容器 fallback）
 // - docChanged 时 map 旧 range 到新 doc 坐标
 //
+// 大文档初始渲染优化（C1）：
+// - `view.updateState(newState)` 时 PM 同步创建全部 DOM + 跑全部 decorations()，
+//   viewport=null 导致所有 decoration 插件为整个文档构建装饰（shiki tokenization、
+//   header widget DOM 等），大文档下耗时数秒。
+// - `setInitialViewportHint()` 在 EditorState.create 前预设一个覆盖首屏的窄范围，
+//   让 decoration 插件只为首屏节点构建装饰。updateState 完成后用 rAF 调
+//   `refreshViewport()` 计算真实 viewport 并 dispatch meta 触发重建。
+//
 // 不参与 viewport 过滤的插件：
 // - foldDecoration：velo-folded Decoration.node 始终全量（不能因滚出视口而展开）
 // - tocDecoration：TOC 节点通常很少，全量即可
@@ -35,6 +43,38 @@ const BUFFER_PX = 1000
 const SCROLL_DEBOUNCE_MS = 100
 /** range 变化容忍度（doc pos）。from/to 都在容忍度内时不 dispatch。 */
 const RANGE_TOLERANCE = 200
+
+/**
+ * 大文档初始渲染优化：在 EditorState.create 前预设一个覆盖首屏的窄 viewport。
+ * init 读取此值；create 后立即 clear，避免泄漏到后续 state 创建。
+ * null = 不预设（小文档 / 测试场景），init 返回 null = 不过滤。
+ */
+let initialViewportHint: ViewportRange | null = null
+
+/** 预设初始 viewport range，供下一次 EditorState.create 的 plugin init 读取。 */
+export function setInitialViewportHint(range: ViewportRange | null): void {
+  initialViewportHint = range
+}
+
+/**
+ * 计算当前 view 的真实 viewport 并 dispatch meta 通知 decoration 插件重建。
+ * 用于 view.updateState 后（文件切换 / 大文档异步加载）——view factory 的 rAF
+ * 只在首次 mount 时跑一次，后续 updateState 需手动调此函数刷新 viewport。
+ */
+export function refreshViewport(view: EditorView): void {
+  if (view.isDestroyed) return
+  const range = calculateViewportRange(view)
+  if (!range) return
+  const prev = viewportKey.getState(view.state)
+  if (
+    prev
+    && Math.abs(prev.from - range.from) < RANGE_TOLERANCE
+    && Math.abs(prev.to - range.to) < RANGE_TOLERANCE
+  ) {
+    return
+  }
+  view.dispatch(view.state.tr.setMeta(viewportKey, range))
+}
 
 /**
  * 判断节点是否在 viewport 范围内。
@@ -112,7 +152,7 @@ function calculateViewportRange(view: EditorView): ViewportRange | null {
 export const viewportPlugin = new Plugin<ViewportRange | null>({
   key: viewportKey,
   state: {
-    init: () => null,
+    init: () => initialViewportHint,
     apply(tr, prev) {
       const meta = tr.getMeta(viewportKey) as ViewportRange | undefined
       if (meta) return meta

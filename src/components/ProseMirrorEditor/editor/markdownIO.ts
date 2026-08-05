@@ -11,25 +11,13 @@
 // 与其他 fenced code 同管线(codeHighlight 出 shiki 高亮 + toolbar,
 // MermaidDecoration widget 叠加 SVG 预览)。`mermaid` atom 节点已废弃。
 
-import { unified } from 'unified'
-import remarkParse from 'remark-parse'
 import remarkStringify from 'remark-stringify'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
 import type { Schema, Node as PMNode, MarkType } from 'prosemirror-model'
 import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingContent, Table, ListItem } from 'mdast'
-import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
-import { remarkAlert } from '../plugins/remarkAlert'
-import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
-import { remarkHighlight } from '../plugins/remarkHighlight'
-import { remarkUnderline } from '../plugins/remarkUnderline'
-import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
-import { remarkSupSub } from '../plugins/remarkSupSub'
-import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
-import remarkFrontmatter from 'remark-frontmatter'
 import type { FrontmatterLang } from '../syntax/block/frontmatter'
+import { createParseProcessor } from './parseProcessor'
 
 // ============================================================
 //  unified processor
@@ -87,25 +75,9 @@ strongHandler.peek = function (_node: any, _parent: any, state: any) {
   return state.options.strong || '*'
 }
 
-const processor = unified()
-  .use(remarkParse)
-  .use(remarkPreserveEmptyLine)
-  .use(remarkEncodeLinkUrls)
-  // remarkGfm 配 singleTilde:false —— gfm 删除线只匹配双 `~~`,单 `~` 留作下标。
-  // 这样 `~text~` 不会被 gfm 在 parse 阶段吃掉成 delete,由 remarkSupSub
-  // 转成下标节点;`~~text~~` 仍走 gfm 删除线。
-  .use(remarkSupSub)
-  .use(remarkGfm, { singleTilde: false })
-  .use(remarkMathFenceGuard)
-  .use(remarkMath)
-  .use(remarkAlert)
-  .use(remarkHighlight)
-  .use(remarkUnderline)
-  // CJK 标点（：。（）等）会破坏 CommonMark 的 emphasis delimiter 判定，
-  // 导致 `**text：**more` 不被识别为 strong。此插件在 mdast 层补齐。
-  .use(remarkCjkEmphasis)
-  // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
-  .use(remarkFrontmatter, ['yaml', 'toml'])
+// 主线程 processor = parse 管线（共享） + stringify 配置（仅主线程需要）。
+// parse 部分由 createParseProcessor() 提供，与 markdownWorker.ts 共享同一配置。
+const processor = createParseProcessor()
   .use(remarkStringify, {
     bullet: '-',
     listItemIndent: 'one',
@@ -197,23 +169,126 @@ const processor = unified()
 //  fromMarkdown:string → ProseMirror Node
 // ============================================================
 
-export function fromMarkdown(md: string, schema: Schema): PMNode {
-  const tree = processor.runSync(processor.parse(md) as Root) as Root
-  // 给 inlineMath 节点标注 delimiterCount(首部分隔符 $ 数量,1 或 2)。
-  // remark-math 的 inlineMath.value 已剥离分隔符,需回查原始 md 保留 $$ 信息,
-  // 否则 `$$x^2$$` 会被降级成 `$x^2$` 存入 doc(用户打开文件后双 $ 变单 $)。
+/**
+ * mdast tree → ProseMirror doc（共享核心：fromMarkdown 和 fromMarkdownAsync 共用）。
+ *
+ * annotateMathDelimiterCount 需要 md 原文回查 offset，mdastBlockToPM 需要 schema —— 两步
+ * 都依赖主线程上下文，不能在 Worker 里做。Worker 只负责 parse + runSync 产出 mdast。
+ */
+function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
   annotateMathDelimiterCount(tree, md)
   const blocks = tree.children.flatMap(n => mdastBlockToPM(n, schema))
-  // 空文档兜底:doc 至少要一个 paragraph
   if (blocks.length === 0) {
     return schema.node('doc', null, [schema.node('paragraph')])
   }
-  // doc content 是 'frontmatter? block+':frontmatter 后必须有至少一个 block。
-  // 文件只有 frontmatter 无正文时补一个空 paragraph。
   if (blocks.length === 1 && blocks[0].type.name === 'frontmatter') {
     blocks.push(schema.node('paragraph'))
   }
   return schema.node('doc', null, blocks)
+}
+
+export function fromMarkdown(md: string, schema: Schema): PMNode {
+  const tree = processor.runSync(processor.parse(md) as Root) as Root
+  return mdastToPMDoc(tree, md, schema)
+}
+
+// ============================================================
+//  fromMarkdownAsync: Web Worker 后台 parse → 主线程 mdastToPMDoc
+// ============================================================
+//
+// C1: 将 remark-parse + runSync（大文档主线程瓶颈）移入 Worker。
+// Worker 只做 parse + runSync，返回 mdast JSON；主线程拿到后执行 mdastToPMDoc
+// （需要 schema + md 原文，不能在 Worker 做）。
+//
+// Worker 失败（创建失败 / parse 报错 / 超时）时自动降级到同步 fromMarkdown。
+
+let _worker: Worker | null = null
+let _workerFailed = false
+let _nextId = 1
+
+function getWorker(): Worker | null {
+  if (_workerFailed) return null
+  if (_worker) return _worker
+  try {
+    _worker = new Worker(
+      new URL('./markdownWorker.ts', import.meta.url),
+      { type: 'module' },
+    )
+    _worker.onerror = (e) => {
+      // Worker 创建后发生不可恢复错误，标记失败，后续请求降级到同步
+      console.warn('[markdownIO] Worker error, falling back to sync:', e.message || e)
+      _workerFailed = true
+      _worker = null
+    }
+    return _worker
+  } catch (e) {
+    console.warn('[markdownIO] Worker creation failed, falling back to sync:', e)
+    _workerFailed = true
+    return null
+  }
+}
+
+/**
+ * 异步 parse：Worker 后台 parse + runSync → 主线程 mdastToPMDoc。
+ *
+ * Worker 不可用时降级到同步 fromMarkdown。
+ * 超时（默认 10s）也降级到同步。
+ */
+export async function fromMarkdownAsync(
+  md: string,
+  schema: Schema,
+  opts?: { signal?: AbortSignal; timeout?: number },
+): Promise<PMNode> {
+  const worker = getWorker()
+  if (!worker) {
+    return fromMarkdown(md, schema)
+  }
+
+  const id = _nextId++
+  const timeout = opts?.timeout ?? 10_000
+
+  return new Promise<PMNode>((resolve) => {
+    let settled = false
+
+    const cleanup = () => {
+      worker.removeEventListener('message', onMessage)
+      worker.removeEventListener('error', onError)
+      if (timer) clearTimeout(timer)
+      opts?.signal?.removeEventListener('abort', onAbort)
+    }
+
+    const fallback = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      console.warn('[markdownIO] Worker parse fallback (error/timeout), using sync')
+      // 降级到同步 parse
+      resolve(fromMarkdown(md, schema))
+    }
+
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.id !== id) return
+      if (settled) return
+      settled = true
+      cleanup()
+      const { tree, error } = e.data
+      if (error || !tree) {
+        resolve(fromMarkdown(md, schema))
+        return
+      }
+      resolve(mdastToPMDoc(tree as Root, md, schema))
+    }
+
+    const onError = () => fallback()
+    const onAbort = () => fallback()
+
+    const timer = setTimeout(fallback, timeout)
+    opts?.signal?.addEventListener('abort', onAbort)
+
+    worker.addEventListener('message', onMessage)
+    worker.addEventListener('error', onError)
+    worker.postMessage({ id, md })
+  })
 }
 
 /**

@@ -23,7 +23,7 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-import { fromMarkdown, toMarkdown } from './editor/markdownIO'
+import { fromMarkdown, fromMarkdownAsync, toMarkdown } from './editor/markdownIO'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
@@ -168,7 +168,7 @@ import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
 import { foldDecoration, foldKey, foldDeleteCommand } from './nodes/FoldDecoration'
-import { viewportPlugin } from './nodes/viewportPlugin'
+import { viewportPlugin, setInitialViewportHint, refreshViewport } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
 import { cjkLetterSpacingPlugin } from './plugins/cjkLetterSpacing'
@@ -605,6 +605,9 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   'cursor-position-change': [position: CursorPosition]
   'heading-context-change': [chain: HeadingBreadcrumb[]]
+  /** 大文档异步加载状态变化。父级在滚动容器外渲染遮罩，
+   *  避免遮罩随内容滚动出可视区。 */
+  'loading-change': [loading: boolean]
 }>()
 
 // 区分 self-emit echo vs 外部 modelValue 变化。值匹配 → echo,跳过;
@@ -625,8 +628,11 @@ let mounted = false
 // 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
 let prevActiveId = ''
 // C2: 折叠恢复 rAF 句柄,切文件 / 首挂时延迟 dispatch initCollapsedKeys,让编辑器先渲染未折叠内容
-// C3: 大文档 loading 遮罩 —— fromMarkdown 在双 rAF 后同步执行,遮罩让用户看到即时反馈
+// C3: 大文档 loading 遮罩 —— fromMarkdownAsync 在 Worker 后台解析,遮罩让用户看到即时反馈
 const docLoading = ref(false)
+// C1: parse 取消令牌。modelValue 快速连续变化(切 tab)时,旧 Worker 请求的结果应丢弃。
+// 每次 watch 递增 token,await 返回后检查 token 是否仍是最新,否则放弃结果。
+let parseToken = 0
 
 // ---- toMarkdown debounce ----
 // 大文档下 toMarkdown 序列化耗时数十毫秒,每次按键同步执行会拖慢输入。
@@ -722,19 +728,61 @@ watch(() => props.modelValue, async (newVal) => {
   const view = getView()
   if (!view) return
 
-  // C3: 大文档(> 2000 行)双 rAF + loading 遮罩。
+  // parseToken 在分支前 bump：无论大 / 小文档路径，只要 modelValue 变了就
+  // 让此前的大文档异步链（双 rAF + Worker parse）失效，防止旧异步结果
+  // 覆盖新内容（大文件 → 快速切小文件竞态根因）。
+  const myToken = ++parseToken
+
+  // C1+C3: 大文档(> 2000 行)loading 遮罩 + Worker 异步 parse。
   // loadContentInto 已跳过同步 fromMarkdown(C3),pendingPmDoc 为 null →
-  // fallback 走 fromMarkdown(newVal)。双 rAF 确保浏览器先 paint 遮罩再阻塞:
-  // 第一帧:Vue 更新 DOM 加遮罩;第二帧:浏览器 paint 遮罩 → fromMarkdown 阻塞。
-  if (newVal.split('\n').length > 2000) {
+  // fallback 走 fromMarkdownAsync(newVal)。双 rAF 确保浏览器先 paint 遮罩:
+  // 第一帧 Vue 更新 DOM 加遮罩;第二帧浏览器 paint 遮罩 → Worker parse(不阻塞)
+  // 或同步降级(阻塞,但遮罩已可见)。
+  const isLargeDoc = newVal.split('\n').length > 2000
+  if (isLargeDoc) {
     docLoading.value = true
+    emit('loading-change', true)
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    // rAF 期间可能已切到另一个 tab(modelValue 再变),token 失效 → 放弃
+    if (myToken !== parseToken) return
+    // C0: 优先消费 pendingPmDoc(延迟期间 loadContentInto 可能已存入)。
+    const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
+    const doc = pendingDoc ?? await fromMarkdownAsync(newVal, schema as VeloSchema)
+    // Worker 解析期间可能又切了 tab,token 失效 → 放弃
+    if (myToken !== parseToken) return
+    const openFocus = decideOpenFocus(doc)
+    // C1: 预设窄 viewport hint，让 decoration 插件只为首屏节点构建装饰，
+    // 避免为整个大文档同步跑 shiki tokenization + 创建 header widget DOM。
+    // updateState 后 rAF 调 refreshViewport 计算真实 viewport 触发重建。
+    setInitialViewportHint({ from: 0, to: 5000 })
+    const newState = EditorState.create({
+      schema,
+      doc,
+      plugins: allPlugins,
+      selection: openFocus.selection,
+    })
+    setInitialViewportHint(null) // 立即清除，防泄漏到后续 state 创建
+    view.updateState(newState)
+    docLoading.value = false
+    emit('loading-change', false)
+    resetScrollToTop()
+    // view factory 的 rAF 只在首次 mount 时跑一次；文件切换走 updateState
+    // 后需手动刷新 viewport，让 decoration 插件为真实可见区域重建装饰。
+    requestAnimationFrame(() => refreshViewport(view))
+    documentStore.captureActivePmState(view.state, 0)
+    scheduleFoldRestore(view)
+    await nextTick()
+    if (mounted && openFocus.shouldFocus) {
+      try { view.focus() } catch { /* 销毁期忽略 */ }
+    }
+    emitCursorPosition()
+    emitHeadingContext()
+    return
   }
 
+  // 小文档:同步路径(无遮罩,无 Worker)
   // C0: 优先消费 loadContentInto 存入的 pendingPmDoc,跳过冗余 fromMarkdown。
-  //     pendingPmDoc 在 rAF 之后消费,避免延迟期间被另一个 loadContentInto 覆盖。
-  //     无 pendingPmDoc 时(fs:watch 外部改动未走 loadContentInto 等)回退到 fromMarkdown。
   const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
   const doc = pendingDoc ?? fromMarkdown(newVal, schema as VeloSchema)
   const openFocus = decideOpenFocus(doc)
@@ -745,6 +793,7 @@ watch(() => props.modelValue, async (newVal) => {
     selection: openFocus.selection,
   }))
   docLoading.value = false
+  emit('loading-change', false)
   // 切换文档时把视口滚动位置归零 —— PM updateState 会尽量保留旧视口
   // 位置(尤其旧文档短、视口足以装下新文档时),即便 selection 已经在
   // doc 顶部,viewport 仍可能停在旧位置。
@@ -865,6 +914,10 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
     //     跳过冗余 fromMarkdown(初始装载路径)。
     const pending = documentStore.consumePendingPmDoc() as PMNode | null
     if (pending) return pending
+    // C1: 大文档走 Worker 异步 parse,小文档走同步
+    if (md.split('\n').length > 2000) {
+      return fromMarkdownAsync(md, s as VeloSchema)
+    }
     return fromMarkdown(md, s as VeloSchema)
   },
   plugins: allPlugins,
@@ -907,10 +960,12 @@ emitHeadingContext()
     // 期间显示 loading 遮罩,onLargeDocReady 回调关闭
     if (props.modelValue.split('\n').length > 2000) {
       docLoading.value = true
+      emit('loading-change', true)
     }
   },
 onLargeDocReady: () => {
 docLoading.value = false
+  emit('loading-change', false)
   },
 })
 
@@ -987,14 +1042,6 @@ onBeforeUnmount(() => {
 <template>
   <!-- 挂载容器:ref 拿给 useProseMirror 内部 EditorView 挂 contentDOM 用 -->
   <div ref="containerRef" class="velo-editor-mount h-full w-full" data-testid="pm-editor" />
-  <!-- C3: 大文档 loading 遮罩 —— fromMarkdown 阻塞主线程时给用户即时视觉反馈 -->
-  <div
-    v-if="docLoading"
-    class="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-2)]"
-    data-testid="doc-loading-overlay"
-  >
-    <div class="h-7 w-7 animate-spin rounded-full border-[3px] border-[var(--surface-border)] border-t-[var(--surface-pressed)]" />
-  </div>
   <TableContextMenu
     v-if="showTableMenu"
     ref="tableMenuRef"

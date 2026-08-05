@@ -56,6 +56,11 @@ function onCardClick() {
   innerRef.value?.focusEditor()
 }
 
+// C3: 大文档 loading 遮罩。由 EditorInner emit 'loading-change' 控制。
+// 渲染在滚动容器外（absolute inset-0 相对外层 div.relative），
+// 避免遮罩随内容滚动出可视区。
+const docLoading = ref(false)
+
 // ========== 查找替换面板 ==========
 // 状态全在 App.vue(v-model:find-open 透传),本组件只做透传 + 把 FindReplace
 // 关闭事件回写给父级。父级改 findOpen / findInitialQuery / findInitialShowReplace
@@ -107,8 +112,17 @@ defineExpose({ getEditorView })
           @update:model-value="emit('update:modelValue', $event)"
           @cursor-position-change="emit('cursor-position-change', $event)"
           @heading-context-change="emit('heading-context-change', $event)"
+          @loading-change="docLoading = $event"
         />
       </div>
+    </div>
+    <!-- C3: 大文档 loading 遮罩 —— 在滚动容器外，absolute inset-0 相对外层 div.relative -->
+    <div
+      v-if="docLoading"
+      class="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-2)]"
+      data-testid="doc-loading-overlay"
+    >
+      <div class="h-7 w-7 animate-spin rounded-full border-[3px] border-[var(--surface-border)] border-t-[var(--surface-pressed)]" />
     </div>
     <FindReplace
       :open="props.findOpen"

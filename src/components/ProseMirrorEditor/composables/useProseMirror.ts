@@ -22,14 +22,16 @@ import { EditorView } from 'prosemirror-view'
 import type { Plugin, Transaction } from 'prosemirror-state'
 import type { Node as PMNode, Schema } from 'prosemirror-model'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
+import { setInitialViewportHint, refreshViewport } from '../nodes/viewportPlugin'
 
 export interface UseProseMirrorOptions {
   /** Schema 实例 —— caller 在 editor/schema.ts 装配后传进来。 */
   schema: Schema
   /** 初始 doc。string 走 fromMarkdown,Node 直接用。 */
   initialDoc: PMNode | string
-  /** caller 提供的 markdown → doc 适配函数;只在 initialDoc 是 string 时调用。 */
-  fromMarkdown?: (md: string, schema: Schema) => PMNode
+  /** caller 提供的 markdown → doc 适配函数;只在 initialDoc 是 string 时调用。
+   *  返回 PMNode（同步）或 Promise<PMNode>（C1: 大文档走 Worker 异步 parse）。 */
+  fromMarkdown?: (md: string, schema: Schema) => PMNode | Promise<PMNode>
   /** 全部 ProseMirror 插件(history / keymap / inputrules / 自定义...)按 caller 给的顺序灌入。 */
   plugins: Plugin[]
   /**
@@ -134,8 +136,10 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
         // 先用空 paragraph 占位,让 view 立即可交互
         doc = opts.schema.node('doc', null, [opts.schema.node('paragraph')])
       } else {
+        // 非大文档：fromMarkdown 同步返回 PMNode。
+        // 大文档（返回 Promise）走 isLargeStringDoc 分支的 rAF 异步路径。
         doc = opts.fromMarkdown
-          ? opts.fromMarkdown(opts.initialDoc, opts.schema)
+          ? opts.fromMarkdown(opts.initialDoc, opts.schema) as PMNode
           : (() => { throw new Error('[useProseMirror] initialDoc 是 string 但未提供 fromMarkdown') })()
       }
     } else {
@@ -172,22 +176,38 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     viewRef.value = view
     opts.onReady?.(view)
 
-    // 大文档异步解析:双 rAF 让浏览器先 paint 空编辑器 + loading 遮罩,再同步解析真实 doc。
-    // 第一帧:onReady 已触发,caller 设 docLoading=true → Vue 更新 DOM 加遮罩。
-    // 第二帧:浏览器 paint 遮罩后才执行 fromMarkdown(阻塞 ~0.5–2s),遮罩可见。
+    // C1: 大文档异步解析。双 rAF 让浏览器先 paint 空编辑器 + loading 遮罩,
+    // 再调 fromMarkdown。fromMarkdown 可能返回 Promise(Worker parse),
+    // Promise.resolve 统一处理 sync / async 两种返回。
     if (isLargeStringDoc && opts.fromMarkdown && typeof opts.initialDoc === 'string') {
       const md = opts.initialDoc
+      // 保存初始 state 引用——异步链完成前若 modelValue watch 已调
+      // view.updateState（用户快速切了 tab），view.state !== initialState → 中止
+      const initialState = state
       requestAnimationFrame(() => {
         if (view.isDestroyed) return
         requestAnimationFrame(() => {
           if (view.isDestroyed) return
-          const realDoc = opts.fromMarkdown!(md, opts.schema)
-          view.updateState(EditorState.create({
-            schema: opts.schema,
-            doc: realDoc,
-            plugins: opts.plugins,
-          }))
-          opts.onLargeDocReady?.()
+          const result = opts.fromMarkdown!(md, opts.schema)
+          Promise.resolve(result).then(realDoc => {
+            if (view.isDestroyed) return
+            // 冷启动竞态守卫：若 view.state 已被 modelValue watch 替换
+            // （用户在 rAF / Worker 期间切到另一个文件），中止加载初始大文档
+            if (view.state !== initialState) return
+            // C1: 预设窄 viewport hint，避免 updateState 时为整个大文档构建装饰
+            setInitialViewportHint({ from: 0, to: 5000 })
+            const newState = EditorState.create({
+              schema: opts.schema,
+              doc: realDoc,
+              plugins: opts.plugins,
+            })
+            setInitialViewportHint(null)
+            view.updateState(newState)
+            // view factory 的 rAF 在空段落时就跑过了；updateState 换成真实 doc
+            // 后需手动刷新 viewport
+            requestAnimationFrame(() => refreshViewport(view))
+            opts.onLargeDocReady?.()
+          })
         })
       })
     }

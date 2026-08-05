@@ -1130,10 +1130,19 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   /** 切标签恢复用:返回活动标签缓存的 PM state + scrollTop,仅当内容仍匹配(未被外部改)。
-   *  内容不匹配 → 返回 null,EditorInner 走 EditorState.create 重建。 */
+   *  内容不匹配 → 返回 null,EditorInner 走 EditorState.create 重建。
+   *
+   *  大文档(> CANON_SKIP_THRESHOLD 行)跳过 toMarkdown 验证:
+   *  loadContentInto 对大文档 d.content = raw(非 canonical),toMarkdown(pmDoc)
+   *  一定 !== raw → 永远返回 null → 视口丢失。loadContentInto 已在内容替换时
+   *  清 d.pmState = undefined,所以 d.pmState 存在即状态有效。 */
   function peekActivePmStateForRestore(): { state: unknown, scrollTop: number | undefined } | null {
     const d = activeDoc()
     if (!d || !d.pmState) return null
+    // 大文档:跳过 toMarkdown 验证(非 canonical + 耗时 100-300ms)
+    if ((d.content ?? '').split('\n').length > CANON_SKIP_THRESHOLD) {
+      return { state: d.pmState, scrollTop: d.scrollTop }
+    }
     try {
       const md = toMarkdown((d.pmState as { doc: unknown }).doc as Parameters<typeof toMarkdown>[0])
       if (md !== d.content) return null // stale(外部改动 / saveAs 换内容)

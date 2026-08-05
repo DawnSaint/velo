@@ -90,7 +90,7 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - `useProseMirror` 冷启动路径同步改双 rAF + `onLargeDocReady` 回调关闭遮罩
   - 效果：用户点击文件后立即看到 loading 反馈，而非冻结的旧内容；总耗时不变但感知性能显著提升
 
-- ~~**C1: `toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` `?`~~（已列 P3 远期方向，C0 + C0b + C3 落地后视剩余延迟决定是否推进）
+- ~~**C1: `toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL`~~（PoC 已实现：parse-only Worker，`fromMarkdownAsync` + `parseProcessor.ts` + `markdownWorker.ts`，1414 测试全通；待 Tauri 生产构建平台验证）—— [RESEARCH](./research/large-doc-worker.md)
 
 
 
@@ -239,6 +239,9 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] **列宽持久化**:当前列宽拖拽(`columnResizing`)只改变运行期显示,保存后再打开会回落默认。效果 = 拖拽结果进 schema + markdownIO 双向携带,刷新 / 重开后保持用户设过的列宽;未显式设宽的列保持默认。
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
 
-- [ ] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` `?`
-  - unified pipeline 移入 Worker 不阻塞主线程；需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化
+- [ ] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` —— [RESEARCH](./research/large-doc-worker.md)
+  - ~~推荐方案 B（parse-only Worker）：remark-parse + runSync 在 Worker 里执行，mdast→PM Node 转换留在主线程~~ ✅ 已实现
+  - ~~需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化 + parseToken 取消机制~~ ✅ parseToken + AbortSignal + 10s 超时降级
+  - [ ] Tauri 生产构建平台验证（Windows WebView2 / macOS WKWebView）
+  - [ ] 性能打点实测对比同步 vs Worker 端到端耗时
 
