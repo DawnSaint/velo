@@ -244,6 +244,19 @@ watch(() => workspaceStore.sidebarWidth, (n) => {
 // (见下方),在 startDrag 调用前同步完成。
 watch(() => sidebarSplitter.isDragging.value, (dragging, was) => {
   if (dragging !== was) dragCollapseRestoreView.value = null
+  // 大文档拖拽卡顿优化:拖拽期间冻结 .velo-editor 内容宽度,避免每帧 text reflow。
+  // 原理见 index.scss 的 body.velo-dragging-sidebar 规则注释。
+  if (dragging) {
+    const editorEl = document.querySelector('.velo-editor')
+    if (editorEl) {
+      const w = (editorEl as HTMLElement).getBoundingClientRect().width
+      document.body.style.setProperty('--velo-drag-editor-width', `${w}px`)
+      document.body.classList.add('velo-dragging-sidebar')
+    }
+  } else {
+    document.body.classList.remove('velo-dragging-sidebar')
+    document.body.style.removeProperty('--velo-drag-editor-width')
+  }
 })
 
 // mousedown 包装:在调 composable.startDrag 之前先把 sidebarWidthRef 同步到
@@ -1343,6 +1356,7 @@ watch(editorRef, (v) => {
            避免 0 宽侧栏旁出现孤立分隔线。 -->
       <aside
         class="shrink-0 overflow-hidden bg-[var(--surface-1)]"
+        :class="{ 'pointer-events-none': sidebarSplitter.isDragging.value }"
         :style="{ width: `${displaySidebarWidth}px` }"
       >
         <KeepAlive>

@@ -150,7 +150,13 @@ const flatItems = computed<VisualItem[]>(() => {
   return out
 })
 
+// 按 depth 缓存 indentStyle:同 depth → 同对象引用 → Vue patch 跳过 style 更新,
+// 避免每行每次重渲都重新拼接 gradient 字符串。
+const indentStyleCache = new Map<number, CSSProperties>()
+
 function indentStyle(depth: number): CSSProperties {
+  const cached = indentStyleCache.get(depth)
+  if (cached) return cached
   // 层级指示线:每个深度画一条 1px 竖线,对齐祖先行 chevron 图标的中心(12*i+8)。
   // 用 background-image (solid color) + background-size:1px 100% + background-position
   // 而非 gradient 硬停止 —— 后者在 transparent↔color 同位置切换时会被浏览器抗锯齿,
@@ -164,7 +170,7 @@ function indentStyle(depth: number): CSSProperties {
     sizes.push('1px 100%')
     positions.push(`${x}px 0`)
   }
-  return {
+  const result: CSSProperties = {
     paddingLeft: `${12 + depth * 12}px`,
     ...(images.length && {
       backgroundImage: images.join(', '),
@@ -173,6 +179,8 @@ function indentStyle(depth: number): CSSProperties {
       backgroundRepeat: 'no-repeat',
     }),
   }
+  indentStyleCache.set(depth, result)
+  return result
 }
 
 async function chooseWorkspace() {
@@ -955,8 +963,9 @@ onBeforeUnmount(() => {
 // ========== Sticky 目录头(滚动时级联粘贴)==========
 //
 // 根目录始终粘贴顶部;滚动到子目录时,子目录粘贴在根下方,以此类推。
-// 实现方式:scroll 事件(rAF 节流)→ 查询所有目录行的 offsetTop →
-// 判断哪些目录已滚过阈值且子树仍可见 → 渲染 overlay。
+// 实现方式:scroll 事件(rAF 节流)→ 用 flatItems 内存数组 + 固定行高算
+// 各行 offset → 判断哪些目录已滚过阈值且子树仍可见 → 渲染 overlay。
+// 不再 querySelectorAll / offsetTop,消除 O(n) DOM 扫描 + 布局回流。
 
 const ROW_HEIGHT = 30 // h-7.5 = 1.875rem = 30px
 const scrollContainerRef = ref<HTMLElement | null>(null)
@@ -975,45 +984,42 @@ function updateStickyHeaders() {
   const container = scrollContainerRef.value
   if (!container) { stickyHeaders.value = []; return }
 
-  const rows = container.querySelectorAll<HTMLElement>('[data-row-depth]')
-  if (!rows.length) { stickyHeaders.value = []; return }
+  const items = flatItems.value
+  if (!items.length) { stickyHeaders.value = []; return }
 
   const st = container.scrollTop
   if (st <= 0) { stickyHeaders.value = []; return }
 
-  // 构建行信息数组(offsetTop + depth + isDir + path)
-  const rowInfos: { offsetTop: number; depth: number; isDir: boolean; path: string }[] = []
-  for (const el of rows) {
-    rowInfos.push({
-      offsetTop: el.offsetTop,
-      depth: Number(el.dataset.rowDepth),
-      isDir: el.dataset.rowIsDir === 'true',
-      path: el.dataset.rowPath!,
-    })
-  }
-
+  // 行高统一按 ROW_HEIGHT;inlineNew 行(h-8=32px)差 2px,
+  // inline 编辑期间用户不滚动,视觉无感知。
   const headers: { node: TreeNode; depth: number }[] = []
+  const seenDepths = new Set<number>()
 
-  for (let i = 0; i < rowInfos.length; i++) {
-    const info = rowInfos[i]
-    if (!info.isDir) continue
+  // 从当前可见区域第一行向前走,找各层级最近的目录祖先。
+  // 向前走的步数 = scrollTop / ROW_HEIGHT,通常 < 200,远快于全量 DOM 扫描。
+  const startIdx = Math.min(Math.floor(st / ROW_HEIGHT), items.length - 1)
+  for (let i = startIdx; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind !== 'node' || !item.node.isDir) continue
+    if (seenDepths.has(item.depth)) continue
 
-    const threshold = info.depth * ROW_HEIGHT
+    const rowTop = i * ROW_HEIGHT
+    const threshold = item.depth * ROW_HEIGHT
     // 条件 1:已滚过阈值
-    if (info.offsetTop - st > threshold) continue
+    if (rowTop - st > threshold) continue
 
     // 条件 2:子树仍可见 —— 下一个 depth<=当前的同级/祖先级行还没滚过阈值
-    let endOffsetTop = Infinity
-    for (let j = i + 1; j < rowInfos.length; j++) {
-      if (rowInfos[j].depth <= info.depth) {
-        endOffsetTop = rowInfos[j].offsetTop
+    let endTop = items.length * ROW_HEIGHT
+    for (let j = i + 1; j < items.length; j++) {
+      if (items[j].depth <= item.depth) {
+        endTop = j * ROW_HEIGHT
         break
       }
     }
-    if (endOffsetTop - st <= threshold) continue
+    if (endTop - st <= threshold) continue
 
-    const node = dirIndex.get(info.path)
-    if (node) headers.push({ node, depth: info.depth })
+    seenDepths.add(item.depth)
+    headers.unshift({ node: item.node, depth: item.depth })
   }
 
   stickyHeaders.value = headers

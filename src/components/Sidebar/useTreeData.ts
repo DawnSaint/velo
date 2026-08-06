@@ -54,33 +54,6 @@ export function useTreeData(): UseTreeData {
     return reactive({ name, fullPath, isDir }) as TreeNode
   }
 
-  /**
-   * 1 级"空目录"探测:在父目录加载完后,对每个子目录后台 readDir 一次,
-   * 仅在结果为空时把 children 置 [] —— 用来让模板的"空目录隐藏箭头"逻辑
-   * 在用户首次展开父目录时就生效,无需点一下才知道。
-   *
-   * 设计要点:
-   *  - 非空时**不**写 children(留 undefined),交给用户真正展开时再 loadDirChildren
-   *    全量加载;避免一次性把整棵树加载,违背懒加载初衷。
-   *  - 中途若 children 被别的路径(用户点击展开 / restoreExpanded / fs.watch refresh)
-   *    抢先 set 了,放弃覆盖 —— 用 children !== undefined 作 race 守卫。
-   *  - 探测失败(权限等)静默,留 undefined,首次用户点击展开时 loadDirChildren 会
-   *    报真实错误。
-   */
-  async function probeDirEmptiness(node: TreeNode): Promise<void> {
-    if (!node.isDir || node.children !== undefined) return
-    try {
-      const entries = await readDir(node.fullPath)
-      if (node.children !== undefined) return // 抢先被填了,放弃覆盖
-      if (sortEntries(entries).length === 0) {
-        node.children = []
-      }
-    }
-    catch {
-      // 静默:留 undefined,首次展开 loadDirChildren 会暴露真实错误
-    }
-  }
-
   async function loadDirChildren(node: TreeNode): Promise<void> {
     if (!node.isDir) return
     node.error = undefined
@@ -112,10 +85,6 @@ export function useTreeData(): UseTreeData {
         if (c.isDir && !seen.has(c.name)) dirIndex.delete(c.fullPath)
       }
       node.children = next
-      // 后台探测每个子目录是否为空 —— fire-and-forget,Vue 在每个完成后单独刷新箭头
-      for (const c of next) {
-        if (c.isDir && c.children === undefined) void probeDirEmptiness(c)
-      }
     }
     catch (e) {
       console.warn(`读取目录失败 ${node.fullPath}`, e)

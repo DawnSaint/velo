@@ -241,3 +241,24 @@
   background-color: var(--md-primary-color, #1F71D9);
 }
 
+/* 拖拽侧栏时冻结编辑器内容宽度(v0.7.8 大文档拖拽卡顿优化)。
+ *
+ * 问题:拖拽 splitter 时每帧(rAF)更新 aside 宽度 → flex 布局重算编辑器区域 →
+ * .velo-editor 宽度变化(当可用空间 < 64vw 时)→ 大文档所有可见段落 text reflow,
+ * 加上 ResizeObserver 回调(tableInsertHandle.repositionDots / veloScroll.updateThumb)
+ * 调 getBoundingClientRect() 强制同步 layout flush → 每帧 > 16ms → 卡顿。
+ *
+ * 修复:拖拽开始时 JS 测量 .velo-editor 当前像素宽度,设到 --velo-drag-editor-width
+ * CSS 变量 + 加 body.velo-dragging-sidebar class。此规则用固定宽度覆盖 w-full +
+ * max-w-[64vw],阻止 text reflow;flex-shrink:0 防止 flex 容器压缩。拖拽结束后
+ * JS 移除 class + 变量,编辑器宽度一次性适配新容器宽度(单次 reflow 可接受)。
+ *
+ * .velo-editor 宽度不变 → .ProseMirror 宽度不变 → content-visibility:auto 子元素
+ * 无需 re-layout,ResizeObserver 回调的 getBoundingClientRect() 也因 layout 变小而
+ * 更快返回。水平居中(justify-center)仍随容器宽度变化,但只是位移不触发 reflow。 */
+body.velo-dragging-sidebar .velo-editor {
+  width: var(--velo-drag-editor-width, auto) !important;
+  max-width: var(--velo-drag-editor-width, auto) !important;
+  flex-shrink: 0;
+}
+

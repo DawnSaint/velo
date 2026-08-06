@@ -90,7 +90,41 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - `useProseMirror` 冷启动路径同步改双 rAF + `onLargeDocReady` 回调关闭遮罩
   - 效果：用户点击文件后立即看到 loading 反馈，而非冻结的旧内容；总耗时不变但感知性能显著提升
 
-- ~~**C1: `toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL`~~（PoC 已实现：parse-only Worker，`fromMarkdownAsync` + `parseProcessor.ts` + `markdownWorker.ts`，1414 测试全通；待 Tauri 生产构建平台验证）—— [RESEARCH](./research/large-doc-worker.md)
+- [x] **C1: `toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL`（已实现：parse-only Worker，主线程阻塞从 ~2800ms 降至 ~458ms，6x 提速）—— [RESEARCH](./research/large-doc-worker.md)
+  - 方案 B（parse-only Worker）：remark-parse + runSync 在 Worker 里执行，mdast→PM Node 转换留在主线程
+  - parseToken 取消机制 + AbortSignal + 10s 超时降级到同步 parse
+  - viewport hint 预设首屏范围，updateState 只为首屏节点构建 decoration（shiki tokenization / header widget）
+  - 修复竞态：parseToken 在分支前 bump + 冷启动 state 引用守卫
+  - 修复 loading 遮罩随滚动容器滚出可视区：遮罩移至滚动容器外
+  - 修复大文件视口记忆丢失：peekActivePmStateForRestore 跳过非 canonical 大文档的 toMarkdown 验证
+  - Tauri 生产构建平台验证通过（Windows WebView2）
+
+
+
+## v0.7.8 — 文件树性能优化
+
+> `#file-tree-perf` `P1`
+>
+> 打开包含深层级目录结构（如 node_modules）的文件夹时明显卡顿。瓶颈分析：① `probeDirEmptiness` 死代码仍在运行——架构文档已记载移除但代码遗漏，每次 `loadDirChildren` 后对每个子目录 fire-and-forget `readDir`，展开 node_modules 时产生 200+ 并发无意义 IPC 调用；② 无虚拟化——所有可见行全量渲染 DOM，数千行时 DOM 创建 + 布局成为瓶颈；③ Sticky 目录头算法 O(n²)——`querySelectorAll` + `offsetTop` 读取 + 嵌套循环，每帧滚动触发布局回流；④ `indentStyle` 每行重新生成 CSS 字符串无缓存。
+
+- [x] **FT0: 删除 `probeDirEmptiness` 死代码** `#file-tree-perf-ft0` `P1` `S`
+  - 删除 `useTreeData.ts` 中 `probeDirEmptiness` 函数及 `loadDirChildren` 末尾的调用循环
+  - 架构文档已记载移除（模板对所有目录都显示展开箭头，probe 结果未被使用），代码对齐
+  - 消除深层级目录展开时数百个无意义 IPC `readDir` 调用
+
+- [x] **FT1: `indentStyle` 按 depth 缓存** `#file-tree-perf-ft1` `P2` `S`
+  - 用 `Map<number, CSSProperties>` 缓存：同 depth → 同对象引用 → Vue patch 跳过 style 更新
+  - 消除每行重复字符串拼接 + CSS 解析
+
+- [x] **FT2: Sticky 目录头纯算术化** `#file-tree-perf-ft2` `P2` `M`
+  - 用 `flatItems` 内存数组 + 固定行高累计 offset 替代 `querySelectorAll` + `offsetTop` DOM 查询
+  - 从当前可见位置向前走找各层级最近目录祖先，消除布局回流
+  - O(n) DOM 扫描 + O(n²) 嵌套循环 → O(scroll_offset/ROW_HEIGHT) 纯算术，无 DOM 查询
+
+- [ ] **FT3: 文件树虚拟滚动** `#file-tree-perf-ft3` `P1` `L`
+  - 窗口化渲染：`flatItems` computed 仍生成完整数组（sticky / revealFile 用），渲染时 slice 到视口可见范围 + overscan
+  - spacer div 撑住总滚动高度，DOM 节点从 O(n) 降至 O(viewport)
+  - 兼容 `revealFile`（先滚动定位再 querySelector）、sticky 头（基于 flatItems 算术）、行内 input / 右键菜单 / 拖放 hover-expand
 
 
 
@@ -239,9 +273,9 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] **列宽持久化**:当前列宽拖拽(`columnResizing`)只改变运行期显示,保存后再打开会回落默认。效果 = 拖拽结果进 schema + markdownIO 双向携带,刷新 / 重开后保持用户设过的列宽;未显式设宽的列保持默认。
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
 
-- [ ] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` —— [RESEARCH](./research/large-doc-worker.md)
+- [x] **`toMarkdown` / `fromMarkdown` 移入 Web Worker** `#large-doc-perf-c1` `P3` `XL` —— [RESEARCH](./research/large-doc-worker.md)
   - ~~推荐方案 B（parse-only Worker）：remark-parse + runSync 在 Worker 里执行，mdast→PM Node 转换留在主线程~~ ✅ 已实现
   - ~~需解决 mdast JSON 序列化开销 + echo 哨兵机制异步化 + parseToken 取消机制~~ ✅ parseToken + AbortSignal + 10s 超时降级
-  - [ ] Tauri 生产构建平台验证（Windows WebView2 / macOS WKWebView）
-  - [ ] 性能打点实测对比同步 vs Worker 端到端耗时
+  - ~~Tauri 生产构建平台验证（Windows WebView2 / macOS WKWebView）~~ ✅ Windows WebView2 验证通过
+  - ~~性能打点实测对比同步 vs Worker 端到端耗时~~ ✅ 217KB/6967 行文档：主线程阻塞 ~2800ms → ~458ms（6x）
 
