@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.8](https://github.com/DawnSaint/velo/compare/v0.7.7...v0.7.8) (2026-08-06)
+
+
+### Features
+
+* **editor:** offload markdown parse to web worker and add viewport hint for large docs ([54d78f2](https://github.com/DawnSaint/velo/commit/54d78f26f49d7560070821cd0094dd2949942aa5))
+* **sidebar:** add file tree virtual scrolling, file menu format entry, and wrap up v0.7.8 release docs ([01d404f](https://github.com/DawnSaint/velo/commit/01d404f2ef6bbd9e8bf8a6a68f6dc61d5d66968c))
+
+
+### Performance Improvements
+
+* **editor:** defer fromMarkdown for large docs with loading overlay (C3) ([b23ceee](https://github.com/DawnSaint/velo/commit/b23ceee9dc4649f7fb3ab50a11e11ae58f3df22d))
+* **editor:** optimize large document open performance with pendingPmDoc and canonical skip ([5046881](https://github.com/DawnSaint/velo/commit/5046881482e351e4f05bc5cd26190a7ca42eae6d))
+* **sidebar:** optimize file tree and sidebar drag performance ([0684977](https://github.com/DawnSaint/velo/commit/068497777095aa69d0c4b80d5366d673f0c2ced9))
+
 ## [0.7.7](https://github.com/DawnSaint/velo/compare/v0.7.6...v0.7.7) (2026-08-05)
 
 
