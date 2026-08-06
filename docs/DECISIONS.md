@@ -248,4 +248,20 @@
 
 - **Context**: WYSIWYG 模式在 5000+ 行文档下卡顿，根因是 6+ 个 decoration 插件每次 transaction 都全量 `doc.descendants()` 遍历 + 全量重建 DecorationSet。候选:A 保持全量重建但加 debounce（治标不治本，大文档单次遍历仍慢）；B 增量更新 DecorationSet（从 `tr.steps` 提取 dirty range，只对变动区域重建）+ 视口感知（只为可见区域构建装饰）；C 移入 Web Worker（架构改动大，echo 哨兵需异步化）。
 - **Decision**: 选 B。三层组合：① `docScanCache.ts` 单次遍历收集所有装饰目标节点（doc 对象身份做缓存键，零开销命中），从 7 次全量遍历降到 1 次；② `incrementalDeco.ts` 从 `tr.steps` 提取 dirty range，plugin state 缓存 DecorationSet，docChanged 时 map 旧 set 平移 pos + 只对 dirty range 重建 add/remove，selection-only 返回同引用让 PM 跳过 diff；③ `viewportPlugin` 跟踪可见 doc pos 范围，装饰构建时只为视口内节点创建，滚动时增量补充。KaTeX NodeView 用共享 `IntersectionObserver` 延迟渲染。fold 的 `velo-folded` node decoration 始终全量（折叠状态需全局一致）。
-- **Consequences**: 大文档浏览 / 编辑性能显著改善，主线程开销大幅降低。代价:增量更新逻辑复杂（`StepMap.forEach` 提取 dirty range、fold 特殊回退全量重建），后续新增 decoration 插件需遵循增量范式。C1（Web Worker）留作远期方向，增量 + 视口感知已满足当前性能需求。
+- **Consequences**: 大文档浏览 / 编辑性能显著改善，主线程开销大幅降低。代价:增量更新逻辑复杂（`StepMap.forEach` 提取 dirty range、fold 特殊回退全量重建），后续新增 decoration 插件需遵循增量范式。C1（Web Worker）已在 v0.7.8 实现（见 ADR-20260806-002）。
+
+---
+
+## v0.7.8 — 大文档打开性能 + 文件树性能
+
+### ADR-20260806-001: 大文档打开链路优化（pendingPmDoc + canonical skip + 延迟 parse + loading 遮罩）
+
+- **Context**: 5000+ 行文档打开延迟数秒。打开链路 3 次同步 markdownIO 调用（`fromMarkdown` × 2 + `toMarkdown` × 1）阻塞主线程 ~0.8–2s，加 `EditorState.create` ~200–500ms。候选:A 仅优化同步 parse（治标不治本，大文档单次 parse 仍阻塞）；B 消除冗余 parse + 跳过 canonical + 延迟 parse + loading 遮罩（分步减负 + 感知改善）；C 全部移入 Worker（C1 另独立 ADR，此 ADR 不含）。
+- **Decision**: 选 B。`pendingPmDoc` 字段让 `fromMarkdown` 结果跨组件共享，消除第二次 parse（3→2 次）；> 2000 行跳过 `toMarkdown(fromMarkdown(c))` 规范化（2→1 次，非 canonical 文件 dirty 不归零——可接受边缘）；> 2000 行延迟 `fromMarkdown` 到双 rAF 后执行，先 paint loading 遮罩再阻塞；`foldDecoration` 的 `collectFoldableKeys` 延迟到 fold dispatch 时。
+- **Consequences**: 大文档打开 markdownIO 3→1 次；loading 遮罩让用户立即看到反馈而非冻结。canonical skip 的代价（CRLF/多余空行文件 type+delete dirty 不归零）是可接受的边缘问题，`checkExternalChange` 的 canonical fallback 不受影响。后续 C1 Worker 在此基础上进一步将剩余 1 次 parse 移出主线程。
+
+### ADR-20260806-002: Markdown 解析移入 Web Worker（parse-only 方案）
+
+- **Context**: C0–C3 优化后，大文档打开仍有 1 次 `fromMarkdown` 同步阻塞 ~2.8s（217KB / 6967 行）。候选:A 全移入 Worker（parse + serialize），mdast JSON 序列化开销大且 echo 哨兵需全异步化；B parse-only Worker（remark-parse + runSync 在 Worker，mdast→PM Node 转换留主线程），序列化开销小且转换无正则/解析；C 不用 Worker，继续优化同步（已无显著空间）。
+- **Decision**: 选 B。remark-parse + runSync 在 Worker 里执行，mdast→PM Node 转换（纯树遍历，无正则）留主线程。`parseToken` 带 AbortSignal + 10s 超时降级到同步 parse；viewport hint 预设首屏范围，`updateState` 只为首屏节点构建 decoration。竞态防护：parseToken 在分支前 bump + 冷启动 state 引用守卫。
+- **Consequences**: 主线程阻塞从 ~2800ms 降至 ~458ms（6x 提速），Tauri 生产构建 Windows WebView2 验证通过。Worker 通信为小文档增加微延迟（冷启动同步 fallback 覆盖）。echo 哨兵机制需适配异步 parseToken（bump + 引用守卫），后续若 serialize 也成瓶颈可按同范式加 Worker。

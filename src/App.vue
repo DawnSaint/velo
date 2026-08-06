@@ -1305,6 +1305,7 @@ watch(editorRef, (v) => {
           @save="documentStore.save()"
           @save-as="documentStore.saveAs()"
           @export="exportStore.exportDocument()"
+          @format-cjk="formatCJK()"
           @open-recent="openRecentFile"
           @toggle-always-on-top="toggleAlwaysOnTop()"
           @toggle-focus-mode="toggleFocusMode()"

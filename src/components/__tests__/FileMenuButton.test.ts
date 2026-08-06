@@ -58,10 +58,10 @@ describe('FileMenuButton', () => {
 
     await openMenu(wrapper)
 
-    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出', '专注模式', '保持窗口最前']) {
+    for (const label of ['新建文件', '新窗口', '打开文件', '打开文件夹', '最近文件', '保存', '另存为', '导出', '格式化排版', '专注模式', '保持窗口最前']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true)
     }
-    for (const shortcut of ['Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+Shift+E']) {
+    for (const shortcut of ['Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+Shift+E', 'Ctrl+Shift+L']) {
       expect(wrapper.text()).toContain(shortcut)
     }
   })
@@ -183,7 +183,7 @@ describe('FileMenuButton', () => {
     expect(wrapper.text()).toContain('暂无最近文件')
   })
 
-  it('无活动文档时隐藏保存/另存为/导出', async () => {
+  it('无活动文档时隐藏保存/另存为/导出/格式化排版', async () => {
     const wrapper = mountMenu({ hasDocument: false })
 
     await openMenu(wrapper)
@@ -191,6 +191,7 @@ describe('FileMenuButton', () => {
     expect(wrapper.find('[aria-label="保存"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="另存为"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="导出"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="格式化排版"]').exists()).toBe(false)
     // 其他菜单项仍可用
     expect(wrapper.find('[aria-label="新建文件"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="最近文件"]').exists()).toBe(true)

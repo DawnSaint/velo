@@ -26,7 +26,7 @@ import { File, ChevronRight, Check } from '@lucide/vue'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 import type { RecentFileEntry } from '@/stores/persistence'
 
-type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'toggle-always-on-top' | 'toggle-focus-mode' | 'toggle-typewriter-mode'
+type FileActionEvent = 'new-doc' | 'new-window' | 'open-file' | 'open-folder' | 'save' | 'save-as' | 'export' | 'format-cjk' | 'toggle-always-on-top' | 'toggle-focus-mode' | 'toggle-typewriter-mode'
 
 interface FileActionRow {
   key: string
@@ -68,6 +68,7 @@ const emit = defineEmits<{
   'toggle-always-on-top': []
   'toggle-focus-mode': []
   'toggle-typewriter-mode': []
+  'format-cjk': []
 }>()
 
 const open = ref(false)
@@ -113,6 +114,14 @@ const groups = computed<{ rows: FileActionRow[] }[]>(() => {
             { key: 'save', label: '保存', shortcut: 'Ctrl+S', event: 'save' as FileActionEvent },
             { key: 'save-as', label: '另存为', shortcut: 'Ctrl+Shift+S', event: 'save-as' as FileActionEvent },
             { key: 'export', label: props.exporting ? '导出中…' : '导出', shortcut: 'Ctrl+Shift+E', event: 'export' as FileActionEvent, disabled: props.exporting },
+          ],
+        }]
+      : []),
+    // 格式化排版:仅在有活动文档时显示
+    ...(props.hasDocument
+      ? [{
+          rows: [
+            { key: 'format-cjk', label: '格式化排版', shortcut: 'Ctrl+Shift+L', event: 'format-cjk' as FileActionEvent },
           ],
         }]
       : []),
@@ -219,6 +228,7 @@ function emitAction(row: FileActionRow) {
   else if (row.event === 'save') emit('save')
   else if (row.event === 'save-as') emit('save-as')
   else if (row.event === 'export') emit('export')
+  else if (row.event === 'format-cjk') emit('format-cjk')
   else if (row.event === 'toggle-always-on-top') emit('toggle-always-on-top')
   else if (row.event === 'toggle-focus-mode') emit('toggle-focus-mode')
   else if (row.event === 'toggle-typewriter-mode') emit('toggle-typewriter-mode')

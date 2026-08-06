@@ -8,7 +8,7 @@
 //  - 拖入折叠目录悬停 500ms 自动展开(VSCode 行为)
 //  - 展开状态走 workspaceStore.expandedDirs,持久化到 velo-workspaces.json
 //
-// 性能取舍:**不虚拟化**。真撞性能墙再上虚拟滚动。
+// 性能取舍:虚拟滚动(FT3)—— 只渲染视口可见行 + overscan 缓冲。
 // 文件分类:lexicographic 排序,目录在文件前;隐藏文件(以 . 开头)默认显示
 //
 // 行内 input(新建 / 重命名)走「行内编辑」(对齐 VSCode / Finder),不再用 modal。
@@ -764,9 +764,27 @@ async function revealFile(filePath: string, options?: { flash?: boolean }): Prom
   // 再补一次 nextTick:某些情况下 children 的渲染在 flatItems 上还要再 flush 一次
   await nextTick()
 
+  // 虚拟滚动:目标行可能不在 DOM 里,先算出目标索引 → 手动设 scrollTop
+  // 居中定位 → 同步 updateViewport 让 visibleRange 包含目标行 → nextTick
+  // 后行渲染到 DOM → querySelector 定位 + flash 高亮。
+  const items = flatItems.value
+  const targetIdx = items.findIndex(
+    item => item.kind === 'node' && item.node.fullPath === filePath,
+  )
+  if (targetIdx === -1) return
+
+  const container = scrollContainerRef.value
+  if (container) {
+    const viewportH = container.clientHeight
+    const targetTop = targetIdx * ROW_HEIGHT
+    container.scrollTop = Math.max(0, targetTop - Math.floor(viewportH / 2) + Math.floor(ROW_HEIGHT / 2))
+    updateViewport()
+  }
+
+  await nextTick()
+
   const row = treeRootRef.value?.querySelector(`[title="${CSS.escape(filePath)}"]`) as HTMLElement | null
   if (!row) return
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' })
   if (options?.flash !== false) {
     row.classList.add('reveal-flash')
     window.setTimeout(() => row.classList.remove('reveal-flash'), 1500)
@@ -945,10 +963,17 @@ function resetTransientUi() {
   if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
   refreshState.value = 'idle'
   stickyHeaders.value = []
+  visibleRange.value = { start: 0, end: 0 }
 }
 
-onMounted(attachGlobalListeners)
-onActivated(attachGlobalListeners)
+onMounted(() => {
+  attachGlobalListeners()
+  nextTick(updateViewport)
+})
+onActivated(() => {
+  attachGlobalListeners()
+  nextTick(updateViewport)
+})
 onDeactivated(() => {
   detachGlobalListeners()
   resetTransientUi()
@@ -960,36 +985,77 @@ onBeforeUnmount(() => {
   if (scrollRafId !== null) { cancelAnimationFrame(scrollRafId); scrollRafId = null }
 })
 
-// ========== Sticky 目录头(滚动时级联粘贴)==========
+// ========== 虚拟滚动 + Sticky 目录头 ==========
 //
-// 根目录始终粘贴顶部;滚动到子目录时,子目录粘贴在根下方,以此类推。
-// 实现方式:scroll 事件(rAF 节流)→ 用 flatItems 内存数组 + 固定行高算
-// 各行 offset → 判断哪些目录已滚过阈值且子树仍可见 → 渲染 overlay。
-// 不再 querySelectorAll / offsetTop,消除 O(n) DOM 扫描 + 布局回流。
+// 虚拟滚动:只渲染视口内可见行 + overscan 缓冲,spacer div 撑住总高度。
+// DOM 节点从 O(n) 降至 O(viewport),无论展开多少目录渲染开销近恒定。
+//
+// Sticky 目录头:滚动时已滚出视口顶部的目录行级联粘贴(同 VSCode)。
+// 用 flatItems 内存数组 + 固定行高算各行 offset,从当前可见区域第一行
+// 向前走找各层级最近的目录祖先 → 渲染 overlay。不走 querySelectorAll /
+// offsetTop,消除 DOM 扫描 + 布局回流。
+//
+// 两者合并到 updateViewport:同一次 rAF 回调读 scrollTop + clientHeight,
+// 同时更新 visibleRange 和 stickyHeaders,避免重复布局读取。
 
 const ROW_HEIGHT = 30 // h-7.5 = 1.875rem = 30px
+const OVERSCAN = 5 // 视口上下额外渲染的行数,减少滚动时的闪烁
 const scrollContainerRef = ref<HTMLElement | null>(null)
 let scrollRafId: number | null = null
 const stickyHeaders = ref<{ node: TreeNode; depth: number }[]>([])
+const visibleRange = ref({ start: 0, end: 0 })
+
+/** 视口内可见行(含 overscan),由 flatItems 切片得来。 */
+const visibleItems = computed<VisualItem[]>(() => {
+  const items = flatItems.value
+  const { start, end } = visibleRange.value
+  if (start >= end || start >= items.length) return []
+  return items.slice(start, Math.min(end, items.length))
+})
 
 function onScroll() {
   if (scrollRafId !== null) return
   scrollRafId = requestAnimationFrame(() => {
     scrollRafId = null
-    updateStickyHeaders()
+    updateViewport()
   })
 }
 
-function updateStickyHeaders() {
+function updateViewport() {
   const container = scrollContainerRef.value
-  if (!container) { stickyHeaders.value = []; return }
+  if (!container) {
+    visibleRange.value = { start: 0, end: 0 }
+    stickyHeaders.value = []
+    return
+  }
 
   const items = flatItems.value
-  if (!items.length) { stickyHeaders.value = []; return }
+  if (!items.length) {
+    visibleRange.value = { start: 0, end: 0 }
+    stickyHeaders.value = []
+    return
+  }
 
   const st = container.scrollTop
-  if (st <= 0) { stickyHeaders.value = []; return }
+  const vh = container.clientHeight
 
+  // clientHeight === 0 (jsdom / 容器尚未布局) → 全量渲染,不虚拟化
+  if (vh === 0) {
+    visibleRange.value = { start: 0, end: items.length }
+    stickyHeaders.value = []
+    return
+  }
+
+  // — 虚拟滚动:计算可见范围 —
+  const start = Math.max(0, Math.floor(st / ROW_HEIGHT) - OVERSCAN)
+  const end = Math.min(items.length, Math.ceil((st + vh) / ROW_HEIGHT) + OVERSCAN)
+  visibleRange.value = { start, end }
+
+  // — Sticky 目录头 —
+  if (st <= 0) {
+    stickyHeaders.value = []
+    return
+  }
   // 行高统一按 ROW_HEIGHT;inlineNew 行(h-8=32px)差 2px,
   // inline 编辑期间用户不滚动,视觉无感知。
   const headers: { node: TreeNode; depth: number }[] = []
@@ -1034,9 +1100,12 @@ function stickyDisplayName(node: TreeNode): string {
   return isRootNode(node) ? rootDisplay.value : node.name
 }
 
-// flatItems 变化时(展开/折叠/CRUD)重新计算 sticky
+// flatItems 变化时(展开/折叠/CRUD)重新计算 viewport + sticky。
+// 同步调用确保 visibleRange 在 Vue 重渲染前更新,避免空帧闪烁;
+// nextTick 再补一次以处理 DOM 更新后 scrollTop 可能被浏览器 clamp 的情况。
 watch([flatItems, rootCollapsed], () => {
-  nextTick(updateStickyHeaders)
+  updateViewport()
+  nextTick(updateViewport)
 })
 
 const rootDisplay = computed(() => {
@@ -1090,7 +1159,9 @@ function displayName(node: TreeNode): string {
         读取目录失败
       </div>
       <div v-else>
-        <template v-for="item in flatItems" :key="item.kind === 'inlineNew' ? `inlineNew-${item.parentDir}` : item.node.fullPath">
+        <!-- 虚拟滚动:上下 spacer 撑住总高度,中间只渲染可见行 -->
+        <div :style="{ height: `${visibleRange.start * ROW_HEIGHT}px` }"></div>
+        <template v-for="item in visibleItems" :key="item.kind === 'inlineNew' ? `inlineNew-${item.parentDir}` : item.node.fullPath">
           <!-- ============ 行内新建(挂目标目录末尾)============ -->
           <div
             v-if="item.kind === 'inlineNew'"
@@ -1238,6 +1309,7 @@ function displayName(node: TreeNode): string {
             </div>
           </div>
         </template>
+        <div :style="{ height: `${Math.max(0, flatItems.length - visibleRange.end) * ROW_HEIGHT}px` }"></div>
         <!-- 根子项为空时显示占位(根 row 已先行渲染,这里只补"空目录"提示)。
              根折叠时不渲染(占位也跟着收起,保持折叠纯粹)。 -->
         <div
