@@ -31,6 +31,7 @@ import { useCommandPaletteItems } from '@/composables/useCommandPaletteItems'
 import { useWorkspaceSearch } from '@/composables/useWorkspaceSearch'
 import { useGlobalKeybindings } from '@/composables/useGlobalKeybindings'
 import { useCrossModeSync } from '@/composables/useCrossModeSync'
+import { useUpdater } from '@/composables/useUpdater'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
@@ -827,6 +828,10 @@ const { onRevealHeading, onBreadcrumbReveal, onLineEnter, onLinePreview, onLineC
   getActiveBackend: activeBackend,
 })
 
+// ========== 自动更新 ==========
+// 启动后静默检查一次,有更新走 Toast 提示(不自动下载)。10s 延迟避开首屏 busy 链路。
+const { autoCheck: autoCheckUpdate } = useUpdater()
+
 // ========== composable: 工作区搜索编排 ==========
 const {
   workspaceSearchInitialQuery,
@@ -1239,6 +1244,11 @@ view.dispatch(view.state.tr.setMeta(cjkAutoFormatKey, cfg))
       })
       if (discard) await win.destroy()
     })
+  }
+
+  // 6) 启动后静默检查更新(10s 延迟避开首屏 busy 链路)。fire-and-forget,不阻塞。
+  if (tauri) {
+    setTimeout(() => { void autoCheckUpdate() }, 10_000)
   }
 })
 

@@ -1,8 +1,8 @@
 # Tauri Boundary
 
-> **本文件负责**: Tauri API 封装层、capabilities、CLI/single-instance、Windows NSIS 安装器集成（文件关联 + 文件夹/md 文件右键菜单 + per-user 安装）、web-dev 降级。
+> **本文件负责**: Tauri API 封装层、capabilities、CLI/single-instance、Windows NSIS 安装器集成（文件关联 + 文件夹/md 文件右键菜单 + per-user 安装）、web-dev 降级、应用自动更新。
 >
-> **何时阅读**: 改 `src/tauri/*`、`src-tauri/*` command/capability、CLI 参数、single-instance、Windows shell 集成或 NSIS 安装器 hooks 时。
+> **何时阅读**: 改 `src/tauri/*`、`src-tauri/*` command/capability、CLI 参数、single-instance、Windows shell 集成或 NSIS 安装器 hooks、updater 配置 / CI 签名时。
 >
 > **先记住**:
 > - 业务侧只 import `src/tauri/*`，不要直 import `@tauri-apps/*`。
@@ -51,6 +51,12 @@
   - **`release-please-config.json` 的 `extra-files` 配置**: Cargo.toml 必须用显式 `{"type":"toml","path":"...","jsonpath":"$.package.version"}`,不能用纯字符串 `"src-tauri/Cargo.toml"`。release-please 的 `GenericToml` updater 要求 `jsonpath` 参数,纯字符串虽检测到 `.toml` 扩展名但 `jsonpath` 为空 → JSONPath 查询返回 0 结果 → 文件不被修改。
   - **Cargo.lock 不进 release-please 的 extra-files**: 锁文件里 velo 自己的 `[[package]]` 节在数组深层,想精准 bump 需要 filter 表达式 `$.package[?(@.name == "velo")].version`,但 `GenericToml` 底层走 `node-jsonpath`,只支持 `.` / `[*]` / `[0]`,**不支持 `?(...)`**——配了也只会静默返回 0 结果、锁文件原封不动。
   - **`CheckIfAppIsRunning` 替换为内联代码**: Tauri 默认的 `utils.nsh` 中 `CheckIfAppIsRunning` 宏在用户点"取消"时调用 `Abort`(在 Section 中只停止当前 Section,不关闭安装器窗口 → 安装页面卡住)。替换为内联代码,取消路径改为 `Quit`(直接关闭安装器),安装在 Install 和 Uninstall 两个 Section 中各内联一份(标签前缀 `velo_` / `un_velo_` 避免冲突)。
+
+- **应用自动更新(#updater)**: Tauri 2 Updater plugin(`tauri-plugin-updater`) + Process plugin(`tauri-plugin-process`,relaunch 用)。
+  - **签名密钥**: Ed25519 自签名密钥对(`tauri signer generate` 生成),免费。私钥存 CI GitHub Secret(`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`),公钥写 `tauri.conf.json` 的 `plugins.updater.pubkey`。与 Windows 代码签名证书(Sectigo / DigiCert,需购买,消除 SmartScreen 警告)是两回事,updater 不依赖后者。
+  - **endpoint**: `https://github.com/DawnSaint/velo/releases/latest/download/latest.json`。CI 中 `tauri-action` 检测到 `TAURI_SIGNING_PRIVATE_KEY` 环境变量后自动签名更新包 + 生成 `latest.json` 上传到 Release;`updaterJsonPreferNsis: true` 让 Windows 走 NSIS 格式(Velo 不打 MSI)。
+  - **前端流程**: `useUpdater` composable 封装 check / downloadAndInstall / relaunch 全流程。App.vue onMounted 10s 延迟后静默检查一次,有更新走 Toast 提示用户去「设置 > 系统」手动下载安装(不自动下载,避免打断编辑)。SystemGroup.vue 提供「检查更新」按钮 + 新版本信息 + 下载进度条 + 「下载并安装」按钮。
+  - **Windows NSIS 更新**: `downloadAndInstall` 内部下载 `.nsis.zip` 签名包,验证签名后静默安装(exe 替换),`relaunch` 重启新版本。macOS / Linux 更新走 `.tar.gz` / `.AppImage.tar.gz`,安装行为依赖平台。
 
 
 ---

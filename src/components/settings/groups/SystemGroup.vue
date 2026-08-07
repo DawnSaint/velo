@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import SettingsItem from '../SettingsItem.vue'
+import { useUpdater } from '@/composables/useUpdater'
 
 // 平台识别：沿用 App.vue 的 UA 嗅探惯例（tauri 守门桌面端，UA 判定系统）。
 // 注：navigator.platform 已弃用，navigator.userAgent 仍可靠检测 Win/Mac/Linux。
@@ -55,11 +56,83 @@ async function openDefaultApps() {
   }
 }
 
+// ========== 自动更新 ==========
+const {
+  status: updateStatus,
+  updateInfo,
+  downloadProgress,
+  errorMsg,
+  checkForUpdate,
+  downloadAndInstall,
+} = useUpdater()
+
+async function onCheckUpdate() {
+  await checkForUpdate(false)
+}
+
+async function onDownloadAndInstall() {
+  await downloadAndInstall()
+}
+
 onMounted(refreshShellState)
 </script>
 
 <template>
   <section class="space-y-4 pt-6">
+    <!-- 自动更新：所有桌面端均支持，Tauri Updater plugin + GitHub Release latest.json -->
+    <SettingsItem v-if="tauri" label="检查更新" :keywords="['update', 'updater', 'version', '更新', '版本', '检查']">
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="velo-text-btn"
+            :disabled="updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'installing'"
+            @click="onCheckUpdate"
+          >
+            {{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}
+          </button>
+          <span v-if="updateStatus === 'up-to-date'" class="text-sm text-gray-500 dark:text-gray-400">
+            已是最新版本
+          </span>
+          <span v-if="updateStatus === 'error'" class="text-sm text-amber-500 dark:text-amber-400">
+            {{ errorMsg.includes('request') || errorMsg.includes('network') || errorMsg.includes('timeout') || errorMsg.includes('connect') ? '网络连接失败' : '检查失败' }}
+          </span>
+        </div>
+
+        <!-- 发现新版本：版本号 + 更新说明 + 下载安装按钮 -->
+        <div
+          v-if="updateInfo && (updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'installing')"
+          class="rounded-lg border border-[var(--md-primary-color)]/30 bg-[var(--md-primary-color)]/5 p-3"
+        >
+          <div class="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+            发现新版本 v{{ updateInfo.version }}
+          </div>
+          <p v-if="updateInfo.body" class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">
+            {{ updateInfo.body }}
+          </p>
+          <button
+            type="button"
+            class="velo-text-btn mt-3"
+            :disabled="updateStatus === 'downloading' || updateStatus === 'installing'"
+            @click="onDownloadAndInstall"
+          >
+            {{ updateStatus === 'downloading' ? `下载中 ${downloadProgress}%` : updateStatus === 'installing' ? '安装中…' : '下载并安装' }}
+          </button>
+        </div>
+
+        <!-- 下载进度条 -->
+        <div
+          v-if="updateStatus === 'downloading'"
+          class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+        >
+          <div
+            class="h-full rounded-full bg-[var(--md-primary-color)] transition-all duration-150"
+            :style="{ width: `${downloadProgress}%` }"
+          />
+        </div>
+      </div>
+    </SettingsItem>
+
     <!-- 默认程序：仅 Windows 有意义（反劫持保护下只能引导到系统设置），其它平台隐藏。 -->
     <SettingsItem v-if="platform === 'windows'" label="Markdown 默认程序" :keywords="['default', 'app', '默认', '程序']">
       <button

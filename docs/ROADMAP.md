@@ -174,9 +174,11 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 ## P3 — 远期方向
 
-- [ ] **应用自动更新通道** `#updater` `P3` `M` `?`
+- [x] **应用自动更新通道** `#updater` `P3` `M` `?`
   - Tauri Updater plugin + `latest.json` 上传到 GitHub Release
   - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
+  - `useUpdater` composable + SystemGroup.vue 设置页 UI(检查更新 / 下载进度 / 安装重启)
+  - CI build.yml 注入 `TAURI_SIGNING_PRIVATE_KEY` 签名 + `updaterJsonPreferNsis` 生成 latest.json
 
 - [ ] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
   - 消费 build.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
