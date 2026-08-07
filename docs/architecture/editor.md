@@ -30,6 +30,7 @@
 | 插件 | 用途 |
 |------|------|
 | codeBlockLangSuggestPlugin | ``` 语言建议下拉:paragraph 中键入 ``` + 语言前缀时浮出模糊匹配下拉,上下键导航 + Enter 提交 + Escape 关闭(见设计要点) |
+| emojiSuggestPlugin | `:short` emoji 自动补全下拉:paragraph 中键入 `:` + 字母时浮出 node-emoji 模糊匹配下拉(emoji char + shortcode),上下键导航 + Enter/Tab 提交(替换 `:query` 为 emoji 节点)+ Escape 关闭;code mark / code_block / 源码编辑 session 内不激活 |
 | keymap(Backspace/Delete → headingToParagraph) | Backspace 链:foldDeleteCommand → frontmatterBackspaceCommand → codeBlockBackspaceCommand → headingToParagraph → emptyParaBeforeListBackspace(列表下方空段落直接删除,不走到 joinBackward) → baseKeymap['Backspace'];Delete 链:foldDeleteCommand → headingToParagraph → baseKeymap['Delete'] |
 | keymap(Mod-z/y/Shift-z) | 撤销/重做 |
 | keymap(Enter / Shift-Enter) | Enter 链:codeBlockEnter → cmdTableCellEnter(table cell 内跳下一行同列,末行追加行)→ dollarEnterCmd → codeBlockEnterCommand → frontmatterEnterCommand → hrEnterCommand → splitListItem → liftListItem → splitBlock;Shift-Enter:cmdTableCellHardBreak(table cell 内插 `<br>`,cell 外不消费) |
@@ -49,6 +50,7 @@
 | imageEditPlugin + imageEditEscapeKeymap | 图片选中后右上角 code-xml 按钮进源码编辑 session(replaceWith 纯文本 → 光标移出 commit / Escape 还原,见设计要点) |
 | syntaxAutoFormatPlugin | dirty-range 局部扫,registry 驱动 (见设计要点) |
 | markSourceEditPlugin | mark 源码编辑 session(Obsidian Live Preview 风格):光标进入 **bold** 等 mark → 整段换源码字符可编辑,移出 commit 还原 (见设计要点) |
+| emojiSourceEditPlugin + emojiSourceEditEscapeKeymap | emoji 源码编辑 session:光标靠近 emoji 节点(两侧/NodeSelection)→ appendTransaction 替换为 `:shortcode:` 源码文本可编辑 + 源码左侧渲染 emoji 预览 widget(Decoration.widget side:-1,同 imageEdit 预览范式),移出 commit 重建 emoji(合法 shortcode)或保留纯文本(降级);Escape 还原原始 emoji |
 | viewportPlugin | B1 viewport 感知 decoration:跟踪可见 doc pos 范围,滚动时 dispatch meta 通知下游插件 rebuild(见设计要点) |
 | codeHighlightPlugin | shiki dual-theme 代码高亮 + header 标题栏 widget(折叠 chevron + 语言选择 + wrap toggle + 复制,见设计要点) |
 | codeWrapPlugin | code_block 自动换行 toggle:per-block `Set<number>` 跟踪 wrap 状态,`Decoration.node` 挂 `data-velo-wrap="true"` 驱动 SCSS `pre-wrap`,header widget key 含 wrap 状态(见设计要点) |
@@ -228,7 +230,7 @@
 - `` `code` `` 涉及 schema(已有 `code` mark,`excludes:'_'` 独占) + syntax/inline/code + 注册 + markSourceEdit session(进 enter 守卫 `isBlacklisted` 需放行 `code` mark,只挡 `code_block`/`math_block` 容器)。无 NodeView / 无 remark(remark-parse 原生 inlineCode);markdownIO 双向已由 `inlineNodeToPM`/`wrapWithMarks` 处理,改 syntax 不碰 markdownIO 但 round-trip 用例已覆盖
 - `^superscript^` / `~subscript~` 涉及 schema(`superscript`/`subscript` mark,`<sup>`/`<sub>` toDOM)+ remark(remarkSupSub 在 mdast 阶段把 `^xxx^`/`~xxx~` 文本配对重写为 sup/sub 节点;注册在 remarkGfm 之前且 gfm 配 `singleTilde:false`,让单 `~` 在 parse 阶段保持文本由本插件接管,双 `~~` 仍走 gfm 删除线)+ markdownIO 双向(fromMarkdown sup/sub 节点 → text+mark;toMarkdown 抽 sup/sub run → `^`/`~` html 边界)+ syntax/inline/sup(`^`)+ sub(`~`)+ 注册(sub 在 strike 之前)+ markSourceEdit(对称分隔符 `^`/`~`)+ keymap(Mod-. 上标 / Mod-, 下标)。无 NodeView(原生 `<sup>`/`<sub>` 标签)。breaking change:单 `~` 原是删除线,改作下标;删除线只走 `~~`(strike.ts 由 `~{1,2}` 改为 `~{2}`)
 - `[TOC]` 涉及 schema + Decoration.widget(TocDecoration) + markdownIO 双向 + syntax/block/toc + 注册(无 NodeView / 无 remark)
-- `:smile:` emoji 短码 涉及 schema(`emoji` inline atom 节点,`attrs.shortcode`)+ remark(remarkEmoji 在 mdast text 节点内切 `:shortcode:` 段,查 `node-emoji` 表验证合法性)+ markdownIO 双向(fromMarkdown emoji mdast 节点 → PM emoji node;toMarkdown emoji node → `:shortcode:` html 边界,防 `:` 被 escape)+ NodeView(EmojiNodeView 查 node-emoji 表渲染 Unicode char)+ syntax/inline/emoji + 注册(在 htmlTag 之前)。导出 walker 补 `case 'emoji'` 输出 Unicode char。短码可逆:round-trip `:smile:` → emoji node → `:smile:` 严格 idempotent。atom 节点 `marks:''`,emoji 在 link 内会被拉出(与 image 同款已知限制)
+- `:smile:` emoji 短码 涉及 schema(`emoji` inline atom 节点,`attrs.shortcode`)+ remark(remarkEmoji 在 mdast text 节点内切 `:shortcode:` 段,查 `node-emoji` 表验证合法性)+ markdownIO 双向(fromMarkdown emoji mdast 节点 → PM emoji node;toMarkdown emoji node → `:shortcode:` html 边界,防 `:` 被 escape)+ NodeView(EmojiNodeView 查 node-emoji 表渲染 Unicode char,无选中态外框线)+ syntax/inline/emoji + 注册(在 htmlTag 之前)+ emojiSuggestPlugin(`:short` 输入态自动补全下拉,node-emoji search 模糊匹配)+ emojiSourceEditPlugin(光标靠近 emoji → appendTransaction 替换为 `:shortcode:` 源码文本可编辑 + 源码左侧渲染 emoji 预览 widget Decoration.widget side:-1,同 imageEdit 预览范式;移出 commit 重建 emoji;Escape 还原)。导出 walker 补 `case 'emoji'` 输出 Unicode char。短码可逆:round-trip `:smile:` → emoji node → `:smile:` 严格 idempotent。atom 节点 `marks:''`,emoji 在 link 内会被拉出(与 image 同款已知限制)
 
 ---
 
@@ -253,7 +255,9 @@ ProseMirror NodeView / Decoration / Plugin 在 TS 中命令式创建 DOM 并设 
 | `htmlSourceEdit.ts` | `velo-html-source-edit`(inline) | `_editor-html-blocks.scss` |
 | `imageEditPlugin.ts` | `velo-image-source-preview` / `velo-image-source-edit` | `_editor-image.scss` |
 | `HrNodeView.ts` | `velo-hr` | `_editor-hr.scss` |
-| `EmojiNodeView.ts` | `velo-emoji`(+ `selected`) | `_editor-emoji.scss` |
+| `EmojiNodeView.ts` | `velo-emoji` | `_editor-emoji.scss` |
+| `emojiSourceEdit.ts` | `velo-emoji-source-edit`(inline) / `velo-emoji-source-preview`(widget) | `_editor-emoji.scss` |
+| `emojiSuggest.ts` | `velo-emoji-dropdown` / `velo-emoji-dropdown-item`(+ `highlighted`) | `_editor-emoji.scss` |
 
 ### Decoration.inline / Decoration.node class
 

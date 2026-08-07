@@ -164,6 +164,7 @@ import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
 import { htmlSourceEditPlugin, htmlSourceEditEscapeKeymap } from './plugins/htmlSourceEdit'
+import { emojiSourceEditPlugin, emojiSourceEditEscapeKeymap } from './plugins/emojiSourceEdit'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
@@ -179,6 +180,7 @@ import { useFoldStore } from '@/stores/folding'
 import { codeBlockEnterCommand, codeBlockBackspaceCommand } from './syntax/block/codeBlock'
 import { frontmatterBackspaceCommand } from './syntax/block/frontmatter'
 import { codeBlockLangSuggestPlugin } from './plugins/codeBlockLangSuggest'
+import { emojiSuggestPlugin } from './plugins/emojiSuggest'
 import { hrEnterCommand } from './syntax/block/hr'
 import { frontmatterEnterCommand } from './syntax/block/frontmatter'
 import './syntax' // 触发 syntax registry 注册副作用(block + inline 全套语法)
@@ -445,6 +447,9 @@ const basePlugins: Plugin[] = [
   // ``` 语言建议下拉:必须在 keymap 之前,handleKeyDown 需在 Enter 链
   // (codeBlockEnterCommand) 之前拦截上下键导航和高亮条目的 Enter 提交。
   codeBlockLangSuggestPlugin,
+  // `:short` emoji 自动补全下拉:必须在 keymap 之前,handleKeyDown 需拦截
+  // ArrowUp/Down/Enter/Escape。
+  emojiSuggestPlugin,
   // 自定义 Backspace / Delete:
   //   0. foldDeleteCommand:选区覆盖 fold_placeholder 节点时扩展删除到折叠区段末尾
   //      (必须排在最前,先于 baseKeymap['Backspace'] 否则 baseKeymap 直接删选区,
@@ -556,6 +561,12 @@ const basePlugins: Plugin[] = [
   markSourceEditEscapeKeymap,
   htmlSourceEditPlugin,
   htmlSourceEditEscapeKeymap,
+  // emoji 源码编辑(Obsidian Live Preview 风格):光标靠近 emoji 节点 →
+  // appendTransaction 把 emoji 替换为 :shortcode: 源码文本可编辑;移出光标 commit
+  // 还原。放 syntaxAutoFormat 之前 —— appendTransaction 的 enter 让 syntaxAutoFormat
+  // 退避(不会把源码 :xxx: 又转回 emoji)。
+  emojiSourceEditPlugin,
+  emojiSourceEditEscapeKeymap,
   syntaxAutoFormatPlugin,
   // viewportPlugin 必须在 decoration 插件之前：decoration 插件的 buildDecorations
   // 读 viewportKey.getState(state) 做 viewport 过滤，plugin apply 顺序 = allPlugins 数组顺序

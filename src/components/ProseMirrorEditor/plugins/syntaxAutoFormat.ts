@@ -32,6 +32,7 @@ import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
 import { markSourceEditKey } from './markSourceEdit'
 import { htmlSourceEditKey } from './htmlSourceEdit'
+import { emojiSourceEditKey } from './emojiSourceEdit'
 
 // 容器型黑名单:整个节点跳过(包括子节点)
 const CONTAINER_BLACKLIST = new Set([
@@ -149,6 +150,8 @@ function getActiveEditRanges(state: EditorState): { from: number, to: number }[]
   if (markSession) ranges.push({ from: markSession.editFrom, to: markSession.editTo })
   const htmlSession = htmlSourceEditKey.getState(state)?.session ?? null
   if (htmlSession) ranges.push({ from: htmlSession.editFrom, to: htmlSession.editTo })
+  const emojiSession = emojiSourceEditKey.getState(state)?.session ?? null
+  if (emojiSession) ranges.push({ from: emojiSession.editFrom, to: emojiSession.editTo })
   return ranges
 }
 
