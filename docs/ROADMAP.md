@@ -99,6 +99,12 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
   - 版本升级后首启展示 CHANGELOG 摘要
   - 读取 `docs/RELEASE_NOTES.md` 当前版本段落，渲染为 markdown
 
+- [ ] **Emoji 短码语法** `#emoji` `P2` `M` `?` —— [RESEARCH](./research/emoji.md)
+  - `:smile:` → 😄 短码渲染：自定义 inline atom 节点 + remark 插件 + syntax 实时转换
+  - 短码在 canonical round-trip 中保持可逆（`:smile:` → emoji node → `:smile:`）
+  - 按新增语法 checklist 走全流程（schema / markdownIO / syntax / NodeView / test）
+  - 依赖 `node-emoji`（shortcode → Unicode 映射表）
+
 ### 知识库 — 双链扩展
 
 - [ ] **`[[wikilink]]` 语法** `#wikilink` `P2` `XL` `← #workspace-index` `→ #go-to-def` `→ #find-refs`

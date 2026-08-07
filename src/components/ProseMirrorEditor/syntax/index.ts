@@ -34,6 +34,7 @@ import { supSyntax } from './inline/sup'
 import { subSyntax } from './inline/sub'
 import { inlineCodeSyntax } from './inline/code'
 import { htmlTagSyntax } from './inline/htmlTag'
+import { emojiSyntax } from './inline/emoji'
 
 registerBlockSyntax(headingSyntax)
 registerBlockSyntax(codeBlockSyntax)
@@ -72,6 +73,9 @@ registerInlineSyntax(supSyntax)
 // inline code(`` `code` ``):backtick 围栏。独占 mark(excludes:'_'),不与上面 mark
 // 抢匹配;放 htmlTag 之前 —— backtick 与 `<...>` 无交集,顺序非关键但保持靠后
 registerInlineSyntax(inlineCodeSyntax)
+// emoji 短码(`:smile:`):放在 htmlTag 之前,优先转换为 emoji node。
+// `:` 不是 HTML 标签字符,不与 htmlTag 冲突。
+registerInlineSyntax(emojiSyntax)
 // htmlTag 必须注册(否则整条语法静默失效) + 放最后 —— PAIRED / SELF_CLOSE
 // 模式只匹配完整闭合的 `<tag>content</tag>` 或 `<tag/>`,不抢 mark 语法的
 // 匹配。敲到一半的 `<kbd>` 保留 plain text,源码模式看到的 `\<kbd>` 是

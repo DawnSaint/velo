@@ -47,6 +47,7 @@ import { remarkAlert } from '@/components/ProseMirrorEditor/plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '@/components/ProseMirrorEditor/plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '@/components/ProseMirrorEditor/plugins/remarkHighlight'
 import { remarkMathFenceGuard } from '@/components/ProseMirrorEditor/plugins/remarkMathFenceGuard'
+import { remarkEmoji } from '@/components/ProseMirrorEditor/plugins/remarkEmoji'
 import remarkFrontmatter from 'remark-frontmatter'
 import {
   ensureLanguage,
@@ -60,6 +61,7 @@ import { renderKatexHtml } from './katexHtml'
 import { renderMermaidSvg, mermaidErrorHtml } from './mermaidHtml'
 import { renderCodeBlockHtml, codeBlockFallbackHtml } from './shikiHtml'
 import { sanitizeHtml } from './sanitizeHtml'
+import { get as emojiGet, has as emojiHas } from 'node-emoji'
 import { loadKatexCssWithFontsInlined } from './katexCss'
 import { buildJetbrainsFontFaceCss } from './jetbrainsCss'
 
@@ -122,6 +124,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     .use(remarkMath)
     .use(remarkAlert)
     .use(remarkHighlight)
+.use(remarkEmoji)
     // 启用 yaml(---) 与 toml(+++) 两种 frontmatter;默认仅 yaml,不传参会丢 toml 节点。
     .use(remarkFrontmatter, ['yaml', 'toml'])
   // 必须走 runSync —— remarkAlert / remarkHighlight / remarkEncodeLinkUrls 是
@@ -560,6 +563,14 @@ async function inlineNodeToHtml(node: PhrasingContent | any, ctx: WalkContext): 
     case 'html': {
       // mdast html 节点(行内),DOMPurify 清洗
       return sanitizeHtml(node.value ?? '')
+    }
+    case 'emoji': {
+      // remarkEmoji 注入的 emoji 节点 → 输出 Unicode emoji 字符(纯文本)
+      const shortcode = String(node.shortcode ?? '')
+      if (shortcode && emojiHas(shortcode)) {
+        return emojiGet(shortcode) ?? `:${shortcode}:`
+      }
+      return `:${shortcode}:`
     }
     default:
       return ''

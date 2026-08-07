@@ -27,6 +27,7 @@ import { fromMarkdown, fromMarkdownAsync, toMarkdown } from './editor/markdownIO
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
+import { createEmojiNodeView } from './nodes/EmojiNodeView'
 import { frontmatterNodeViewPlugin } from './nodes/FrontmatterNodeView'
 import { useProseMirror, findScrollAncestor } from './composables/useProseMirror'
 import { mathEditPlugin, triggerNextMathBlockAutoEdit } from './nodes/MathNodeViews'
@@ -424,6 +425,15 @@ const hrNodeViewPlugin = new Plugin({
   },
 })
 
+// emoji NodeView:inline(atom) 节点,查 node-emoji 表把 shortcode 转 Unicode emoji
+// char 渲染到 <span>。与 hr / image 同范式,挂成独立 plugin。
+const emojiNodeViewPlugin = new Plugin({
+  key: new PluginKey('emojiNodeView'),
+  props: {
+    nodeViews: { emoji: createEmojiNodeView() },
+  },
+})
+
 // image upload 拦截 paste/drop:走 saveImageAsset,直接 save+insert。
 
 // ============================================================
@@ -555,6 +565,7 @@ const basePlugins: Plugin[] = [
   codeLineNumberPlugin,
   imageInlineViewPlugin,
   hrNodeViewPlugin,
+  emojiNodeViewPlugin,
   frontmatterNodeViewPlugin,
   htmlNodeViewPlugin,
   mathEditPlugin,

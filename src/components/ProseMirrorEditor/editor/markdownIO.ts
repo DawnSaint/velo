@@ -724,6 +724,10 @@ function inlineNodeToPM(
       return [schema.node('footnote_reference', null,
         n.identifier ? [schema.text(n.identifier)] : [])]
 
+    case 'emoji':
+      // remarkEmoji 注入的 emoji 节点 → PM emoji atom 节点(shortcode 在 attrs)。
+      return [schema.node('emoji', { shortcode: n.shortcode ?? '' })]
+
     case 'html':
       // 行内 HTML:atom 节点,不带外层 marks(对照 image 行为)
       if (!n.value) return []
@@ -971,6 +975,7 @@ type InlineSpan =
   | { kind: 'inlineMath'; marks: never[]; value: string; delimiterCount: number }
   | { kind: 'footnoteRef'; marks: never[]; label: string }
   | { kind: 'htmlInline'; marks: never[]; value: string }
+  | { kind: 'emoji'; marks: never[]; shortcode: string }
 
 function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
   // 第一步:把每个 PM 子节点扁平化成 InlineSpan
@@ -1024,6 +1029,10 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     else if (name === 'html_inline') {
       // atom 节点:marks 字段在 dispatch 时也硬编码为 []，与 image 一致
       spans.push({ kind: 'htmlInline', marks: [], value: child.attrs.value as string })
+    }
+    else if (name === 'emoji') {
+      // emoji atom 节点:shortcode 在 attrs,序列化时输出 `:shortcode:`
+      spans.push({ kind: 'emoji', marks: [], shortcode: child.attrs.shortcode as string })
     }
     // fold_placeholder:视觉节点,不序列化到 markdown(折叠态占位符)
   })
@@ -1174,6 +1183,10 @@ function processSpans(spans: InlineSpan[]): PhrasingContent[] {
     }
     else if (span.kind === 'htmlInline') {
       out.push({ type: 'html', value: span.value } as PhrasingContent)
+    }
+    else if (span.kind === 'emoji') {
+      // emoji → `:shortcode:`(用 html 节点防 `:` 被 remark-stringify escape)
+      out.push({ type: 'html', value: `:${span.shortcode}:` } as PhrasingContent)
     }
     else {
       out.push(wrapWithMarks(span.value, span.marks))

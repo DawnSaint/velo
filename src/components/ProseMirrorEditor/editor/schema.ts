@@ -500,6 +500,34 @@ const nodes: Record<string, NodeSpec> = {
     ],
   },
 
+  // emoji 短码(:smile: → 😄):inline atom 节点,attrs.shortcode 存短码名。
+  // 与 image / html_inline 同范式:atom 不可内部编辑,选中后 Backspace 整块删。
+  // NodeView 查 node-emoji 表把 shortcode 转 Unicode emoji char 渲染到 <span>。
+  // toMarkdown 输出 `:shortcode:`(短码可逆,round-trip idempotent)。
+  emoji: {
+    inline: true,
+    group: 'inline',
+    atom: true,
+    selectable: true,
+    marks: '',
+    attrs: {
+      shortcode: { default: '' },
+    },
+    parseDOM: [{
+      tag: 'span[data-type="emoji"]',
+      getAttrs: (dom: HTMLElement) => ({
+        shortcode: dom.dataset.shortcode ?? '',
+      }),
+    }],
+    toDOM: (node) => [
+      'span',
+      {
+        'data-type': 'emoji',
+        'data-shortcode': node.attrs.shortcode as string,
+      },
+    ],
+  },
+
   // ============================================================
   //  Tables (gfm) —— 用 prosemirror-tables 的 tableNodes 工厂
   // ============================================================

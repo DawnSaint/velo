@@ -18,6 +18,7 @@ import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
 import { remarkSupSub } from '../plugins/remarkSupSub'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
+import { remarkEmoji } from '../plugins/remarkEmoji'
 import remarkFrontmatter from 'remark-frontmatter'
 
 /**
@@ -40,5 +41,6 @@ export function createParseProcessor() {
     .use(remarkHighlight)
     .use(remarkUnderline)
     .use(remarkCjkEmphasis)
+    .use(remarkEmoji)
     .use(remarkFrontmatter, ['yaml', 'toml'])
 }

@@ -1,0 +1,15 @@
+// emoji 节点样式。
+//
+// NodeView 输出 <span class="velo-emoji" data-shortcode="..." contenteditable="false">
+// 内容是 Unicode emoji 字符。inline atom,可选中。
+
+.velo-emoji {
+  // emoji 字符天然有颜色,不需要额外样式
+  display: inline;
+
+  // 选中态:与 image / hr 同款 outline
+  &.selected {
+    outline: 1px solid var(--md-primary-color);
+    border-radius: 2px;
+  }
+}

@@ -71,7 +71,7 @@
 | `buildShortcutKeymap`(editor/shortcuts)| declarative registry 输出的快捷键 keymap,统一在 `bindings.ts` 注册;含 Alt+方向键(移动当前行/列,与 Mod-Shift-Arrow 共用 cmdMoveRow/cmdMoveColumn,后者支持 TextSelection-in-cell) |
 | inputRules | ellipsis/emDash 纯文本快速路径 (其余语法走 syntaxAutoFormat) |
 
-**markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + 公式围栏守卫 + remark-math + preserveEmptyLine + remark-frontmatter + remarkCjkEmphasis)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
+**markdown 解析**走 `editor/markdownIO.ts` 的 unified pipeline (remark-parse + remark-gfm + 公式围栏守卫 + remark-math + preserveEmptyLine + remark-frontmatter + remarkCjkEmphasis + remarkEmoji)。`fromMarkdown(md)` → EditorState,`toMarkdown(doc)` 回写。**键入触发**走 syntaxAutoFormat,不走 unified。
 
 ---
 
@@ -228,6 +228,7 @@
 - `` `code` `` 涉及 schema(已有 `code` mark,`excludes:'_'` 独占) + syntax/inline/code + 注册 + markSourceEdit session(进 enter 守卫 `isBlacklisted` 需放行 `code` mark,只挡 `code_block`/`math_block` 容器)。无 NodeView / 无 remark(remark-parse 原生 inlineCode);markdownIO 双向已由 `inlineNodeToPM`/`wrapWithMarks` 处理,改 syntax 不碰 markdownIO 但 round-trip 用例已覆盖
 - `^superscript^` / `~subscript~` 涉及 schema(`superscript`/`subscript` mark,`<sup>`/`<sub>` toDOM)+ remark(remarkSupSub 在 mdast 阶段把 `^xxx^`/`~xxx~` 文本配对重写为 sup/sub 节点;注册在 remarkGfm 之前且 gfm 配 `singleTilde:false`,让单 `~` 在 parse 阶段保持文本由本插件接管,双 `~~` 仍走 gfm 删除线)+ markdownIO 双向(fromMarkdown sup/sub 节点 → text+mark;toMarkdown 抽 sup/sub run → `^`/`~` html 边界)+ syntax/inline/sup(`^`)+ sub(`~`)+ 注册(sub 在 strike 之前)+ markSourceEdit(对称分隔符 `^`/`~`)+ keymap(Mod-. 上标 / Mod-, 下标)。无 NodeView(原生 `<sup>`/`<sub>` 标签)。breaking change:单 `~` 原是删除线,改作下标;删除线只走 `~~`(strike.ts 由 `~{1,2}` 改为 `~{2}`)
 - `[TOC]` 涉及 schema + Decoration.widget(TocDecoration) + markdownIO 双向 + syntax/block/toc + 注册(无 NodeView / 无 remark)
+- `:smile:` emoji 短码 涉及 schema(`emoji` inline atom 节点,`attrs.shortcode`)+ remark(remarkEmoji 在 mdast text 节点内切 `:shortcode:` 段,查 `node-emoji` 表验证合法性)+ markdownIO 双向(fromMarkdown emoji mdast 节点 → PM emoji node;toMarkdown emoji node → `:shortcode:` html 边界,防 `:` 被 escape)+ NodeView(EmojiNodeView 查 node-emoji 表渲染 Unicode char)+ syntax/inline/emoji + 注册(在 htmlTag 之前)。导出 walker 补 `case 'emoji'` 输出 Unicode char。短码可逆:round-trip `:smile:` → emoji node → `:smile:` 严格 idempotent。atom 节点 `marks:''`,emoji 在 link 内会被拉出(与 image 同款已知限制)
 
 ---
 
@@ -252,6 +253,7 @@ ProseMirror NodeView / Decoration / Plugin 在 TS 中命令式创建 DOM 并设 
 | `htmlSourceEdit.ts` | `velo-html-source-edit`(inline) | `_editor-html-blocks.scss` |
 | `imageEditPlugin.ts` | `velo-image-source-preview` / `velo-image-source-edit` | `_editor-image.scss` |
 | `HrNodeView.ts` | `velo-hr` | `_editor-hr.scss` |
+| `EmojiNodeView.ts` | `velo-emoji`(+ `selected`) | `_editor-emoji.scss` |
 
 ### Decoration.inline / Decoration.node class
 

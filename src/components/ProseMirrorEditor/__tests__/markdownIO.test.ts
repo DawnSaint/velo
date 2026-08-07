@@ -123,6 +123,25 @@ const samples: Array<{ name: string, md: string }> = [
     name: 'HTML img 含 width round-trip',
     md: '<img src="pic.png" alt="图片" width="100">',
   },
+  {
+    // emoji 短码 round-trip：:smile: → emoji node → :smile:
+    name: 'emoji 短码 round-trip',
+    md: 'Hello :smile: world',
+  },
+  {
+    name: 'emoji 多个短码混排',
+    md: ':smile: :rocket: :heart:',
+  },
+  {
+    // 不合法的短码不转换，保留原文（用不含 _ 的名称避免 remark-stringify 转义 _ ）
+    name: '不合法短码保留原文',
+    md: 'text :notanemoji: more',
+  },
+  {
+    // 12:30 不误匹配（只有一个 : ）
+    name: '时间格式不误匹配',
+    md: 'Meeting at 12:30 today',
+  },
 ]
 
 describe('markdownIO round-trip', () => {
@@ -546,6 +565,75 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
       expect(doc2.children[i].childCount).toBe(doc1.children[i].childCount)
       expect(doc2.children[i].textContent).toBe(doc1.children[i].textContent)
     }
+  })
+
+  it('emoji 节点在 PM doc 中 attrs.shortcode 保留', () => {
+    // 验证 fromMarkdown 把 :smile: 解析为 emoji 节点,shortcode 在 attrs
+    const doc = fromMarkdown(':smile:', schema)
+    const para = doc.firstChild!
+    expect(para.type.name).toBe('paragraph')
+    expect(para.childCount).toBe(1)
+    const emoji = para.firstChild!
+    expect(emoji.type.name).toBe('emoji')
+    expect(emoji.attrs.shortcode).toBe('smile')
+    // atom 节点,无 content
+    expect(emoji.childCount).toBe(0)
+  })
+
+  it('emoji 短码在 bold 内正确解析', () => {
+    // :smile: 在 strong 内：remarkEmoji 在 strong children 上跑，正常转换
+    const md = '**bold :smile: bold**'
+    const doc = fromMarkdown(md, schema)
+    const para = doc.firstChild!
+    expect(para.firstChild?.type.name).toBe('text')
+    expect(para.firstChild?.marks[0]?.type.name).toBe('strong')
+    // 找到 emoji 节点
+    let foundEmoji = false
+    para.forEach(child => {
+      if (child.type.name === 'emoji' && child.attrs.shortcode === 'smile') {
+        foundEmoji = true
+      }
+    })
+    expect(foundEmoji).toBe(true)
+  })
+
+  it('emoji 短码在 link 文本内正确解析', () => {
+    // emoji 是 atom 节点(marks:''),link mark 不会被施加到它上面。
+    // 这与 image 在 link 内同款已知限制 —— round-trip 后 emoji 会被拉出 link。
+    // 这里只验证 fromMarkdown 解析正确(emoji 节点存在于 doc 中),不验证 round-trip。
+    const md = '[a :rocket: link](https://x.com)'
+    const doc = fromMarkdown(md, schema)
+    let foundEmoji = false
+    doc.descendants(node => {
+      if (node.type.name === 'emoji' && node.attrs.shortcode === 'rocket') {
+        foundEmoji = true
+      }
+    })
+    expect(foundEmoji).toBe(true)
+  })
+
+  it('不合法短码不转换为 emoji 节点', () => {
+    // :notanemoji: 不在 node-emoji 表中 → 保留为纯文本
+    const doc = fromMarkdown('text :notanemoji: more', schema)
+    const para = doc.firstChild!
+    let emojiCount = 0
+    para.forEach(child => {
+      if (child.type.name === 'emoji') emojiCount++
+    })
+    expect(emojiCount).toBe(0)
+    expect(para.textContent).toContain(':notanemoji:')
+  })
+
+  it('12:30 不误匹配为 emoji', () => {
+    // 12:30 只有一个 :，不匹配 :[\w+-]+: 模式
+    const doc = fromMarkdown('Meeting at 12:30 today', schema)
+    const para = doc.firstChild!
+    let emojiCount = 0
+    para.forEach(child => {
+      if (child.type.name === 'emoji') emojiCount++
+    })
+    expect(emojiCount).toBe(0)
+    expect(para.textContent).toContain('12:30')
   })
 
   it('尾部空行 toMarkdown 严格 idempotent(K≥2 守恒,不再每轮丢 2)', () => {
