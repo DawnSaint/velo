@@ -15,24 +15,12 @@ import {
 } from './persistence'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
+import { formatError } from '@/utils/formatError'
 
 // macOS overlay 标题栏(titleBarStyle: Overlay)会居中显示 title 文本,
 // 与自定义 header 的菜单按钮 / tab 页重叠。设为空字符串可隐藏标题栏文本
-// (交通灯仍正常显示)。UA 检测与 App.vue 保持一致(platform 已 deprecated)。
-const isMacOS = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent)
+import { isMacOS } from '@/utils/platform'
 
-// Tauri 的错误形态不一致:writeTextFile 拒绝时是 Error,readTextFile 拒绝时
-// 可能是 string。统一抽成字符串塞进 message 弹窗。
-function formatError(e: unknown): string {
-  if (e instanceof Error) return e.message
-  if (typeof e === 'string') return e
-  try {
-    return JSON.stringify(e)
-  }
-  catch {
-    return String(e)
-  }
-}
 
 /**
  * 单个文档(标签)的可变状态。documentStore 持有 `documents: Map<id, DocState>`

@@ -60,7 +60,3 @@ export function runSetCellAlignment(align: Alignment, anchorPos?: number): boole
   return ok
 }
 
-/** 暴露原始 view 引用(高级场景 / 测试用) */
-export function getTableEditorView(): EditorView | null {
-  return _view
-}

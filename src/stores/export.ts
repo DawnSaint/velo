@@ -28,6 +28,7 @@ import { ref } from 'vue'
 import { save as saveDialog } from '@/tauri/dialog'
 import { writeTextFile } from '@/tauri/fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import { formatError } from '@/utils/formatError'
 import { useDocumentStore } from './document'
 import { useEditorStore } from './editor'
 import { useNotifyStore } from './notify'
@@ -50,11 +51,6 @@ const EXPORT_FILTERS = [
   { name: 'HTML', extensions: ['html', 'htm'] },
 ]
 
-function formatError(e: unknown): string {
-  if (e instanceof Error) return e.message
-  if (typeof e === 'string') return e
-  try { return JSON.stringify(e) } catch { return String(e) }
-}
 
 /**
  * 计算默认 save 路径:有 currentFilePath 用它(去掉 .md 后补 .pdf),

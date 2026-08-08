@@ -230,6 +230,4 @@ export function langIconSvg(lang: string, size: number): string {
   return `<svg viewBox="${LANG_ICON_VIEWBOX}" fill="${color}" width="${size}" height="${size}">${brand}</svg>`
 }
 
-/** map 版本(hover 计算 / tooltip 等需要 raw inner 的场景复用)。 */
-export const LANG_ICON_INNER: Readonly<Record<string, string>> = LANG_ICON_BRAND
 export { LANG_ICON_VIEWBOX }

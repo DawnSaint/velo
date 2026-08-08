@@ -65,10 +65,11 @@ import {
   type CliArgsPayload,
 } from '@/tauri/window'
 
+import { isMacOS as isMacOSPlatform } from '@/utils/platform'
 const tauri = isTauri()
 // macOS 检测:仅桌面端生效,浏览器 dev 模式不走此分支。
 // UA 比 navigator.platform 更稳定(platform 已 deprecated)。
-const isMacOS = tauri && /Mac/.test(navigator.userAgent)
+const isMacOS = tauri && isMacOSPlatform
 const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
