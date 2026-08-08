@@ -47,7 +47,7 @@ P2  #system-tray ──→ #daily-note
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #font-ui（独立）
                                                                 │
-P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
+P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
     #theme-market · #theme-presets（独立）
 ```
@@ -98,12 +98,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] **功能更新弹窗** `#changelog-popup` `P2` `S`
   - 版本升级后首启展示 CHANGELOG 摘要
   - 读取 `docs/RELEASE_NOTES.md` 当前版本段落，渲染为 markdown
-
-- [ ] **Emoji 短码语法** `#emoji` `P2` `M` `?` —— [RESEARCH](./research/emoji.md)
-  - `:smile:` → 😄 短码渲染：自定义 inline atom 节点 + remark 插件 + syntax 实时转换
-  - 短码在 canonical round-trip 中保持可逆（`:smile:` → emoji node → `:smile:`）
-  - 按新增语法 checklist 走全流程（schema / markdownIO / syntax / NodeView / test）
-  - 依赖 `node-emoji`（shortcode → Unicode 映射表）
 
 ### 知识库 — 双链扩展
 
@@ -173,12 +167,6 @@ P3  #code-signing · #updater · #e2e-ship-gate（独立，CI 核心已通）
 
 
 ## P3 — 远期方向
-
-- [x] **应用自动更新通道** `#updater` `P3` `M` `?`
-  - Tauri Updater plugin + `latest.json` 上传到 GitHub Release
-  - 配 `tauri.conf.json` 的 `updater.endpoints` + 公钥
-  - `useUpdater` composable + SystemGroup.vue 设置页 UI(检查更新 / 下载进度 / 安装重启)
-  - CI build.yml 注入 `TAURI_SIGNING_PRIVATE_KEY` 签名 + `updaterJsonPreferNsis` 生成 latest.json
 
 - [ ] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
   - 消费 build.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`

@@ -260,6 +260,18 @@
 - **Decision**: 选 B。`pendingPmDoc` 字段让 `fromMarkdown` 结果跨组件共享，消除第二次 parse（3→2 次）；> 2000 行跳过 `toMarkdown(fromMarkdown(c))` 规范化（2→1 次，非 canonical 文件 dirty 不归零——可接受边缘）；> 2000 行延迟 `fromMarkdown` 到双 rAF 后执行，先 paint loading 遮罩再阻塞；`foldDecoration` 的 `collectFoldableKeys` 延迟到 fold dispatch 时。
 - **Consequences**: 大文档打开 markdownIO 3→1 次；loading 遮罩让用户立即看到反馈而非冻结。canonical skip 的代价（CRLF/多余空行文件 type+delete dirty 不归零）是可接受的边缘问题，`checkExternalChange` 的 canonical fallback 不受影响。后续 C1 Worker 在此基础上进一步将剩余 1 次 parse 移出主线程。
 
+## v0.7.9 — Emoji 短码 + 应用自动更新
+
+### ADR-20260808-001: 应用自动更新走 Tauri Updater plugin + Ed25519 自签名
+
+- **Context**: 桌面应用需要自动更新通道让用户及时获取新版本。候选:A Tauri Updater plugin(内置,支持签名验证 + NSIS 静默安装 + relaunch);B 手动检查 GitHub Release API + 下载提示(无需签名,但无安装自动化 + 无完整性校验);C 第三方更新框架(electron-updater 等,不适用 Tauri)。
+- **Decision**: 选 A。Tauri 2 Updater plugin(`tauri-plugin-updater`) + Process plugin(`tauri-plugin-process`,relaunch 用)。签名密钥用 Ed25519 自签名(`tauri signer generate`),免费;私钥存 CI GitHub Secret,公钥写 `tauri.conf.json`。CI 中 `tauri-action` 自动签名更新包 + 生成 `latest.json` 上传到 Release,`updaterJsonPreferNsis: true` 让 Windows 走 NSIS。前端走 `useUpdater` composable:启动后 10s 静默检查,有更新走 Toast 提示用户去设置页手动下载(不自动下载,避免打断编辑);设置页提供「检查更新」按钮 + 下载进度条 + 一键安装重启。网络错误在静默模式下静默处理(中国大陆直连 GitHub 不稳定),15s 超时快速失败。
+- **Consequences**: 免费获得完整的自动更新通道(签名验证 + 静默安装 + 重启),发版流程零额外手动步骤(CI 自动签名 + 生成 latest.json)。Ed25519 签名与 Windows 代码签名证书是两回事——updater 不依赖后者,代码签名证书消除 SmartScreen 警告需另购(见 ROADMAP `#code-signing`)。网络不可达时静默降级,不影响正常使用。
+
+---
+
+## v0.7.8 — 大文档打开性能 + 文件树性能
+
 ### ADR-20260806-002: Markdown 解析移入 Web Worker（parse-only 方案）
 
 - **Context**: C0–C3 优化后，大文档打开仍有 1 次 `fromMarkdown` 同步阻塞 ~2.8s（217KB / 6967 行）。候选:A 全移入 Worker（parse + serialize），mdast JSON 序列化开销大且 echo 哨兵需全异步化；B parse-only Worker（remark-parse + runSync 在 Worker，mdast→PM Node 转换留主线程），序列化开销小且转换无正则/解析；C 不用 Worker，继续优化同步（已无显著空间）。

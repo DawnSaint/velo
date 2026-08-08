@@ -183,6 +183,25 @@ describe('FileMenuButton', () => {
     expect(wrapper.text()).toContain('暂无最近文件')
   })
 
+  it('再次点击「最近文件」收起已展开的子菜单', async () => {
+    const wrapper = mountMenu({
+      recentEntries: [{ path: 'C:\\docs\\note.md', openedAt: 1 }],
+    })
+
+    await openMenu(wrapper)
+    // 第一次点击:展开子菜单
+    await wrapper.get('[aria-label="最近文件"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('[role="menu"]').length).toBeGreaterThanOrEqual(2)
+
+    // 第二次点击:收起子菜单,主菜单仍在
+    await wrapper.get('[aria-label="最近文件"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('[role="menu"]').length).toBe(1)
+    // 子菜单内容不再可见
+    expect(wrapper.text()).not.toContain('note.md')
+  })
+
   it('无活动文档时隐藏保存/另存为/导出/格式化排版', async () => {
     const wrapper = mountMenu({ hasDocument: false })
 

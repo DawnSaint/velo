@@ -29,6 +29,8 @@
   display: block;
   position: relative;
   text-align: center;
+  margin-top: 0.25em;
+  margin-bottom: 0.15em;
 
   // 内层 frame:inline-block 收缩到图片宽度,作按钮 containing block。
   // outline 画在 frame 而非 img 上 —— 避免 img 上的内联 style(如 zoom:33%)

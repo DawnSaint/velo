@@ -194,7 +194,12 @@ async function recomputeMenuPos() {
   }
 }
 
-async function openRecentSubmenu() {
+async function toggleRecentSubmenu() {
+  if (submenu.value === 'recent') {
+    submenu.value = null
+    submenuPos.value = null
+    return
+  }
   submenu.value = 'recent'
   await nextTick()
   computeSubmenuPos()
@@ -319,7 +324,7 @@ onBeforeUnmount(() => {
             :aria-label="row.label"
             :aria-haspopup="row.key === 'recent' ? 'menu' : undefined"
             role="menuitem"
-            @click="row.key === 'recent' ? openRecentSubmenu() : emitAction(row)"
+            @click="row.key === 'recent' ? toggleRecentSubmenu() : emitAction(row)"
           >
             <span class="min-w-0 flex-1 truncate font-medium">{{ row.label }}</span>
             <ChevronRight
@@ -336,7 +341,8 @@ onBeforeUnmount(() => {
             />
             <span
               v-else-if="row.shortcut"
-              class="shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 font-mono text-[11px] text-gray-400 dark:text-gray-500"
+              class="shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 text-[11px] text-gray-400 dark:text-gray-500"
+              style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
             >{{ row.shortcut }}</span>
           </button>
         </template>
