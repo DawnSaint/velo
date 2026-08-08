@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch, type CSSProperties } from 'vue'
 import { ChevronRight, List } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
@@ -130,12 +130,14 @@ function onItemClick(item: FlatItem) {
   revealHeadingInDom(item.level, item.displayText)
 }
 
-// ========== 缩进 ==========
-function indentClass(depth: number): string {
-  const map: Record<number, string> = {
-    0: 'pl-0', 1: 'pl-4', 2: 'pl-8', 3: 'pl-12', 4: 'pl-14', 5: 'pl-16',
-  }
-  return map[depth] || 'pl-16'
+// ========== 缩进（与文件树一致：base 12px + 每级 12px） ==========
+const indentStyleCache = new Map<number, CSSProperties>()
+function indentStyle(depth: number): CSSProperties {
+  const cached = indentStyleCache.get(depth)
+  if (cached) return cached
+  const result: CSSProperties = { paddingLeft: `${12 + depth * 12}px` }
+  indentStyleCache.set(depth, result)
+  return result
 }
 
 // ========== Scroll-spy：跟踪编辑器当前滚动到的标题，在大纲中加粗高亮 ==========
@@ -275,9 +277,9 @@ onUnmounted(detachScrollListener)
       (min-h-0 关键 —— flex 子项默认 min-height: auto,会撑到内容高度,
        不加 min-h-0 的话 overflow-y-auto 永远没机会触发,这是经典 flex 坑)
     min-w-0(v0.5.5):替换原 min-w-64,允许 splitter 拉到 200px;overflow-hidden
-       防止窄态时子元素溢出。p-2 pt-2 pr-0 保留 —— pr-2 由内层 pr-2 补回。
+       防止窄态时子元素溢出。
   -->
-  <div class="flex h-full min-w-0 flex-col overflow-hidden p-2 pt-2 pr-0">
+  <div class="flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 空态:文档无标题 或 设置页激活(无文档上下文) -->
     <div
       v-if="isDocEmpty || settingsActive"
@@ -287,48 +289,44 @@ onUnmounted(detachScrollListener)
       <span class="text-xs">暂无标题</span>
     </div>
 
-    <div v-else v-velo-scroll class="min-h-0 flex-1 overflow-y-auto pr-2">
+    <div v-else v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <div
         v-for="item in flatList"
         :key="item.key"
-        :class="indentClass(item.indent)"
-        class="group flex items-center gap-1"
+        :style="indentStyle(item.indent)"
+        :class="[
+          'group flex items-center gap-1 h-7.5 pr-2 text-sm transition-colors cursor-pointer hover:bg-[var(--surface-hover)]',
+          { 'outline-current-row': item.key === currentKey },
+        ]"
+        :title="item.displayText"
+        @click="onItemClick(item)"
       >
-        <!-- 展开/折叠箭头 -->
-        <button
-          class="flex size-4 shrink-0 items-center justify-center rounded text-gray-400 transition-colors"
-          :class="item.hasChildren
-            ? 'hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer'
-            : 'cursor-default invisible'"
-          @click="item.hasChildren && toggleExpand(item.key)"
+        <!-- 展开/折叠箭头（与文件树一致：size-4 容器 + size-3 箭头） -->
+        <span
+          class="flex size-4 shrink-0 items-center justify-center"
+          :class="{ 'cursor-pointer': item.hasChildren }"
+          @click.stop="item.hasChildren && toggleExpand(item.key)"
         >
           <ChevronRight
-            class="size-2.5 transition-transform"
-            :class="{ 'rotate-90': item.expanded && item.hasChildren }"
+            v-if="item.hasChildren"
+            class="size-3 text-gray-400 transition-transform"
+            :class="{ 'rotate-90': item.expanded }"
             :stroke-width="2.5"
           />
-        </button>
+        </span>
 
-        <!-- 标题文本;currentKey 样式(粗体 + 12% primary 背景)。 -->
-        <button
-          :class="[
-            'truncate text-left text-sm transition-colors rounded px-1 py-1',
-            'hover:bg-[var(--surface-hover)]',
-            item.key === currentKey
-              ? 'font-bold'
-              : 'text-gray-700 dark:text-gray-300',
-          ]"
-          :style="{
-            color: item.key === currentKey ? 'var(--md-primary-color, #1F71D9)' : undefined,
-            backgroundColor: item.key === currentKey
-              ? 'color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent)'
-              : undefined,
-          }"
-          :title="item.displayText"
-          @click="onItemClick(item)"
+        <!-- 标题文本 -->
+        <span
+          class="truncate"
+          :class="item.key === currentKey
+            ? 'font-bold'
+            : 'text-gray-700 dark:text-gray-300'"
+          :style="item.key === currentKey
+            ? { color: 'var(--md-primary-color, #1F71D9)' }
+            : undefined"
         >
           {{ item.displayText }}
-        </button>
+        </span>
       </div>
     </div>
   </div>
@@ -341,5 +339,10 @@ onUnmounted(detachScrollListener)
 @keyframes outline-flash {
   0%  { background-color: var(--md-primary-color, #1F71D9); color: #fff; border-radius: 4px; }
   100% { background-color: transparent; color: inherit; }
+}
+/* 当前标题行高亮背景 —— 用 global class 而非 inline style，
+   使 hover:bg-[var(--surface-hover)] 的 :hover 伪类能覆盖（specificity 0,2,0 > 0,1,0） */
+:global(.outline-current-row) {
+  background-color: color-mix(in srgb, var(--md-primary-color, #1F71D9) 12%, transparent);
 }
 </style>

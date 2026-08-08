@@ -14,6 +14,9 @@
 //    computed 重新 reconcile 整树 → 闪烁。
 //  - 根的 "加载中…" UI 由 rebuildFromRoot 单独 toggle,loadDirChildren 不再
 //    toggle node.loading —— 子目录的 loading 不可见,提早 reactive 通知反而浪费。
+//    rebuildFromRoot 的 loading 为延迟 toggle(200ms 阈值):本地 readDir 通常
+//    <50ms,同步置 true 会导致模板闪一帧"加载中…"再被实际内容替换;阈值内
+//    完成的加载不置 loading,只有真正慢的大目录 / 网络盘才显示"加载中…"。
 
 import { reactive, ref, type Ref } from 'vue'
 import { readDir } from '@/tauri/fs'
@@ -113,13 +116,18 @@ export function useTreeData(): UseTreeData {
     const node = makeNode(root, basename(root) || root, true)
     dirIndex.set(root, node)
     rootNode.value = node
-    rootNode.value.loading = true
+    // 延迟显示 "加载中…"：本地 readDir 通常 <50ms，同步置 loading=true 会导致
+    // 模板闪一帧"加载中…"再被实际内容替换。阈值 200ms 内完成的加载不闪。
+    const loadingTimer = setTimeout(() => {
+      if (rootNode.value === node) node.loading = true
+    }, 200)
     try {
       await loadDirChildren(node)
       await restoreExpanded(node)
     }
     finally {
-      rootNode.value.loading = false
+      clearTimeout(loadingTimer)
+      node.loading = false
     }
   }
 

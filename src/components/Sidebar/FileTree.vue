@@ -1,29 +1,13 @@
 <script setup lang="ts">
-// 文件树最小可用版(v0.5.0) + 右键菜单 CRUD(v0.5.1) + 内部拖拽 move(v0.5.1):
-//  - 工作区根固定显示;子目录懒加载(展开时才 readDir)
-//  - 点击 .md 文件 → 打开到编辑器(走 documentStore.openPath,带 dirty 确认)
-//  - 右键 → 新建 / 重命名 / 删除 / 在资源管理器中显示(每项 destructive op 必 confirm)
-//  - 行 / 容器空白区接收"自家"拖拽(application/x-velo-tree-path) → fs.rename
-//    (同盘 mv 语义) + 工作区状态前缀重写 + 当前打开文件路径热切换(不重载内容)
-//  - 拖入折叠目录悬停 500ms 自动展开(VSCode 行为)
-//  - 展开状态走 workspaceStore.expandedDirs,持久化到 velo-workspaces.json
-//
-// 性能取舍:虚拟滚动(FT3)—— 只渲染视口可见行 + overscan 缓冲。
-// 文件分类:lexicographic 排序,目录在文件前;隐藏文件(以 . 开头)默认显示
-//
-// 行内 input(新建 / 重命名)走「行内编辑」(对齐 VSCode / Finder),不再用 modal。
-// 数据 / IO 抽到 `useTreeData` composable,纯函数抽到 `treeUtils`,本文件只剩 UI 状态机。
+// 文件树 UI 组件(v0.5.0)。
+// 数据 / IO → useTreeData,纯函数 → treeUtils,
+// 拖拽 → useDragMove,行内编辑 → useInlineEdit,
+// 虚拟滚动 → useVirtualScroll,复制粘贴 → useCopyPaste,
+// 根行按钮 → RootActionButtons。本文件只剩 UI 状态机 + 事件接线 + 模板。
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch, type CSSProperties } from 'vue'
-import { Check, ChevronRight, ChevronsDownUp, File, FilePlus, FolderPlus, Image, RefreshCw } from '@lucide/vue'
-import {
-  copyFile as fsCopyFile,
-  mkdir as fsMkdir,
-  readDir as fsReadDir,
-  remove as fsRemove,
-  rename as fsRename,
-  writeTextFile,
-} from '@/tauri/fs'
+import { ChevronRight, File, Image } from '@lucide/vue'
+import { remove as fsRemove } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { confirm as nativeConfirm } from '@/tauri/dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
@@ -33,20 +17,20 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
 import { useNotifyStore } from '@/stores/notify'
-import { TREE_DIR_PATH_MIME, TREE_PATH_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
+import RootActionButtons from './RootActionButtons.vue'
 import { useTreeData, type TreeNode } from './useTreeData'
+import { useDragMove } from './useDragMove'
+import { useInlineEdit } from './useInlineEdit'
+import { useVirtualScroll, type VisualItem } from './useVirtualScroll'
+import { useCopyPaste } from './useCopyPaste'
 import {
   MD_EXT_RE,
   basename,
-  finalName,
   formatFsError,
-  isAncestorOrSelf,
   isImageName,
   parentDirOfPath,
-  uniqueName,
-  validateName,
 } from './treeUtils'
 
 const workspace = useWorkspaceStore()
@@ -67,6 +51,97 @@ watch(() => workspace.activeRoot, (r) => {
   rootCollapsed.value = false
   void rebuildFromRoot(r)
 }, { immediate: true })
+
+function isRootNode(node: TreeNode): boolean {
+  return workspace.activeRoot !== null && node.fullPath === workspace.activeRoot
+}
+
+const rootDisplay = computed(() => {
+  const r = workspace.activeRoot
+  if (!r) return ''
+  const s = sep()
+  const trimmed = r.endsWith(s) ? r.slice(0, -s.length) : r
+  return basename(trimmed) || trimmed
+})
+
+// ========== 右键菜单状态 ==========
+// 早于 composables 定义:useInlineEdit / useDragMove / useCopyPaste 都需要 closeContextMenu 回调。
+
+interface ContextMenuState {
+  node: TreeNode
+  /** 视口坐标,fixed 定位用 */
+  x: number
+  y: number
+  /** true = 容器空白处右键,语义"在根目录操作",菜单仅显示新建项(无重命名 / 删除 / reveal) */
+  rootContext?: boolean
+}
+const contextMenu = ref<ContextMenuState | null>(null)
+const contextMenuRef = ref<InstanceType<typeof FileTreeContextMenu> | null>(null)
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+useContextMenu({
+  isOpen: () => contextMenu.value !== null,
+  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
+  close: () => { contextMenu.value = null },
+})
+
+// ========== composables ==========
+
+const {
+  inlineNew, inlineRename,
+  bindInlineInputEl,
+  openInlineNew, openInlineRename, cancelInline, submitInline,
+} = useInlineEdit({ dirIndex, loadDirChildren, closeContextMenu })
+
+const {
+  dragOverTarget, clearHoverExpandTimer,
+  onRowDragStart, onRowDragOver, onRowDrop,
+  onContainerDragOver, onContainerDrop, onGlobalDragEnd,
+} = useDragMove({ dirIndex, loadDirChildren, pruneDirIndexPrefix, rootCollapsed, isRootNode, closeContextMenu, cancelInline })
+
+const { clipboard, copyNode, pasteInto } = useCopyPaste({ dirIndex, loadDirChildren, closeContextMenu })
+
+// ========== flatItems:渲染拍平,免递归组件 ==========
+//
+// inlineNew 项混在 flatItems 里(在目标目录子树末尾追加一个 input 行);
+// 模板用 v-if 分支区分普通行 / 行内新建 / 行内重命名。
+
+const flatItems = computed<VisualItem[]>(() => {
+  const out: VisualItem[] = []
+  if (!rootNode.value) return out
+  const inline = inlineNew.value
+  // 根节点作为 depth=0 第一行进入树本身(v0.5.1):允许右键 / 显示与子目录一致的图标。
+  // expanded = !rootCollapsed,折叠时下面的 children walk 跳过 → 只保留根 row 自身。
+  const rootExpanded = !rootCollapsed.value
+  out.push({ kind: 'node', node: rootNode.value, depth: 0, expanded: rootExpanded })
+  if (!rootExpanded) return out
+  function walk(children: TreeNode[] | undefined, depth: number) {
+    if (!children) return
+    for (const c of children) {
+      const expanded = c.isDir && workspace.isDirExpanded(c.fullPath)
+      out.push({ kind: 'node', node: c, depth, expanded })
+      if (expanded && c.children) walk(c.children, depth + 1)
+      if (inline && c.isDir && c.fullPath === inline.parentDir) {
+        out.push({ kind: 'inlineNew', parentDir: c.fullPath, depth: depth + 1, subKind: inline.kind })
+      }
+    }
+  }
+  walk(rootNode.value.children, 1)
+  if (inline && rootNode.value.fullPath === inline.parentDir) {
+    out.push({ kind: 'inlineNew', parentDir: rootNode.value.fullPath, depth: 1, subKind: inline.kind })
+  }
+  return out
+})
+
+const {
+  ROW_HEIGHT, scrollContainerRef, stickyHeaders, visibleRange, visibleItems,
+  onScroll, updateViewport, stickyIsExpanded, stickyDisplayName, cancelRaf, reset,
+} = useVirtualScroll({ flatItems, rootCollapsed, isRootNode, rootDisplay })
+
+// ========== 目录展开 / 文件点击 ==========
 
 /** 用户点击展开 / 折叠目录:同步持久化 + 懒加载子。
  *  根节点走 rootCollapsed(组件本地态,不持久化),不走 workspace.expandedDirs。 */
@@ -114,41 +189,7 @@ defineExpose({ refreshDir, rebuildFromRoot, revealFile })
 
 const activeFile = computed(() => documentStore.currentFilePath)
 
-// ========== flatItems:渲染拍平,免递归组件 ==========
-//
-// inlineNew 项混在 flatItems 里(在目标目录子树末尾追加一个 input 行);
-// 模板用 v-if 分支区分普通行 / 行内新建 / 行内重命名。
-
-type VisualItem =
-  | { kind: 'node', node: TreeNode, depth: number, expanded: boolean }
-  | { kind: 'inlineNew', parentDir: string, depth: number, subKind: 'newFile' | 'newDir' }
-
-const flatItems = computed<VisualItem[]>(() => {
-  const out: VisualItem[] = []
-  if (!rootNode.value) return out
-  const inline = inlineNew.value
-  // 根节点作为 depth=0 第一行进入树本身(v0.5.1):允许右键 / 显示与子目录一致的图标。
-  // expanded = !rootCollapsed,折叠时下面的 children walk 跳过 → 只保留根 row 自身。
-  const rootExpanded = !rootCollapsed.value
-  out.push({ kind: 'node', node: rootNode.value, depth: 0, expanded: rootExpanded })
-  if (!rootExpanded) return out
-  function walk(children: TreeNode[] | undefined, depth: number) {
-    if (!children) return
-    for (const c of children) {
-      const expanded = c.isDir && workspace.isDirExpanded(c.fullPath)
-      out.push({ kind: 'node', node: c, depth, expanded })
-      if (expanded && c.children) walk(c.children, depth + 1)
-      if (inline && c.isDir && c.fullPath === inline.parentDir) {
-        out.push({ kind: 'inlineNew', parentDir: c.fullPath, depth: depth + 1, subKind: inline.kind })
-      }
-    }
-  }
-  walk(rootNode.value.children, 1)
-  if (inline && rootNode.value.fullPath === inline.parentDir) {
-    out.push({ kind: 'inlineNew', parentDir: rootNode.value.fullPath, depth: 1, subKind: inline.kind })
-  }
-  return out
-})
+// ========== indentStyle ==========
 
 // 按 depth 缓存 indentStyle:同 depth → 同对象引用 → Vue patch 跳过 style 更新,
 // 避免每行每次重渲都重新拼接 gradient 字符串。
@@ -187,166 +228,6 @@ async function chooseWorkspace() {
   await workspace.pickWorkspace()
 }
 
-// ========== 拖拽源 ==========
-//
-// 自定义 MIME(而非纯 text/plain)承载 fullPath,让 drop 处理器(自家树 +
-// 编辑器)能区分"velo 内部拖拽"与"OS 拖文件进来"两种来源:
-//  - 树拖**文件**(.md / 图片):写 TREE_PATH_MIME + text/plain
-//    - 编辑器(imageUploadPlugin / SourceModeEditor)按 TREE_PATH_MIME 识别 → 打开 / 落盘插图
-//    - 自家树同 MIME 接 drop → fs.rename 同盘 move
-//  - 树拖**目录**:写 TREE_DIR_PATH_MIME(不写 text/plain,不写 TREE_PATH_MIME)
-//    - 编辑器不识别此 MIME,目录拖入编辑器不触发任何动作(预期:目录无法拖编辑器)
-//    - 自家树同时接受两种 MIME → fs.rename 同盘 move
-//  - OS 拖:走原生 imageUploadPlugin(富文本)/ 文件型 drop 处理(源码模式)
-
-function onRowDragStart(event: DragEvent, node: TreeNode) {
-  if (!event.dataTransfer) return
-  // 根节点不可拖(拖根 = 把工作区"移走",fs 层 ancestor 守卫会 reject,UI 上不应暴露)。
-  if (isRootNode(node)) {
-    event.preventDefault()
-    return
-  }
-  // 互斥:dragstart 关掉可能挂着的菜单 / 行内 input —— 否则 drop 时全局 pointerdown
-  // 可能把行内 input 误提交,菜单也会在拖拽中途残留。
-  closeContextMenu()
-  cancelInline()
-  if (node.isDir) {
-    // 目录:独立 MIME,不写 text/plain —— 防止目录被拖到编辑器后 PM 当文本插入路径串。
-    event.dataTransfer.setData(TREE_DIR_PATH_MIME, node.fullPath)
-  }
-  else {
-    event.dataTransfer.setData(TREE_PATH_MIME, node.fullPath)
-    event.dataTransfer.setData('text/plain', node.fullPath)
-  }
-  // 'all' 而非 'copyLink':v0.5.1 起内部拖拽 move 需要 dropEffect='move' 在
-  // effectAllowed 子集内;'copyLink' 不含 'move',浏览器会把 move 视为非法。
-  // 编辑器侧自行计算 dropEffect(.md=link 跳转/copy 引用),不受 source 宽放影响。
-  event.dataTransfer.effectAllowed = 'all'
-}
-
-// ========== 内部拖拽 move(v0.5.1) ==========
-//
-// 接收"自家树"拖拽(TREE_PATH_MIME),走 fs.rename 同盘 mv 语义。OS / 编辑器
-// 拖出去这边不偷信号(types 不含 TREE_PATH_MIME 直接 fall through)。
-//
-// 高亮单点:dragOverTarget 存"解析后的目标目录路径"(不是悬停 row 路径)。
-// 文件 row → 高亮其父目录;目录 row → 高亮自身;容器空白 → 高亮工作区根。
-//
-// hover-expand:拖到折叠目录上 500ms 自动展开(VSCode 行为),让用户能拖到
-// 深层目录而无需先点开。展开后不再折叠(避免目标在拖动过程中消失)。
-//
-// 完成后的状态更新同 microtask 无 await 间隔(见 docs/architecture/file-tree.md):
-// renamePathPrefix → loadContent(必要时)→ pruneDirIndexPrefix → 双侧 refresh。
-
-const dragOverTarget = ref<string | null>(null)
-const HOVER_EXPAND_MS = 500
-let hoverExpandTimer: ReturnType<typeof setTimeout> | null = null
-let hoverExpandPath: string | null = null
-
-function clearHoverExpandTimer() {
-  if (hoverExpandTimer) {
-    clearTimeout(hoverExpandTimer)
-    hoverExpandTimer = null
-  }
-  hoverExpandPath = null
-}
-
-/** 当拖动停在折叠目录上时,挂 500ms 定时器自动展开;切到别的目录 / 离开重置。 */
-function armHoverExpand(dirPath: string) {
-  if (hoverExpandPath === dirPath) return // 同一目标计时器已在跑,别重置
-  clearHoverExpandTimer()
-  // 根折叠态独立处理:用 rootCollapsed,不查 workspace.expandedDirs
-  if (dirPath === workspace.activeRoot) {
-    if (!rootCollapsed.value) return // 已展开,不挂 timer
-    hoverExpandPath = dirPath
-    hoverExpandTimer = setTimeout(() => {
-      hoverExpandTimer = null
-      hoverExpandPath = null
-      rootCollapsed.value = false
-    }, HOVER_EXPAND_MS)
-    return
-  }
-  const node = dirIndex.get(dirPath)
-  if (!node || !node.isDir) return
-  if (workspace.isDirExpanded(dirPath)) return
-  hoverExpandPath = dirPath
-  hoverExpandTimer = setTimeout(() => {
-    hoverExpandTimer = null
-    hoverExpandPath = null
-    // 重新判一遍(用户可能在 500ms 内手动展开 / 切到别处再回来),避免重复 readDir
-    if (!workspace.isDirExpanded(dirPath)) {
-      workspace.setDirExpanded(dirPath, true)
-      const n = dirIndex.get(dirPath)
-      if (n && n.children === undefined) void loadDirChildren(n)
-    }
-  }, HOVER_EXPAND_MS)
-}
-
-function resolveDropDir(node: TreeNode | null): string | null {
-  if (!node) return workspace.activeRoot
-  return node.isDir ? node.fullPath : parentDirOfPath(node.fullPath)
-}
-
-function dragHasTreePath(event: DragEvent): boolean {
-  // dragover/drop 期 dataTransfer.getData 受浏览器安全约束(只允许 drop 内拿),
-  // 但 types 集合一直可读 —— 用它判定"是自家树拖拽吗"。文件 / 目录两种 MIME 都接,
-  // 内部 move 对 file/dir 同走 fs.rename。
-  const types = event.dataTransfer?.types
-  return !!types && (types.includes(TREE_PATH_MIME) || types.includes(TREE_DIR_PATH_MIME))
-}
-
-function onRowDragOver(event: DragEvent, node: TreeNode) {
-  if (!dragHasTreePath(event)) return
-  event.preventDefault()
-  event.stopPropagation()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-  const dst = resolveDropDir(node)
-  dragOverTarget.value = dst
-  // 文件 row 解析到的目标是父目录,父目录已展开(否则文件不可见),不会挂 timer
-  if (dst && node.isDir) armHoverExpand(dst)
-  else clearHoverExpandTimer()
-}
-
-/** 从 dataTransfer 取自家拖拽源路径,文件 / 目录 MIME 都试一遍。 */
-function getTreeDragPath(event: DragEvent): string | null {
-  const dt = event.dataTransfer
-  if (!dt) return null
-  return dt.getData(TREE_PATH_MIME) || dt.getData(TREE_DIR_PATH_MIME) || null
-}
-
-async function onRowDrop(event: DragEvent, node: TreeNode) {
-  if (!dragHasTreePath(event)) return
-  event.preventDefault()
-  event.stopPropagation()
-  clearHoverExpandTimer()
-  const srcPath = getTreeDragPath(event)
-  dragOverTarget.value = null
-  if (!srcPath) return
-  const dstDir = resolveDropDir(node)
-  if (!dstDir) return
-  await performMove(srcPath, dstDir)
-}
-
-function onContainerDragOver(event: DragEvent) {
-  if (!dragHasTreePath(event)) return
-  event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-  dragOverTarget.value = workspace.activeRoot
-  // 容器空白 = 根目标;根可能被折叠,armHoverExpand 内部按 rootCollapsed 判要不要挂 timer
-  if (workspace.activeRoot) armHoverExpand(workspace.activeRoot)
-  else clearHoverExpandTimer()
-}
-
-async function onContainerDrop(event: DragEvent) {
-  if (!dragHasTreePath(event)) return
-  event.preventDefault()
-  clearHoverExpandTimer()
-  const srcPath = getTreeDragPath(event)
-  dragOverTarget.value = null
-  if (!srcPath || !workspace.activeRoot) return
-  await performMove(srcPath, workspace.activeRoot)
-}
-
 // ========== 容器空白双击 → 根目录新建 MD(v0.5.1)==========
 //
 // 对齐 VSCode "EXPLORER 面板空白处双击新建文件"。`@dblclick.self` 让
@@ -359,97 +240,7 @@ function onContainerDblClick() {
   void openInlineNew(workspace.activeRoot, 'newFile')
 }
 
-/** 把 srcPath 移到 dstDir 下,沿用其 basename。校验失败弹原生 message,
- *  成功后状态更新一口气走完,Vue 单帧 flush。 */
-async function performMove(srcPath: string, dstDir: string) {
-  const srcParentDir = parentDirOfPath(srcPath)
-  const srcParent = dirIndex.get(srcParentDir)
-  const srcName = basename(srcPath)
-  // src 必须在 dirIndex(目录)或父目录 children(文件)里找得到;
-  // 拖拽源都是当前可见 row,理论必然命中,兜底 return。
-  const srcNode: TreeNode | undefined
-    = dirIndex.get(srcPath)
-      ?? srcParent?.children?.find(c => c.fullPath === srcPath)
-  if (!srcNode) return
-
-  // 静默 noop:拖回自己父目录 / 拖到自身
-  if (srcPath === dstDir) return
-  if (srcParentDir === dstDir) return
-
-  if (srcNode.isDir && isAncestorOrSelf(srcPath, dstDir)) {
-    notify.warning('不能将目录拖入自身或其子目录')
-    return
-  }
-
-  const newPath = await join(dstDir, srcName)
-  if (newPath === srcPath) return
-
-  try {
-    await fsRename(srcPath, newPath)
-  }
-  catch (e) {
-    notify.error(formatFsError(e, '移动失败'))
-    return
-  }
-
-  // —— 写盘成功,接下来全部同步无 await 间隔(loadDirChildren 内的 await 在最后) ——
-
-  // 1) 工作区状态前缀重写(expandedDirs / lastFile)
-  workspace.renamePathPrefix(srcPath, newPath)
-  recentFiles.renamePathPrefix(srcPath, newPath)
-
-  // 2) 多标签联动:所有打开标签里命中 srcPath(文件)或其前缀(目录)的 path 换成 newPath,
-  //    不动 content / dirty 基线(改名不该清 dirty)
-  await documentStore.renameOpenPaths(srcPath, newPath)
-
-  // 3) 旧路径下的 dirIndex 子树孤儿清理(否则 fs.watch 会撞到死路径置 node.error)
-  pruneDirIndexPrefix(srcPath)
-
-  // 4) 同时刷新源父目录 + 目标目录(未加载则跳过该侧)
-  const dstNode = dirIndex.get(dstDir)
-  const tasks: Array<Promise<void>> = []
-  if (srcParent) tasks.push(loadDirChildren(srcParent))
-  if (dstNode) tasks.push(loadDirChildren(dstNode))
-  await Promise.all(tasks)
-}
-
-// ========== 右键菜单(v0.5.1) ==========
-//
-// 单实例菜单:右键 row → 记下 node + 鼠标位置 → 浮层定位到 (x,y);
-// 点别处 / Escape 关闭。菜单 UI 在 `FileTreeContextMenu.vue`。
-
-interface ContextMenuState {
-  node: TreeNode
-  /** 视口坐标,fixed 定位用 */
-  x: number
-  y: number
-  /** true = 容器空白处右键,语义"在根目录操作",菜单仅显示新建项(无重命名 / 删除 / reveal) */
-  rootContext?: boolean
-}
-const contextMenu = ref<ContextMenuState | null>(null)
-const contextMenuRef = ref<InstanceType<typeof FileTreeContextMenu> | null>(null)
-
-useContextMenu({
-  isOpen: () => contextMenu.value !== null,
-  getMenuEl: () => contextMenuRef.value?.rootEl ?? null,
-  close: () => { contextMenu.value = null },
-})
-
-// ========== 复制 / 粘贴(v0.5.x) ==========
-//
-// 单实例"剪贴板":只记源路径 + 源是否目录。粘贴时:
-//  - 文件:走 fs.copyFile 二进制复制
-//  - 目录:递归 mkdir + copyFile
-//  - 目标目录已有同名项:走 uniqueName 自动重命名("foo 副本.md" / "foo 副本 2.md" 等)
-//  - 不能把目录粘贴到自身或子目录内(同 move 的 ancestor 守卫)
-// 粘贴成功后刷新目标目录 children。clipcleard 不清,支持多次粘贴(对齐 VSCode)。
-
-/** 剪贴板:已复制的源路径 + 是否目录;null = 未复制。 */
-const clipboard = ref<{ srcPath: string, isDir: boolean } | null>(null)
-
-function isRootNode(node: TreeNode): boolean {
-  return workspace.activeRoot !== null && node.fullPath === workspace.activeRoot
-}
+// ========== 根行工具按钮状态 ==========
 
 /** 全部折叠:清空所有子目录展开状态,根保持展开(用户仍可见顶层文件)。 */
 function collapseAll() {
@@ -487,6 +278,8 @@ async function refreshRoot() {
   }
 }
 
+// ========== 右键菜单触发 ==========
+
 function onRowContextMenu(event: MouseEvent, node: TreeNode) {
   event.preventDefault()
   const { x, y } = clampToViewport(event.clientX, event.clientY, 160, 220)
@@ -499,10 +292,6 @@ function onRowContextMenu(event: MouseEvent, node: TreeNode) {
     contextMenu.value = { node, x, y }
   }
   cancelInline()
-}
-
-function closeContextMenu() {
-  contextMenu.value = null
 }
 
 // ========== 容器空白处右键 → 根目录上下文菜单(v0.5.1)==========
@@ -522,143 +311,6 @@ function onContainerContextMenu(event: MouseEvent) {
 /** 「新建 X」的目标目录:目录节点 = 自身;文件节点 = 父目录(创建兄弟项)。 */
 function targetDirForNew(node: TreeNode): string {
   return node.isDir ? node.fullPath : parentDirOfPath(node.fullPath)
-}
-
-// ========== 行内 input:新建 / 重命名(v0.5.1) ==========
-//
-// 不走 modal,改行内 input(对齐 VSCode / Finder):
-//  - 新建:在目标目录末尾插入一行 input
-//  - 重命名:把原行替换成 input(同 key,Vue 复用 DOM)
-//  - Enter 提交、Esc 取消、点外部提交
-//  - 校验失败不关 input,title 显示错误
-//  - .md 后缀走静态 span,input 不含 .md —— 用户不可编辑后缀
-
-interface InlineNewState {
-  parentDir: string
-  kind: 'newFile' | 'newDir'
-  value: string
-  error: string | null
-}
-
-interface InlineRenameState {
-  node: TreeNode
-  /** base name(.md 文件去掉 .md 后缀;其它含完整名) */
-  value: string
-  error: string | null
-}
-
-const inlineNew = ref<InlineNewState | null>(null)
-const inlineRename = ref<InlineRenameState | null>(null)
-const inlineInputEl = ref<HTMLInputElement | null>(null)
-
-/** v-for 内拿 input ref:Vue 3 string ref 在 v-for 里收成数组,函数 ref 干净。 */
-function bindInlineInputEl(el: Element | { $el?: unknown } | null) {
-  inlineInputEl.value = el instanceof HTMLInputElement ? el : null
-}
-
-/** 取同目录已加载 children 的 name 集合给 validateName 当同名查重源;未加载返回 null
- *  让 validateName 跳过同名检查,交后端 reject 兜底。 */
-function siblingNamesOf(parentDir: string): Set<string> | null {
-  const parent = dirIndex.get(parentDir)
-  if (!parent?.children) return null
-  return new Set(parent.children.map(c => c.name))
-}
-
-async function openInlineNew(parentDir: string, kind: 'newFile' | 'newDir') {
-  closeContextMenu()
-  inlineRename.value = null
-  // 父目录必须展开才能让行内 input 可见;右键时若未展开,先 expand + 拉子目录
-  const isRoot = parentDir === workspace.activeRoot
-  if (!isRoot) {
-    const parent = dirIndex.get(parentDir)
-    if (parent && !workspace.isDirExpanded(parentDir)) {
-      workspace.setDirExpanded(parentDir, true)
-      if (parent.children === undefined) await loadDirChildren(parent)
-    }
-  }
-  inlineNew.value = {
-    parentDir,
-    kind,
-    value: '',
-    error: null,
-  }
-  await focusInlineNextTick()
-  inlineInputEl.value?.scrollIntoView({ block: 'nearest' })
-}
-
-function openInlineRename(node: TreeNode) {
-  closeContextMenu()
-  inlineNew.value = null
-  const isMd = !node.isDir && /\.md$/i.test(node.name)
-  inlineRename.value = {
-    node,
-    value: isMd ? node.name.replace(/\.md$/i, '') : node.name,
-    error: null,
-  }
-  void focusInlineNextTick()
-}
-
-async function focusInlineNextTick() {
-  await nextTick()
-  inlineInputEl.value?.focus()
-  inlineInputEl.value?.select()
-}
-
-function cancelInline() {
-  inlineNew.value = null
-  inlineRename.value = null
-  inlineInputEl.value = null
-}
-
-async function submitInline() {
-  // 1) 行内新建
-  if (inlineNew.value) {
-    const { parentDir, kind, value } = inlineNew.value
-    // 空名校验必须落在 input 原值上,不能在 finalName 上(.md 拼接后非空)
-    if (!value.trim()) { inlineNew.value.error = '名称不能为空'; return }
-    const fullName = finalName(value, { kind })
-    const err = validateName(fullName, siblingNamesOf(parentDir), null)
-    if (err) { inlineNew.value.error = err; return }
-    const targetPath = await join(parentDir, fullName)
-    try {
-      if (kind === 'newFile') await writeTextFile(targetPath, '')
-      else await fsMkdir(targetPath)
-      // children 更新 + cancelInline 同 microtask,Vue 一次 flush(见 docs/architecture/file-tree.md)
-      const parent = dirIndex.get(parentDir)
-      if (parent) await loadDirChildren(parent)
-      cancelInline()
-    }
-    catch (e) {
-      inlineNew.value.error = formatFsError(e, kind === 'newFile' ? '新建文件失败' : '新建目录失败')
-    }
-    return
-  }
-  // 2) 行内重命名
-  if (inlineRename.value) {
-    const { node, value } = inlineRename.value
-    if (!value.trim()) { inlineRename.value.error = '名称不能为空'; return }
-    const isMdFile = !node.isDir && /\.md$/i.test(node.name)
-    const fullName = finalName(value, { kind: isMdFile ? 'renameMdFile' : 'renameOther' })
-    const parentDir = parentDirOfPath(node.fullPath)
-    const err = validateName(fullName, siblingNamesOf(parentDir), node.name)
-    if (err) { inlineRename.value.error = err; return }
-    const newPath = await join(parentDir, fullName)
-    if (newPath === node.fullPath) { cancelInline(); return }
-    try {
-      await fsRename(node.fullPath, newPath)
-      // 联动工作区 / 全局最近文件里的旧路径,否则移动或重命名后菜单会指向死路径
-      workspace.renamePathPrefix(node.fullPath, newPath)
-      recentFiles.renamePathPrefix(node.fullPath, newPath)
-      // 联动多标签:命中旧路径的打开标签只换 path,不动 content / dirty
-      await documentStore.renameOpenPaths(node.fullPath, newPath)
-      const parent = dirIndex.get(parentDir)
-      if (parent) await loadDirChildren(parent)
-      cancelInline()
-    }
-    catch (e) {
-      inlineRename.value.error = formatFsError(e, '重命名失败')
-    }
-  }
 }
 
 // ========== 删除 + 联动当前打开文件 ==========
@@ -791,7 +443,7 @@ async function revealFile(filePath: string, options?: { flash?: boolean }): Prom
   }
 }
 
-// ========== 右键菜单新增:在编辑器中打开 / 作为工作区打开(v0.5.1)==========
+// ========== 右键菜单:在编辑器中打开 / 作为工作区打开(v0.5.1)==========
 
 /** .md 文件 → 在编辑器中打开。与 onFileClick 共用同一条路径(脏盘确认 + openPath + setLastFile)。 */
 async function openInEditor(node: TreeNode) {
@@ -829,78 +481,6 @@ function onSearchInFolder(node: TreeNode) {
   emit('search-in-folder', node.fullPath)
 }
 
-/** 把节点记入剪贴板(不立刻读数据,粘贴时再读)。 */
-function copyNode(node: TreeNode) {
-  closeContextMenu()
-  clipboard.value = { srcPath: node.fullPath, isDir: node.isDir }
-}
-
-/**
- * 递归复制目录。逐条目 mkdir + readDir + copyFile,失败即抛。
- * 用 fsReadDir 而非 dirIndex 子树(源可能未展开,children=undefined)。
- */
-async function copyDirRecursive(srcDir: string, dstDir: string) {
-  await fsMkdir(dstDir, { recursive: false }).catch((e) => {
-    // 目标已存在(uniqueName 已避开,但 race 下仍可能)→ 复用;其它抛。
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!msg.includes('already exists')) throw e
-  })
-  const entries = await fsReadDir(srcDir)
-  for (const entry of entries) {
-    const childSrc = `${srcDir}/${entry.name}`
-    const childDst = `${dstDir}/${entry.name}`
-    if (entry.isDirectory) {
-      await copyDirRecursive(childSrc, childDst)
-    }
-    else {
-      await fsCopyFile(childSrc, childDst)
-    }
-  }
-}
-
-/** 把剪贴板中的源粘贴到 dstDir。同名自动重命名;目录不能贴入自身后代。 */
-async function pasteInto(dstDir: string) {
-  const clip = clipboard.value
-  if (!clip) return
-  closeContextMenu()
-
-  // 目录:不能贴入自身或子目录(同 move 的 ancestor 守卫)。
-  if (clip.isDir && isAncestorOrSelf(clip.srcPath, dstDir)) {
-    notify.warning('不能将目录粘贴到自身或其子目录')
-    return
-  }
-
-  // 取目标目录已加载的 children name 集合作同名源;未加载则跳过,让后端兜底。
-  const dstNode = dirIndex.get(dstDir)
-  const siblingNames = dstNode?.children
-    ? new Set(dstNode.children.map(c => c.name))
-    : null
-  const srcName = basename(clip.srcPath)
-  const finalDstName = siblingNames ? uniqueName(srcName, siblingNames) : srcName
-  const dstPath = await join(dstDir, finalDstName)
-
-  // 同路径静默 noop(把项粘贴到原父目录且未重命名 → 会与源同名冲突,已在 uniqueName 处理;
-  // 但如果 siblingNames=null 未加载则走到这里,fs 端会 reject 报"already exists")。
-  try {
-    if (clip.isDir) {
-      await copyDirRecursive(clip.srcPath, dstPath)
-    }
-    else {
-      await fsCopyFile(clip.srcPath, dstPath)
-    }
-  }
-  catch (e) {
-    notify.error(formatFsError(e, '粘贴失败'))
-    return
-  }
-
-  // 刷新目标目录 children(未加载则跳过;展开态才可见新项)。
-  const parent = dirIndex.get(dstDir)
-  if (parent && parent.children) {
-    await loadDirChildren(parent)
-  }
-}
-
 // ========== 全局点击 / 键盘 / dragend ==========
 
 function onGlobalPointerDown(event: PointerEvent) {
@@ -931,11 +511,6 @@ function onGlobalKeydown(event: KeyboardEvent) {
   // 菜单的 Escape 关闭由 useContextMenu composable 的独立 listener 管
 }
 
-function onGlobalDragEnd() {
-  dragOverTarget.value = null
-  clearHoverExpandTimer()
-}
-
 let globalListenersAttached = false
 
 function attachGlobalListeners() {
@@ -962,8 +537,8 @@ function resetTransientUi() {
   clearHoverExpandTimer()
   if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null }
   refreshState.value = 'idle'
-  stickyHeaders.value = []
-  visibleRange.value = { start: 0, end: 0 }
+  reset()
+  cancelRaf()
 }
 
 onMounted(() => {
@@ -977,143 +552,10 @@ onActivated(() => {
 onDeactivated(() => {
   detachGlobalListeners()
   resetTransientUi()
-  if (scrollRafId !== null) { cancelAnimationFrame(scrollRafId); scrollRafId = null }
 })
 onBeforeUnmount(() => {
   detachGlobalListeners()
   resetTransientUi()
-  if (scrollRafId !== null) { cancelAnimationFrame(scrollRafId); scrollRafId = null }
-})
-
-// ========== 虚拟滚动 + Sticky 目录头 ==========
-//
-// 虚拟滚动:只渲染视口内可见行 + overscan 缓冲,spacer div 撑住总高度。
-// DOM 节点从 O(n) 降至 O(viewport),无论展开多少目录渲染开销近恒定。
-//
-// Sticky 目录头:滚动时已滚出视口顶部的目录行级联粘贴(同 VSCode)。
-// 用 flatItems 内存数组 + 固定行高算各行 offset,从当前可见区域第一行
-// 向前走找各层级最近的目录祖先 → 渲染 overlay。不走 querySelectorAll /
-// offsetTop,消除 DOM 扫描 + 布局回流。
-//
-// 两者合并到 updateViewport:同一次 rAF 回调读 scrollTop + clientHeight,
-// 同时更新 visibleRange 和 stickyHeaders,避免重复布局读取。
-
-const ROW_HEIGHT = 30 // h-7.5 = 1.875rem = 30px
-const OVERSCAN = 5 // 视口上下额外渲染的行数,减少滚动时的闪烁
-const scrollContainerRef = ref<HTMLElement | null>(null)
-let scrollRafId: number | null = null
-const stickyHeaders = ref<{ node: TreeNode; depth: number }[]>([])
-const visibleRange = ref({ start: 0, end: 0 })
-
-/** 视口内可见行(含 overscan),由 flatItems 切片得来。 */
-const visibleItems = computed<VisualItem[]>(() => {
-  const items = flatItems.value
-  const { start, end } = visibleRange.value
-  if (start >= end || start >= items.length) return []
-  return items.slice(start, Math.min(end, items.length))
-})
-
-function onScroll() {
-  if (scrollRafId !== null) return
-  scrollRafId = requestAnimationFrame(() => {
-    scrollRafId = null
-    updateViewport()
-  })
-}
-
-function updateViewport() {
-  const container = scrollContainerRef.value
-  if (!container) {
-    visibleRange.value = { start: 0, end: 0 }
-    stickyHeaders.value = []
-    return
-  }
-
-  const items = flatItems.value
-  if (!items.length) {
-    visibleRange.value = { start: 0, end: 0 }
-    stickyHeaders.value = []
-    return
-  }
-
-  const st = container.scrollTop
-  const vh = container.clientHeight
-
-  // clientHeight === 0 (jsdom / 容器尚未布局) → 全量渲染,不虚拟化
-  if (vh === 0) {
-    visibleRange.value = { start: 0, end: items.length }
-    stickyHeaders.value = []
-    return
-  }
-
-  // — 虚拟滚动:计算可见范围 —
-  const start = Math.max(0, Math.floor(st / ROW_HEIGHT) - OVERSCAN)
-  const end = Math.min(items.length, Math.ceil((st + vh) / ROW_HEIGHT) + OVERSCAN)
-  visibleRange.value = { start, end }
-
-  // — Sticky 目录头 —
-  if (st <= 0) {
-    stickyHeaders.value = []
-    return
-  }
-  // 行高统一按 ROW_HEIGHT;inlineNew 行(h-8=32px)差 2px,
-  // inline 编辑期间用户不滚动,视觉无感知。
-  const headers: { node: TreeNode; depth: number }[] = []
-  const seenDepths = new Set<number>()
-
-  // 从当前可见区域第一行向前走,找各层级最近的目录祖先。
-  // 向前走的步数 = scrollTop / ROW_HEIGHT,通常 < 200,远快于全量 DOM 扫描。
-  const startIdx = Math.min(Math.floor(st / ROW_HEIGHT), items.length - 1)
-  for (let i = startIdx; i >= 0; i--) {
-    const item = items[i]
-    if (item.kind !== 'node' || !item.node.isDir) continue
-    if (seenDepths.has(item.depth)) continue
-
-    const rowTop = i * ROW_HEIGHT
-    const threshold = item.depth * ROW_HEIGHT
-    // 条件 1:已滚过阈值
-    if (rowTop - st > threshold) continue
-
-    // 条件 2:子树仍可见 —— 下一个 depth<=当前的同级/祖先级行还没滚过阈值
-    let endTop = items.length * ROW_HEIGHT
-    for (let j = i + 1; j < items.length; j++) {
-      if (items[j].depth <= item.depth) {
-        endTop = j * ROW_HEIGHT
-        break
-      }
-    }
-    if (endTop - st <= threshold) continue
-
-    seenDepths.add(item.depth)
-    headers.unshift({ node: item.node, depth: item.depth })
-  }
-
-  stickyHeaders.value = headers
-}
-
-function stickyIsExpanded(node: TreeNode): boolean {
-  if (isRootNode(node)) return !rootCollapsed.value
-  return workspace.isDirExpanded(node.fullPath)
-}
-
-function stickyDisplayName(node: TreeNode): string {
-  return isRootNode(node) ? rootDisplay.value : node.name
-}
-
-// flatItems 变化时(展开/折叠/CRUD)重新计算 viewport + sticky。
-// 同步调用确保 visibleRange 在 Vue 重渲染前更新,避免空帧闪烁;
-// nextTick 再补一次以处理 DOM 更新后 scrollTop 可能被浏览器 clamp 的情况。
-watch([flatItems, rootCollapsed], () => {
-  updateViewport()
-  nextTick(updateViewport)
-})
-
-const rootDisplay = computed(() => {
-  const r = workspace.activeRoot
-  if (!r) return ''
-  const s = sep()
-  const trimmed = r.endsWith(s) ? r.slice(0, -s.length) : r
-  return basename(trimmed) || trimmed
 })
 
 /** 行渲染的显示名:根 row 走 rootDisplay(去尾分隔符 + basename),其余 = node.name。
@@ -1261,52 +703,16 @@ function displayName(node: TreeNode): string {
               {{ displayName(item.node) }}
             </span>
             <!-- 根行工具按钮:hover 工作区时显示 -->
-            <div
+            <RootActionButtons
               v-if="isRootNode(item.node)"
-              class="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100"
-              :class="{ 'opacity-100': workspaceHovered }"
-            >
-              <button
-                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title="新建文件"
-                data-testid="root-action-new-file"
-                @click.stop="openInlineNew(workspace.activeRoot!, 'newFile')"
-              >
-                <FilePlus class="size-3.5" :stroke-width="2" />
-              </button>
-              <button
-                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title="新建文件夹"
-                data-testid="root-action-new-dir"
-                @click.stop="openInlineNew(workspace.activeRoot!, 'newDir')"
-              >
-                <FolderPlus class="size-3.5" :stroke-width="2" />
-              </button>
-              <button
-                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                :class="{ 'text-green-600 dark:text-green-400': refreshState === 'success' }"
-                :title="refreshState === 'success' ? '已刷新' : '刷新'"
-                data-testid="root-action-refresh"
-                :disabled="refreshState !== 'idle'"
-                @click.stop="refreshRoot"
-              >
-                <Check v-if="refreshState === 'success'" class="size-3.5" :stroke-width="2.5" />
-                <RefreshCw
-                  v-else
-                  class="size-3.5"
-                  :class="{ 'animate-spin': refreshState === 'loading' }"
-                  :stroke-width="2"
-                />
-              </button>
-              <button
-                class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title="全部折叠"
-                data-testid="root-action-collapse-all"
-                @click.stop="collapseAll"
-              >
-                <ChevronsDownUp class="size-3.5" :stroke-width="2" />
-              </button>
-            </div>
+              :visible="workspaceHovered"
+              :refresh-state="refreshState"
+              with-test-ids
+              @new-file="openInlineNew(workspace.activeRoot!, 'newFile')"
+              @new-dir="openInlineNew(workspace.activeRoot!, 'newDir')"
+              @refresh="refreshRoot"
+              @collapse-all="collapseAll"
+            />
           </div>
         </template>
         <div :style="{ height: `${Math.max(0, flatItems.length - visibleRange.end) * ROW_HEIGHT}px` }"></div>
@@ -1332,7 +738,7 @@ function displayName(node: TreeNode): string {
         v-for="(h, idx) in stickyHeaders"
         :key="h.node.fullPath"
         :style="indentStyle(h.depth)"
-        class="pointer-events-auto flex cursor-pointer items-center gap-1 h-7.5 pr-2 text-sm bg-[var(--surface-1)] transition-colors hover:bg-[var(--surface-0)]"
+        class="sticky-row pointer-events-auto flex cursor-pointer items-center gap-1 h-7.5 border-b border-transparent pr-2 text-sm bg-[var(--surface-1)] hover:bg-[var(--surface-0)]"
         :class="{ 'sticky-shadow': idx === stickyHeaders.length - 1 }"
         :title="h.node.fullPath"
         @click="onFileClick(h.node)"
@@ -1348,48 +754,15 @@ function displayName(node: TreeNode): string {
           {{ stickyDisplayName(h.node) }}
         </span>
         <!-- 根行工具按钮:sticky 根也展示,hover 工作区时可见 -->
-        <div
+        <RootActionButtons
           v-if="isRootNode(h.node)"
-          class="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100"
-          :class="{ 'opacity-100': workspaceHovered }"
-        >
-          <button
-            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title="新建文件"
-            @click.stop="openInlineNew(workspace.activeRoot!, 'newFile')"
-          >
-            <FilePlus class="size-3.5" :stroke-width="2" />
-          </button>
-          <button
-            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title="新建文件夹"
-            @click.stop="openInlineNew(workspace.activeRoot!, 'newDir')"
-          >
-            <FolderPlus class="size-3.5" :stroke-width="2" />
-          </button>
-          <button
-            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            :class="{ 'text-green-600 dark:text-green-400': refreshState === 'success' }"
-            :title="refreshState === 'success' ? '已刷新' : '刷新'"
-            :disabled="refreshState !== 'idle'"
-            @click.stop="refreshRoot"
-          >
-            <Check v-if="refreshState === 'success'" class="size-3.5" :stroke-width="2.5" />
-            <RefreshCw
-              v-else
-              class="size-3.5"
-              :class="{ 'animate-spin': refreshState === 'loading' }"
-              :stroke-width="2"
-            />
-          </button>
-          <button
-            class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title="全部折叠"
-            @click.stop="collapseAll"
-          >
-            <ChevronsDownUp class="size-3.5" :stroke-width="2" />
-          </button>
-        </div>
+          :visible="workspaceHovered"
+          :refresh-state="refreshState"
+          @new-file="openInlineNew(workspace.activeRoot!, 'newFile')"
+          @new-dir="openInlineNew(workspace.activeRoot!, 'newDir')"
+          @refresh="refreshRoot"
+          @collapse-all="collapseAll"
+        />
       </div>
     </div>
   </div>
@@ -1423,11 +796,18 @@ function displayName(node: TreeNode): string {
  * 亮色用淡墨色,暗色用淡黑,与 splitter shadow 同色系。 */
 .sticky-shadow {
   box-shadow: 0 4px 6px -4px rgba(16, 24, 40, 0.12);
-  border-bottom: 1px solid var(--surface-border);
+  border-bottom-color: var(--surface-border);
 }
 .dark .sticky-shadow {
   box-shadow: 0 4px 8px -4px rgba(0, 0, 0, 0.6);
-  border-bottom: none;
+}
+/* sticky 行过渡:颜色 + box-shadow 一起过渡。
+   border-transparent 常驻 border-b 占位,sticky-shadow 只改 border-color
+   (transparent → surface-border),避免 transition-colors 从 currentColor
+   (文字深色)过渡到 surface-border 时闪一帧深色"黑线"。
+   box-shadow 也纳入过渡,避免 sticky-shadow 在行间移动时阴影瞬现/瞬消。 */
+.sticky-row {
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
 /* revealFile 加的临时高亮 class —— 1500ms 后由 revealFile 内部移除。

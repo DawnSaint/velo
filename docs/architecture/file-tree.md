@@ -2,7 +2,7 @@
 
 > **本文件负责**: 工作区模型、文件树懒加载、CRUD、右键菜单、内部拖拽 move、树刷新与相关踩坑。
 >
-> **何时阅读**: 改 `Sidebar/FileTree.vue`、`useTreeData.ts`、`workspaceStore`、文件树 CRUD / drag/drop / fs.watch 刷新时。
+> **何时阅读**: 改 `Sidebar/FileTree.vue`、`useTreeData.ts`、`useDragMove.ts`、`useInlineEdit.ts`、`useVirtualScroll.ts`、`useCopyPaste.ts`、`RootActionButtons.vue`、`workspaceStore`、文件树 CRUD / drag/drop / fs.watch 刷新时。
 >
 > **先记住**:
 > - TreeNode 必须经 `reactive()` 包装，`dirIndex` 与 `rootNode` 必须持有同一份 proxy。
@@ -12,6 +12,19 @@
 > - FileTreeContextMenu 只展示/emit，关闭与全局 pointerdown 由 useContextMenu composable 统一管。
 >
 > **相关文件**: [架构入口](../ARCHITECTURE.md) / [Tauri](./tauri.md) / [工作区搜索](./workspace-search.md)
+>
+> **文件树模块拆分结构**:
+> - `FileTree.vue` — UI 状态机 + 事件接线 + 模板(目录展开 / 文件点击 / 右键菜单 / 删除 / revealFile / 全局监听 / 生命周期)
+> - `useTreeData.ts` — 数据层:rootNode / dirIndex / loadDirChildren / refreshDir
+> - `useDragMove.ts` — 拖拽源 + 内部 move( dragOverTarget / hover-expand / performMove)
+> - `useInlineEdit.ts` — 行内编辑:新建 / 重命名状态机 + 校验 + 提交
+> - `useVirtualScroll.ts` — 虚拟滚动 + Sticky 目录头(ROW_HEIGHT / visibleRange / stickyHeaders)
+> - `useCopyPaste.ts` — 复制 / 粘贴(clipboard / copyDirRecursive / pasteInto)
+> - `RootActionButtons.vue` — 根行四个操作按钮(新建 / 新建文件夹 / 刷新 / 全部折叠),消除普通行与 sticky 头的重复模板
+> - `treeUtils.ts` — 纯函数:路径处理 / 排序 / 命名校验 / 错误格式
+> - `FileTreeContextMenu.vue` — 右键菜单 UI
+>
+> composable 之间通过回调参数解耦(`closeContextMenu` / `cancelInline` 由 FileTree 传入),不直接互相引用。
 
 
 ## 禁令速查
@@ -78,7 +91,7 @@
 - **拖拽中冻结 `.velo-editor` 宽度防大文档卡顿(v0.7.8)**: splitter 拖拽每帧(rAF)更新 aside 宽度 → flex 布局重算编辑器区域 → `.velo-editor` 宽度变化(当可用空间 < 64vw 时)→ 大文档所有可见段落 text reflow + `content-visibility:auto` 子元素 intersection 重算 + `ResizeObserver` 回调(`tableInsertHandle.repositionDots` / `veloScroll.updateThumb`)调 `getBoundingClientRect()` 强制同步 layout flush → 每帧 > 16ms → 卡顿。修复:App.vue 的 `isDragging` watcher 在拖拽开始时测量 `.velo-editor` 当前像素宽度,设到 `--velo-drag-editor-width` CSS 变量 + 加 `body.velo-dragging-sidebar` class;`index.scss` 的 `body.velo-dragging-sidebar .velo-editor` 规则用固定宽度覆盖 `w-full` + `max-w-[64vw]` + `flex-shrink:0`,阻止 text reflow。拖拽结束后 JS 移除 class + 变量,编辑器宽度一次性适配新容器(单次 reflow 可接受)。**源码模式(CM6)不需要此优化**:CM6 用虚拟化渲染(只渲染可见行),宽度变化时 reflow 成本极低
 - **drag-reopen snapshot 必须在拖拽两端都清(v0.5.5)**: `onDragCollapse` 触发时 App.vue 把当前 `leftPanelView` 存到 `dragCollapseRestoreView`,`onDragReopen` 用它还原。**关键**:`isDragging` watcher 在 `false→true`(新拖拽开始)和 `true→false`(拖拽结束)两拍都把 snapshot 置 null —— 因为拖拽过程中用户可能 release 鼠标在 collapse 区(没回到阈值之上),此时 snapshot 仍持有 'sidebar'。如果只清结束不重新开始,下一次新拖拽从"未拖过的状态"起,理论上没问题;但只有"开始清空"才能保证"`wasDragCollapsed` reset"和"snapshot reset"同步,避免 onDragCollapse 第一次 fire 时误读陈旧 snapshot;而"结束清空"则保护普通交互(用户 release 后用 ActivityBar 切别的 tab)时,陈旧 snapshot 不会在某个边角路径上重新打开不该开的东西
 - **编辑器侧 flex `min-w-0` 链必须完整**: 侧栏开合时编辑器要被「压缩」(宽度收缩、内容 reflow)而非被「推动」(宽度不变、右侧溢出被 `overflow-hidden` 裁剪)。flex item 默认 `min-width: auto` = `min-content`,编辑器有宽内容(表格 / 长 code block)时 `min-content` 很大,flex item 无法收缩 → 侧栏把编辑器整体推右,右侧内容不可见。`min-w-0` 链从 App.vue 编辑器区域(`flex flex-1 flex-col min-w-0`)起,经内层 flex-row(`flex flex-1 overflow-hidden`,overflow 使自动 min-width=0),到 `ProseMirrorEditor/index.vue` 根 div(`relative flex-1 min-w-0`)、`velo-editor` 内容 div(`h-full w-full min-w-0 max-w-[64vw]`)、`SourceModeEditor.vue` 根 div(`velo-cm-source relative flex-1 min-w-0`)、App.vue 空态 div(`flex flex-1 min-w-0 flex-col`)。**任何一层漏 `min-w-0` 都会让宽内容撑住整条链,侧栏开合变成「推」而非「压」**
-- **FileTree 节点复用 + mutation 后立即清 inline 状态,避免整树闪烁**: v0.5.1 起 CRUD 写盘后,`loadDirChildren` **必须**按 name + isDir 复用旧 `TreeNode` 引用,只对新增 / 删除的 entry 建新对象。否则父级 `flatItems` computed 看到新 proxy 引用就 reconcile 整树 → 整树重渲闪烁;复用后未变化的子树 props 不变,Vue 跳过。`submitInline` / `confirmAndDelete` 中 `loadDirChildren` 与 `cancelInline` / `loadContent('', null)` 之间**不能有 await**(会跨 microtask 边界,Vue 分两帧 flush),必须同一 microtask 同步排列,Vue 一次 flush 渲染。`loadDirChildren` 内部 `node.loading` 切换在子目录不可见(只有根 root 触发"加载中…"),所以根的 loading 由 `rebuildFromRoot` 单独 toggle,`loadDirChildren` 不再 toggle,免得在没必要的子树触发 2 次额外 reactive 通知
+- **FileTree 节点复用 + mutation 后立即清 inline 状态,避免整树闪烁**: v0.5.1 起 CRUD 写盘后,`loadDirChildren` **必须**按 name + isDir 复用旧 `TreeNode` 引用,只对新增 / 删除的 entry 建新对象。否则父级 `flatItems` computed 看到新 proxy 引用就 reconcile 整树 → 整树重渲闪烁;复用后未变化的子树 props 不变,Vue 跳过。`submitInline` / `confirmAndDelete` 中 `loadDirChildren` 与 `cancelInline` / `loadContent('', null)` 之间**不能有 await**(会跨 microtask 边界,Vue 分两帧 flush),必须同一 microtask 同步排列,Vue 一次 flush 渲染。`loadDirChildren` 内部 `node.loading` 切换在子目录不可见(只有根 root 触发"加载中…"),所以根的 loading 由 `rebuildFromRoot` 单独 toggle,`loadDirChildren` 不再 toggle,免得在没必要的子树触发 2 次额外 reactive 通知。`rebuildFromRoot` 的 loading 为**延迟 toggle**(200ms 阈值):本地 `readDir` 通常 <50ms,同步置 `loading=true` 会导致模板闪一帧"加载中…"再被实际内容替换;200ms 内完成的加载不置 loading,只有真正慢的大目录 / 网络盘才显示"加载中…"。
 - **右键菜单统一范式:useContextMenu + ContextMenuShell**: 4 份右键菜单(FileTree / Tab / ActivityBar / Asset)共用同一套基础设施,不再各写一份 listener / 定位 / 壳样式:
   - `useContextMenu` composable(`src/composables/useContextMenu.ts`)管「点外部关闭」+「Escape 关闭」的 document 级 pointerdown(capture) + keydown listener,含 `onMounted`/`onActivated` 注册 + `onBeforeUnmount`/`onDeactivated` 卸载 + guard。**不持有菜单状态**——调用方自管 `contextMenu` ref,通过 `isOpen` / `getMenuEl` / `close` 三个 callback 与 composable 交互。`clampToViewport` 工具函数统一视口约束。
   - `ContextMenuShell` 组件(`src/components/ContextMenuShell.vue`)管 Teleport + fixed 定位 + 壳样式 + `@contextmenu.prevent` + `rootEl` expose。各 *ContextMenu 组件用 `<ContextMenuShell :x :y>` 包裹菜单项,通过 `computed(() => shellRef.value?.rootEl)` 暴露 DOM 元素给 composable。
