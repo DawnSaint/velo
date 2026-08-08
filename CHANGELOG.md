@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.9](https://github.com/DawnSaint/velo/compare/v0.7.8...v0.7.9) (2026-08-08)
+
+
+### Features
+
+* **editor:** add emoji shortcode support ([bf4490a](https://github.com/DawnSaint/velo/commit/bf4490a23bcf985dc132b476fb4f53fb1d1602ea))
+* **editor:** add emoji source edit and auto-suggest plugins ([32fa253](https://github.com/DawnSaint/velo/commit/32fa25346c353a2c1fee8a0fffd498002ce8632d))
+* **updater:** add auto-update via tauri-plugin-updater + GitHub Release ([2d244b9](https://github.com/DawnSaint/velo/commit/2d244b924625ed8e983a0839abd27d642ff478f3))
+
 ## [0.7.8](https://github.com/DawnSaint/velo/compare/v0.7.7...v0.7.8) (2026-08-06)
 
 
