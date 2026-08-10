@@ -105,7 +105,6 @@ export function inlineKatexWoff2Fonts(
  * 函数内只做字符串 replace,无 I/O。
  */
 export async function loadKatexCssWithFontsInlined(): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/quotes -- ?raw 是 Vite 静态 query,跟字符串字面量引号风格无关
   const css = (await import('katex/dist/katex.min.css?raw')).default
   return inlineKatexWoff2Fonts(css, katexWoff2DataUris)
 }

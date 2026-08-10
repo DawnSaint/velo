@@ -54,6 +54,76 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
+## 0.8.0 — 工程门禁体系
+
+> 来源：[vmark 对比洞察](../vmark-comparison-insights.md)评估出的可落地项。Velo 当前门禁 = `vue-tsc` + `vitest` + 人工 review，目标是把"人记住的规矩"升级为"CI 拒绝的门禁"。
+>
+> 分批落地，每项标注优先级 / 复杂度 / 依赖。
+
+### P0 — 工程门禁基础（马上能做、收益最大）
+
+- [x] **ESLint + Prettier** `#eslint-setup` `P0` `S`
+  - Velo 当前零 formatter / 零 linter，代码风格全靠人肉 review
+  - 配 `eslint.config.js`（Vue 3 + TS 规则集）+ `.prettierrc`
+  - 初期宽松规则 + baseline 过渡，渐进式收紧；先 `warn` 不阻断 CI
+  - 后续所有自定义 lint 规则（design-tokens / file-size）的基石
+  - ~~配 `eslint.config.js`（Vue 3 + TS 规则集）+ `.prettierrc`~~ → 已落地：ESLint 9 flat config（`@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `eslint-config-prettier`），推荐规则统一降为 `warn`（0 error / 283 warning 初态），Prettier 配 `.prettierrc.json`（no semi / single quote / 2 space / trailingComma all / printWidth 100），`package.json` 加 `lint` / `lint:fix` / `format` / `format:check` 四条 script
+
+- [x] **knip 死码检测** `#knip` `P0` `S`
+  - Velo 已 82+ 测试文件 / 10 store / 27 插件文件，死码几乎必然存在
+  - `npm i -D knip` + `knip.json` 配置，误报可控
+  - 跑一次清理出未使用的导出 / 文件 / 依赖
+
+- [x] **lint:console 自定义脚本** `#lint-console` `P0` `S`
+  - 提交不能留 `console.log` / `console.debug`（保留 `warn` / `error`）
+  - ~20 行 Node 脚本，grep `src/` 下 `.ts` / `.vue` 文件
+  - Velo 已踩过调试日志混入提交的坑
+  - ~~~20 行 Node 脚本，grep `src/` 下 `.ts` / `.vue` 文件~~ → 已落地：`scripts/lint-console.mjs`，跳过测试文件 + 尊重 `eslint-disable` 指令 + 排除字符串字面量中的 `console.log`，`npm run lint:console` 运行
+
+- [x] **lint:design-tokens 硬编码颜色检测** `#lint-design-tokens` `P0` `M`
+  - Velo 有 22 SCSS + 暗色模式 + CSS 变量体系，硬编码颜色是暗色模式真实 bug 源
+  - 脚本解析 `src/**/*.scss` + `*.vue` 的 `<style>` 块，正则匹配 `#hex` / `rgb()` / `hsl()`，排除 `var(--xxx)` 引用
+  - 初次跑用 baseline 过渡
+  - ~~初次跑用 baseline 过渡~~ → 已落地：`scripts/lint-design-tokens.mjs`，`var()` fallback 颜色自动排除，baseline 按 `file:color` key 记录（行号变动不漂移），初态 222 color(s) / 28 file(s)，`npm run lint:design-tokens` 运行、`:baseline` 更新
+
+- [x] **bench 套件** `#bench-suite` `P0` `M`
+  - Velo 有 pendingPmDoc 去重 / viewport decoration / Worker 解析等性能优化，但零 bench / 零大文件语料
+  - 创建 `src/bench/markdown.bench.ts`（vitest `bench` API）+ `scripts/gen-large-file-corpus.mjs`（100KB / 500KB / 1MB 级 markdown）
+  - 守护已有性能投资，下次优化不再靠"感觉快了"
+  - 已落地：`scripts/gen-large-file-corpus.mjs` 生成混合语法语料（标题 / 段落 / 代码块 / 表格 / 列表 / 数学 / 引用 / 链接 / 脚注），`src/bench/markdown.bench.ts` 跑 parse / serialize / round-trip 三组 × 三尺寸（100KB / 500KB / 1MB）= 8 个 bench，`npm run bench:corpus` 生成语料 + `npm run bench` 运行，语料加入 `.gitignore` + knip entry
+
+### P1 — 架构健康（一个迭代内值得做）
+
+- [ ] **dependency-cruiser 依赖图强制分层** `#dep-cruiser` `P1` `M` `← #eslint-setup`
+  - Velo 的 `App.vue` 已 70KB / 10 store 分化，无分层约束迟早出循环依赖
+  - 定义分层：`src/tauri/`（平台层）← `src/stores/`（状态层）← `src/components/`（UI 层），`src/lib/` 为纯叶模块
+  - 先开 `no-circular` + "叶模块不 import 上层"两条规则，白名单豁免项必须带注释原因
+
+- [ ] **git hook 门禁（分级卡）** `#git-hook` `P1` `S`
+  - Velo 当前零 git hook，破断只能靠 CI 事后发现
+  - `.githooks/pre-push`：仅 main/tag 分支卡 `type-check` + `test`
+  - 特性分支不卡（不拖慢开发）；`--no-verify` 可绕过
+  - `package.json` 的 `prepare` 脚本自动设 `core.hooksPath`
+
+- [ ] **插件组合引入"规范列表 + 轻量解析器"** `#plugin-order` `P1` `L` `?`
+  - Velo 的 `allPlugins` 数组顺序是隐式加载顺序，"数组位置即契约"越来越脆
+  - 给每个插件加稳定 `id`，维护 `plugins/order.ts` 规范列表作为加载顺序唯一真相源
+  - 写轻量 `resolvePlugins`：校验"注册插件集合 vs 规范列表"集合相等（防漂移）+ 依赖存在 + 拓扑排序
+  - 数组物理顺序改成按字母 / 按类别，顺序完全由解析器决定
+  - **需要 ADR**（对未来版本有持续影响 + 踩坑点非显然，符合 DECISIONS.md 写入标准）
+
+- [ ] **size-limit 包体预算基线** `#size-limit` `P1` `S`
+  - 建立"包体不能无声膨胀"的文化
+  - `.size-limit.cjs` 设初始基线，per-chunk 上限带注释记录漂移历史
+  - 桌面应用无网络传输，优先级低于 web，但能抓到"意外引入大依赖"
+
+### P2 — 中期可选
+
+- [ ] **Stryker 变异测试** `#stryker` `P2` `L`
+  - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
+  - 先对核心模块（`markdownIO` / `documentStore` / schema）开
+  - 发版前跑，不进每次 commit 路径
+
 
 
 ## 已知问题

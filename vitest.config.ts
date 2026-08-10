@@ -9,6 +9,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['src/**/*.{test,spec}.ts'],
+    // bench 文件匹配（vitest bench 子命令使用）
+    bench: {
+      include: ['src/**/*.bench.ts'],
+    },
     setupFiles: ['./src/test/setup.ts'],
     passWithNoTests: true,
   },

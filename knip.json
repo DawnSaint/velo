@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/**/*.test.ts",
+    "src/**/*.bench.ts",
+    "e2e/wdio.conf.ts",
+    "e2e/specs/**/*.ts",
+    "e2e/helpers/**/*.ts",
+    "scripts/**/*.mjs",
+    "scripts/**/*.cjs"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "e2e/**/*.ts",
+    "scripts/**/*.{mjs,cjs}"
+  ],
+  "ignoreDependencies": [
+    "@wdio/local-runner",
+    "@wdio/mocha-framework",
+    "@wdio/spec-reporter",
+    "@wdio/globals",
+    "tailwindcss",
+    "mdast"
+  ]
+}
