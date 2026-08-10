@@ -10,8 +10,12 @@ import {
   saveDraft as saveDraftToFs,
   loadDrafts as loadDraftsFromFs,
   deleteDraft as deleteDraftFromFs,
+  saveVersionSnapshot,
+  pruneVersionSnapshots,
+  VERSION_SNAPSHOT_CAP,
   type Draft,
   type PersistedSettings,
+  type SnapshotTrigger,
 } from './persistence'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
@@ -769,17 +773,19 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
-  /** 写盘成功返回 true；用户取消另存为 / 写盘抛错 返回 false。 */
-  async function save(): Promise<boolean> {
+  /** 写盘成功返回 true；用户取消另存为 / 写盘抛错 返回 false。
+   *  trigger 标记保存来源(manual / auto / blur),写入版本快照供时间线展示。 */
+  async function save(trigger: SnapshotTrigger = 'manual'): Promise<boolean> {
     const d = activeDoc()
     if (!d) return false
     if (await guardReadOnly()) return false
     if (!d.currentFilePath) return saveAsDoc(d)
-    return saveDoc(d)
+    return saveDoc(d, trigger)
   }
 
-  /** 指定 doc 写盘(无需切换激活)。无 path / 只读 → false。 */
-  async function saveDoc(d: DocState): Promise<boolean> {
+  /** 指定 doc 写盘(无需切换激活)。无 path / 只读 → false。
+   *  写盘成功后写一份版本快照 + 修剪旧快照。 */
+  async function saveDoc(d: DocState, trigger: SnapshotTrigger = 'manual'): Promise<boolean> {
     if (d.userReadOnly || d.readOnlyLocked) return false
     if (!d.currentFilePath) return false
     const path = d.currentFilePath
@@ -793,6 +799,17 @@ export const useDocumentStore = defineStore('document', () => {
       await writeTextFile(path, snapshot)
       // 写盘成功 → 草稿没用了,清掉
       await clearDraftForDoc(d)
+      // 写一份版本快照(只读归档,不影响基线 / echo / fs:watch)
+      const savedAt = Date.now()
+      await saveVersionSnapshot({
+        version: 1,
+        id: String(savedAt),
+        filePath: path,
+        content: snapshot,
+        savedAt,
+        trigger,
+      })
+      await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
       void syncTitle()
       return true
     }
@@ -1317,6 +1334,27 @@ export const useDocumentStore = defineStore('document', () => {
     pendingRecoveryDrafts.value = []
   }
 
+  /** 恢复版本快照到编辑器:新开标签(或复用干净未命名)装入快照内容。
+   *  语义同 recoverDraft:设 lastSavedContent 为磁盘当前内容让 dirty=true,
+   *  用户 Ctrl+S 把快照写回磁盘,或 discard 放弃。 */
+  async function restoreVersionContent(filePath: string, content: string) {
+    if (!isPristineBlank(activeDoc())) {
+      const nid = createTab()
+      switchTab(nid)
+    }
+    const d = activeDoc()!
+    loadContentInto(d, content, filePath)
+    // 用磁盘真实内容做 baseline —— 同 recoverDraft 语义。
+    try {
+      const disk = await readTextFile(filePath)
+      d.lastSavedContent = disk
+    }
+    catch {
+      d.lastSavedContent = ''
+    }
+    void syncTitle()
+  }
+
   // ========== 设置持久化(v0.6.6 重构) ==========
   // store 自己管 hydrate / snapshot,App.vue 只做泛化分发 —— 新增设置字段不再需要改 App.vue。
 
@@ -1409,6 +1447,8 @@ export const useDocumentStore = defineStore('document', () => {
     recoverDraft,
     discardDraft,
     dismissRecoveryDialog,
+    // 版本历史
+    restoreVersionContent,
     hydrateSettings,
     snapshotSettings,
   }

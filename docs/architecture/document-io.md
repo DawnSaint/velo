@@ -47,9 +47,13 @@
 
 脏盘每 30s 写草稿到 `appDataDir/drafts/`;启动时 `loadRecoverableDrafts` 必须在 `openPath` *之后*调,排除当前文档草稿。
 
+## 版本历史(#local-timeline)
+
+每次保存(手动 / 自动 / 失焦)写一份快照到 `appDataDir/versions/{pathId}/{timestamp}.json`,保留最近 20 个(超出按 `savedAt` 修剪)。与草稿分工:草稿是 dirty 期间 30s 定时落盘用于崩溃恢复,写盘成功后清除;版本快照是保存点的只读归档,不参与基线 / echo / fs:watch。`saveDoc` 写盘成功后调 `saveVersionSnapshot` + `pruneVersionSnapshots`(persistence.ts),不经 `versionHistoryStore`(避免循环依赖);store 只在 UI 层懒加载。恢复快照走 `restoreVersionContent`(同 `recoverDraft` 语义:新开标签 + 设磁盘基线让 dirty=true)。浏览入口为 ActivityBar「版本历史」(`SidebarTab='history'`)→ 侧栏 `VersionHistoryPanel` 列出快照条目;点击条目 → 编辑器区切换为 `DiffView`(覆盖编辑器,行级 diff + 「恢复此版本」按钮)。命令面板「浏览版本历史」同样触发此流程。
+
 ## 持久化
 
-`appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, velo-recent-files.json, drafts/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走“main 冷启动 active hint + 每个根的 expandedDirs / lastFile / sidebarTab / sidebarWidth / recentFiles”格式;多窗口下 `active` 不代表全局唯一当前工作区,动态窗口只加载 known roots 与 per-root 状态,保存时按当前窗口 active workspace 做 patch merge,不全量覆盖其它窗口新写入的 roots。`velo-recent-files.json` 是跨工作区的全局最近打开文件,与 workspace 内 `recentFiles` 分离;只由显式 `openPath` 成功推进,不监听 `currentFilePath` 变化,避免重命名 / 草稿恢复 / 外部重载误刷新最近时间。全局最近文件用 `{ path, openedAt }` 条目做读盘 merge + 去重排序,降低多窗口错峰写入覆盖。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
+`appDataDir/{velo-settings.json, velo-outline-state.json, velo-workspaces.json, velo-recent-files.json, drafts/, versions/}`,失败降级不阻塞 UI。`velo-workspaces.json` 走“main 冷启动 active hint + 每个根的 expandedDirs / lastFile / sidebarTab / sidebarWidth / recentFiles”格式;多窗口下 `active` 不代表全局唯一当前工作区,动态窗口只加载 known roots 与 per-root 状态,保存时按当前窗口 active workspace 做 patch merge,不全量覆盖其它窗口新写入的 roots。`velo-recent-files.json` 是跨工作区的全局最近打开文件,与 workspace 内 `recentFiles` 分离;只由显式 `openPath` 成功推进,不监听 `currentFilePath` 变化,避免重命名 / 草稿恢复 / 外部重载误刷新最近时间。全局最近文件用 `{ path, openedAt }` 条目做读盘 merge + 去重排序,降低多窗口错峰写入覆盖。大纲折叠状态(`velo-outline-state.json`)仍按文件 path 存,**不**迁进 per-workspace —— 大纲折叠跟工作区无关,跨工作区打开同一文件应仍记住折叠。
 
 ---
 

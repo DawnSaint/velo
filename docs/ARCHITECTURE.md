@@ -19,7 +19,7 @@
 | 改动范围 | 读 / 更新 |
 |---|---|
 | 技术栈、目录结构、全局约定、`documentStore` 唯一数据源、生命周期、状态栏数据流 | 本文件 |
-| 打开/保存、外部变更同步、echo 哨兵、草稿、持久化 | [`architecture/document-io.md`](./architecture/document-io.md) |
+| 打开/保存、外部变更同步、echo 哨兵、草稿、版本历史、持久化 | [`architecture/document-io.md`](./architecture/document-io.md) |
 | ProseMirror 插件链、schema、markdownIO、syntax、NodeView/Decoration、mermaid、shiki、源码模式、跨模式同步 | [`architecture/editor.md`](./architecture/editor.md) |
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
 | Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse、ActivityBar 排序/隐藏持久化、资产面板 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
@@ -62,7 +62,7 @@ velo/
 ├── src/
 │   ├── App.vue                  应用根组件：顶栏 + 主体（ActivityBar + 侧栏 + 编辑器）+ 状态栏
 │   ├── main.ts                  应用入口
-│   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / export / persistence）
+│   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / export / persistence / versionHistory）
 │   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window），业务侧只 import 这里
 │   ├── lib/export/              导出管线（mdast walker + shiki / KaTeX / mermaid / DOMPurify）
 │   ├── lib/cjkFormatter/        CJK 智能排版格式化器（保护区扫描 → 分段 → 规则 → 重建 → 完整性校验）
@@ -84,10 +84,10 @@ velo/
 │       ├── icons/               图标资源
 │       ├── ContextMenuShell.vue 右键菜单通用壳（Teleport + 定位 + 壳样式）
 │       ├── TabBar.vue           顶栏标签条（多标签 + 拖拽重排 + 右键菜单）
-│       ├── ActivityBar.vue      左贴边功能栏（文件 / 工作区 / 大纲 / 搜索 / 设置）
+│       ├── ActivityBar.vue      左贴边功能栏（文件 / 工作区 / 大纲 / 搜索 / 资产 / 版本历史 / 设置）
 │       ├── StatusBar.vue        底部状态栏
 │       ├── SourceModeEditor.vue 源代码模式（CodeMirror 6 + shiki 高亮）
-│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / DraftRecoveryDialog / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync
+│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / DraftRecoveryDialog / DiffView / VersionHistoryPanel / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync
 └── src-tauri/
     ├── capabilities/            Tauri 权限配置
     └── src/                     Rust 端（窗口主题 / CLI / single-instance）

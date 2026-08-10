@@ -340,6 +340,195 @@ export async function deleteAllDrafts(): Promise<void> {
   }
 }
 
+// ========== 本地版本时间线(#local-timeline) ==========
+//
+// 每次保存(手动 / 自动 / 失焦)写一份快照到 appDataDir/versions/{pathId}/{timestamp}.json。
+// 与草稿(drafts/)分工:草稿是 dirty 期间 30s 定时落盘用于崩溃恢复,写盘成功后清除;
+// 版本快照是保存点的只读归档,保留最近 N 个供用户浏览 / diff / 恢复。
+//
+// 落盘用 .tmp + rename 做原子写,同 draft 模式。
+
+const VERSIONS_DIR = 'versions'
+const VERSION_SNAPSHOT_VERSION = 1
+/** 每个文件保留的最多快照数,超出时按 savedAt 修剪最旧的。 */
+export const VERSION_SNAPSHOT_CAP = 20
+
+export type SnapshotTrigger = 'manual' | 'auto' | 'blur'
+
+export interface VersionSnapshot {
+  version: number
+  /** 快照 id,用 savedAt 时间戳字符串,同一文件内唯一 */
+  id: string
+  /** 原文件绝对路径 */
+  filePath: string
+  /** 保存时的 markdown 内容 */
+  content: string
+  /** 保存时间戳 (ms) */
+  savedAt: number
+  /** 保存触发方式 */
+  trigger: SnapshotTrigger
+}
+
+/** 把文件绝对路径编码成合法目录名(同 document.ts 的 encodePathAsId 逻辑)。 */
+function encodePathAsId(path: string): string {
+  const bytes = new TextEncoder().encode(path)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary).replace(/[/+=]/g, '_')
+}
+
+async function ensureVersionsDir(): Promise<string | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    const versionsDir = await join(dir, VERSIONS_DIR)
+    if (!(await exists(versionsDir))) {
+      await mkdir(versionsDir, { recursive: true })
+    }
+    return versionsDir
+  }
+  catch (e) {
+    console.error('创建 versions 目录失败', e)
+    return null
+  }
+}
+
+async function ensureFileVersionsDir(filePath: string): Promise<string | null> {
+  const versionsDir = await ensureVersionsDir()
+  if (!versionsDir) return null
+  const pathId = encodePathAsId(filePath)
+  const fileDir = await join(versionsDir, pathId)
+  if (!(await exists(fileDir))) {
+    await mkdir(fileDir, { recursive: true })
+  }
+  return fileDir
+}
+
+/**
+ * 写一份版本快照。原子写:先写 .tmp,再 rename 到目标。
+ * 失败仅记录日志不抛 —— 快照写盘失败不能让保存主流程炸。
+ */
+export async function saveVersionSnapshot(snapshot: VersionSnapshot): Promise<void> {
+  try {
+    const fileDir = await ensureFileVersionsDir(snapshot.filePath)
+    if (!fileDir) return
+    const fileName = `${snapshot.id}.json`
+    const finalPath = await join(fileDir, fileName)
+    const tmpPath = await join(fileDir, `${fileName}.tmp`)
+    await writeTextFile(tmpPath, JSON.stringify(snapshot, null, 2))
+    await rename(tmpPath, finalPath)
+  }
+  catch (e) {
+    console.error('保存版本快照失败', e)
+  }
+}
+
+/**
+ * 加载某文件的全部版本快照,按 savedAt 倒序(最新在前)。
+ * 目录不存在 / 解析失败 → 返回空数组,不抛。
+ */
+export async function loadVersionSnapshots(filePath: string): Promise<VersionSnapshot[]> {
+  if (!tauriOnly()) return []
+  try {
+    const dir = await appDataDir()
+    const versionsDir = await join(dir, VERSIONS_DIR)
+    const pathId = encodePathAsId(filePath)
+    const fileDir = await join(versionsDir, pathId)
+    if (!(await exists(fileDir))) return []
+    const entries = await readDir(fileDir)
+    const snapshots: VersionSnapshot[] = []
+    for (const entry of entries) {
+      if (!entry.name || !entry.name.endsWith('.json')) continue
+      try {
+        const path = await join(fileDir, entry.name)
+        const json = await readTextFile(path)
+        const parsed = JSON.parse(json)
+        if (typeof parsed !== 'object' || parsed === null) continue
+        if (parsed.version !== VERSION_SNAPSHOT_VERSION) continue
+        if (typeof parsed.id !== 'string' || typeof parsed.content !== 'string') continue
+        if (typeof parsed.filePath !== 'string' || typeof parsed.savedAt !== 'number') continue
+        snapshots.push(parsed as VersionSnapshot)
+      }
+      catch (e) {
+        console.warn(`跳过损坏的版本快照 ${entry.name}`, e)
+      }
+    }
+    snapshots.sort((a, b) => b.savedAt - a.savedAt)
+    return snapshots
+  }
+  catch (e) {
+    console.warn('加载版本快照失败', e)
+    return []
+  }
+}
+
+/**
+ * 删单个版本快照。失败仅记录日志。
+ */
+export async function deleteVersionSnapshot(filePath: string, id: string): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    const versionsDir = await join(dir, VERSIONS_DIR)
+    const pathId = encodePathAsId(filePath)
+    const fileDir = await join(versionsDir, pathId)
+    const path = await join(fileDir, `${id}.json`)
+    if (await exists(path)) {
+      await remove(path)
+    }
+  }
+  catch (e) {
+    console.error(`删除版本快照 ${id} 失败`, e)
+  }
+}
+
+/**
+ * 修剪旧快照:按 savedAt 倒序保留前 keepN 个,删掉其余。
+ * 在 saveVersionSnapshot 之后调,保证每文件不超过 cap 个。
+ */
+export async function pruneVersionSnapshots(filePath: string, keepN: number): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const snapshots = await loadVersionSnapshots(filePath)
+    if (snapshots.length <= keepN) return
+    const toDelete = snapshots.slice(keepN)
+    for (const s of toDelete) {
+      await deleteVersionSnapshot(filePath, s.id)
+    }
+  }
+  catch (e) {
+    console.error('修剪版本快照失败', e)
+  }
+}
+
+/**
+ * 清空某文件的全部版本历史。用于用户"清除历史"操作。
+ */
+export async function clearAllVersionSnapshots(filePath: string): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    const versionsDir = await join(dir, VERSIONS_DIR)
+    const pathId = encodePathAsId(filePath)
+    const fileDir = await join(versionsDir, pathId)
+    if (!(await exists(fileDir))) return
+    const entries = await readDir(fileDir)
+    for (const entry of entries) {
+      if (!entry.name || !entry.name.endsWith('.json')) continue
+      try {
+        const path = await join(fileDir, entry.name)
+        await remove(path)
+      }
+      catch (e) {
+        console.warn(`删除版本快照 ${entry.name} 失败`, e)
+      }
+    }
+  }
+  catch (e) {
+    console.error('清空版本历史失败', e)
+  }
+}
+
 // ========== 工作区(v0.5.0) ==========
 //
 // `velo-workspaces.json` 记录:用户打开过的工作区根目录列表 + 当前激活的一个
@@ -356,7 +545,7 @@ const WORKSPACES_FILE = 'velo-workspaces.json'
 // v4(v0.6.x):WorkspaceState 新增 openTabs + activeTab(标签持久化,恢复工作区时重开上次的标签集)。
 export const WORKSPACES_VERSION = 4
 
-export type SidebarTab = 'outline' | 'files' | 'search' | 'assets'
+export type SidebarTab = 'outline' | 'files' | 'search' | 'assets' | 'history'
 
 export interface WorkspaceState {
   /** 该工作区下处于展开态的目录绝对路径 */

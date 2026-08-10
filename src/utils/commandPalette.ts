@@ -21,6 +21,7 @@ export type CommandPaletteIcon =
   | 'workspace-close'
   | 'workspace-switch'
   | 'recent-file'
+  | 'version-history'
 
 export interface CommandPaletteItem {
   id: string

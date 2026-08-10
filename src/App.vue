@@ -7,6 +7,7 @@ import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
 import type { SidebarTab } from '@/stores/persistence'
 import { useRecentFilesStore } from '@/stores/recentFiles'
+import { useVersionHistoryStore } from '@/stores/versionHistory'
 import { useFoldStore } from '@/stores/folding'
 import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
 import {
@@ -38,6 +39,7 @@ import SettingsPage from '@/components/settings/SettingsPage.vue'
 import { registerBuiltinSettingsGroups } from '@/components/settings/registerGroups'
 import { getSettingsGroups } from '@/components/settings/registry'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
+import DiffView from '@/components/DiffView.vue'
 import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
@@ -79,6 +81,7 @@ const foldStore = useFoldStore()
 const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
 const recentFilesStore = useRecentFilesStore()
+const versionHistoryStore = useVersionHistoryStore()
 
 // store hydrate + shiki highlighter ready 必须在 ProseMirrorEditor 子组件
 // mount **之前**完成,否则首屏代码块会闪两遍:
@@ -358,7 +361,7 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 
 const autoSave = debounce(() => {
   if (!documentStore.dirty || !documentStore.currentFilePath) return
-  void documentStore.save()
+  void documentStore.save('auto')
 }, 1000)
 
 // 启用自动保存时：内容变化后 1s 静默写盘
@@ -431,7 +434,7 @@ async function onWindowBlur() {
   if (!documentStore.autoSaveOnBlur || !documentStore.dirty) return
   if (savingOnBlur) return
   savingOnBlur = true
-  try { await documentStore.save() }
+  try { await documentStore.save('blur') }
   finally { savingOnBlur = false }
 }
 
@@ -637,6 +640,10 @@ settingsActive.value = true
 }
 else if (settingsActive.value) {
 settingsActive.value = false
+}
+// 切 tab 时自动关闭 diff 视图:diff 绑定的是上一个文件的快照,换文件后无意义
+if (versionHistoryStore.diffViewActive) {
+versionHistoryStore.closeDiffView()
 }
 })
 
@@ -877,6 +884,7 @@ const commandPaletteItems = useCommandPaletteItems({
   toggleTypewriterMode,
   openFind,
   openReplace,
+  openVersionHistory: () => void versionHistoryStore.openVersionHistory(),
   showSettingsPanel,
   openFolderAsWorkspace,
   openQuickOpen,
@@ -1357,8 +1365,9 @@ watch(editorRef, (v) => {
         @select-files="onSelectSidebarActivity('files')"
         @select-outline="onSelectSidebarActivity('outline')"
         @select-search="onSelectSidebarActivity('search')"
-        @select-assets="onSelectSidebarActivity('assets')"
-        @select-settings="showSettingsPanel"
+@select-assets="onSelectSidebarActivity('assets')"
+@select-history="onSelectSidebarActivity('history')"
+@select-settings="showSettingsPanel"
       />
 
       <!-- 左侧功能区(v0.5.5:宽度由 splitter 决定,w-64/w-0 二元切换弃用)。
@@ -1426,6 +1435,11 @@ watch(editorRef, (v) => {
           @close="settingsActive = false"
         />
         <template v-else>
+        <DiffView
+          v-if="versionHistoryStore.diffViewActive"
+          @restore="(snap) => void documentStore.restoreVersionContent(snap.filePath, snap.content)"
+        />
+        <template v-else>
         <Breadcrumbs
           v-if="codeBlockReady && tabsReady && documentStore.activeId && store.showBreadcrumbs"
           :file-name="documentStore.fileName"
@@ -1472,6 +1486,7 @@ watch(editorRef, (v) => {
             @open-file="onWelcomeOpenFile"
           />
         </div>
+        </template>
         </template>
       </div>
     </div>

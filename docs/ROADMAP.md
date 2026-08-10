@@ -54,7 +54,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
-## 0.8.0 — 工程门禁体系
+## 0.7.10
 
 > 来源：[vmark 对比洞察](../vmark-comparison-insights.md)评估出的可落地项。Velo 当前门禁 = `vue-tsc` + `vitest` + 人工 review，目标是把"人记住的规矩"升级为"CI 拒绝的门禁"。
 >
@@ -127,11 +127,10 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 ### 版本管理与导航
 
 
-- [ ] **本地版本时间线** `#local-timeline` `P2` `M`
+- [x] **本地版本时间线** `#local-timeline` `P2` `M`
   - 升级现有崩溃恢复草稿（每 30s 落盘）为完整本地版本历史
   - 每次保存（手动 / 自动）创建快照，保留最近 N 个
   - 侧栏或命令面板浏览历史版本，diff 对比，一键恢复
-  - 远期与 AI 集成时的 Coherence Layer 共享版本数据层
 
 - [ ] **最近编辑位置时间线** `#recent-locations` `P2` `M` `← #local-timeline`
   - JetBrains Ctrl+Shift+E 风格：跨文件记光标位置而非文件
@@ -272,4 +271,8 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] **插入时选 MxN 尺寸**:当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
   - [ ] **列宽持久化**:当前列宽拖拽(`columnResizing`)只改变运行期显示,保存后再打开会回落默认。效果 = 拖拽结果进 schema + markdownIO 双向携带,刷新 / 重开后保持用户设过的列宽;未显式设宽的列保持默认。
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
-
+- [ ] **AI Coherence Layer 共享版本数据层** `#coherence-layer` `P3` `L` `← #local-timeline`
+  - 在本地版本时间线基础上抽象出统一的版本数据层，供未来 AI 集成消费
+  - 提供结构化的版本 diff API（不只是行级，需理解 markdown 语义）
+  - 版本数据可被 AI 用于上下文重建、变更意图推断、多文件一致性检查
+  - 依赖 #local-timeline 的快照存储管线已就绪，此条目聚焦数据层抽象与 AI 消费接口

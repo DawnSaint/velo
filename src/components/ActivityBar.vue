@@ -17,7 +17,7 @@
 //    纵向列表 → 用 clientY 判 before/after(TabBar 横向用 clientX)。
 
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Files, List, Search, Settings, Image as ImageIcon } from '@lucide/vue'
+import { Files, List, Search, Settings, Image as ImageIcon, History } from '@lucide/vue'
 import ActivityBarContextMenu from './ActivityBarContextMenu.vue'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { useEditorStore, type ActivityBarItem } from '@/stores/editor'
@@ -32,6 +32,7 @@ const emit = defineEmits<{
   'select-outline': []
   'select-search': []
   'select-assets': []
+  'select-history': []
   'select-settings': []
 }>()
 
@@ -44,6 +45,7 @@ const ITEM_LABELS: Record<ActivityBarItem, string> = {
   outline: '大纲',
   search: '全局搜索',
   assets: '资产',
+  history: '版本历史',
   settings: '设置',
 }
 const ITEM_ICONS = {
@@ -51,6 +53,7 @@ const ITEM_ICONS = {
   outline: List,
   search: Search,
   assets: ImageIcon,
+  history: History,
   settings: Settings,
 }
 
@@ -59,6 +62,7 @@ function selectItem(key: ActivityBarItem) {
   else if (key === 'outline') emit('select-outline')
   else if (key === 'search') emit('select-search')
   else if (key === 'assets') emit('select-assets')
+  else if (key === 'history') emit('select-history')
   else emit('select-settings')
 }
 
@@ -134,7 +138,7 @@ useContextMenu({
 /** 菜单条目:固定展示序(不随用户自定义顺序变),每项带当前显隐态。
  *  仅列可隐藏的 3 个视图入口;'settings' 固定显示,不进勾选列表。 */
 const contextMenuItems = computed(() => {
-  const hideable: ActivityBarItem[] = ['files', 'outline', 'search', 'assets']
+  const hideable: ActivityBarItem[] = ['files', 'outline', 'search', 'assets', 'history']
   return hideable.map(key => ({
     key,
     label: ITEM_LABELS[key],

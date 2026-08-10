@@ -27,6 +27,7 @@ export function useCommandPaletteItems(opts: {
   toggleTypewriterMode: () => void
   openFind: () => void
   openReplace: () => void
+  openVersionHistory: () => void
   showSettingsPanel: () => void
   openFolderAsWorkspace: () => void
   openQuickOpen: () => void
@@ -122,6 +123,16 @@ export function useCommandPaletteItems(opts: {
         group: 'app',
         keywords: ['save as'],
         run: () => documentStore.saveAs(),
+      },
+      {
+        id: 'file.versionHistory',
+        title: '浏览版本历史',
+        subtitle: '查看当前文件的保存版本快照，diff 对比与恢复',
+        group: 'app',
+        keywords: ['version', 'history', 'timeline', 'snapshot', '版本', '历史', '时间线'],
+        disabled: !documentStore.currentFilePath,
+        disabledReason: '需要先保存文件',
+        run: () => opts.openVersionHistory(),
       },
       {
         id: 'file.export',

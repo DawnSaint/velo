@@ -9,10 +9,11 @@
 // onBeforeUnmount 自动 cancel 当前搜索 run,避免悬挂 controller。
 
 import { ref } from 'vue'
-import { Image as ImageIcon } from '@lucide/vue'
+import { Image as ImageIcon, History } from '@lucide/vue'
 import EditorOutline from './EditorOutline.vue'
 import FileTree from './FileTree.vue'
 import AssetPanel from './AssetPanel.vue'
+import VersionHistoryPanel from './VersionHistoryPanel.vue'
 import WorkspaceSearchPanel from '@/components/WorkspaceSearchPanel.vue'
 import type { WorkspaceSearchHit } from '@/utils/workspaceSearch'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -112,6 +113,14 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
         <ImageIcon :size="32" :stroke-width="1.2" />
         <span class="text-xs">当前文档没有图片</span>
       </div>
+      <!-- 设置激活时 history 显示空态 -->
+      <div
+        v-else-if="settingsActive && workspace.sidebarTab === 'history'"
+        class="flex h-full flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
+      >
+        <History :size="32" :stroke-width="1.2" />
+        <span class="text-xs">需要先打开文档</span>
+      </div>
       <FileTree
         v-else-if="workspace.sidebarTab === 'files'"
         ref="fileTreeRef"
@@ -129,6 +138,9 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
         :file-path="filePath"
         @locate-image="onLocateImage"
         @reorganize-asset="onReorganizeAsset"
+      />
+      <VersionHistoryPanel
+        v-else-if="workspace.sidebarTab === 'history'"
       />
       <WorkspaceSearchPanel
         v-else

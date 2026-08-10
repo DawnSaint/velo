@@ -178,9 +178,10 @@ const iconComponents: Record<CommandPaletteIcon, Component> = {
   'workspace-search': Search,
   'workspace-files': Folders,
   outline: List,
-  'workspace-close': FolderX,
-  'workspace-switch': FolderOpen,
-  'recent-file': History,
+'workspace-close': FolderX,
+'workspace-switch': FolderOpen,
+'recent-file': History,
+'version-history': History,
 }
 
 function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): CommandPaletteIcon {
@@ -205,6 +206,7 @@ function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): Comman
     'workspace.files': 'workspace-files',
     'workspace.outline': 'outline',
     'workspace.close': 'workspace-close',
+    'file.versionHistory': 'version-history',
   }
   const icon = byId[row.item.id]
   if (icon) return icon
