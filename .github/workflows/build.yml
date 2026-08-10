@@ -65,20 +65,22 @@ jobs:
 
       # tag push: release-please 已创建 Release（含 changelog body），
       # tauri-action 只需找到该 Release 并上传产物，不传 releaseBody 以保留原始内容。
-      # updater: TAURI_SIGNING_PRIVATE_KEY 环境变量触发 tauri-action 自动签名更新包 + 生成 latest.json 上传到 Release。
+      # updater: TAURI_SIGNING_PRIVATE_KEY 环境变量触发 Tauri CLI 签名更新包；
+      # includeUpdaterJson: tauri-action 收集签名后的更新包信息，生成 latest.json 上传到 Release。
       # updaterJsonPreferNsis: Windows 用 NSIS 格式（Velo 不再打 MSI）。
       - name: Build and publish to GitHub Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # 密钥生成时未设密码时，此处引用不存在的 secret 会得到空字符串，Tauri CLI 按"无密码"处理。
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Velo ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false
-          updaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
 
       - name: Verify exe (Windows)

@@ -54,7 +54,7 @@
 
 - **应用自动更新(#updater)**: Tauri 2 Updater plugin(`tauri-plugin-updater`) + Process plugin(`tauri-plugin-process`,relaunch 用)。
   - **签名密钥**: Ed25519 自签名密钥对(`tauri signer generate` 生成),免费。私钥存 CI GitHub Secret(`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`),公钥写 `tauri.conf.json` 的 `plugins.updater.pubkey`。与 Windows 代码签名证书(Sectigo / DigiCert,需购买,消除 SmartScreen 警告)是两回事,updater 不依赖后者。
-  - **endpoint**: `https://github.com/DawnSaint/velo/releases/latest/download/latest.json`。CI 中 `tauri-action` 检测到 `TAURI_SIGNING_PRIVATE_KEY` 环境变量后自动签名更新包 + 生成 `latest.json` 上传到 Release;`updaterJsonPreferNsis: true` 让 Windows 走 NSIS 格式(Velo 不打 MSI)。
+  - **endpoint**: `https://github.com/DawnSaint/velo/releases/latest/download/latest.json`。CI 构建分两层:**Tauri CLI** 检测到 `TAURI_SIGNING_PRIVATE_KEY` 环境变量后签名更新包(产出 `.nsis.zip` / `.app.tar.gz` + 对应 `.sig`);**tauri-action** 的 `includeUpdaterJson: true` 收集签名信息生成 `latest.json` 上传到 Release。注意 input 名是 `includeUpdaterJson` 不是 `updaterJson`(后者会被静默忽略,导致 `latest.json` 不生成)。`updaterJsonPreferNsis: true` 让 Windows 走 NSIS 格式(Velo 不打 MSI)。
   - **前端流程**: `useUpdater` composable 封装 check / downloadAndInstall / relaunch 全流程。App.vue onMounted 10s 延迟后静默检查一次,有更新走 Toast 提示用户去「设置 > 系统」手动下载安装(不自动下载,避免打断编辑)。SystemGroup.vue 提供「检查更新」按钮 + 新版本信息 + 下载进度条 + 「下载并安装」按钮。
   - **Windows NSIS 更新**: `downloadAndInstall` 内部下载 `.nsis.zip` 签名包,验证签名后静默安装(exe 替换),`relaunch` 重启新版本。macOS / Linux 更新走 `.tar.gz` / `.AppImage.tar.gz`,安装行为依赖平台。
 

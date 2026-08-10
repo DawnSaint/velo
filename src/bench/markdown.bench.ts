@@ -15,7 +15,6 @@ import { fileURLToPath } from 'url'
 import { bench, describe } from 'vitest'
 import { fromMarkdown, toMarkdown } from '../components/ProseMirrorEditor/editor/markdownIO'
 import { schema } from '../components/ProseMirrorEditor/editor/schema'
-import type { Node as PMNode } from 'prosemirror-model'
 
 const __filename = fileURLToPath(import.meta.url)
 const corpusDir = path.resolve(path.dirname(__filename), 'corpus')

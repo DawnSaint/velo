@@ -42,7 +42,7 @@
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P2  #system-tray ──→ #daily-note
-    #git-integration ──↔── #local-timeline ──→ #recent-locations
+    #local-timeline ──→ #recent-locations
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #font-ui（独立）
@@ -124,6 +124,22 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 先对核心模块（`markdownIO` / `documentStore` / schema）开
   - 发版前跑，不进每次 commit 路径
 
+### 版本管理与导航
+
+
+- [ ] **本地版本时间线** `#local-timeline` `P2` `M`
+  - 升级现有崩溃恢复草稿（每 30s 落盘）为完整本地版本历史
+  - 每次保存（手动 / 自动）创建快照，保留最近 N 个
+  - 侧栏或命令面板浏览历史版本，diff 对比，一键恢复
+  - 远期与 AI 集成时的 Coherence Layer 共享版本数据层
+
+- [ ] **最近编辑位置时间线** `#recent-locations` `P2` `M` `← #local-timeline`
+  - JetBrains Ctrl+Shift+E 风格：跨文件记光标位置而非文件
+  - 与本地版本时间线一同实现（共享文件历史数据层）
+
+
+
+
 
 
 ## 已知问题
@@ -196,25 +212,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）
   - 引用计数为 0 的本地资产标灰（孤儿候选）
 
-### 版本管理与导航
-
-- [ ] **Git 集成** `#git-integration` `P2` `L` `↔ #local-timeline` `→ #recent-locations` —— [RESEARCH](./research/git-integration.md)
-  - MVP 走系统 git CLI（`plugin-shell` 调用），零额外依赖，功能最完整
-  - 侧栏新增 Git tab：git status（文件变更列表）、git commit（暂存 + 提交消息）、git diff（当前文件 diff 查看）
-  - Diff 展示优先复用 CodeMirror 6 diff 适配器（已有依赖）
-  - 文件树叠加 git status 装饰（颜色标记 modified / staged / untracked）
-  - 不包含（留后续迭代）：branch 管理 / remote push/pull / merge / stash / gutter 行级变更指示
-
-- [ ] **本地版本时间线** `#local-timeline` `P2` `M` `↔ #git-integration`
-  - 升级现有崩溃恢复草稿（每 30s 落盘）为完整本地版本历史
-  - 每次保存（手动 / 自动）创建快照，保留最近 N 个
-  - 侧栏或命令面板浏览历史版本，diff 对比，一键恢复
-  - 与 Git 互补：Git 是用户主动的、有提交信息的；Timeline 是自动的、细粒度的
-  - Diff UI 复用 `#git-integration` 的 CM6 diff 适配器
-
-- [ ] **最近编辑位置时间线** `#recent-locations` `P2` `M` `← #git-integration`
-  - JetBrains Ctrl+Shift+E 风格：跨文件记光标位置而非文件
-  - 与 Git 集成一同实现（共享文件历史数据层）
 
 ### 个性化
 
@@ -247,6 +244,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 集成 Ollama：通过 Tauri shell 调 `ollama run`，不依赖云端，隐私零泄露
   - 场景化命令挂在命令面板 `>` 模式下：「润色这段」「展开大纲」「总结全文」「改写更简洁」，选区作为输入
   - 可选：行内补全（类似 Copilot，走本地小模型，只对 markdown 文本补全）
+  - 排期时评估引入 Coherence Layer（内容寻址版本追踪 + DAG + 人类/AI/外部溯源）作为基础设施
 
 - [ ] **主题市场** `#theme-market` `P3` `XL` `?`
   - 自定义颜色方案 / 字号规范 / 段落间距整套打包

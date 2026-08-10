@@ -277,3 +277,13 @@
 - **Context**: C0–C3 优化后，大文档打开仍有 1 次 `fromMarkdown` 同步阻塞 ~2.8s（217KB / 6967 行）。候选:A 全移入 Worker（parse + serialize），mdast JSON 序列化开销大且 echo 哨兵需全异步化；B parse-only Worker（remark-parse + runSync 在 Worker，mdast→PM Node 转换留主线程），序列化开销小且转换无正则/解析；C 不用 Worker，继续优化同步（已无显著空间）。
 - **Decision**: 选 B。remark-parse + runSync 在 Worker 里执行，mdast→PM Node 转换（纯树遍历，无正则）留主线程。`parseToken` 带 AbortSignal + 10s 超时降级到同步 parse；viewport hint 预设首屏范围，`updateState` 只为首屏节点构建 decoration。竞态防护：parseToken 在分支前 bump + 冷启动 state 引用守卫。
 - **Consequences**: 主线程阻塞从 ~2800ms 降至 ~458ms（6x 提速），Tauri 生产构建 Windows WebView2 验证通过。Worker 通信为小文档增加微延迟（冷启动同步 fallback 覆盖）。echo 哨兵机制需适配异步 parseToken（bump + 引用守卫），后续若 serialize 也成瓶颈可按同范式加 Worker。
+
+---
+
+## v0.8.0 — 不实现 Git 集成，远期转向 Coherence Layer
+
+### ADR-20260810-001: 放弃用户面向的 Git 集成面板，远期转向 Coherence Layer
+
+- **Context**: 引入传统 Git 面板。候选:A 保留 Git 面板（服务程序员用户，但多数 Markdown 写作者不用 git，且 git commit 粒度适合代码不适合写作）；B 引入 Coherence Layer（内容寻址版本追踪 + DAG + 人类/AI/外部溯源，解决"共编同一文档"的溯源与并发问题）；C 两者并行。
+- **Decision**: 选 B。移除 Git 面板。`#local-timeline`（本地版本时间线）保留为非 AI 场景的版本历史方案。`#ai-assist`（P3）排期时评估 Coherence Layer 作为基础设施层。
+- **Consequences**: ROADMAP `#git-integration` 标记为不再实现；`#local-timeline` / `#recent-locations` 解除对 `#git-integration` 的依赖；需要 git 的用户可使用外部工具（git CLI / GitKraken / GitHub Desktop）。Coherence Layer 是重型基础设施，在 AI 集成落地前不提前投入。
