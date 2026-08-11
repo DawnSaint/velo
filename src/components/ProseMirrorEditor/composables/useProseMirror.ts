@@ -23,6 +23,7 @@ import type { Plugin, Transaction } from 'prosemirror-state'
 import type { Node as PMNode, Schema } from 'prosemirror-model'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { setInitialViewportHint, refreshViewport } from '../nodes/viewportPlugin'
+import { findScrollAncestor } from './scrollUtils'
 
 export interface UseProseMirrorOptions {
   /** Schema 实例 —— caller 在 editor/schema.ts 装配后传进来。 */
@@ -86,32 +87,6 @@ export interface UseProseMirrorReturn {
    * 只是把 0 换成传入值。Step 3 每标签 EditorState 保留用。
    */
   restoreScrollTop: (px: number) => void
-}
-
-/**
- * 从 `start` 向上找第一个 overflow:auto|scroll 的祖先。用于"切换文档时复位
- * viewport 滚动位置" —— view.dom 自身不带 overflow,真实滚动容器在上层
- * (css class 例如 Tailwind 的 `overflow-auto`)。
- *
- * 通过 getComputedStyle 读 css(包括 class-based 规则),不仅 inline style。
- * 找遍到 html/body 仍没找到返回 null(caller 视情况退化处理)。
- *
- * 函数式纯逻辑,放到 useProseMirror 模块里因为只有 view context 下用得到,
- * 单独抽文件没必要。同时导出给 __tests__ 测。
- */
-export function findScrollAncestor(start: HTMLElement): HTMLElement | null {
-  let cur: HTMLElement | null = start
-  while (cur && cur !== cur.parentElement) {
-    const cs = getComputedStyle(cur)
-    if (
-      cs.overflowY === 'auto' || cs.overflowY === 'scroll'
-      || cs.overflow === 'auto' || cs.overflow === 'scroll'
-    ) {
-      return cur
-    }
-    cur = cur.parentElement
-  }
-  return null
 }
 
 export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorReturn {

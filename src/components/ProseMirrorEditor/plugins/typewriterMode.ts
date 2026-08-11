@@ -42,7 +42,7 @@
 import { Plugin, PluginKey, NodeSelection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
-import { findScrollAncestor } from '../composables/useProseMirror'
+import { findScrollAncestor } from '../composables/scrollUtils'
 
 interface TypewriterModeState {
   enabled: boolean

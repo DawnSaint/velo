@@ -94,10 +94,11 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ### P1 — 架构健康（一个迭代内值得做）
 
-- [ ] **dependency-cruiser 依赖图强制分层** `#dep-cruiser` `P1` `M` `← #eslint-setup`
+- [x] **dependency-cruiser 依赖图强制分层** `#dep-cruiser` `P1` `M` `← #eslint-setup`
   - Velo 的 `App.vue` 已 70KB / 10 store 分化，无分层约束迟早出循环依赖
   - 定义分层：`src/tauri/`（平台层）← `src/stores/`（状态层）← `src/components/`（UI 层），`src/lib/` 为纯叶模块
   - 先开 `no-circular` + "叶模块不 import 上层"两条规则，白名单豁免项必须带注释原因
+  - ~~先开 `no-circular` + "叶模块不 import 上层"两条规则~~ → 已落地：`.dependency-cruiser.cjs` 定义 5 条规则（no-circular / leaf-no-upper / stores-no-ui / tauri-no-upper / no-orphans），分层覆盖 `src/tauri` ← `src/stores` ← `src/components`/`src/composables`/`src/directives`/`src/utils`，`src/lib` 为纯叶模块；白名单 4 项豁免（htmlRenderer/shikiHtml 复用编辑器 remark 插件链、document/editor store 依赖 markdownIO/schema/CodeBlockLangs），每项带 TODO 注释重构方向；修复 useProseMirror ↔ viewportPlugin 循环依赖（抽取 `findScrollAncestor` 到 `scrollUtils.ts`）；`npm run lint:deps` 运行、CI 门禁
 
 - [ ] **git hook 门禁（分级卡）** `#git-hook` `P1` `S`
   - Velo 当前零 git hook，破断只能靠 CI 事后发现

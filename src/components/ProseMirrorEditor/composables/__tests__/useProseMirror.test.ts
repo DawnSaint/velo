@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findScrollAncestor } from '../useProseMirror'
+import { findScrollAncestor } from '../scrollUtils'
 
 function makeChain(html: string): HTMLElement {
   document.body.innerHTML = html
