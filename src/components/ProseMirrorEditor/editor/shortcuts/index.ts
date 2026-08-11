@@ -5,11 +5,4 @@
 
 import './bindings'
 
-export {
-  registerShortcut,
-  getShortcuts,
-  buildShortcutKeymap,
-  _resetShortcutRegistry,
-  type ShortcutCommand,
-  type ShortcutSpec,
-} from './registry'
+export { buildShortcutKeymap } from './registry'

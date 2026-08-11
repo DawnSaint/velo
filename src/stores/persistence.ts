@@ -316,30 +316,6 @@ export async function deleteDraft(id: string): Promise<void> {
   }
 }
 
-/** 删目录下所有 .json 草稿(用于"全部丢弃")。 */
-export async function deleteAllDrafts(): Promise<void> {
-  if (!tauriOnly()) return
-  try {
-    const dir = await appDataDir()
-    const draftsDir = await join(dir, DRAFTS_DIR)
-    if (!(await exists(draftsDir))) return
-    const entries = await readDir(draftsDir)
-    for (const entry of entries) {
-      if (!entry.name || !entry.name.endsWith('.json')) continue
-      try {
-        const path = await join(draftsDir, entry.name)
-        await remove(path)
-      }
-      catch (e) {
-        console.warn(`删除草稿 ${entry.name} 失败`, e)
-      }
-    }
-  }
-  catch (e) {
-    console.error('清空草稿失败', e)
-  }
-}
-
 // ========== 本地版本时间线(#local-timeline) ==========
 //
 // 每次保存(手动 / 自动 / 失焦)写一份快照到 appDataDir/versions/{pathId}/{timestamp}.json。
@@ -603,7 +579,7 @@ export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
   }
 }
 
-export async function saveWorkspaces(s: PersistedWorkspaces): Promise<void> {
+async function saveWorkspaces(s: PersistedWorkspaces): Promise<void> {
   if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
@@ -728,7 +704,7 @@ export async function loadRecentFiles(): Promise<PersistedRecentFiles | null> {
   }
 }
 
-export async function saveRecentFiles(s: PersistedRecentFiles): Promise<PersistedRecentFiles | null> {
+async function saveRecentFiles(s: PersistedRecentFiles): Promise<PersistedRecentFiles | null> {
   if (!tauriOnly()) return null
   try {
     const dir = await appDataDir()

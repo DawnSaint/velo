@@ -15,7 +15,7 @@
 
 import type { Node as PMNode } from 'prosemirror-model'
 
-export interface NodeEntry {
+interface NodeEntry {
   pos: number
   node: PMNode
 }
@@ -84,10 +84,4 @@ export function scanDoc(doc: PMNode): ScanResult {
   cachedDoc = doc
   cachedResult = result
   return result
-}
-
-/** 清除缓存(组件卸载时调,防止 doc 引用泄漏)。 */
-export function invalidateScanCache(): void {
-  cachedDoc = null
-  cachedResult = null
 }

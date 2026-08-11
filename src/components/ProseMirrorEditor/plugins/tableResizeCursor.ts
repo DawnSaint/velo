@@ -14,7 +14,7 @@ import { Plugin } from "prosemirror-state"
 import { PluginKey } from "prosemirror-state"
 import type { EditorView } from "prosemirror-view"
 
-export const tableResizeCursorKey = new PluginKey<ResizeCursorState>(
+const tableResizeCursorKey = new PluginKey<ResizeCursorState>(
   "tableResizeCursor"
 )
 

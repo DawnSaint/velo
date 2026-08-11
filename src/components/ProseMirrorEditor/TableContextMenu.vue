@@ -30,7 +30,7 @@ const emit = defineEmits<{
 }>()
 
 /** 支持的菜单动作枚举(EditorInner.vue 监听后分发到 tableEditor) */
-export type TableAction =
+type TableAction =
   | "add-row-before"
   | "add-row-after"
   | "move-row-up"

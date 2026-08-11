@@ -229,5 +229,3 @@ export function langIconSvg(lang: string, size: number): string {
   const color = LANG_ICON_COLOR[n] ?? 'currentColor'
   return `<svg viewBox="${LANG_ICON_VIEWBOX}" fill="${color}" width="${size}" height="${size}">${brand}</svg>`
 }
-
-export { LANG_ICON_VIEWBOX }

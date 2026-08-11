@@ -20,7 +20,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { isTauri } from '@tauri-apps/api/core'
 import { useNotifyStore } from '@/stores/notify'
 
-export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'installing' | 'up-to-date' | 'error'
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'installing' | 'up-to-date' | 'error'
 
 const status = ref<UpdateStatus>('idle')
 const updateInfo = ref<{ version: string; body?: string; date?: string } | null>(null)

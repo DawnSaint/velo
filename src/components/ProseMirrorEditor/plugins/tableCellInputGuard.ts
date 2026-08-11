@@ -28,7 +28,7 @@ import { Fragment, Slice, type ResolvedPos, type Node, type Schema } from "prose
 import { CellSelection, TableMap, handlePaste as tableHandlePaste } from "prosemirror-tables"
 import type { EditorView } from "prosemirror-view"
 
-export const tableCellInputGuardKey = new PluginKey("tableCellInputGuard")
+const tableCellInputGuardKey = new PluginKey("tableCellInputGuard")
 
 // beforeinput inputType 中表示"插入文本内容"的类型(不含 delete*/paste/drop)。
 // 用于 IME 组合输入(keydown keyCode=229 时 forceFlush 不跑,CellSelection 安全,

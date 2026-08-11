@@ -365,4 +365,4 @@ export const syntaxAutoFormatPlugin = new Plugin({
 })
 
 // 暴露 helper:外部 dispatch 想"这一笔不要走自动格式化"时挂 meta
-export const SYNTAX_AUTO_FORMAT_SKIP_META = syntaxAutoFormatPlugin
+// (直接用 syntaxAutoFormatPlugin 作为 meta key)

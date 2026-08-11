@@ -16,12 +16,10 @@ import { EditorView as PmEditorView } from 'prosemirror-view'
 import { TextSelection } from 'prosemirror-state'
 import { EditorView as CmEditorView } from '@codemirror/view'
 import { EditorSelection as CmEditorSelection } from '@codemirror/state'
-import { findMatchesInDoc, buildPattern, replaceInText, type FindOptions, type Match } from './findMatches'
+import { findMatchesInDoc, buildPattern, type FindOptions, type Match } from './findMatches'
 import { findHighlightKey } from './findHighlight'
 import { cmFindHighlightEffect } from './cmFindHighlight'
 import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
-
-export type { Match, FindOptions } from './findMatches'
 
 export interface FindReplaceBackend {
   /** 当前选区文本(空选区 → '')。Ctrl+F 初始 query 用。 */
@@ -199,4 +197,3 @@ export function createCmBackend(view: CmEditorView): FindReplaceBackend {
 }
 
 /** replaceInText 透传(replaceAll / replaceCurrent 在 FindReplace 里编辑器无关地用)。 */
-export { replaceInText }

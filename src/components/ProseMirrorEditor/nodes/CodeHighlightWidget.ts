@@ -970,5 +970,3 @@ export function setCodeBlockLanguage(
 // ============================================================
 //  Helpers(测试可见)
 // ============================================================
-
-export { buildDecorations, makeHeaderDom, writeToClipboard }

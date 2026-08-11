@@ -13,7 +13,7 @@ export const remarkMathFenceGuard = function(this: any) {
   }
 }
 
-export function escapeUnclosedMathFenceOpeners(doc: string): string {
+function escapeUnclosedMathFenceOpeners(doc: string): string {
   return doc.replace(/^( {0,3})\$\$(?=\S|[ \t]+\S)([^\n\r]*)/gm, (line, indent: string, rest: string) => {
     if (rest.includes('$$')) return line
     return `${indent}\\$\\$${rest}`

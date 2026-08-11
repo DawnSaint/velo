@@ -33,7 +33,7 @@ export const remarkEncodeLinkUrls = function(this: any) {
  *  - 只 encode 内部空格;前导/尾部空格不处理(原样交给 remark-parse,
  *    通常意味着 URL 非法,降级为普通文本)。
  */
-export function encodeLinkUrlSpaces(doc: string): string {
+function encodeLinkUrlSpaces(doc: string): string {
   return doc.replace(
     /\[([^\]\n]+)\]\(([^()]*)\)/g,
     (match, text: string, url: string) => {

@@ -28,7 +28,7 @@ import type { PersistedWorkspaces, SidebarTab, WorkspaceState, WorkspacePatch } 
  *  各自引用。 */
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 600
-export const SIDEBAR_WIDTH_DEFAULT = 256
+const SIDEBAR_WIDTH_DEFAULT = 256
 
 function clampSidebarWidth(n: number): number {
   if (Number.isNaN(n)) return SIDEBAR_WIDTH_DEFAULT

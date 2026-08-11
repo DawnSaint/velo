@@ -20,7 +20,7 @@ type TechnicalSubspanType =
   | 'timeLike'
   | 'thousandsLike'
 
-export interface TechnicalSubspan {
+interface TechnicalSubspan {
   start: number
   end: number
   type: TechnicalSubspanType
@@ -160,13 +160,8 @@ export function scanLatinSpans(text: string): LatinSpan[] {
   return spans
 }
 
-/** 检查位置是否在某个 Latin span 内。 */
-export function isInLatinSpan(position: number, spans: LatinSpan[]): boolean {
-  return spans.some((span) => position >= span.start && position < span.end)
-}
-
 /** 获取位置处的技术子段（如有）。 */
-export function getTechnicalSubspanAt(
+function getTechnicalSubspanAt(
   position: number,
   spans: LatinSpan[],
 ): TechnicalSubspan | null {

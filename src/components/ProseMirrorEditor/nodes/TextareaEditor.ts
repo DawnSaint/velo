@@ -120,7 +120,7 @@ export function stopMousedownPropagation(el: HTMLElement): void {
  *   默认行为)。粘贴板的纯文本仍能进 textarea,只是不让 ProseMirror 看到。
  * - `paste` 走自己的事件不经过 `beforeinput`,必须单独挂。
  */
-export function isolateInputFromProseMirror(el: HTMLElement): void {
+function isolateInputFromProseMirror(el: HTMLElement): void {
   el.addEventListener('beforeinput', (e) => { e.stopPropagation() })
   el.addEventListener('paste', (e) => { e.stopPropagation() })
 }
@@ -131,7 +131,7 @@ export function isolateInputFromProseMirror(el: HTMLElement): void {
  *
  * 用在 keydown 的 Tab 分支里 —— 调用前**自己**记得 `preventDefault()`。
  */
-export function insertTabAtCursor(el: HTMLInputElement | HTMLTextAreaElement): void {
+function insertTabAtCursor(el: HTMLInputElement | HTMLTextAreaElement): void {
   const start = el.selectionStart ?? el.value.length
   const end = el.selectionEnd ?? el.value.length
   el.value = el.value.slice(0, start) + '\t' + el.value.slice(end)

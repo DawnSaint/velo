@@ -33,7 +33,7 @@ export function docNameFromPath(filePath: string): string {
  * 双斜杠统一为 `/`；Windows 盘符（C:）当作普通段处理。
  * 不处理跨盘符（from=C:/.., to=D:/..）—— 调用方保证同根。
  */
-export function relativePath(fromDir: string, toPath: string): string {
+function relativePath(fromDir: string, toPath: string): string {
   const from = fromDir.replace(/\\/g, '/').replace(/\/+$/, '').split('/').filter(Boolean)
   const to = toPath.replace(/\\/g, '/').replace(/\/+$/, '').split('/').filter(Boolean)
 
@@ -51,7 +51,7 @@ export function relativePath(fromDir: string, toPath: string): string {
  *   foo.png → foo-2.png → foo-3.png → ...
  *   无扩展名 → foo → foo-2 → foo-3
  */
-export function uniqueFileName(fileName: string, existingNames: Set<string>): string {
+function uniqueFileName(fileName: string, existingNames: Set<string>): string {
   if (!existingNames.has(fileName)) return fileName
   const dot = fileName.lastIndexOf('.')
   const hasExt = dot > 0 && dot < fileName.length - 1

@@ -17,6 +17,5 @@
  */
 
 export { formatMarkdown, formatSelection } from './formatter'
-export { removeTrailingSpaces, collapseNewlines } from './rules'
-export type { CJKFormattingSettings, QuoteStyle, RuleScopes, RuleDef, RuleGroup } from './types'
+export type { CJKFormattingSettings, RuleScopes } from './types'
 export { createDefaultFormatting, RULE_DEFS } from './types'

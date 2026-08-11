@@ -14,7 +14,6 @@ import {
   mkdir,
   readDir,
   readFile,
-  remove,
   writeFile,
 } from '@/tauri/fs'
 import {
@@ -34,7 +33,7 @@ function basenameSync(p: string): string {
  * 确保目录存在;不存在就 mkdir(recursive)。
  * 已存在 → no-op。失败 throw。
  */
-export async function ensureAssetsDir(dirPath: string): Promise<void> {
+async function ensureAssetsDir(dirPath: string): Promise<void> {
   if (!(await exists(dirPath))) {
     await mkdir(dirPath, { recursive: true })
   }
@@ -44,18 +43,9 @@ export async function ensureAssetsDir(dirPath: string): Promise<void> {
  * 把一个 File 对象写到 absPath(覆盖式)。失败 throw。
  * File → Uint8Array → writeFile,所有错误透传。
  */
-export async function writeImageFile(absPath: string, file: File): Promise<void> {
+async function writeImageFile(absPath: string, file: File): Promise<void> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   await writeFile(absPath, bytes)
-}
-
-/**
- * 删一个磁盘上的图片文件。不存在 → no-op。失败 throw。
- */
-export async function deleteImageFile(absPath: string): Promise<void> {
-  if (await exists(absPath)) {
-    await remove(absPath)
-  }
 }
 
 // ========== 同内容去重 ==========

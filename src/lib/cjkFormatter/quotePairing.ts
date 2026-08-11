@@ -32,7 +32,7 @@ const TERMINAL_PUNCTUATION = '，。！？；：、.,!?;:'
 type QuoteType = 'double' | 'single'
 type QuoteRole = 'open' | 'close' | 'apostrophe' | 'prime' | 'ambiguous'
 
-export interface QuoteToken {
+interface QuoteToken {
   index: number
   char: string
   type: QuoteType
@@ -47,7 +47,7 @@ interface QuotePair {
   isCJKInvolved: boolean
 }
 
-export interface PairingResult {
+interface PairingResult {
   pairs: QuotePair[]
   orphans: QuoteToken[]
 }
@@ -196,7 +196,7 @@ function checkCJKInvolvement(
 }
 
 /** 分词：标记文本中的引号，过滤撇号和角分符号。 */
-export function tokenizeQuotes(text: string): QuoteToken[] {
+function tokenizeQuotes(text: string): QuoteToken[] {
   const tokens: QuoteToken[] = []
   const doubleStack: number[] = []
   const singleStack: number[] = []
@@ -304,7 +304,7 @@ function pairQuotes(text: string, tokens: QuoteToken[]): PairingResult {
 }
 
 /** 主入口：分词 + 配对。 */
-export function analyzeQuotes(text: string): PairingResult {
+function analyzeQuotes(text: string): PairingResult {
   const tokens = tokenizeQuotes(text)
   return pairQuotes(text, tokens)
 }

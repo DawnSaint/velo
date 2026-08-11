@@ -177,7 +177,7 @@ export interface HtmlNodeViewOptions {
   proxyDomURL: (url: string) => string
 }
 
-export const htmlNodeViewPluginKey = new PluginKey('htmlNodeView')
+const htmlNodeViewPluginKey = new PluginKey('htmlNodeView')
 
 export function createHtmlNodeViewPlugin(opts: HtmlNodeViewOptions): Plugin {
   return new Plugin({

@@ -11,7 +11,7 @@
 // 前缀后跟一个可选空格也剥掉('>@save' 与 '> save' 等价),沿用旧
 // normalizeCommandPaletteQuery 的语义并泛化到所有前缀。
 
-export type QuickCommandMode = 'file' | 'command' | 'symbol' | 'line'
+type QuickCommandMode = 'file' | 'command' | 'symbol' | 'line'
 
 export interface ParsedQuickCommand {
   mode: QuickCommandMode

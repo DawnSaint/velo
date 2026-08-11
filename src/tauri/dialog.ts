@@ -12,7 +12,6 @@ import {
   open,
   save,
   confirm as nativeConfirm,
-  message,
   type ConfirmDialogOptions,
 } from '@tauri-apps/plugin-dialog'
 
@@ -23,4 +22,4 @@ async function confirm(message: string, options?: string | ConfirmDialogOptions)
   return nativeConfirm(message, options)
 }
 
-export { open, save, confirm, message }
+export { open, save, confirm }

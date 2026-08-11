@@ -30,7 +30,7 @@ export interface TableContextMenuOptions {
   onTableContextMenu: (clickCellPos: number, inHeader: boolean, isCellSelection: boolean, x: number, y: number) => void
 }
 
-export const tableContextMenuKey = new PluginKey("tableContextMenu")
+const tableContextMenuKey = new PluginKey("tableContextMenu")
 
 // 判断点击 target 是否落在当前 CellSelection 的矩形内。
 // 用 CellSelection.ranges 遍历每个 range,检查 clickCellPos 是否含入。

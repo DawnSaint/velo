@@ -96,16 +96,6 @@ export function fixSingleQuoteSpacing(text: string): string {
   return fixQuoteSpacing(text, '\u2018', '\u2019')
 }
 
-/** 直角引号 「」 间距修复。 */
-export function fixCornerQuoteSpacing(text: string): string {
-  return fixQuoteSpacing(text, '「', '」')
-}
-
-/** 双直角引号 『』 间距修复。 */
-export function fixDoubleCornerQuoteSpacing(text: string): string {
-  return fixQuoteSpacing(text, '『', '』')
-}
-
 const QUOTE_STYLES: Record<QuoteStyle, {
   doubleOpen: string
   doubleClose: string
@@ -152,14 +142,6 @@ export function convertStraightToSmartQuotes(text: string, style: QuoteStyle): s
   )
 
   return text
-}
-
-/** 弯引号在 CJK 内容时转直角引号：「中文内容」。 */
-export function convertToCJKCornerQuotes(text: string): string {
-  return text.replace(
-    /\u201c([^\u201d]*[\u4e00-\u9fff][^\u201d]*)\u201d/g,
-    '「$1」',
-  )
 }
 
 /** 直角引号内的单弯引号转嵌套双直角引号：「text『nested』text」。 */

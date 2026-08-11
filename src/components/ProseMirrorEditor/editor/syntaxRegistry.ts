@@ -23,7 +23,7 @@ import type { Schema } from 'prosemirror-model'
 //  Block 层
 // ============================================================
 
-export interface BlockSyntaxApplyContext {
+interface BlockSyntaxApplyContext {
   schema: Schema
   /** 段落内容起始(段落 open tag 之后)。已经过 tr.mapping 校正。 */
   blockStart: number
@@ -52,7 +52,7 @@ export interface BlockSyntax {
 //  Inline 层
 // ============================================================
 
-export interface InlineSyntaxApplyContext {
+interface InlineSyntaxApplyContext {
   schema: Schema
   /** 当前 match 在 tr.doc 上的范围起点(已经过 tr.mapping 校正)。 */
   from: number

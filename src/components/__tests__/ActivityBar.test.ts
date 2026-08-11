@@ -37,6 +37,7 @@ describe('ActivityBar', () => {
     expect(wrapper.find('[aria-label="大纲"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="全局搜索"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="资产"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="设置"]').exists()).toBe(true)
   })
 
@@ -47,12 +48,14 @@ describe('ActivityBar', () => {
     await wrapper.get('[aria-label="大纲"]').trigger('click')
     await wrapper.get('[aria-label="全局搜索"]').trigger('click')
     await wrapper.get('[aria-label="资产"]').trigger('click')
+    await wrapper.get('[aria-label="版本历史"]').trigger('click')
     await wrapper.get('[aria-label="设置"]').trigger('click')
 
     expect(wrapper.emitted('select-files')).toHaveLength(1)
     expect(wrapper.emitted('select-outline')).toHaveLength(1)
     expect(wrapper.emitted('select-search')).toHaveLength(1)
     expect(wrapper.emitted('select-assets')).toHaveLength(1)
+    expect(wrapper.emitted('select-history')).toHaveLength(1)
     expect(wrapper.emitted('select-settings')).toHaveLength(1)
   })
 
@@ -77,6 +80,7 @@ describe('ActivityBar', () => {
     expect(wrapper.find('[aria-label="工作区"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="全局搜索"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="资产"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
   })
 
   it('settings 不可隐藏:toggle 后仍渲染(固定显示)', () => {
@@ -89,14 +93,14 @@ describe('ActivityBar', () => {
 
   it('renders view items in the stored order', () => {
     const store = useEditorStore()
-    // 默认 [files, outline, search, assets] → 把 outline 拖到 files 之前
+    // 默认 [files, outline, search, assets, history] → 把 outline 拖到 files 之前
     store.reorderActivityBar('outline', 'files', 'before')
     const wrapper = mountBar({ props: { active: null } })
 
-    // [draggable="true"] 命中的恰好是 4 个可重排视图入口(文件 / settings 不带 draggable)
+    // [draggable="true"] 命中的恰好是 5 个可重排视图入口(文件 / settings 不带 draggable)
     const labels = wrapper
       .findAll('[draggable="true"]')
       .map(b => b.attributes('aria-label'))
-    expect(labels).toEqual(['大纲', '工作区', '全局搜索', '资产'])
+    expect(labels).toEqual(['大纲', '工作区', '全局搜索', '资产', '版本历史'])
   })
 })

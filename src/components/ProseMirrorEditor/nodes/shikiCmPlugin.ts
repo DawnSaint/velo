@@ -49,7 +49,7 @@ export const setShikiTheme = StateEffect.define<ShikiThemeState>()
  *  (初值取自 store,等价于 App.vue codeBlockReady 已 ensure 过的 bootstrap
  *  主题)。返回的 field 实例同时喂给 createShikiHighlighter(闭包读取)与
  *  EditorState extensions —— 必须是同一个实例。 */
-export function shikiThemeField(initial: ShikiThemeState): StateField<ShikiThemeState> {
+function shikiThemeField(initial: ShikiThemeState): StateField<ShikiThemeState> {
   return StateField.define<ShikiThemeState>({
     create: () => initial,
     update(value, tr) {
@@ -72,7 +72,7 @@ export function shikiThemeField(initial: ShikiThemeState): StateField<ShikiTheme
  *                    通过 view.state.field(themeField) 读当前主题名镜像。
  *                    必须与注入 EditorState 的是同一个实例。
  */
-export function createShikiHighlighter(
+function createShikiHighlighter(
   themeField: StateField<ShikiThemeState>,
 ): Extension {
   return ViewPlugin.fromClass(class {

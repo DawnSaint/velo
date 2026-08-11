@@ -31,7 +31,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 import { foldKey } from './FoldDecoration'
 import { chevronDownSvg } from '@/components/icons/widgetIcons'
 
-export function createFrontmatterNodeView() {
+function createFrontmatterNodeView() {
   return function frontmatterNodeViewFactory(
     _node: PMNode,
     view: EditorView,
@@ -177,7 +177,7 @@ export function createFrontmatterNodeView() {
   }
 }
 
-export const frontmatterNodeViewKey = new PluginKey('frontmatterNodeView')
+const frontmatterNodeViewKey = new PluginKey('frontmatterNodeView')
 
 export const frontmatterNodeViewPlugin = new Plugin({
   key: frontmatterNodeViewKey,

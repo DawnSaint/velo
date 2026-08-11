@@ -6,10 +6,7 @@
 
 export {
   appDataDir,
-  resourceDir,
-  resolveResource,
   join,
   dirname,
-  basename,
   sep,
 } from '@tauri-apps/api/path'

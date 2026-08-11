@@ -23,7 +23,7 @@ export interface TableInsertHandleOptions {
   onInsert: (cellPos: number, type: "row" | "column", dir: "before" | "after") => void
 }
 
-export const tableInsertHandleKey = new PluginKey("tableInsertHandle")
+const tableInsertHandleKey = new PluginKey("tableInsertHandle")
 
 const HIDE_DELAY = 200 // ms — 鼠标离开 table 后延迟隐藏,留时间移到圆点上
 const DOT_OFFSET = 14 // px — 圆点中心到 table 边缘的距离

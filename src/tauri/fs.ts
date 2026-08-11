@@ -30,10 +30,9 @@ import {
   watch as _watch,
   type UnwatchFn,
   type DirEntry,
-  type WatchEvent,
 } from '@tauri-apps/plugin-fs'
 
-export type { UnwatchFn, DirEntry, WatchEvent }
+export type { UnwatchFn, DirEntry }
 
 /**
  * dev web 端(纯 `npm run dev` 无 Tauri 进程)调 plugin-fs 任一函数会 throw

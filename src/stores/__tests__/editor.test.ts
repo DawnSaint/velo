@@ -70,44 +70,44 @@ describe('editor store ActivityBar 自定义 (v0.6.1)', () => {
 
   it('默认顺序 files/outline/search/assets,无隐藏,visible 即 order', () => {
     const store = useEditorStore()
-    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets', 'history'])
     expect(store.activityBarHidden).toEqual([])
-    expect(store.visibleActivityBarItems).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.visibleActivityBarItems).toEqual(['files', 'outline', 'search', 'assets', 'history'])
   })
 
   it('reorder before: 把 from 移到 to 之前', () => {
     const store = useEditorStore()
     store.reorderActivityBar('outline', 'files', 'before')
-    expect(store.activityBarOrder).toEqual(['outline', 'files', 'search', 'assets'])
+    expect(store.activityBarOrder).toEqual(['outline', 'files', 'search', 'assets', 'history'])
   })
 
   it('reorder after: 把 from 移到 to 之后(跨项)', () => {
     const store = useEditorStore()
     store.reorderActivityBar('files', 'search', 'after')
-    expect(store.activityBarOrder).toEqual(['outline', 'search', 'files', 'assets'])
+    expect(store.activityBarOrder).toEqual(['outline', 'search', 'files', 'assets', 'history'])
   })
 
   it('reorder from===to 为 no-op', () => {
     const store = useEditorStore()
     store.reorderActivityBar('files', 'files', 'before')
-    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets', 'history'])
   })
 
   it('reorder 拒绝非可重排项(settings 不参与排序)', () => {
     const store = useEditorStore()
     store.reorderActivityBar('settings', 'files', 'before')
     store.reorderActivityBar('files', 'settings', 'after')
-    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets', 'history'])
   })
 
   it('toggleActivityBarHidden 来回切换,visible 同步过滤', () => {
     const store = useEditorStore()
     store.toggleActivityBarHidden('outline')
     expect(store.activityBarHidden).toEqual(['outline'])
-    expect(store.visibleActivityBarItems).toEqual(['files', 'search', 'assets'])
+    expect(store.visibleActivityBarItems).toEqual(['files', 'search', 'assets', 'history'])
     store.toggleActivityBarHidden('outline')
     expect(store.activityBarHidden).toEqual([])
-    expect(store.visibleActivityBarItems).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.visibleActivityBarItems).toEqual(['files', 'outline', 'search', 'assets', 'history'])
   })
 
   it('toggleActivityBarHidden 拒绝隐藏 settings(固定显示)', () => {
@@ -122,14 +122,14 @@ describe('editor store ActivityBar 自定义 (v0.6.1)', () => {
     store.reorderActivityBar('outline', 'files', 'before')
     store.toggleActivityBarHidden('files')
     store.resetActivityBar()
-    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(store.activityBarOrder).toEqual(['files', 'outline', 'search', 'assets', 'history'])
     expect(store.activityBarHidden).toEqual([])
   })
 
   it('hydrateActivityBarConfig 走 normalize 写入 store(settings 从 hidden 剔除)', () => {
     const store = useEditorStore()
     store.hydrateActivityBarConfig(['search', 'bogus'], ['settings', 'outline'])
-    expect(store.activityBarOrder).toEqual(['search', 'files', 'outline', 'assets'])
+    expect(store.activityBarOrder).toEqual(['search', 'files', 'outline', 'assets', 'history'])
     expect(store.activityBarHidden).toEqual(['outline'])
   })
 })
@@ -137,13 +137,13 @@ describe('editor store ActivityBar 自定义 (v0.6.1)', () => {
 describe('normalizeActivityBarConfig 防御性归一化', () => {
   it('过滤未知项 + 按默认序补齐缺失项', () => {
     const { order, hidden } = normalizeActivityBarConfig(['search', 'unknown', 'files'], [])
-    expect(order).toEqual(['search', 'files', 'outline', 'assets'])
+    expect(order).toEqual(['search', 'files', 'outline', 'assets', 'history'])
     expect(hidden).toEqual([])
   })
 
   it('dedupe order 重复项', () => {
     const { order } = normalizeActivityBarConfig(['files', 'files', 'search'], [])
-    expect(order).toEqual(['files', 'search', 'outline', 'assets'])
+    expect(order).toEqual(['files', 'search', 'outline', 'assets', 'history'])
   })
 
   it('hidden 剔除 settings(固定显示),过滤未知 + dedupe', () => {
@@ -153,18 +153,18 @@ describe('normalizeActivityBarConfig 防御性归一化', () => {
 
   it('undefined 输入回退默认', () => {
     const { order, hidden } = normalizeActivityBarConfig(undefined, undefined)
-    expect(order).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(order).toEqual(['files', 'outline', 'search', 'assets', 'history'])
     expect(hidden).toEqual([])
   })
 
   it('空数组 order 补齐全部默认项', () => {
     const { order } = normalizeActivityBarConfig([], [])
-    expect(order).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(order).toEqual(['files', 'outline', 'search', 'assets', 'history'])
   })
 
   it('非数组输入回退默认', () => {
     const { order, hidden } = normalizeActivityBarConfig('files', { settings: true })
-    expect(order).toEqual(['files', 'outline', 'search', 'assets'])
+    expect(order).toEqual(['files', 'outline', 'search', 'assets', 'history'])
     expect(hidden).toEqual([])
   })
 })

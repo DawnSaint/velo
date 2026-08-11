@@ -21,10 +21,10 @@ export interface RuleScopes {
 }
 
 /** 规则功能分组 */
-export type RuleGroup = 'spacing' | 'punctuation' | 'quote' | 'cleanup'
+type RuleGroup = 'spacing' | 'punctuation' | 'quote' | 'cleanup'
 
 /** 规则定义：UI 元数据 + 能力声明，驱动设置页渲染和 hydrate 迁移 */
-export interface RuleDef {
+interface RuleDef {
   /** 对应 CJKFormattingSettings 中的字段名 */
   key: keyof CJKFormattingSettings & string
   /** 显示名 */
@@ -127,6 +127,3 @@ export function createDefaultFormatting(): CJKFormattingSettings {
     skipReferenceSections: false,
   }
 }
-
-/** @deprecated 使用 createDefaultFormatting() 替代，避免浅拷贝共享引用 */
-export const DEFAULT_CJK_FORMATTING: CJKFormattingSettings = createDefaultFormatting()

@@ -26,7 +26,7 @@
 //  Token 类型(6 类,颜色映射见 CodeHighlightWidget.MERMAID_TYPE_TO_SCOPE)
 // ============================================================
 
-export type MermaidTokenType =
+type MermaidTokenType =
   | 'keyword'   // 图类型词:graph / flowchart / subgraph / end / pie / title /
   // sequenceDiagram / classDiagram / stateDiagram / erDiagram / gantt /
   // journey / gitGraph / mindmap / timeline / style / classDef / class / linkStyle

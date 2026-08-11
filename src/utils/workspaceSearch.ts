@@ -4,7 +4,7 @@ import { isMarkdownPath } from '@/utils/markdownPath'
 import { readDir, readTextFile, writeTextFile, tauriOnly } from '@/tauri/fs'
 import { join } from '@/tauri/path'
 
-export type WorkspaceSearchPhase = 'idle' | 'scanning' | 'searching' | 'done' | 'canceled' | 'error'
+type WorkspaceSearchPhase = 'idle' | 'scanning' | 'searching' | 'done' | 'canceled' | 'error'
 
 export interface WorkspaceSearchProgress {
   phase: WorkspaceSearchPhase
@@ -15,7 +15,7 @@ export interface WorkspaceSearchProgress {
   error?: string
 }
 
-export interface WorkspaceSearchFileEntry {
+interface WorkspaceSearchFileEntry {
   fullPath: string
   name: string
   relPath: string
@@ -219,11 +219,6 @@ export function createWorkspaceSearchController(): WorkspaceSearchController {
   }
 }
 
-export function isWorkspaceSearchRegexValid(query: string, options: FindOptions): boolean {
-  if (!query) return true
-  return buildPattern(query, options) !== null
-}
-
 export async function searchWorkspaceMarkdown(
   root: string,
   query: string,
@@ -323,7 +318,7 @@ export interface ReplacePlan {
   replacement: string
 }
 
-export interface ReplaceFailure {
+interface ReplaceFailure {
   fullPath: string
   reason: string
 }

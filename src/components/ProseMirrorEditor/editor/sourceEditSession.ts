@@ -19,17 +19,6 @@ import { imageEditKey } from '../image/imageEditPlugin'
 import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 import { emojiSourceEditKey } from '../plugins/emojiSourceEdit'
 
-/** 当前是否有任何源码编辑 session 处于活跃状态(image/link/mark/html/emoji)。 */
-export function isInSourceEditMode(state: EditorState): boolean {
-  return !!(
-    imageEditKey.getState(state)?.session
-    || linkClickPluginKey.getState(state)?.session
-    || markSourceEditKey.getState(state)?.session
-    || htmlSourceEditKey.getState(state)?.session
-    || emojiSourceEditKey.getState(state)?.session
-  )
-}
-
 /** 获取所有活跃 session 的文本范围(绝对位置),用于 toMarkdown 占位符替换。 */
 export function getSourceEditRanges(state: EditorState): { from: number; to: number }[] {
   const ranges: { from: number; to: number }[] = []

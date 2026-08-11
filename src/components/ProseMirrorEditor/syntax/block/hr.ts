@@ -15,7 +15,7 @@ import type { BlockSyntax } from '../../editor/syntaxRegistry'
 
 const THEMATIC_BREAK_CHARS = new Set(['-', '_', '*'])
 
-export function isThematicBreakLine(text: string): boolean {
+function isThematicBreakLine(text: string): boolean {
   const leadingSpaces = text.match(/^ */)?.[0].length ?? 0
   if (leadingSpaces > 3) return false
   const rest = text.slice(leadingSpaces)
@@ -27,7 +27,7 @@ export function isThematicBreakLine(text: string): boolean {
   return markers.every(ch => ch === marker)
 }
 
-export function isThematicBreakSpaceTrigger(text: string): boolean {
+function isThematicBreakSpaceTrigger(text: string): boolean {
   return /[ \t]$/.test(text) && isThematicBreakLine(text)
 }
 

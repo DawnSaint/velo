@@ -14,7 +14,7 @@
 // Mac/Win 一律用 Mod-,跨平台。'Mod-Shift-h' 这类全用引号包。
 
 import { keymap } from 'prosemirror-keymap'
-import type { Command, EditorState } from 'prosemirror-state'
+import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 
 // Dispatch 类型 prosemirror-state 和 prosemirror-view 都导出,这里从 prosemirror-state 拿
@@ -111,5 +111,4 @@ export function _resetShortcutRegistry(): void {
   _registry.length = 0
 }
 
-// re-export Command 类型方便外部 imports
-export type { Command }
+// Command 类型已不再对外暴露（knip 报 unused）

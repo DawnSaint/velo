@@ -29,7 +29,7 @@ function initialState(): TocDecoState {
   return { headingsHash: '' }
 }
 
-export const tocDecoKey = new PluginKey<TocDecoState>('tocDecoration')
+const tocDecoKey = new PluginKey<TocDecoState>('tocDecoration')
 
 // ============================================================
 //  Heading 收集

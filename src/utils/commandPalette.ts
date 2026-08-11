@@ -1,6 +1,6 @@
 import { fuzzyScore } from '@/utils/fuzzy'
 
-export type CommandPaletteGroup = 'app' | 'workspace' | 'recent'
+type CommandPaletteGroup = 'app' | 'workspace' | 'recent'
 export type CommandPaletteIcon =
   | 'new-doc'
   | 'new-window'
