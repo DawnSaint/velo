@@ -81,6 +81,8 @@ import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 import { createTableInsertHandlePlugin } from './plugins/tableInsertHandle'
 import { createTableCellInputGuardPlugin } from './plugins/tableCellInputGuard'
+import type { PluginEntry } from './plugins/types'
+import { resolvePlugins } from './plugins/resolvePlugins'
 
 // ============ 表格上下文菜单状态 + handler ============
 const showTableMenu = ref(false)
@@ -440,17 +442,19 @@ const emojiNodeViewPlugin = new Plugin({
 // image upload 拦截 paste/drop:走 saveImageAsset,直接 save+insert。
 
 // ============================================================
-//  装入顺序:keymap 放最前(headingBackspace 抢在默认 baseKeymap 前),
-//  history 居中,destroyed 时不挂
+//  插件注册 — 物理顺序无关,resolvePlugins 按 CANONICAL_PLUGIN_ORDER
+//  (plugins/order.ts) 排序。requires 声明显式依赖,解析器校验后排序。
 // ============================================================
 
-const basePlugins: Plugin[] = [
-  // ``` 语言建议下拉:必须在 keymap 之前,handleKeyDown 需在 Enter 链
-  // (codeBlockEnterCommand) 之前拦截上下键导航和高亮条目的 Enter 提交。
-  codeBlockLangSuggestPlugin,
-  // `:short` emoji 自动补全下拉:必须在 keymap 之前,handleKeyDown 需拦截
-  // ArrowUp/Down/Enter/Escape。
-  emojiSuggestPlugin,
+const pluginEntries: PluginEntry[] = [
+  // ── Suggest(必须在 keymap 之前) ──────────────────────────────────
+  // ``` 语言建议下拉:handleKeyDown 需在 Enter 链(codeBlockEnterCommand)之前
+  // 拦截上下键导航和高亮条目的 Enter 提交。
+  { id: 'codeBlockLangSuggest', plugin: codeBlockLangSuggestPlugin },
+  // `:short` emoji 自动补全下拉:handleKeyDown 需拦截 ArrowUp/Down/Enter/Escape。
+  { id: 'emojiSuggest', plugin: emojiSuggestPlugin },
+
+  // ── Keymap ────────────────────────────────────────────────────────
   // 自定义 Backspace / Delete:
   //   0. foldDeleteCommand:选区覆盖 fold_placeholder 节点时扩展删除到折叠区段末尾
   //      (必须排在最前,先于 baseKeymap['Backspace'] 否则 baseKeymap 直接删选区,
@@ -464,13 +468,16 @@ const basePlugins: Plugin[] = [
   //   4. emptyParaBeforeListBackspace:列表下方空段落 Backspace → 直接删除空行
   //      (不走到 baseKeymap 的 joinBackward,否则空段落会被合并进列表末尾 list_item)
   //   5. baseKeymap['Backspace']:兜底
-  keymap({
-    Backspace: chainCommands(foldDeleteCommand, frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, emptyParaBeforeListBackspace, baseKeymap['Backspace']),
-    Delete: chainCommands(foldDeleteCommand, headingToParagraph, baseKeymap['Delete']),
-    // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
-    'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),
-  }),
-  keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
+  {
+    id: 'keymap.backspaceDeleteSelectAll',
+    plugin: keymap({
+      Backspace: chainCommands(foldDeleteCommand, frontmatterBackspaceCommand, codeBlockBackspaceCommand, headingToParagraph, emptyParaBeforeListBackspace, baseKeymap['Backspace']),
+      Delete: chainCommands(foldDeleteCommand, headingToParagraph, baseKeymap['Delete']),
+      // Mod-a:code_block 内只选 block 内容;其他位置放行给 baseKeymap 的 selectAll。
+      'Mod-a': chainCommands(selectInsideCodeBlock, selectAll),
+    }),
+  },
+  { id: 'keymap.undoRedo', plugin: keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }) },
   // Enter 链:
   //   1. codeBlockEnter:code_block 内只插 \n(保持一个 block)
   //   2. cmdTableCellEnter:table cell 内 Enter → 跳下一行同列(末行追加行)
@@ -488,123 +495,156 @@ const basePlugins: Plugin[] = [
   //   8. splitBlock:兜底,普通段落里换行
   // Shift-Enter:table cell 内 → 插入 hardbreak(<br>)实现 cell 内换行;
   //   cell 外 return false(不消费,保持原有无 Shift-Enter 行为)。
-  keymap({
-    Enter: chainCommands(
-      codeBlockEnter,
-      cmdTableCellEnter(),
-      dollarEnterCmd,
-      codeBlockEnterCommand,
-      frontmatterEnterCommand,
-      hrEnterCommand,
-      splitListItem(schema.nodes.list_item),
-      liftListItem(schema.nodes.list_item),
-      splitBlock,
-    ),
-    'Shift-Enter': cmdTableCellHardBreak(),
-  }),
+  {
+    id: 'keymap.enter',
+    plugin: keymap({
+      Enter: chainCommands(
+        codeBlockEnter,
+        cmdTableCellEnter(),
+        dollarEnterCmd,
+        codeBlockEnterCommand,
+        frontmatterEnterCommand,
+        hrEnterCommand,
+        splitListItem(schema.nodes.list_item),
+        liftListItem(schema.nodes.list_item),
+        splitBlock,
+      ),
+      'Shift-Enter': cmdTableCellHardBreak(),
+    }),
+  },
   // baseKeymap 装在最后:接管未自定义的所有键(Enter, Backspace-after-failed, ...)
-  keymap(baseKeymap),
-  dropCursor({ color: false, class: 'velo-drop-cursor' }),
-  gapCursor(),
-  history(),
-  tabIndent,
+  { id: 'keymap.base', plugin: keymap(baseKeymap) },
+  { id: 'tabIndent', plugin: tabIndent },
+  { id: 'dollarEnterToMathBlock', plugin: dollarEnterToMathBlock },
+  { id: 'imageKeymap', plugin: imageKeymapPlugin },
+
+  // ── Cursor & History ──────────────────────────────────────────────
+  { id: 'dropCursor', plugin: dropCursor({ color: false, class: 'velo-drop-cursor' }) },
+  { id: 'gapCursor', plugin: gapCursor() },
+  { id: 'history', plugin: history() },
+
+  // ── Table ─────────────────────────────────────────────────────────
   // 表格:列宽拖拽 + 单元格选中/Tab 导航/复制粘贴。
   // columnResizing 必须在 tableEditing 之前(列宽拖柄优先响应鼠标事件)。
   // tableCellInputGuard 必须在 tableEditing 之前(其 handlePaste 需先于
   //   tableEditing 的 handlePaste 被试:HTML 路径粘贴时 DOMParser 用 table_cell
   //   context 剥离 <tr>/<td> → pastedCells 返回 null → tableEditing 走 1×1 fallback
   //   → 行列错乱;guard 检测到无表格结构时从 clipboard text 重建 TSV slice 再委托)。
-  columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }),
-  createTableCellInputGuardPlugin(),
-  tableEditing(),
-  createTableResizeCursorPlugin(),
-  createTableInsertHandlePlugin({
-    onInsert: (cellPos, type, dir) => {
-      if (!hasTableEditorView()) return
-      if (type === 'row') {
-        runTableCommand(dir === 'before' ? addRowBefore(cellPos) : addRowAfter(cellPos))
-      } else {
-        runTableCommand(dir === 'before' ? addColumnBefore(cellPos) : addColumnAfter(cellPos))
-      }
-    },
-  }),
-  createTableContextMenuPlugin({
-    onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
-      tableMenuAnchorPos.value = clickCellPos
-      tableMenuInHeader.value = inHeader
-      tableMenuIsCellSelection.value = isCellSelection
-      tableMenuX.value = x
-      tableMenuY.value = y
-      // 计算移动按钮的隐藏标志
-      tableMenuHideMoveRow.value = inHeader
-      // 单列表格隐藏列移动
-      tableMenuHideMoveColumn.value = computeTableMenuHideMoveColumn(clickCellPos)
-      showTableMenu.value = true
-    },
-  }),
-  dollarEnterToMathBlock,
-  imageKeymapPlugin,
-  imageUploadPlugin,
+  { id: 'tableColumnResizing', plugin: columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }) },
+  { id: 'tableCellInputGuard', plugin: createTableCellInputGuardPlugin() },
+  { id: 'tableEditing', plugin: tableEditing(), requires: ['tableColumnResizing', 'tableCellInputGuard'] },
+  { id: 'tableResizeCursor', plugin: createTableResizeCursorPlugin() },
+  {
+    id: 'tableInsertHandle',
+    plugin: createTableInsertHandlePlugin({
+      onInsert: (cellPos, type, dir) => {
+        if (!hasTableEditorView()) return
+        if (type === 'row') {
+          runTableCommand(dir === 'before' ? addRowBefore(cellPos) : addRowAfter(cellPos))
+        } else {
+          runTableCommand(dir === 'before' ? addColumnBefore(cellPos) : addColumnAfter(cellPos))
+        }
+      },
+    }),
+  },
+  {
+    id: 'tableContextMenu',
+    plugin: createTableContextMenuPlugin({
+      onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
+        tableMenuAnchorPos.value = clickCellPos
+        tableMenuInHeader.value = inHeader
+        tableMenuIsCellSelection.value = isCellSelection
+        tableMenuX.value = x
+        tableMenuY.value = y
+        // 计算移动按钮的隐藏标志
+        tableMenuHideMoveRow.value = inHeader
+        // 单列表格隐藏列移动
+        tableMenuHideMoveColumn.value = computeTableMenuHideMoveColumn(clickCellPos)
+        showTableMenu.value = true
+      },
+    }),
+  },
+
+  // ── Paste & Upload ────────────────────────────────────────────────
+  { id: 'imageUpload', plugin: imageUploadPlugin },
   // markdownPastePlugin 接管 text/plain 粘贴 → 走 fromMarkdown,绕开 ProseMirror
   // 默认 plain-text fallback 的 normalizeSiblings 错误合并;与 imageUploadPlugin
   // 不冲突(imageUploadPlugin 只 handlePaste 拦截 image/* 文件,非图片返回 false;
   // clipboardTextParser 是独立 prop,仅在 text/plain 路径生效,text/html 不受影响)
-  markdownPastePlugin,
-  linkClickPlugin,
-  linkEditEscapeKeymap,
-  imageEditPlugin,
-  imageEditEscapeKeymap,
+  { id: 'markdownPaste', plugin: markdownPastePlugin },
+
+  // ── Link & Image Edit ─────────────────────────────────────────────
+  { id: 'linkClick', plugin: linkClickPlugin },
+  { id: 'linkEditEscape', plugin: linkEditEscapeKeymap },
+  { id: 'imageEdit', plugin: imageEditPlugin },
+  { id: 'imageEditEscape', plugin: imageEditEscapeKeymap },
+
+  // ── Source Edit (must precede syntaxAutoFormat) ───────────────────
   // mark 源码编辑(Obsidian Live Preview 风格):光标进入 **bold** 等 mark 范围 →
   // appendTransaction 把整段换源码字符可编辑;移出光标 commit 还原。放 syntaxAutoFormat
   // 之前 —— appendTransaction 的 enter 让 syntaxAutoFormat 的 getActiveEditRange 在
   // pass 2 读到 session 自动退避(不会把用户源码 `**` 又转回 mark)。
-  markSourceEditPlugin,
-  markSourceEditEscapeKeymap,
-  htmlSourceEditPlugin,
-  htmlSourceEditEscapeKeymap,
+  { id: 'markSourceEdit', plugin: markSourceEditPlugin },
+  { id: 'markSourceEditEscape', plugin: markSourceEditEscapeKeymap },
+  { id: 'htmlSourceEdit', plugin: htmlSourceEditPlugin },
+  { id: 'htmlSourceEditEscape', plugin: htmlSourceEditEscapeKeymap },
   // emoji 源码编辑(Obsidian Live Preview 风格):光标靠近 emoji 节点 →
   // appendTransaction 把 emoji 替换为 :shortcode: 源码文本可编辑;移出光标 commit
   // 还原。放 syntaxAutoFormat 之前 —— appendTransaction 的 enter 让 syntaxAutoFormat
   // 退避(不会把源码 :xxx: 又转回 emoji)。
-  emojiSourceEditPlugin,
-  emojiSourceEditEscapeKeymap,
-  syntaxAutoFormatPlugin,
+  { id: 'emojiSourceEdit', plugin: emojiSourceEditPlugin },
+  { id: 'emojiSourceEditEscape', plugin: emojiSourceEditEscapeKeymap },
+
+  // ── Syntax & Input ────────────────────────────────────────────────
+  { id: 'syntaxAutoFormat', plugin: syntaxAutoFormatPlugin },
+
+  // ── Viewport (must precede decoration plugins) ────────────────────
   // viewportPlugin 必须在 decoration 插件之前：decoration 插件的 buildDecorations
   // 读 viewportKey.getState(state) 做 viewport 过滤，plugin apply 顺序 = allPlugins 数组顺序
-  viewportPlugin,
-  codeHighlightPlugin,
-  codeWrapPlugin,
-  codeLineNumberPlugin,
-  imageInlineViewPlugin,
-  hrNodeViewPlugin,
-  emojiNodeViewPlugin,
-  frontmatterNodeViewPlugin,
-  htmlNodeViewPlugin,
-  mathEditPlugin,
-  mermaidDecoration,
-  taskListPlugin,
-  footnoteEditPlugin,
-  tocDecoration,
-  foldDecoration,
-  findHighlight,
-  focusModePlugin,
-  typewriterModePlugin,
-  cjkLetterSpacingPlugin,
-  cjkAutoFormatPlugin,
-  autoPairPlugin,
+  { id: 'viewport', plugin: viewportPlugin },
+
+  // ── Code Decorations (read viewport state) ────────────────────────
+  { id: 'codeHighlight', plugin: codeHighlightPlugin },
+  { id: 'codeWrap', plugin: codeWrapPlugin },
+  { id: 'codeLineNumber', plugin: codeLineNumberPlugin },
+
+  // ── NodeView ──────────────────────────────────────────────────────
+  { id: 'imageInlineView', plugin: imageInlineViewPlugin },
+  { id: 'hrNodeView', plugin: hrNodeViewPlugin },
+  { id: 'emojiNodeView', plugin: emojiNodeViewPlugin },
+  { id: 'frontmatterNodeView', plugin: frontmatterNodeViewPlugin },
+  { id: 'htmlNodeView', plugin: htmlNodeViewPlugin },
+
+  // ── Math & Mermaid ────────────────────────────────────────────────
+  { id: 'mathEdit', plugin: mathEditPlugin },
+  { id: 'mermaidDecoration', plugin: mermaidDecoration },
+
+  // ── Misc Decorations ──────────────────────────────────────────────
+  { id: 'taskList', plugin: taskListPlugin },
+  { id: 'footnoteEdit', plugin: footnoteEditPlugin },
+  { id: 'tocDecoration', plugin: tocDecoration },
+  { id: 'foldDecoration', plugin: foldDecoration },
+  { id: 'findHighlight', plugin: findHighlight },
+
+  // ── Mode ──────────────────────────────────────────────────────────
+  { id: 'focusMode', plugin: focusModePlugin },
+  { id: 'typewriterMode', plugin: typewriterModePlugin },
+
+  // ── CJK (letterSpacing → autoFormat → autoPair) ───────────────────
+  { id: 'cjkLetterSpacing', plugin: cjkLetterSpacingPlugin },
+  { id: 'cjkAutoFormat', plugin: cjkAutoFormatPlugin },
+  { id: 'autoPair', plugin: autoPairPlugin },
+
+  // ── Tail ──────────────────────────────────────────────────────────
+  // 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
+  // 加 mark 的语法都走 syntaxAutoFormatPlugin。
+  { id: 'inputRules', plugin: inputRules({ rules: [ellipsis] }) },
+  // 快捷键 keymap(declarative registry)—— 优先级在 history / baseKeymap 之后,
+  // 让内置 Backspace / Enter / Tab 链先响应,shortcuts 只补"未自定义"的键。
+  { id: 'shortcutKeymap', plugin: buildShortcutKeymap() },
 ]
 
-// 只剩"纯文本→纯文本"的快速路径在 InputRule 里;有段级语义 / 转节点 /
-// 加 mark 的语法都走 syntaxAutoFormatPlugin。
-const inputRulesPlugin = inputRules({
-  rules: [ellipsis],
-})
-
-// 快捷键 keymap(declarative registry)—— 优先级在 history / baseKeymap 之后,
-// 让内置 Backspace / Enter / Tab 链先响应,shortcuts 只补"未自定义"的键。
-const shortcutKeymap = buildShortcutKeymap()
-
-const allPlugins = [...basePlugins, inputRulesPlugin, shortcutKeymap]
+const allPlugins = resolvePlugins(pluginEntries)
 
 // ============================================================
 //  Vue 组件壳

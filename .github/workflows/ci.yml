@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - run: npm ci
@@ -29,6 +29,15 @@ jobs:
 
       - name: Dependency check
         run: npm run lint:deps
+
+      - name: Console lint
+        run: npm run lint:console
+
+      - name: Design tokens lint
+        run: npm run lint:design-tokens
+
+      - name: Dead code check
+        run: npm run knip
 
       - name: Test
         run: npm run test

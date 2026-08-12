@@ -17,6 +17,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "wdio run e2e/wdio.conf.ts",
     "clean:dev": "node scripts/clean-dev-cache.mjs",
+    "prepare": "git config core.hooksPath .githooks",
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

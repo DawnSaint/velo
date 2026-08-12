@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Velo pre-push hook（见 ROADMAP #git-hook）
+#
+# 分级卡策略：
+# - master / v* tag 分支：卡 type-check + test（硬门禁，破断则拒 push）
+# - 特性分支：不卡（不拖慢开发）
+# - --no-verify 可绕过（紧急情况下用，但不要成为习惯）
+#
+# CI 是事后门禁（push → runner → 看红 → 修 → 再推），
+# pre-push 把反馈从"分钟级"缩到"秒级"，在出 master 之前就拦住破断。
+#
+# 安装方式：package.json 的 prepare 脚本自动执行 git config core.hooksPath .githooks
+
+# ── 读取 stdin（push 信息：local-ref local-sha remote-ref remote-sha）──
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # 只关心 remote_ref 是 master 或 tag（v 开头）的情况
+  case "$remote_ref" in
+    refs/heads/master|refs/tags/v*)
+      ;;
+    *)
+      continue
+      ;;
+  esac
+
+  echo "[pre-push] $remote_ref — running type-check + test..."
+
+  # ── type-check ──
+  if ! npm run type-check --silent; then
+    echo "[pre-push] ✗ type-check failed — push aborted"
+    echo "[pre-push]   bypass with: git push --no-verify"
+    exit 1
+  fi
+
+  # ── test ──
+  if ! npm run test --silent; then
+    echo "[pre-push] ✗ test failed — push aborted"
+    echo "[pre-push]   bypass with: git push --no-verify"
+    exit 1
+  fi
+
+  echo "[pre-push] ✓ type-check + test passed"
+done
+
+exit 0

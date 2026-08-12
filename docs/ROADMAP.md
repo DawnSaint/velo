@@ -100,30 +100,20 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 先开 `no-circular` + "叶模块不 import 上层"两条规则，白名单豁免项必须带注释原因
   - ~~先开 `no-circular` + "叶模块不 import 上层"两条规则~~ → 已落地：`.dependency-cruiser.cjs` 定义 5 条规则（no-circular / leaf-no-upper / stores-no-ui / tauri-no-upper / no-orphans），分层覆盖 `src/tauri` ← `src/stores` ← `src/components`/`src/composables`/`src/directives`/`src/utils`，`src/lib` 为纯叶模块；白名单 4 项豁免（htmlRenderer/shikiHtml 复用编辑器 remark 插件链、document/editor store 依赖 markdownIO/schema/CodeBlockLangs），每项带 TODO 注释重构方向；修复 useProseMirror ↔ viewportPlugin 循环依赖（抽取 `findScrollAncestor` 到 `scrollUtils.ts`）；`npm run lint:deps` 运行、CI 门禁
 
-- [ ] **git hook 门禁（分级卡）** `#git-hook` `P1` `S`
+- [x] **git hook 门禁（分级卡）** `#git-hook` `P1` `S`
   - Velo 当前零 git hook，破断只能靠 CI 事后发现
+  - **意义**：CI 是"事后"门禁——push 到 GitHub 后才跑，反馈链路长（提交 → 等 runner 启动 → 跑完 → 看红 → 修 → 再推）。git hook 把 `type-check` + `test` 搬到 `pre-push` 本地执行，push 前就拦住破断，反馈从"分钟级"缩到"秒级"。
   - `.githooks/pre-push`：仅 main/tag 分支卡 `type-check` + `test`
   - 特性分支不卡（不拖慢开发）；`--no-verify` 可绕过
   - `package.json` 的 `prepare` 脚本自动设 `core.hooksPath`
+  - ~~`package.json` 的 `prepare` 脚本自动设 `core.hooksPath`~~ → 已落地：`.githooks/pre-push` 匹配 `refs/heads/master` + `refs/tags/v*` 才跑 `type-check` + `test`，其余分支直接放行；`package.json` `prepare` 脚本执行 `git config core.hooksPath .githooks`（`npm install` 自动触发）；实测 tag push 触发 hook → type-check 通过 → test 跑完 → 失败则拒 push + 提示 `--no-verify`
 
-- [ ] **插件组合引入"规范列表 + 轻量解析器"** `#plugin-order` `P1` `L` `?`
+- [x] **插件组合引入"规范列表 + 轻量解析器"** `#plugin-order` `P1` `L`
   - Velo 的 `allPlugins` 数组顺序是隐式加载顺序，"数组位置即契约"越来越脆
   - 给每个插件加稳定 `id`，维护 `plugins/order.ts` 规范列表作为加载顺序唯一真相源
   - 写轻量 `resolvePlugins`：校验"注册插件集合 vs 规范列表"集合相等（防漂移）+ 依赖存在 + 拓扑排序
   - 数组物理顺序改成按字母 / 按类别，顺序完全由解析器决定
-  - **需要 ADR**（对未来版本有持续影响 + 踩坑点非显然，符合 DECISIONS.md 写入标准）
-
-- [ ] **size-limit 包体预算基线** `#size-limit` `P1` `S`
-  - 建立"包体不能无声膨胀"的文化
-  - `.size-limit.cjs` 设初始基线，per-chunk 上限带注释记录漂移历史
-  - 桌面应用无网络传输，优先级低于 web，但能抓到"意外引入大依赖"
-
-### P2 — 中期可选
-
-- [ ] **Stryker 变异测试** `#stryker` `P2` `L`
-  - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
-  - 先对核心模块（`markdownIO` / `documentStore` / schema）开
-  - 发版前跑，不进每次 commit 路径
+  - ~~数组物理顺序改成按字母 / 按类别，顺序完全由解析器决定~~ → 已落地：`plugins/types.ts`（PluginEntry 接口，含 id / plugin / requires）、`plugins/order.ts`（CANONICAL_PLUGIN_ORDER 规范列表，按功能分组注释）、`plugins/resolvePlugins.ts`（4 道校验：重复 id / 集合相等 / requires 存在 / requires 满足 + 按 canonical index 排序）、`EditorInner.vue` 改造为 `pluginEntries: PluginEntry[]` + `resolvePlugins(pluginEntries)`，物理顺序按功能分组（Suggest / Keymap / Table / NodeView / CJK / Tail），`requires` 声明 tableEditing 依赖；7 个单元测试覆盖全部校验路径
 
 ### 版本管理与导航
 
@@ -266,6 +256,15 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 在文档内标记位置，侧栏 / 命令面板快速跳回
   - per-file 书签列表，不跨文件（跨文件走大纲 / 标题跳转）
 
+- [ ] **ESLint warning 收敛 + 加入 CI** `#eslint-ci` `P3` `M` `← #eslint-setup`
+  - 当前 0 error / 289 warning，全量 `warn` 不阻断 CI
+  - warning 构成：~150 `no-console`（App.vue 大量 console.warn/error，合理保留）/ ~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
+  - 先 `lint:fix` 自动修复 26 个可自动修复项
+  - `no-console` 类：`App.vue` 等文件中的 `console.warn` / `console.error` 是有意保留，批量加 `eslint-disable` 注释或调整规则放行
+  - `no-non-null-assertion` / `no-explicit-any` 类：逐个评估，能改的改，不能改的加 `eslint-disable` 带原因
+  - 降到 < 50 后加入 CI：`eslint . --max-warnings 50`（阈值逐步收紧至 0）
+
+
 - [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`
   > 暂不引入 HTML `<table>` 兜底方案(单元格合并 / Excel 粘贴等天然依赖它的功能单独规划)。
 
@@ -277,3 +276,8 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 提供结构化的版本 diff API（不只是行级，需理解 markdown 语义）
   - 版本数据可被 AI 用于上下文重建、变更意图推断、多文件一致性检查
   - 依赖 #local-timeline 的快照存储管线已就绪，此条目聚焦数据层抽象与 AI 消费接口
+
+- [ ] **Stryker 变异测试** `#stryker` `P2` `L`
+  - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
+  - 先对核心模块（`markdownIO` / `documentStore` / schema）开
+  - 发版前跑，不进每次 commit 路径

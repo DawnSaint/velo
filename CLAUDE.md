@@ -99,7 +99,7 @@
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
 - **测试**：开发中只跑改动相关的测试文件（如 `vitest run markdownIO`），尽量不主动跑全量测试
 - **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check
-- **commit 前必做**：提交前必须依次跑 `npm run type-check`（类型检查）和 `npm run test`（全量测试），两者都 0 错 / 全绿才可 commit；`npm run build` 非提交门禁（CI 会跑），它含 `vite build` 能抓到 type-check 抓不到的打包 / import 问题，CI 中保留
+- **commit 前建议**：`npm run type-check` + `npm run test` 在 commit 前跑可早发现破断（反馈秒级）；`pre-push` hook 会在 push master/tag 时自动跑这两项作为兜底（push 时才跑，commit 不拦），但 commit 前跑能避免"堆了好几个 commit 才发现第一个就炸"；`npm run build` 非提交门禁（CI 会跑），它含 `vite build` 能抓到 type-check 抓不到的打包 / import 问题，CI 中保留
 
 ### 新增语法支持 checklist
 
