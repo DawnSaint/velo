@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.10](https://github.com/DawnSaint/velo/compare/v0.7.9...v0.7.10) (2026-08-13)
+
+
+### Features
+
+* **editor:** add local version timeline with sidebar panel and inline diff view ([70c6481](https://github.com/DawnSaint/velo/commit/70c6481c89e24665136d2155b32fb9af9fed76f3))
+* **editor:** add plugin order resolver and pre-push git hook ([f96c30f](https://github.com/DawnSaint/velo/commit/f96c30f161d9fbab04421cdba6bfab6a45d6f868))
+* **tooling:** add dependency-cruiser for layered architecture enforcement ([61adc77](https://github.com/DawnSaint/velo/commit/61adc77cb026b16d3d68794eae2ef81e6b78dceb))
+* **tooling:** add ESLint+Prettier, knip, custom lint scripts, and bench suite ([1f6ab56](https://github.com/DawnSaint/velo/commit/1f6ab56cd32c20576474c73a786666f5960ab0de))
+
 ## [0.7.9](https://github.com/DawnSaint/velo/compare/v0.7.8...v0.7.9) (2026-08-08)
 
 
