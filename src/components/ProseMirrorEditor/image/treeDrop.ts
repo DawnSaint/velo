@@ -94,7 +94,7 @@ function extOf(name: string): string {
  * 但源码模式 / OS 拖图直接把文本插进 markdown 串,必须自己保护好语法。
  */
 export function escapeMdAlt(s: string): string {
-  return s.replace(/[\\\[\]]/g, m => `\\${m}`)
+  return s.replace(/[\\[\]]/g, m => `\\${m}`)
 }
 export function escapeMdUrl(s: string): string {
   return s.replace(/[\\()]/g, m => `\\${m}`)

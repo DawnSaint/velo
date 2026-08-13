@@ -151,9 +151,9 @@ onBeforeUnmount(() => {
              设置分组都是轻量表单控件，全量挂载零性能压力。 -->
         <SettingsGroupWrapper
           v-for="group in groups"
+          v-show="group.id === activeGroup?.id"
           :key="group.id"
           :group-id="group.id"
-          v-show="group.id === activeGroup?.id"
         >
           <component :is="group.component" />
         </SettingsGroupWrapper>

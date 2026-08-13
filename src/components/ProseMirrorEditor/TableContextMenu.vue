@@ -68,7 +68,7 @@ function fire(action: TableAction) {
 </script>
 
 <template>
-  <ContextMenuShell :x="x" :y="y" ref="shellRef">
+  <ContextMenuShell ref="shellRef" :x="x" :y="y">
     <!-- 行操作组 -->
     <button class="ctx-menu-item" data-testid="table-add-row-before" @click="fire('add-row-before')">
       <span class="ctx-menu-item__label">上方插入行</span>

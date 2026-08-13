@@ -11,7 +11,7 @@ import { MARKDOWN_EXT_RE } from '@/utils/markdownPath'
 export const MD_EXT_RE = MARKDOWN_EXT_RE
 
 /** 文件名禁用字符(Windows + POSIX 取并集,跨平台一份). */
-const FORBIDDEN_NAME_CHARS = /[\\/:*\?"<>|\0]/
+const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|\0]/
 
 /** 取路径 basename;双分隔符兼容 / 与 \,避免引入异步 sep()。 */
 export function basename(p: string): string {

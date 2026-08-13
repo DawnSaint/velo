@@ -287,3 +287,20 @@
 - **Context**: 引入传统 Git 面板。候选:A 保留 Git 面板（服务程序员用户，但多数 Markdown 写作者不用 git，且 git commit 粒度适合代码不适合写作）；B 引入 Coherence Layer（内容寻址版本追踪 + DAG + 人类/AI/外部溯源，解决"共编同一文档"的溯源与并发问题）；C 两者并行。
 - **Decision**: 选 B。移除 Git 面板。`#local-timeline`（本地版本时间线）保留为非 AI 场景的版本历史方案。`#ai-assist`（P3）排期时评估 Coherence Layer 作为基础设施层。
 - **Consequences**: ROADMAP `#git-integration` 标记为不再实现；`#local-timeline` / `#recent-locations` 解除对 `#git-integration` 的依赖；需要 git 的用户可使用外部工具（git CLI / GitKraken / GitHub Desktop）。Coherence Layer 是重型基础设施，在 AI 集成落地前不提前投入。
+
+---
+
+## v0.7.10 — 工程门禁 + 插件解析器
+
+### ADR-20260813-001: 依赖分层约束走 dependency-cruiser
+
+- **Context**: Velo 已增长到 10 store / 27+ 插件文件 / 82+ 测试文件，无分层约束迟早出循环依赖（已踩 useProseMirror ↔ viewportPlugin 循环引用）。候选:A eslint-plugin-import（模式匹配有限，无法做拓扑分析）；B dependency-cruiser（专为依赖图分析设计，支持自定义规则 + 拓扑排序）；C 纯人工 review（不可持续）。
+- **Decision**: 选 B。`.dependency-cruiser.cjs` 定义 5 条规则（no-circular / leaf-no-upper / stores-no-ui / tauri-no-upper / no-orphans），分层覆盖 `src/lib`(L0 纯叶) ← `src/tauri`(L1) ← `src/stores`(L2) ← `src/components`/`composables`/`directives`/`utils`(L3)。白名单 4 项豁免（htmlRenderer/shikiHtml 复用编辑器 remark 插件链、document/editor store 依赖 markdownIO/schema），每项带 TODO 注释重构方向。
+- **Consequences**: 所有新代码必须遵守分层边界，循环依赖在 CI 阶段被拦截。白名单项是已知技术债，后续重构时逐项消除。
+
+### ADR-20260813-002: 插件加载顺序从隐式数组改为规范列表 + 解析器校验
+
+- **Context**: `allPlugins` 数组顺序是隐式契约——"数组位置即加载顺序"，27+ 插件下越来越脆：增删插件时依赖关系（如 tableEditing 需在 columnResizing 之后）无校验，数组物理顺序与逻辑顺序耦合。候选:A 保持数组顺序（无校验，漂移无感知）；B 显式声明（PluginEntry 含 id + requires）+ 规范列表 + 解析器校验；C 自动发现（扫目录推断依赖，太隐式难调试）。
+- **Decision**: 选 B。`plugins/order.ts`（CANONICAL_PLUGIN_ORDER 规范列表，按功能分组注释）是加载顺序唯一真相源。`resolvePlugins` 做 4 道校验（重复 id / 集合相等 / requires 存在 / requires 满足）后按 canonical index 排序。`EditorInner.vue` 的 `pluginEntries` 物理顺序无关，仅供代码组织。
+- **Consequences**: 新增 / 删除插件必须同时更新 `order.ts`，否则解析器抛集合不匹配错误（fail-fast）。插件依赖关系显式化（`requires` 字段），物理数组顺序与逻辑加载顺序解耦。
+

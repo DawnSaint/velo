@@ -435,7 +435,7 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
     case 'table':
       return [mdastTableToPM(node, schema)]
 
-    case 'html':
+    case 'html': {
       // 块级 HTML 整体存 attrs.value;空 value 过滤(不渲染空 div 块)
       if (!node.value) return []
       // preserveEmptyLine 注入的 <br /> 占位:代表"1 个空段",转空 paragraph。
@@ -464,6 +464,7 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
         ])]
       }
       return [schema.node('html_block', { value: node.value })]
+    }
 
     case 'yaml':
     case 'toml': {
@@ -675,7 +676,7 @@ function inlineNodeToPM(
         inlineNodeToPM(c, schema,
           activeMarks.concat({ type: schema.marks.strike_through })))
 
-    case 'link':
+    case 'link': {
       // remarkParse 看到的 url 是经 remarkEncodeLinkUrls 预处理过的,
       // URL 里的内部空格被 encode 成 %20。这里 decode 回可读形式,
       // 让 doc.link.attrs.href 是用户友好形态:
@@ -695,6 +696,7 @@ function inlineNodeToPM(
             type: schema.marks.link,
             attrs: { href, title: n.title ?? null },
           })))
+    }
 
     case 'image':
       return [schema.node('image', {

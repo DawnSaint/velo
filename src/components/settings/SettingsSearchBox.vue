@@ -151,8 +151,8 @@ onBeforeUnmount(() => {
       />
       <input
         ref="inputRef"
-        data-settings-search-input
         v-model="query"
+        data-settings-search-input
         type="text"
         placeholder="搜索设置"
         class="w-48 h-8 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-2)] pl-8 pr-6 text-xs text-gray-900/80 outline-none focus:border-[var(--md-primary-color)] dark:text-gray-100/80"

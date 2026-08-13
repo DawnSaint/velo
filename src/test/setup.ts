@@ -23,7 +23,8 @@ if (typeof globalThis.CSS === 'undefined' || !globalThis.CSS.escape) {
   globalThis.CSS = {
     ...(globalThis.CSS ?? {}),
     escape(value: string): string {
-      return String(value).replace(/[\0-\x1F\x7F!"#$%&'()*+,./:;<=>?@[\]^`{|}~\\]/g, '\\$&')
+      // eslint-disable-next-line no-control-regex -- CSS.escape polyfill needs to match control chars
+    return String(value).replace(/[\0-\x1F\x7F!"#$%&'()*+,./:;<=>?@[\]^`{|}~\\]/g, '\\$&')
     },
   }
 }

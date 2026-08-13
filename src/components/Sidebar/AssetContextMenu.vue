@@ -43,7 +43,7 @@ defineExpose({ rootEl })
 </script>
 
 <template>
-  <ContextMenuShell :x="x" :y="y" min-width-class="w-max" ref="shellRef">
+  <ContextMenuShell ref="shellRef" :x="x" :y="y" min-width-class="w-max">
     <!-- 剪贴板操作组 -->
     <template v-if="isTauri">
       <button class="ctx-menu-item" data-testid="ctx-copy-image" @click="emit('copy-image')">

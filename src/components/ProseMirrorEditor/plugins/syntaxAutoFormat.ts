@@ -342,7 +342,7 @@ export const syntaxAutoFormatPlugin = new Plugin({
     if (blockSyntaxes.length === 0 && inlineSyntaxes.length === 0) return null
 
     const activeEditRanges = getActiveEditRanges(newState)
-    let tr = newState.tr
+    const tr = newState.tr
     let touched = false
 
     for (const block of blocks) {

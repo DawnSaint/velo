@@ -230,8 +230,8 @@ describe('FileMenuButton', () => {
     const style = menu.attributes('style') ?? ''
     // jsdom 下 trigger 默认 (0,0) 宽高 0;left = 0,bottom = 0。
     // 当前算法: x = rect.left(左对齐),y = rect.bottom(贴按钮底)。
-    const left = Number((style.match(/left:\s*(\d+(?:\.\d+)?)px/) ?? [, '-1'])[1])
-    const top = Number((style.match(/top:\s*(\d+(?:\.\d+)?)px/) ?? [, '-1'])[1])
+    const left = Number((style.match(/left:\s*(\d+(?:\.\d+)?)px/) ?? ['', '-1'])[1])
+    const top = Number((style.match(/top:\s*(\d+(?:\.\d+)?)px/) ?? ['', '-1'])[1])
     expect(left).toBeLessThanOrEqual(1)
     expect(top).toBeLessThanOrEqual(1)
   })

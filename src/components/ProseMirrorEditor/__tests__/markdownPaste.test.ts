@@ -60,7 +60,7 @@ function mountView(initial?: { type: string, content?: string }): {
  */
 function paste(view: EditorView, text: string, plain = false) {
   const parser = getParser()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const slice = (parser as any).call(markdownPastePlugin, text, view.state.selection.$from, plain, view) as ReturnType<typeof parser> | null
   expect(slice).not.toBeNull()
   view.dispatch(view.state.tr.replaceSelection(slice!))
@@ -129,7 +129,7 @@ describe('markdownPastePlugin: code_block 内粘贴', () => {
   it('光标在 code_block 内 → return null(走 ProseMirror 默认 inCode 分支)', () => {
     const { view, cleanup } = mountView({ type: 'code_block' })
     const parser = getParser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const slice = (parser as any).call(markdownPastePlugin, 'const x = 1\nconst y = 2', view.state.selection.$from, false, view)
     expect(slice).toBeNull() // 让 inCode fallback 接管
     cleanup()
@@ -149,7 +149,7 @@ describe('markdownPastePlugin: code_block 内粘贴', () => {
     document.body.appendChild(host)
     const view2 = new EditorView(host, { state })
     const parser = getParser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const slice = (parser as any).call(markdownPastePlugin, 'graph TD\n  A-->B', view2.state.selection.$from, false, view2)
     expect(slice).toBeNull()
     view2.destroy()
@@ -161,7 +161,7 @@ describe('markdownPastePlugin: 边界 / 异常', () => {
   it('空字符串 → return null', () => {
     const { view, cleanup } = mountView()
     const parser = getParser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const slice = (parser as any).call(markdownPastePlugin, '', view.state.selection.$from, false, view)
     expect(slice).toBeNull()
     cleanup()
@@ -170,7 +170,7 @@ describe('markdownPastePlugin: 边界 / 异常', () => {
   it('仅空白 → return null', () => {
     const { view, cleanup } = mountView()
     const parser = getParser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const slice = (parser as any).call(markdownPastePlugin, '   \n\n  \t', view.state.selection.$from, false, view)
     expect(slice).toBeNull()
     cleanup()
@@ -179,7 +179,7 @@ describe('markdownPastePlugin: 边界 / 异常', () => {
   it('plain (Shift+paste) 仍走 fromMarkdown —— Velo 是 md 编辑器,plain 仍是 md', () => {
     const { view, cleanup } = mountView()
     const parser = getParser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const slice = (parser as any).call(markdownPastePlugin, '## x', view.state.selection.$from, true, view)
     expect(slice).not.toBeNull()
     cleanup()

@@ -13,7 +13,7 @@ const assetsDir = path.join(distDir, 'assets');
 const cssFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.css'));
 cssFiles.forEach(file => {
   const filePath = path.join(assetsDir, file);
-  let content = fs.readFileSync(filePath, 'utf8');
+  const content = fs.readFileSync(filePath, 'utf8');
   
   // 匹配并删除非 woff2 的字体引用
   // 例如: , url(fonts/xxx.woff) format('woff')

@@ -85,7 +85,7 @@ defineExpose({ rootEl })
 </script>
 
 <template>
-  <ContextMenuShell :x="x" :y="y" ref="shellRef">
+  <ContextMenuShell ref="shellRef" :x="x" :y="y">
     <!-- 关闭组:关闭 / 关闭其他 / 关闭右侧 / 关闭已保存 / 全部关闭 / 保存 -->
     <button v-if="showClose" class="ctx-menu-item" data-testid="tab-ctx-close" @click="emit('close')">
       关闭

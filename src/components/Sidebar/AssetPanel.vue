@@ -84,7 +84,7 @@ function isExternalSrc(src: string): boolean {
  * 不处理别的 `\` 序列(标题里可能有 `\\` 合法转义),只剥这几个语法字符前的转义。
  */
 function unescapeMdUrl(s: string): string {
-  return s.replace(/\\([\[\]()])/g, '$1')
+  return s.replace(/\\([[\]()])/g, '$1')
 }
 
 /** 从 markdown 中提取所有图片引用,跳过围栏代码块和行内代码。 */

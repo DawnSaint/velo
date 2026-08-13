@@ -488,7 +488,7 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
       }
 
       // 不可变:set 新对象,apply 是纯函数
-      let { svgCache, errorCache, pending } = prev
+      const { svgCache, errorCache, pending } = prev
       let editNodeSet = new Set(prev.editNodeSet)
       let pendingFocusSet = new Set(prev.pendingFocusSet)
 

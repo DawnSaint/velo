@@ -59,7 +59,7 @@ defineExpose({ rootEl })
 </script>
 
 <template>
-  <ContextMenuShell :x="x" :y="y" data-tree-context-menu ref="shellRef">
+  <ContextMenuShell ref="shellRef" :x="x" :y="y" data-tree-context-menu>
     <!-- 文件:在编辑器中打开 / 目录:在新窗口中打开(顶部组) -->
     <template v-if="showOpenInEditor || showOpenAsWorkspace">
       <button v-if="showOpenInEditor" class="ctx-menu-item" data-testid="ctx-open-in-editor" @click="emit('open-in-editor')">

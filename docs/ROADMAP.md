@@ -42,7 +42,7 @@
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P2  #system-tray ──→ #daily-note
-    #local-timeline ──→ #recent-locations
+    #local-timeline
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #font-ui（独立）
@@ -51,86 +51,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
     #theme-market · #theme-presets（独立）
 ```
-
-
-
-## 0.7.10
-
-> 来源：[vmark 对比洞察](../vmark-comparison-insights.md)评估出的可落地项。Velo 当前门禁 = `vue-tsc` + `vitest` + 人工 review，目标是把"人记住的规矩"升级为"CI 拒绝的门禁"。
->
-> 分批落地，每项标注优先级 / 复杂度 / 依赖。
-
-### P0 — 工程门禁基础（马上能做、收益最大）
-
-- [x] **ESLint + Prettier** `#eslint-setup` `P0` `S`
-  - Velo 当前零 formatter / 零 linter，代码风格全靠人肉 review
-  - 配 `eslint.config.js`（Vue 3 + TS 规则集）+ `.prettierrc`
-  - 初期宽松规则 + baseline 过渡，渐进式收紧；先 `warn` 不阻断 CI
-  - 后续所有自定义 lint 规则（design-tokens / file-size）的基石
-  - ~~配 `eslint.config.js`（Vue 3 + TS 规则集）+ `.prettierrc`~~ → 已落地：ESLint 9 flat config（`@eslint/js` + `typescript-eslint` + `eslint-plugin-vue` + `eslint-config-prettier`），推荐规则统一降为 `warn`（0 error / 283 warning 初态），Prettier 配 `.prettierrc.json`（no semi / single quote / 2 space / trailingComma all / printWidth 100），`package.json` 加 `lint` / `lint:fix` / `format` / `format:check` 四条 script
-
-- [x] **knip 死码检测** `#knip` `P0` `S`
-  - Velo 已 82+ 测试文件 / 10 store / 27 插件文件，死码几乎必然存在
-  - `npm i -D knip` + `knip.json` 配置，误报可控
-  - 跑一次清理出未使用的导出 / 文件 / 依赖
-
-- [x] **lint:console 自定义脚本** `#lint-console` `P0` `S`
-  - 提交不能留 `console.log` / `console.debug`（保留 `warn` / `error`）
-  - ~20 行 Node 脚本，grep `src/` 下 `.ts` / `.vue` 文件
-  - Velo 已踩过调试日志混入提交的坑
-  - ~~~20 行 Node 脚本，grep `src/` 下 `.ts` / `.vue` 文件~~ → 已落地：`scripts/lint-console.mjs`，跳过测试文件 + 尊重 `eslint-disable` 指令 + 排除字符串字面量中的 `console.log`，`npm run lint:console` 运行
-
-- [x] **lint:design-tokens 硬编码颜色检测** `#lint-design-tokens` `P0` `M`
-  - Velo 有 22 SCSS + 暗色模式 + CSS 变量体系，硬编码颜色是暗色模式真实 bug 源
-  - 脚本解析 `src/**/*.scss` + `*.vue` 的 `<style>` 块，正则匹配 `#hex` / `rgb()` / `hsl()`，排除 `var(--xxx)` 引用
-  - 初次跑用 baseline 过渡
-  - ~~初次跑用 baseline 过渡~~ → 已落地：`scripts/lint-design-tokens.mjs`，`var()` fallback 颜色自动排除，baseline 按 `file:color` key 记录（行号变动不漂移），初态 222 color(s) / 28 file(s)，`npm run lint:design-tokens` 运行、`:baseline` 更新
-
-- [x] **bench 套件** `#bench-suite` `P0` `M`
-  - Velo 有 pendingPmDoc 去重 / viewport decoration / Worker 解析等性能优化，但零 bench / 零大文件语料
-  - 创建 `src/bench/markdown.bench.ts`（vitest `bench` API）+ `scripts/gen-large-file-corpus.mjs`（100KB / 500KB / 1MB 级 markdown）
-  - 守护已有性能投资，下次优化不再靠"感觉快了"
-  - 已落地：`scripts/gen-large-file-corpus.mjs` 生成混合语法语料（标题 / 段落 / 代码块 / 表格 / 列表 / 数学 / 引用 / 链接 / 脚注），`src/bench/markdown.bench.ts` 跑 parse / serialize / round-trip 三组 × 三尺寸（100KB / 500KB / 1MB）= 8 个 bench，`npm run bench:corpus` 生成语料 + `npm run bench` 运行，语料加入 `.gitignore` + knip entry
-
-### P1 — 架构健康（一个迭代内值得做）
-
-- [x] **dependency-cruiser 依赖图强制分层** `#dep-cruiser` `P1` `M` `← #eslint-setup`
-  - Velo 的 `App.vue` 已 70KB / 10 store 分化，无分层约束迟早出循环依赖
-  - 定义分层：`src/tauri/`（平台层）← `src/stores/`（状态层）← `src/components/`（UI 层），`src/lib/` 为纯叶模块
-  - 先开 `no-circular` + "叶模块不 import 上层"两条规则，白名单豁免项必须带注释原因
-  - ~~先开 `no-circular` + "叶模块不 import 上层"两条规则~~ → 已落地：`.dependency-cruiser.cjs` 定义 5 条规则（no-circular / leaf-no-upper / stores-no-ui / tauri-no-upper / no-orphans），分层覆盖 `src/tauri` ← `src/stores` ← `src/components`/`src/composables`/`src/directives`/`src/utils`，`src/lib` 为纯叶模块；白名单 4 项豁免（htmlRenderer/shikiHtml 复用编辑器 remark 插件链、document/editor store 依赖 markdownIO/schema/CodeBlockLangs），每项带 TODO 注释重构方向；修复 useProseMirror ↔ viewportPlugin 循环依赖（抽取 `findScrollAncestor` 到 `scrollUtils.ts`）；`npm run lint:deps` 运行、CI 门禁
-
-- [x] **git hook 门禁（分级卡）** `#git-hook` `P1` `S`
-  - Velo 当前零 git hook，破断只能靠 CI 事后发现
-  - **意义**：CI 是"事后"门禁——push 到 GitHub 后才跑，反馈链路长（提交 → 等 runner 启动 → 跑完 → 看红 → 修 → 再推）。git hook 把 `type-check` + `test` 搬到 `pre-push` 本地执行，push 前就拦住破断，反馈从"分钟级"缩到"秒级"。
-  - `.githooks/pre-push`：仅 main/tag 分支卡 `type-check` + `test`
-  - 特性分支不卡（不拖慢开发）；`--no-verify` 可绕过
-  - `package.json` 的 `prepare` 脚本自动设 `core.hooksPath`
-  - ~~`package.json` 的 `prepare` 脚本自动设 `core.hooksPath`~~ → 已落地：`.githooks/pre-push` 匹配 `refs/heads/master` + `refs/tags/v*` 才跑 `type-check` + `test`，其余分支直接放行；`package.json` `prepare` 脚本执行 `git config core.hooksPath .githooks`（`npm install` 自动触发）；实测 tag push 触发 hook → type-check 通过 → test 跑完 → 失败则拒 push + 提示 `--no-verify`
-
-- [x] **插件组合引入"规范列表 + 轻量解析器"** `#plugin-order` `P1` `L`
-  - Velo 的 `allPlugins` 数组顺序是隐式加载顺序，"数组位置即契约"越来越脆
-  - 给每个插件加稳定 `id`，维护 `plugins/order.ts` 规范列表作为加载顺序唯一真相源
-  - 写轻量 `resolvePlugins`：校验"注册插件集合 vs 规范列表"集合相等（防漂移）+ 依赖存在 + 拓扑排序
-  - 数组物理顺序改成按字母 / 按类别，顺序完全由解析器决定
-  - ~~数组物理顺序改成按字母 / 按类别，顺序完全由解析器决定~~ → 已落地：`plugins/types.ts`（PluginEntry 接口，含 id / plugin / requires）、`plugins/order.ts`（CANONICAL_PLUGIN_ORDER 规范列表，按功能分组注释）、`plugins/resolvePlugins.ts`（4 道校验：重复 id / 集合相等 / requires 存在 / requires 满足 + 按 canonical index 排序）、`EditorInner.vue` 改造为 `pluginEntries: PluginEntry[]` + `resolvePlugins(pluginEntries)`，物理顺序按功能分组（Suggest / Keymap / Table / NodeView / CJK / Tail），`requires` 声明 tableEditing 依赖；7 个单元测试覆盖全部校验路径
-
-### 版本管理与导航
-
-
-- [x] **本地版本时间线** `#local-timeline` `P2` `M`
-  - 升级现有崩溃恢复草稿（每 30s 落盘）为完整本地版本历史
-  - 每次保存（手动 / 自动）创建快照，保留最近 N 个
-  - 侧栏或命令面板浏览历史版本，diff 对比，一键恢复
-
-- [ ] **最近编辑位置时间线** `#recent-locations` `P2` `M` `← #local-timeline`
-  - JetBrains Ctrl+Shift+E 风格：跨文件记光标位置而非文件
-  - 与本地版本时间线一同实现（共享文件历史数据层）
-
-
-
-
-
 
 ## 已知问题
 
@@ -256,13 +176,12 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 在文档内标记位置，侧栏 / 命令面板快速跳回
   - per-file 书签列表，不跨文件（跨文件走大纲 / 标题跳转）
 
-- [ ] **ESLint warning 收敛 + 加入 CI** `#eslint-ci` `P3` `M` `← #eslint-setup`
-  - 当前 0 error / 289 warning，全量 `warn` 不阻断 CI
-  - warning 构成：~150 `no-console`（App.vue 大量 console.warn/error，合理保留）/ ~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
-  - 先 `lint:fix` 自动修复 26 个可自动修复项
-  - `no-console` 类：`App.vue` 等文件中的 `console.warn` / `console.error` 是有意保留，批量加 `eslint-disable` 注释或调整规则放行
+- [ ] **ESLint warning 收敛 + 棘轮收紧** `#eslint-ci` `P3` `M` `← #eslint-setup`
+  - 0.7.10 收敛后 0 error / 178 warning；CI 已加 `eslint . --max-warnings 178` 棘轮门禁（只减不增）
+  - `no-console` 已关闭（由 `lint:console` 专用脚本管 `console.log` / `debug`，`warn` / `error` 合理保留）
+  - 剩余构成：~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
   - `no-non-null-assertion` / `no-explicit-any` 类：逐个评估，能改的改，不能改的加 `eslint-disable` 带原因
-  - 降到 < 50 后加入 CI：`eslint . --max-warnings 50`（阈值逐步收紧至 0）
+  - 每轮清理后下调 `--max-warnings` 阈值，逐步收紧至 0
 
 
 - [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`

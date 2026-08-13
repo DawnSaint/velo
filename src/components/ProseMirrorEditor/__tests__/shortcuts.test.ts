@@ -451,7 +451,7 @@ describe("shortcuts: table row/column operations", () => {
     cmd(view.state, view.dispatch)
     // 光标深度里应经过 table_row 与 table_cell
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_row")
     expect(names).toContain("table_cell")
@@ -478,7 +478,7 @@ describe("shortcuts: table row/column operations", () => {
     const cmd = cmdAddRowBefore(schema)
     cmd(view.state, view.dispatch)
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_row")
     expect(names).toContain("table_cell")
@@ -518,7 +518,7 @@ describe("shortcuts: table row/column operations", () => {
     expect(tableChildCells).toBe(2)
     // 光标应仍在 table 内的某个 cell 里(不漂到表外)
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table")
     expect(names).toContain("table_row")
@@ -609,7 +609,7 @@ describe("shortcuts: table row/column operations", () => {
     expect(bodyRowCount).toBe(2)
     // 光标应在某个 table_cell 内(不漂到表外)
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_cell")
     expect(names).toContain("table_row")
@@ -642,7 +642,7 @@ describe("shortcuts: table row/column operations", () => {
     view.state.doc.descendants((n) => { if (n.type.name === "table_row") bodyRowCount++ })
     expect(bodyRowCount).toBe(2)
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_cell")
     expect(names).toContain("table_row")
@@ -720,7 +720,7 @@ describe("shortcuts: cmdTableCellEnter", () => {
     expect(bodyRowCount).toBe(2)
     // 光标应在新行(原最后行 + 1)的 col1 内
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_cell")
     expect(names).toContain("table_row")
@@ -1088,7 +1088,7 @@ describe("shortcuts: cmdTableTab", () => {
     expect(bodyRowCount).toBe(2)
     // 光标应在新行(原末行 + 1)的 col1 内
     const $head = view.state.selection.$head
-    let names: string[] = []
+    const names: string[] = []
     for (let d = $head.depth; d > 0; d--) names.push($head.node(d).type.name)
     expect(names).toContain("table_cell")
     expect(names).toContain("table_row")

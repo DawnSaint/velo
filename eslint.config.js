@@ -97,7 +97,9 @@ export default ts.config(
       'no-useless-escape': 'warn',
       'no-sparse-arrays': 'warn',
       'no-control-regex': 'warn',
-      'no-console': 'warn', // perf.ts 等已有 eslint-disable 注释
+      // no-console 关闭：由 lint:console 专用脚本管 console.log/debug
+      // ESLint 的 no-console 会把 console.warn/error 也报为 warning，全是噪音
+      'no-console': 'off',
 
       // ── 关闭：与 TS strict 模式重复或不适用的规则 ──
       'no-undef': 'off', // TS 已覆盖

@@ -119,15 +119,10 @@ export function report(label = 'current'): PerfSnapshot | null {
   catch { /* localStorage 不可用,忽略 */ }
 
   // console.table 输出 measures + paint
-  // eslint-disable-next-line no-console
   console.group(`%c[Velo perf] ${label}`, 'color:#1F71D9;font-weight:bold')
-  // eslint-disable-next-line no-console
   console.table(snap.measures)
-  // eslint-disable-next-line no-console
-  console.log('paint  :', snap.paint)
-  // eslint-disable-next-line no-console
-  console.log('marks  :', snap.marks)
-  // eslint-disable-next-line no-console
+  console.info('paint  :', snap.paint)
+  console.info('marks  :', snap.marks)
   console.groupEnd()
   return snap
 }

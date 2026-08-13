@@ -31,7 +31,7 @@ defineExpose({ rootEl })
 </script>
 
 <template>
-  <ContextMenuShell :x="x" :y="y" min-width-class="min-w-44" ref="shellRef" @click.stop>
+  <ContextMenuShell ref="shellRef" :x="x" :y="y" min-width-class="min-w-44" @click.stop>
     <button
       v-for="item in items"
       :key="item.key"

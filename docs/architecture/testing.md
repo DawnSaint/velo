@@ -258,8 +258,9 @@ debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `s
 
 ## CI 集成
 
-- GitHub Actions `.github/workflows/ci.yml` 走 `push` 到 master + `PR`;步骤 checkout → setup-node → `npm ci` → `npm test`(vitest,ubuntu)
-- 不挂覆盖率阈值,只挂“测试通过”门
+- GitHub Actions `.github/workflows/ci.yml` 走 `push` 到 master + `PR`;步骤 checkout → setup-node → `npm ci` → type-check → lint:deps(dependency-cruiser) → lint:console → lint:design-tokens → knip(死码检测) → eslint --max-warnings 178(棘轮门禁) → `npm test`(vitest,ubuntu) → `npm run build`
+- 不挂覆盖率阈值,只挂"测试通过"门
+- ESLint 走棘轮(ratchet)模式:`--max-warnings` 阈值锁定当前基线,只允许减少不允许新增;阈值随清理进度逐步收紧
 - **E2E 挂钩 build.yml**:vitest 单测是每个 PR 的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → 挂到 ROADMAP `#ci-pipeline` 落地时同仓库新建的 `build.yml`(windows-latest 作业)产物;设计细节见 ROADMAP
 
 ---
