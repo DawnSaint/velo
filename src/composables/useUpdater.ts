@@ -25,6 +25,7 @@ type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'install
 const status = ref<UpdateStatus>('idle')
 const updateInfo = ref<{ version: string; body?: string; date?: string } | null>(null)
 const downloadProgress = ref(0)
+const downloadSpeed = ref('') // 人类可读的下载速度，如 "1.2 MB/s"
 const errorMsg = ref('')
 // 全局只检查一次:App.vue 启动时调 checkForUpdate(true),设置页手动检查调 checkForUpdate(false)。
 // 已检查过且无更新时不重复弹 Toast。
@@ -99,6 +100,8 @@ export function useUpdater() {
 
       let totalBytes = 0
       let downloadedBytes = 0
+      let lastSpeedUpdate = Date.now()
+      let lastDownloadedBytes = 0
 
       await update.downloadAndInstall((event: DownloadEvent) => {
         switch (event.event) {
@@ -110,9 +113,19 @@ export function useUpdater() {
             if (totalBytes > 0) {
               downloadProgress.value = Math.round((downloadedBytes / totalBytes) * 100)
             }
+            // 每 500ms 更新一次下载速度显示
+            const now = Date.now()
+            if (now - lastSpeedUpdate >= 500) {
+              const elapsed = (now - lastSpeedUpdate) / 1000
+              const bytesPerSec = (downloadedBytes - lastDownloadedBytes) / elapsed
+              downloadSpeed.value = formatSpeed(bytesPerSec)
+              lastSpeedUpdate = now
+              lastDownloadedBytes = downloadedBytes
+            }
             break
           case 'Finished':
             downloadProgress.value = 100
+            downloadSpeed.value = ''
             break
         }
       })
@@ -133,6 +146,13 @@ export function useUpdater() {
     }
   }
 
+  function formatSpeed(bytesPerSec: number): string {
+    if (bytesPerSec <= 0) return ''
+    if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`
+    if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`
+    return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+  }
+
   /** 启动时自动检查(仅一次)。App.vue onMounted 调用。 */
   async function autoCheck(): Promise<void> {
     if (autoChecked) return
@@ -144,6 +164,7 @@ export function useUpdater() {
     status: readonly(status),
     updateInfo: readonly(updateInfo),
     downloadProgress: readonly(downloadProgress),
+    downloadSpeed: readonly(downloadSpeed),
     errorMsg: readonly(errorMsg),
     checkForUpdate,
     downloadAndInstall,

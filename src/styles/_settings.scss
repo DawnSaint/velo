@@ -38,6 +38,14 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+.velo-text-btn:disabled {
+  color: rgb(156 163 175); /* gray-400 */
+  cursor: not-allowed;
+  text-decoration: none;
+}
+.dark .velo-text-btn:disabled {
+  color: rgb(75 85 99); /* gray-600 */
+}
 
 /* 统一「行」容器:左右排列、居中对齐 */
 .velo-setting-row {

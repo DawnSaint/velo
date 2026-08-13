@@ -61,6 +61,7 @@ const {
   status: updateStatus,
   updateInfo,
   downloadProgress,
+  downloadSpeed,
   errorMsg,
   checkForUpdate,
   downloadAndInstall,
@@ -80,7 +81,7 @@ onMounted(refreshShellState)
 <template>
   <section class="space-y-4 pt-6">
     <!-- 自动更新：所有桌面端均支持，Tauri Updater plugin + GitHub Release latest.json -->
-    <SettingsItem v-if="tauri" label="检查更新" :keywords="['update', 'updater', 'version', '更新', '版本', '检查']">
+    <SettingsItem v-if="tauri" label="检查更新" :keywords="['update', 'updater', 'version', '更新', '版本', '检查']" variant="toplabel">
       <div class="flex flex-col gap-2">
         <div class="flex items-center gap-3">
           <button
@@ -110,25 +111,30 @@ onMounted(refreshShellState)
           <p v-if="updateInfo.body" class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">
             {{ updateInfo.body }}
           </p>
-          <button
-            type="button"
-            class="velo-text-btn mt-3"
-            :disabled="updateStatus === 'downloading' || updateStatus === 'installing'"
-            @click="onDownloadAndInstall"
-          >
-            {{ updateStatus === 'downloading' ? `下载中 ${downloadProgress}%` : updateStatus === 'installing' ? '安装中…' : '下载并安装' }}
-          </button>
-        </div>
+          <div class="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              class="velo-text-btn"
+              :disabled="updateStatus === 'downloading' || updateStatus === 'installing'"
+              @click="onDownloadAndInstall"
+            >
+              {{ updateStatus === 'downloading' ? `下载中 ${downloadProgress}%` : updateStatus === 'installing' ? '安装中…' : '下载并安装' }}
+            </button>
+            <span v-if="updateStatus === 'downloading'" class="text-xs text-gray-400 dark:text-gray-500">
+              {{ downloadSpeed || '下载中…' }}
+            </span>
+          </div>
 
-        <!-- 下载进度条 -->
-        <div
-          v-if="updateStatus === 'downloading'"
-          class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
-        >
+          <!-- 下载进度条 -->
           <div
-            class="h-full rounded-full bg-[var(--md-primary-color)] transition-all duration-150"
-            :style="{ width: `${downloadProgress}%` }"
-          />
+            v-if="updateStatus === 'downloading'"
+            class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+          >
+            <div
+              class="h-full rounded-full bg-[var(--md-primary-color)] transition-all duration-150"
+              :style="{ width: `${downloadProgress}%` }"
+            />
+          </div>
         </div>
       </div>
     </SettingsItem>
