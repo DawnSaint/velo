@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: '目标平台（仅构建并上传 artifact，不创建 Release）'
+        description: 'platform'
         required: true
         type: choice
         options:
@@ -186,6 +186,31 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # 诊断：检查签名密钥是否正确注入（不泄露密钥内容）
+      - name: Diagnose signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          echo "=== Signing key diagnosis ==="
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "❌ TAURI_SIGNING_PRIVATE_KEY is EMPTY — signing will be skipped"
+          else
+            KEY_LEN=${#TAURI_SIGNING_PRIVATE_KEY}
+            echo "✅ TAURI_SIGNING_PRIVATE_KEY is set (length: $KEY_LEN)"
+            if echo "$TAURI_SIGNING_PRIVATE_KEY" | head -1 | grep -q "untrusted comment"; then
+              echo "✅ Key starts with 'untrusted comment' header (correct format)"
+            else
+              echo "⚠️  Key does NOT start with 'untrusted comment' header — might be malformed"
+            fi
+          fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "ℹ️  TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty (OK if key has no password)"
+          else
+            echo "⚠️  TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set — if key was generated WITHOUT password, this will cause signing to FAIL"
+          fi
+
       # 手动构建：直接用 tauri build，不经过 tauri-action，因此不会创建 Release。
       # 同样注入签名密钥，以便测试更新包签名是否正常。
       - name: Build with Tauri
@@ -193,6 +218,26 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # 诊断：检查签名产物是否生成
+      - name: Verify updater artifacts
+        shell: bash
+        run: |
+          echo "=== Updater artifacts check ==="
+          echo "Looking for .sig files..."
+          find src-tauri/target/release/bundle -name "*.sig" -type f 2>/dev/null || true
+          SIG_COUNT=$(find src-tauri/target/release/bundle -name "*.sig" -type f 2>/dev/null | wc -l)
+          if [ "$SIG_COUNT" -eq 0 ]; then
+            echo "❌ No .sig files found — signing FAILED, latest.json will NOT be generated"
+          else
+            echo "✅ Found $SIG_COUNT .sig file(s) — signing succeeded"
+          fi
+          echo ""
+          echo "Looking for .nsis.zip files (Windows updater bundle)..."
+          find src-tauri/target/release/bundle -name "*.nsis.zip" -type f 2>/dev/null || true
+          echo ""
+          echo "All bundle contents:"
+          find src-tauri/target/release/bundle -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.nsis.zip" \) 2>/dev/null | sed 's|.*/||' | sort || true
 
       - name: Verify deb (Linux)
         if: inputs.platform == 'linux-x64'
