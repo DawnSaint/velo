@@ -69,7 +69,7 @@
   align-items: center;
   justify-content: center;
   height: 80px;
-  color: #999;
+  color: var(--editor-text-muted);
   font-style: italic;
 }
 
@@ -79,7 +79,7 @@
   align-items: center;
   justify-content: center;
   height: 80px;
-  color: #999;
+  color: var(--editor-text-muted);
 }
 
 /* 错误显示 */
@@ -116,12 +116,12 @@
 .dark .mermaid-placeholder,
 .velo-editor.dark .mermaid-placeholder {
   border-color: #555;
-  color: #777;
+  color: #666;
 }
 
 .dark .mermaid-loading,
 .velo-editor.dark .mermaid-loading {
-  color: #888;
+  color: var(--editor-text-muted);
 }
 
 .dark .mermaid-error,
@@ -140,5 +140,5 @@
 
 .dark .mermaid-btn:hover,
 .dark .velo-editor .mermaid-btn:hover {
-  color: rgb(229 231 235);
+  color: rgb(209 213 219); /* gray-300 */
 }

@@ -281,7 +281,7 @@ button.statusbar-segment:disabled {
 :global(.dark .workspace-menu-item:not(:disabled):focus-visible),
 :global(.dark .workspace-menu-item-active) {
   background: var(--surface-hover);
-  color: rgb(229 231 235);
+  color: rgb(209 213 219); /* gray-300 */
 }
 
 .workspace-menu-item:disabled {

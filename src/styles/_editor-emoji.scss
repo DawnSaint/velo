@@ -23,12 +23,12 @@
   background-color: rgba(0, 0, 0, 0.05);
   border-radius: 3px;
   padding: 0 3px;
-  color: #555;
+  color: #666;
 }
 
 :is(.dark .velo-editor, .velo-editor.dark) .velo-emoji-source-edit {
   background-color: rgba(255, 255, 255, 0.06);
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 // emoji 预览 widget:渲染在源码文本之前(side:-1),让用户同时看到
@@ -82,7 +82,7 @@ html.dark .velo-emoji-dropdown {
 }
 
 html.dark .velo-emoji-dropdown-item {
-  color: #e5e7eb; // text-gray-200
+  color: #d1d5db; // text-gray-300
 
   &:hover,
   &.highlighted {

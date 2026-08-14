@@ -58,7 +58,7 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  color: #888;
+  color: var(--editor-text-muted);
   cursor: pointer;
   user-select: none;
   caret-color: transparent;
@@ -114,7 +114,7 @@
 }
 
 html.dark .velo-fold-toggle {
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 html.dark .velo-fold-toggle:hover {

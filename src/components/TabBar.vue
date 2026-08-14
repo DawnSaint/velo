@@ -748,7 +748,7 @@ onBeforeUnmount(() => {
   }
   &.tab-active {
     background: var(--surface-2);
-    color: rgb(229 231 235);
+    color: rgb(209 213 219); /* gray-300 */
   }
 }
 .dark .tab-close:hover {

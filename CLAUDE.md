@@ -94,12 +94,12 @@
 
 ## 代码修改约定
 
-- **改动尽量小而精确**：不顺手重构无关代码；ROADMAP 没列的"清理"先询问
+- 改动尽量小而精确，不顺手重构无关代码
 - **修 bug 先看对应架构模块的"先记住 / 禁令速查"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
-- **测试**：开发中只跑改动相关的测试文件（如 `vitest run markdownIO`），尽量不主动跑全量测试
+- **测试**：开发中只跑改动相关的测试文件，尽量不主动跑全量测试
 - **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check
-- **commit 前建议**：`npm run type-check` + `npm run test` 在 commit 前跑可早发现破断（反馈秒级）；`pre-push` hook 会在 push master/tag 时自动跑这两项作为兜底（push 时才跑，commit 不拦），但 commit 前跑能避免"堆了好几个 commit 才发现第一个就炸"；`npm run build` 非提交门禁（CI 会跑），它含 `vite build` 能抓到 type-check 抓不到的打包 / import 问题，CI 中保留
+- **commit 前建议**：`npm run type-check` + `npm run test`
 
 ### 新增语法支持 checklist
 
@@ -173,6 +173,6 @@
 
 - `.github/workflows/release-please.yml` — push 到 master 触发，管理版本号 + release PR
 - `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release；`workflow_dispatch` 手动构建指定平台（仅 artifact，不创建 Release）
-- `.github/workflows/ci.yml` — push / PR 到 master 触发，type-check + test + build
+- `.github/workflows/ci.yml` — push / PR 到 master 触发，type-check + lint:deps + lint:console + lint:design-tokens + knip + eslint + test + build
 - `release-please-config.json` — release-type / extra-files
 - `.release-please-manifest.json` — 版本起点

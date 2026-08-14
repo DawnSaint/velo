@@ -7,8 +7,8 @@
     "color": "#9ca3af",
     "type": "hex"
   },
-  "src/components/ActivityBar.vue:#e5e7eb": {
-    "color": "#e5e7eb",
+  "src/components/ActivityBar.vue:#d1d5db": {
+    "color": "#d1d5db",
     "type": "hex"
   },
   "src/components/Sidebar/AssetPanel.vue:rgb(107": {
@@ -21,10 +21,6 @@
   },
   "src/components/Sidebar/AssetPanel.vue:rgb(209": {
     "color": "rgb(209",
-    "type": "rgb"
-  },
-  "src/components/Sidebar/AssetPanel.vue:rgb(229": {
-    "color": "rgb(229",
     "type": "rgb"
   },
   "src/components/Sidebar/AssetPanel.vue:rgb(243": {
@@ -75,10 +71,6 @@
     "color": "rgb(209",
     "type": "rgb"
   },
-  "src/components/StatusBar.vue:rgb(229": {
-    "color": "rgb(229",
-    "type": "rgb"
-  },
   "src/components/StatusBar.vue:rgb(75": {
     "color": "rgb(75",
     "type": "rgb"
@@ -93,10 +85,6 @@
   },
   "src/components/TabBar.vue:rgb(209": {
     "color": "rgb(209",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(229": {
-    "color": "rgb(229",
     "type": "rgb"
   },
   "src/components/TabBar.vue:rgb(245": {
@@ -161,6 +149,10 @@
   },
   "src/lib/export/exportStyles.scss:#1a1a1a": {
     "color": "#1a1a1a",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#888": {
+    "color": "#888",
     "type": "hex"
   },
   "src/lib/export/exportStyles.scss:#aaa": {
@@ -247,10 +239,6 @@
     "color": "rgba(255",
     "type": "rgb"
   },
-  "src/styles/_editor-base.scss:#888": {
-    "color": "#888",
-    "type": "hex"
-  },
   "src/styles/_editor-base.scss:#adb5bd": {
     "color": "#adb5bd",
     "type": "hex"
@@ -319,12 +307,12 @@
     "color": "#d14",
     "type": "hex"
   },
-  "src/styles/_editor-code.scss:#e1e4e8": {
-    "color": "#e1e4e8",
+  "src/styles/_editor-code.scss:#d1d5db": {
+    "color": "#d1d5db",
     "type": "hex"
   },
-  "src/styles/_editor-code.scss:#e5e7eb": {
-    "color": "#e5e7eb",
+  "src/styles/_editor-code.scss:#e1e4e8": {
+    "color": "#e1e4e8",
     "type": "hex"
   },
   "src/styles/_editor-code.scss:#e8590c": {
@@ -379,10 +367,6 @@
     "color": "#2d2d2d",
     "type": "hex"
   },
-  "src/styles/_editor-dark.scss:#444": {
-    "color": "#444",
-    "type": "hex"
-  },
   "src/styles/_editor-dark.scss:#444c56": {
     "color": "#444c56",
     "type": "hex"
@@ -405,10 +389,6 @@
   },
   "src/styles/_editor-dark.scss:#93b9e0": {
     "color": "#93b9e0",
-    "type": "hex"
-  },
-  "src/styles/_editor-dark.scss:#999": {
-    "color": "#999",
     "type": "hex"
   },
   "src/styles/_editor-dark.scss:#c9d1d9": {
@@ -443,16 +423,12 @@
     "color": "#4b5563",
     "type": "hex"
   },
-  "src/styles/_editor-emoji.scss:#555": {
-    "color": "#555",
+  "src/styles/_editor-emoji.scss:#666": {
+    "color": "#666",
     "type": "hex"
   },
-  "src/styles/_editor-emoji.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
-  "src/styles/_editor-emoji.scss:#e5e7eb": {
-    "color": "#e5e7eb",
+  "src/styles/_editor-emoji.scss:#d1d5db": {
+    "color": "#d1d5db",
     "type": "hex"
   },
   "src/styles/_editor-emoji.scss:#e8590c": {
@@ -487,14 +463,6 @@
     "color": "#6a6a6a",
     "type": "hex"
   },
-  "src/styles/_editor-fold.scss:#888": {
-    "color": "#888",
-    "type": "hex"
-  },
-  "src/styles/_editor-fold.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
   "src/styles/_editor-fold.scss:#b0b0b0": {
     "color": "#b0b0b0",
     "type": "hex"
@@ -519,14 +487,6 @@
     "color": "#666",
     "type": "hex"
   },
-  "src/styles/_editor-frontmatter.scss:#888": {
-    "color": "#888",
-    "type": "hex"
-  },
-  "src/styles/_editor-frontmatter.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
   "src/styles/_editor-frontmatter.scss:#e1e4e8": {
     "color": "#e1e4e8",
     "type": "hex"
@@ -539,12 +499,8 @@
     "color": "#fafafa",
     "type": "hex"
   },
-  "src/styles/_editor-html-blocks.scss:#555": {
-    "color": "#555",
-    "type": "hex"
-  },
-  "src/styles/_editor-html-blocks.scss:#aaa": {
-    "color": "#aaa",
+  "src/styles/_editor-html-blocks.scss:#666": {
+    "color": "#666",
     "type": "hex"
   },
   "src/styles/_editor-html-blocks.scss:rgba(0": {
@@ -559,10 +515,6 @@
     "color": "#666",
     "type": "hex"
   },
-  "src/styles/_editor-image.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
   "src/styles/_editor-image.scss:rgba(0": {
     "color": "rgba(0",
     "type": "rgb"
@@ -571,12 +523,8 @@
     "color": "rgba(255",
     "type": "rgb"
   },
-  "src/styles/_editor-lists.scss:#999": {
-    "color": "#999",
-    "type": "hex"
-  },
-  "src/styles/_editor-lists.scss:#ccc": {
-    "color": "#ccc",
+  "src/styles/_editor-lists.scss:#aaa": {
+    "color": "#aaa",
     "type": "hex"
   },
   "src/styles/_editor-lists.scss:#fff": {
@@ -631,14 +579,6 @@
     "color": "#666",
     "type": "hex"
   },
-  "src/styles/_editor-toc.scss:#999": {
-    "color": "#999",
-    "type": "hex"
-  },
-  "src/styles/_editor-toc.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
   "src/styles/_editor-toc.scss:#fff": {
     "color": "#fff",
     "type": "hex"
@@ -667,16 +607,16 @@
     "color": "#666",
     "type": "hex"
   },
+  "src/styles/_editor-typography.scss:#ccc": {
+    "color": "#ccc",
+    "type": "hex"
+  },
   "src/styles/_editor-typography.scss:#d0d7de": {
     "color": "#d0d7de",
     "type": "hex"
   },
   "src/styles/_editor-typography.scss:#ddd": {
     "color": "#ddd",
-    "type": "hex"
-  },
-  "src/styles/_editor-typography.scss:#eee": {
-    "color": "#eee",
     "type": "hex"
   },
   "src/styles/_editor-typography.scss:#f6f8fa": {
@@ -711,14 +651,6 @@
     "color": "#333",
     "type": "hex"
   },
-  "src/styles/_math.scss:#888": {
-    "color": "#888",
-    "type": "hex"
-  },
-  "src/styles/_math.scss:#aaa": {
-    "color": "#aaa",
-    "type": "hex"
-  },
   "src/styles/_math.scss:#d4d4d4": {
     "color": "#d4d4d4",
     "type": "hex"
@@ -739,16 +671,8 @@
     "color": "#555",
     "type": "hex"
   },
-  "src/styles/_mermaid.scss:#777": {
-    "color": "#777",
-    "type": "hex"
-  },
-  "src/styles/_mermaid.scss:#888": {
-    "color": "#888",
-    "type": "hex"
-  },
-  "src/styles/_mermaid.scss:#999": {
-    "color": "#999",
+  "src/styles/_mermaid.scss:#666": {
+    "color": "#666",
     "type": "hex"
   },
   "src/styles/_mermaid.scss:#e5534b": {
@@ -763,8 +687,8 @@
     "color": "rgb(156",
     "type": "rgb"
   },
-  "src/styles/_mermaid.scss:rgb(229": {
-    "color": "rgb(229",
+  "src/styles/_mermaid.scss:rgb(209": {
+    "color": "rgb(209",
     "type": "rgb"
   },
   "src/styles/_mermaid.scss:rgb(34": {
@@ -803,12 +727,8 @@
     "color": "rgb(209",
     "type": "rgb"
   },
-  "src/styles/_settings.scss:rgb(229": {
-    "color": "rgb(229",
-    "type": "rgb"
-  },
-  "src/styles/_settings.scss:rgb(37": {
-    "color": "rgb(37",
+  "src/styles/_settings.scss:rgb(31": {
+    "color": "rgb(31",
     "type": "rgb"
   },
   "src/styles/_settings.scss:rgb(55": {
@@ -849,6 +769,14 @@
   },
   "src/styles/index.scss:#2a2f38": {
     "color": "#2a2f38",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#888": {
+    "color": "#888",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#aaa": {
+    "color": "#aaa",
     "type": "hex"
   },
   "src/styles/index.scss:#e5e5e5": {

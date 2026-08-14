@@ -39,12 +39,9 @@
   border-radius: 4px;
 }
 .velo-text-btn:disabled {
-  color: rgb(156 163 175); /* gray-400 */
+  opacity: 0.5;
   cursor: not-allowed;
   text-decoration: none;
-}
-.dark .velo-text-btn:disabled {
-  color: rgb(75 85 99); /* gray-600 */
 }
 
 /* 统一「行」容器:左右排列、居中对齐 */
@@ -65,7 +62,7 @@
 /* label 下方次要提示文本（如版本号、说明文字等） */
 .velo-setting-hint {
   font-size: 0.75rem;
-  color: rgb(156 163 175); /* gray-400 */
+  color: rgb(107 114 128); /* gray-500 */
 }
 .dark .velo-setting-hint {
   color: rgb(107 114 128); /* gray-500 */
@@ -111,7 +108,7 @@
   box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
 }
 .dark .velo-select-trigger {
-  color: rgb(229 231 235); /* gray-200 */
+  color: rgb(209 213 219); /* gray-300 */
 }
 .dark .velo-select-trigger:hover {
   border-color: rgb(75 85 99); /* gray-600 */
@@ -201,7 +198,7 @@ html.dark .velo-select-panel::-webkit-scrollbar-thumb {
   text-overflow: ellipsis;
 }
 html.dark .velo-select-option {
-  color: rgb(229 231 235); /* gray-200 */
+  color: rgb(209 213 219); /* gray-300 */
 }
 html.dark .velo-select-option:hover,
 html.dark .velo-select-option--highlighted {
@@ -301,7 +298,7 @@ html.dark .velo-select-swatch {
   border-color: rgb(209 213 219); /* gray-300 */
 }
 .dark .velo-slider-knob {
-  background: rgb(37 37 37); /* #252525 */
+  background: rgb(31 41 55); /* gray-800 */
   border-color: rgb(107 114 128); /* gray-500 */
 }
 .velo-slider-track:focus-visible {

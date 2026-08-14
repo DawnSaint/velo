@@ -46,12 +46,12 @@
   background-color: rgba(0, 0, 0, 0.05);
   border-radius: 3px;
   padding: 0 3px;
-  color: #555;
+  color: #666;
 }
 
 :is(.dark .velo-editor, .velo-editor.dark) .velo-link-source-edit {
   background-color: rgba(255, 255, 255, 0.06);
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 // html 源码编辑态视觉指示(htmlSourceEditPlugin)
@@ -61,10 +61,10 @@
   background-color: rgba(0, 0, 0, 0.05);
   border-radius: 3px;
   padding: 0 3px;
-  color: #555;
+  color: #666;
 }
 
 :is(.dark .velo-editor, .velo-editor.dark) .velo-html-source-edit {
   background-color: rgba(255, 255, 255, 0.06);
-  color: #aaa;
+  color: var(--editor-text-muted);
 }

@@ -37,6 +37,7 @@ html, body {
 // 不从 _fonts.scss 重复 Forward(那里 url() 指向 bundled 资源,外部浏览器解析不到)。
 :root {
   --font-mono: 'JetBrains Mono', Menlo, Operator Mono, Consolas, Monaco, monospace;
+  --editor-text-muted: #888;
 }
 
 .velo-editor {
@@ -57,6 +58,9 @@ html, body {
 // 三路规则(html.dark / .dark / .velo-editor.dark)在导出 HTML 里都不会触发
 // (没有 <html class="dark"> 也没有父 .dark 容器),所以这里显式补一条。
 @media (prefers-color-scheme: dark) {
+  :root {
+    --editor-text-muted: #aaa;
+  }
   .velo-editor {
     background: #1a1a1a;
     color: #e5e5e5;
@@ -72,7 +76,7 @@ html, body {
     color: #ff7b72;
   }
   .velo-editor blockquote {
-    color: #aaa;
+    color: var(--editor-text-muted);
   }
   .velo-editor h1, .velo-editor h2, .velo-editor h3, .velo-editor h4 {
     color: var(--md-doc-primary-color, #6aa3e0);

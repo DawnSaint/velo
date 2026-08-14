@@ -740,7 +740,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   height: 14px;
   padding: 0 4px;
   border-radius: 7px;
-  background: rgb(229 231 235); /* gray-200 */
+  background: rgb(209 213 219); /* gray-300 */
   font-size: 9px;
   font-weight: 600;
   color: rgb(107 114 128); /* gray-500 */

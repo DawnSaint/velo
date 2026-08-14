@@ -3,12 +3,13 @@
 # Velo pre-push hook（见 ROADMAP #git-hook）
 #
 # 分级卡策略：
-# - master / v* tag 分支：卡 type-check + test（硬门禁，破断则拒 push）
+# - master / v* tag 分支：卡 type-check + lint + test（与 CI 保持一致，破断则拒 push）
 # - 特性分支：不卡（不拖慢开发）
 # - --no-verify 可绕过（紧急情况下用，但不要成为习惯）
 #
 # CI 是事后门禁（push → runner → 看红 → 修 → 再推），
 # pre-push 把反馈从"分钟级"缩到"秒级"，在出 master 之前就拦住破断。
+# build（含 vite build）较慢，不在 pre-push 跑，CI 中保留。
 #
 # 安装方式：package.json 的 prepare 脚本自动执行 git config core.hooksPath .githooks
 
@@ -23,23 +24,51 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       ;;
   esac
 
-  echo "[pre-push] $remote_ref — running type-check + test..."
+  echo "[pre-push] $remote_ref — running checks (type-check, lint:deps, lint:console, lint:design-tokens, knip, eslint, test)..."
 
   # ── type-check ──
   if ! npm run type-check --silent; then
-    echo "[pre-push] ✗ type-check failed — push aborted"
-    echo "[pre-push]   bypass with: git push --no-verify"
+    echo "[pre-push] ✗ type-check failed — push aborted (bypass: git push --no-verify)"
+    exit 1
+  fi
+
+  # ── lint:deps (dependency-cruiser) ──
+  if ! npm run lint:deps --silent; then
+    echo "[pre-push] ✗ lint:deps failed — push aborted (bypass: git push --no-verify)"
+    exit 1
+  fi
+
+  # ── lint:console ──
+  if ! npm run lint:console --silent; then
+    echo "[pre-push] ✗ lint:console failed — push aborted (bypass: git push --no-verify)"
+    exit 1
+  fi
+
+  # ── lint:design-tokens ──
+  if ! npm run lint:design-tokens --silent; then
+    echo "[pre-push] ✗ lint:design-tokens failed — push aborted (bypass: git push --no-verify)"
+    exit 1
+  fi
+
+  # ── knip (dead code check) ──
+  if ! npm run knip --silent; then
+    echo "[pre-push] ✗ knip failed — push aborted (bypass: git push --no-verify)"
+    exit 1
+  fi
+
+  # ── eslint (棘轮门禁, --max-warnings 178) ──
+  if ! npx eslint . --max-warnings 178; then
+    echo "[pre-push] ✗ eslint failed — push aborted (bypass: git push --no-verify)"
     exit 1
   fi
 
   # ── test ──
   if ! npm run test --silent; then
-    echo "[pre-push] ✗ test failed — push aborted"
-    echo "[pre-push]   bypass with: git push --no-verify"
+    echo "[pre-push] ✗ test failed — push aborted (bypass: git push --no-verify)"
     exit 1
   fi
 
-  echo "[pre-push] ✓ type-check + test passed"
+  echo "[pre-push] ✓ all checks passed"
 done
 
 exit 0

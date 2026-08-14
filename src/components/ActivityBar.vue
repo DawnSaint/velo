@@ -286,7 +286,7 @@ watch(() => editorStore.visibleActivityBarItems, () => {
 }
 
 :global(.dark .activity-bar__button:hover) {
-  color: #e5e7eb;
+  color: #d1d5db;
 }
 
 .activity-bar__button:focus-visible {

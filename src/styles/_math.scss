@@ -47,7 +47,7 @@
 .math-empty-placeholder {
   pointer-events: none;
   user-select: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-style: italic;
   font-size: 0.85em;
   opacity: 0; // 默认不可见
@@ -64,7 +64,7 @@
 .math-lazy-placeholder {
   pointer-events: none;
   user-select: none;
-  color: #888;
+  color: var(--editor-text-muted);
   font-style: italic;
   font-size: 0.85em;
   opacity: 0.6;
@@ -81,7 +81,7 @@
 }
 .dark .math-lazy-placeholder,
 .velo-editor.dark .math-lazy-placeholder {
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 /* 公式渲染失败占位 */
@@ -110,7 +110,7 @@
 }
 .dark .math-empty-placeholder,
 .velo-editor.dark .math-empty-placeholder {
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 /* ========== 块级公式(保留旧行为) ========== */

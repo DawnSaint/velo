@@ -50,8 +50,7 @@
   .velo-toc-empty {
     font-style: italic;
     font-size: 0.85em;
-    color: #999;
-    margin: 0;
+    color: var(--editor-text-muted);
   }
 
   // 删除按钮 —— .velo-icon-btn + .velo-icon-btn--danger(红色 hover)
@@ -94,7 +93,7 @@
   }
 
   .velo-toc-link {
-    color: #aaa;
+    color: var(--editor-text-muted);
   }
 
   .velo-toc-link:hover {

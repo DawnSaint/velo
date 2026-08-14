@@ -219,7 +219,7 @@
 // 暗色模式:底灰换成浅灰底,hover 换成浅灰底,图标默认浅色(亮色 #888)
 :is(.dark .velo-editor, .velo-editor.dark) {
   .velo-icon-btn {
-    color: #888;
+    color: var(--editor-text-muted);
   }
   .velo-icon-btn:hover {
     background: rgba(255, 255, 255, 0.08);

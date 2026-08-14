@@ -59,6 +59,7 @@
   --surface-pressed: rgba(16, 24, 40, 0.09);
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 12px -2px rgba(16, 24, 40, 0.06);
   --shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.12);
+  --editor-text-muted: #888;
 }
 .dark {
   --surface-0: #15171c;
@@ -70,6 +71,7 @@
   --surface-pressed: rgba(255, 255, 255, 0.09);
   --shadow-card: none;
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --editor-text-muted: #aaa;
 }
 
 @layer base {

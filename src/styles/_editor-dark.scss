@@ -20,7 +20,7 @@
   }
 
   blockquote {
-    color: #999;
+    color: var(--editor-text-muted);
   }
 
   kbd {
@@ -57,7 +57,7 @@
   }
 
   hr {
-    border-top-color: #444;
+    border-top-color: #555;
   }
 
   // 标题在暗色下用亮化后的主色,避免深色主色与暗背景融为一体。

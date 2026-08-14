@@ -179,7 +179,7 @@
 .dark .velo-image-inline .image-edit {
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.04);
-  color: #aaa;
+  color: var(--editor-text-muted);
 }
 
 .dark .velo-image-inline .link-input-area {

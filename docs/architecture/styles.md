@@ -210,6 +210,7 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 | `--md-font-size` | 同上 | 正文字号 | ✓ props.fontSize |
 | `--font-mono` | `_fonts.scss` `:root` | 等宽字体栈 | ✗ 静态 |
 | `--shiki-light` / `--shiki-dark` 等 | `_editor-code.scss` `:root` | shiki 双主题 token 颜色 | ✗ 静态（dark 切换靠 CSS cascade） |
+| `--editor-text-muted` | `index.scss` `:root` / `.dark` | 编辑器内容次要文字色（亮 `#888` / 暗 `#aaa`） | ✗ 静态（dark 切换靠 CSS cascade） |
 | `--toc-level` | `TocDecoration.ts` 行内 `style.setProperty` | TOC 缩进层级 | ✓ 运行时计算 |
 
 ### 禁令
@@ -218,6 +219,296 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 - **UI chrome 背景色一律走海拔变量**。新增组件的背景色用 `bg-[var(--surface-N)]`，不要写 `bg-white dark:bg-[#xxx]` 硬编码——变量表自动翻面，组件只管「我是第几层」。
 - **海拔灰阶里不混强调色**。`--surface-*` 变量保持中性微冷；主题色只点交互 / 选中 / 标题。一旦往台阶里掺强调色，整个海拔会被染色、显脏，且用户换主题色时灰阶会跑偏。
 - **不要在 scoped style 中硬编码与 Tailwind 调色板重复的 RGB 值**。如果颜色与 Tailwind gray-100 等一致，优先在模板里用 Tailwind class；确需在 scoped style 中引用时用 `var(--color-gray-100)`（Tailwind v4 暴露的 CSS 变量）或注释标明对应的 Tailwind 色阶。
+
+---
+
+## 硬编码颜色存量（lint:design-tokens baseline）
+
+项目通过 `lint:design-tokens`（`scripts/lint-design-tokens.mjs`）检测 SCSS / Vue `<style>` 中的硬编码颜色（`#hex` / `rgb()` / `rgba()` / `hsl()`），用 baseline 棘轮模式防止新增。baseline 记录在 `scripts/lint-design-tokens-baseline.json`。
+
+**规则**：UI chrome 背景色应走海拔变量 `var(--surface-N)`；主题色应走 `var(--md-primary-color)`。`var(--xxx, #fallback)` 中的 fallback 值和注释中的颜色允许。新增颜色会被 lint 拦截，需用已有颜色值或 CSS 变量替代，或经审查后更新 baseline（`npm run lint:design-tokens:baseline`）。
+
+### 颜色登记约定
+
+项目维护两份颜色记录：
+
+| 记录 | 文件 | 格式 | 用途 |
+|------|------|------|------|
+| baseline（机器读） | `scripts/lint-design-tokens-baseline.json` | `file:color` JSON | lint 棘轮比对 |
+| 颜色登记表（人读） | 本章节下方表格 | Markdown 表格 | 开发者查阅、合并/剪除决策 |
+
+**新增颜色时的流程**：
+1. 先查下方表格，确认是否已有相同语义/色值的颜色可复用
+2. 如需引入新颜色，先在表格中登记（颜色值 + Tailwind 对应 + 用途 + 所属分类）
+3. 确认无法复用后，跑 `npm run lint:design-tokens:baseline` 更新 baseline
+4. baseline 与表格必须同步——表格是人读索引，baseline 是机器门禁
+
+### 颜色登记表
+
+#### A. UI chrome 海拔色（`index.scss` 变量定义处）
+
+变量定义处，天然不走变量。**不建议新增**——海拔系统是封闭的四级 + 配套层。
+
+| 颜色值 | Tailwind 对应 | 用途 | 亮/暗 |
+|--------|-------------|------|--------|
+| `#e9ebf0` | — | `--surface-0` chrome 根 | 亮 |
+| `#f3f4f8` | — | `--surface-1` 侧栏 | 亮 |
+| `#fbfbfd` | — | `--surface-2` 编辑区画布 | 亮 |
+| `#ffffff` | white | `--surface-3` 浮起 | 亮 |
+| `rgba(16, 24, 40, 0.07)` | — | `--surface-border` 发丝线 | 亮 |
+| `rgba(16, 24, 40, 0.05)` | — | `--surface-hover` / `--shadow-card` | 亮 |
+| `rgba(16, 24, 40, 0.06)` | — | `--shadow-card` 第二层 | 亮 |
+| `rgba(16, 24, 40, 0.09)` | — | `--surface-pressed` | 亮 |
+| `rgba(16, 24, 40, 0.12)` | — | `--shadow-popover` | 亮 |
+| `#15171c` | — | `--surface-0` chrome 根 | 暗 |
+| `#1b1e24` | — | `--surface-1` 侧栏 | 暗 |
+| `#22262d` | — | `--surface-2` 编辑区画布 | 暗 |
+| `#2a2f38` | — | `--surface-3` 浮起 | 暗 |
+| `rgba(255, 255, 255, 0.06)` | — | `--surface-border` 发丝线 | 暗 |
+| `rgba(255, 255, 255, 0.05)` | — | `--surface-hover` | 暗 |
+| `rgba(255, 255, 255, 0.09)` | — | `--surface-pressed` | 暗 |
+| `rgba(0, 0, 0, 0.5)` | — | `--shadow-popover` | 暗 |
+| `#1a1a1a` | gray-900 | 编辑器根文字色 | 亮 |
+| `#e5e5e5` | gray-200 | 编辑器根暗色文字色 | 暗 |
+| `rgba(16, 24, 40, 0.08)` | — | splitter 渐变 | 亮 |
+| `rgba(0, 0, 0, 0.4)` | — | splitter 渐变 | 暗 |
+
+#### B. UI chrome 滚动条色
+
+三套滚动条共用的色阶，改时需三处同步（见上方"滚动条"章节）。
+
+| 颜色值 | 用途 | 亮/暗 |
+|--------|------|--------|
+| `rgba(144, 146, 152, 0.3)` | 滚动条 thumb | 亮 |
+| `rgba(144, 146, 152, 0.5)` | 滚动条 thumb hover | 亮 |
+| `rgba(255, 255, 255, 0.2)` | 滚动条 thumb | 暗 |
+| `rgba(255, 255, 255, 0.35)` | 滚动条 thumb hover | 暗 |
+
+#### C. UI chrome 组件 scoped style
+
+组件 scoped style 中的硬编码颜色。**建议逐步迁移**到海拔变量 / Tailwind class。迁移后从 baseline 删除。
+
+| 颜色值 | Tailwind 对应 | 文件 | 用途 | 亮/暗 |
+|--------|-------------|------|------|--------|
+| `rgb(107 114 128)` | gray-500 | TabBar / AssetPanel / _context-menu / _settings | 标签次要文字 | 亮 |
+| `rgb(156 163 175)` | gray-400 | TabBar / AssetPanel / _context-menu / _mermaid | disabled / 占位文字 | 亮 |
+| `rgb(209 213 219)` | gray-300 | TabBar / StatusBar / _settings / ActivityBar / _mermaid | 暗色次要文字 | 暗 |
+| `rgb(75 85 99)` | gray-600 | StatusBar / _settings / AssetPanel | 标签文字 | 亮 |
+| `rgb(55 65 81)` | gray-700 | TabBar / _settings / WorkspaceSearchPanel / AssetPanel | 标签 hover 背景 / 文字 | 暗 |
+| `rgb(31 41 55)` | gray-800 | TabBar / AssetPanel | 标签激活背景 | 暗 |
+| `rgb(17 24 39)` | gray-900 | _settings | 设置页文字 | 亮 |
+| `#4b5563` | gray-600 | ActivityBar / _settings / _editor-code / _editor-emoji | 活动栏文字 | 亮 |
+| `#9ca3af` | gray-400 | ActivityBar | 活动栏次要文字 | 亮 |
+| `#d1d5db` | gray-300 | ActivityBar / _editor-code / _editor-emoji | 暗色次要文字 | 暗 |
+| `#d1d5db` | gray-300 | _settings / ActivityBar / _editor-code / _editor-emoji | 切换未激活态 / 暗色次要文字 | 亮+暗 |
+| `#4b5563` | gray-600 | _settings | 切换激活态 | 暗 |
+| `rgb(59 130 246)` | blue-500 | TabBar | 未保存圆点 | 亮 |
+| `rgb(96 165 250)` | blue-400 | TabBar / FileTree | 未保存圆点 | 暗 |
+| `rgb(245 158 11)` | amber-500 | TabBar | 警告圆点 | 亮 |
+| `rgb(251 191 36)` | amber-400 | TabBar | 警告圆点 | 暗 |
+| `rgb(243 244 246)` | gray-100 | AssetPanel / WorkspaceSearchPanel | 卡片背景 | 亮 |
+| `rgb(31 41 55 / 0.5)` | gray-800/50 | AssetPanel | 卡片暗色背景 | 暗 |
+| `rgb(219 234 254)` | blue-100 | FileTree | drag-over 背景 | 亮 |
+| `rgb(30 58 138 / 0.4)` | blue-900/40 | FileTree | drag-over 暗色背景 | 暗 |
+| `rgba(148, 163, 184, 0.16)` | slate-400/16 | WindowControls | 按钮背景 | 亮 |
+| `rgba(255, 255, 255, 0.10)` | white/10 | WindowControls | 按钮暗色背景 | 暗 |
+| `#334155` | slate-700 | WindowControls | 按钮文字 | 亮 |
+| `#f8fafc` | slate-50 | WindowControls | 按钮暗色文字 | 暗 |
+| `#e5484d` | red-500 (Radix) | WindowControls | 关闭按钮 hover | 亮 |
+| `#ff5c63` | red-500 变体 | WindowControls | 关闭按钮 hover | 暗 |
+| `#140406` | — | WindowControls | 关闭按钮文字 | 暗 |
+| `rgba(16, 24, 40, 0.12)` | — | FileTree | drag 阴影 | 亮 |
+| `rgba(0, 0, 0, 0.6)` | — | FileTree | drag 阴影 | 暗 |
+
+**合并建议**：
+- `rgb(107 114 128)`（gray-500）与 `#4b5563`（gray-600）在不同文件中表达"次要文字"——可统一为 Tailwind class `text-gray-500 dark:text-gray-400`
+- `rgb(156 163 175)`（gray-400）用于 disabled——可统一改为 `opacity-50` 方案（参考 `.velo-text-btn:disabled` 的迁移）
+- `rgb(209 213 219)`（gray-300）和 `rgb(229 231 235)`（gray-200）表达"暗色次要文字"——可合并为 `dark:text-gray-300`
+- `rgb(31 41 55)`（gray-800）、`rgb(55 65 81)`（gray-700）、`rgb(75 85 99)`（gray-600）分布在多个组件——可统一为 `dark:bg-gray-800` / `dark:text-gray-300`
+- TabBar 圆点 `rgb(59 130 246)` / `rgb(96 165 250)` 和 FileTree `rgb(59 130 246)` / `rgb(96 165 250)` 是同一套蓝色——应合并
+
+**剪除建议**：
+- `rgb(37 37 37)`（#252525）是独特的暗色，在 _settings 中只用了 1 处——可考虑用 `rgb(31 41 55)`（gray-800）替代
+- `#140406` 是 WindowControls 独有的极暗色——该组件为 macOS 风格窗口按钮，色彩固定不变，可保留
+
+#### D. 右键菜单 danger 色（`_context-menu.scss`）
+
+右键菜单"危险操作"（删除等）的配色。
+
+| 颜色值 | Tailwind 对应 | 用途 | 亮/暗 |
+|--------|-------------|------|--------|
+| `rgb(220 38 38)` | red-600 | danger 文字 | 亮 |
+| `rgb(254 242 242)` | red-50 | danger 背景 | 亮 |
+| `rgb(248 113 113)` | red-400 | danger 文字 | 暗 |
+| `rgba(69, 10, 10, 0.4)` | red-950/40 | danger 背景 | 暗 |
+
+#### E. 设置页交互色（`_settings.scss`）
+
+设置页控件（slider / switch / select）专用色。
+
+| 颜色值 | Tailwind 对应 | 用途 | 亮/暗 |
+|--------|-------------|------|--------|
+| `#fff` | white | switch 激活态圆点 | 亮 |
+| `rgba(0, 0, 0, 0.08)` | — | switch 未激活边框 | 亮 |
+| `rgba(0, 0, 0, 0.18)` | — | switch 阴影 | 亮 |
+| `rgba(255, 255, 255, 0.1)` | — | switch 未激活边框 | 暗 |
+
+#### F. 编辑器内容 — 语法高亮色（`_editor-code.scss` + `_editor-dark.scss`）
+
+shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**不建议随意改动**——语法高亮色有独立的色板体系。
+
+| 颜色值 | 用途 | 亮/暗 |
+|--------|------|--------|
+| `#24292e` | `--shiki-light` 代码文字 / caret / border-left | 亮 |
+| `#c9d1d9` | `--shiki-dark` 代码文字 | 暗 |
+| `#f6f6f6` | `--shiki-light-bg` 代码背景 | 亮 |
+| `#0d1117` | `--shiki-dark-bg` 代码背景 | 暗 |
+| `#e1e4e8` | `--shiki-light-border` 代码边框 | 亮 |
+| `#30363d` | `--shiki-dark-border` 代码边框 | 暗 |
+| `#d14` | 行内 code 文字 | 亮 |
+| `#ff7b72` | 代码红色 token | 暗 |
+| `#0d1117` | 代码暗色背景 | 暗 |
+| `#1f2937` | 代码块 header 背景 (gray-800) | 暗 |
+| `#374151` | 代码块 header 暗色背景 (gray-700) | 暗 |
+| `#4b5563` | 代码块文字 (gray-600) | 亮 |
+| `#f3f4f6` | 代码块背景 (gray-100) | 亮 |
+| `#e5e7eb` | 代码块暗色文字 (gray-200) | 暗 |
+| `#e8590c` | 代码 orange-600 | 亮 |
+| `#fb923c` | 代码 orange-400 | 暗 |
+| `#2da44e` | 按钮 green | 亮 |
+| `#fff` | 代码块 caret / cursor | 暗 |
+| `rgba(0, 0, 0, 0.05)` | 行内 code 背景 | 亮 |
+| `rgba(0, 0, 0, 0.15)` | 代码块阴影 | 亮 |
+| `rgba(0, 0, 0, 0.5)` | 代码块暗色阴影 | 暗 |
+| `rgba(255, 215, 0, 0.18)` | CM6 find 高亮背景 | 亮 |
+| `rgba(255, 215, 0, 0.85)` | CM6 find 高亮边框 | 亮 |
+| `rgba(15, 76, 129, 0.35)` | CM6 selection 背景 | 亮 |
+| `rgba(255, 255, 255, 0.2)` | CM6 暗色背景 | 暗 |
+| `rgba(255, 255, 255, 0.08)` | 代码块暗色 hover 背景 | 暗 |
+
+**合并建议**：`#1f2937`（gray-800）在 _editor-code 和 _editor-emoji 中重复用于"代码块 header 暗色背景"——可合并。`rgba(0, 0, 0, 0.5)` 在多处用于"暗色阴影"——可合并。
+
+#### G. 编辑器内容 — alert / callout 色（`_editor-alerts.scss`）
+
+GFM alert 五种级别的配色，对齐 GitHub alert 色。
+
+| 颜色值 | GitHub alert 级别 | 亮/暗 |
+|--------|-------------------|--------|
+| `#0969da` / `#58a6ff` | note (blue) | 亮 / 暗 |
+| `#1a7f37` / `#3fb950` | tip (green) | 亮 / 暗 |
+| `#8250df` / `#a371f7` | important (purple) | 亮 / 暗 |
+| `#bf8700` / `#d29922` | warning (yellow) | 亮 / 暗 |
+| `#cf222e` / `#f85149` | caution (red) | 亮 / 暗 |
+| `rgba(255, 255, 255, 0.04)` | 暗色背景 | 暗 |
+
+#### H. 编辑器内容 — 文字灰阶
+
+编辑器内容中使用的灰阶文字色。散布在多个 partials 中。
+
+| 颜色值 | 近似 Tailwind | 用途 | 使用文件 |
+|--------|-------------|------|---------|
+| `#333` | gray-700 | 正文标题 / math 文字 | _typography / _math |
+| `#666` | gray-600 | emoji / html-blocks / mermaid / typography / toc / image / frontmatter 文字 | _emoji / _html-blocks / _mermaid / _typography / _toc / _image / _frontmatter |
+| `var(--editor-text-muted)` | — | 次要文字（亮 `#888` / 暗 `#aaa`） | _fold / _base / _toc / _lists / _math / _mermaid / _frontmatter / _image / _html-blocks / _emoji |
+| `#ccc` | gray-300 | typography 引用边框 / hr 边框 | _typography |
+| `#aaa` | gray-300 | lists checkbox 边框 | _lists |
+| `#d4d4d4` | gray-300 | dark 文字 / math 暗色文字 | _editor-dark / _math |
+| `#555` | gray-600 | dark border / checkbox border | _editor-dark / _mermaid |
+
+
+#### I. 编辑器内容 — 链接 / 强调色
+
+| 颜色值 | 用途 | 文件 | 亮/暗 |
+|--------|------|------|--------|
+| `#576b95` | 链接色（微信风格） | _typography | 亮 |
+| `#264f78` | 链接暗色 / fold 选中背景 | _typography / _editor-dark / _editor-fold | 暗 |
+| `#b4d5ff` | find 选中背景 / fold 选中背景 | _editor-base / _editor-fold | 亮 |
+| `#4d8eff` | 表格 resize handle | _editor-tables | 亮+暗 |
+| `#5c6066` | 表格暗色背景 | _editor-tables | 暗 |
+| `rgba(51, 112, 255, 0.12)` | 表格 selection | _editor-tables | 亮 |
+| `rgba(51, 112, 255, 0.2)` | 表格暗色 selection | _editor-tables | 暗 |
+| `rgb(34 197 94)` | mermaid 成功色 (green-500) | _mermaid | 亮+暗 |
+| `#e5534b` | math / mermaid 错误边框 | _math / _mermaid | 亮 |
+| `#f77878` | math / mermaid 暗色错误文字 | _math / _mermaid / _editor-dark | 暗 |
+
+#### J. 编辑器内容 — 表格专用色（`_editor-tables.scss`）
+
+表格局部 CSS 变量定义。
+
+| 颜色值 | 变量名 | 用途 | 亮/暗 |
+|--------|--------|------|--------|
+| `#eceef1` | — | 表格 header 背景 | 亮 |
+| `#c0c4cc` | — | 表格 resize handle 背景 | 亮 |
+| `#ffffff` | — | 表格文字 | 亮 |
+| `#3a3a3a` | `--velo-table-border` | 表格边框 | 亮 |
+| `#2a2a2a` | `--velo-table-header-bg` | 表格 header 背景 | 暗 |
+| `#b0b0b0` | `--velo-table-header-text` | 表格 header 文字 | 暗 |
+| `rgba(255, 255, 255, 0.04)` | `--velo-table-row-hover` | 表格行 hover | 暗 |
+| `rgba(51, 112, 255, 0.2)` | `--velo-table-selection` | 表格选中 | 暗 |
+| `#4d8eff` | `--velo-table-resize-handle` | 表格 resize handle | 亮+暗 |
+| `#5c6066` | — | 表格暗色 header | 暗 |
+
+#### K. 编辑器内容 — 其他局部色
+
+| 颜色值 | 用途 | 文件 | 亮/暗 |
+|--------|------|------|--------|
+| `#24292f` | 正文标题文字 | _typography | 亮 |
+| `#f6f8fa` | details 背景 | _typography | 亮 |
+| `#d0d7de` | details 边框 | _typography | 亮 |
+| `#fff3a3` | mark 高亮 | _typography | 亮 |
+| `rgba(0, 0, 0, 0.015)` | TOC 背景纹 | _toc | 亮 |
+| `rgba(0, 0, 0, 0.02)` | details 背景 / image 编辑背景 | _typography / _image | 亮 |
+| `rgba(0, 0, 0, 0.1)` | kbd 边框 | _typography | 亮 |
+| `rgba(0, 0, 0, 0.06)` | drop-cursor 背景 | _editor-base | 亮 |
+| `rgba(0, 0, 0, 0.2)` | image outline / border | _image | 亮 |
+| `rgba(0, 0, 0, 0.5)` | image 文字 | _image | 亮 |
+| `rgba(255, 215, 0, 0.35)` | find match 背景 | _editor-base | 亮 |
+| `rgba(255, 165, 0, 0.6)` | find match 2 | _editor-base | 亮 |
+| `rgba(255, 140, 0, 0.7)` | find match 边框 | _editor-base | 亮 |
+| `rgba(255, 255, 255, 0.03)` | TOC 暗色背景 | _toc | 暗 |
+| `rgba(255, 255, 255, 0.06)` | emoji / image 暗色背景 | _emoji / _image | 暗 |
+| `rgba(255, 255, 255, 0.1)` | emoji / frontmatter 暗色边框 | _editor-dark / _editor-frontmatter | 暗 |
+| `rgba(255, 255, 255, 0.25)` | image 暗色 outline | _image | 暗 |
+| `rgba(255, 255, 255, 0.5)` | image 暗色文字 | _image | 暗 |
+| `rgba(128, 128, 128, 0.1)` | math / mermaid 背景 | _math / _mermaid | 亮+暗 |
+| `rgba(128, 128, 128, 0.05)` | mermaid 背景 | _mermaid | 亮 |
+| `rgba(128, 128, 128, 0.15)` | mermaid 边框 | _mermaid | 亮 |
+| `rgba(128, 128, 128, 0.25)` | mermaid 边框 | _mermaid | 亮 |
+| `#fff8dc` | 脚注 hover 背景 | _footnote | 亮 |
+| `#f56c6c` | 脚注 hover 色 | _footnote | 亮 |
+| `#fff` | 脚注 / lists / toc 文字 / 选中色 | _footnote / _lists / _toc | 亮 |
+| `#6a6a6a` | fold / dark 次要文字 | _editor-fold / _editor-dark | 亮 |
+| `#b0b0b0` | fold / table 暗色文字 | _editor-fold / _editor-tables | 暗 |
+| `#161b22` | frontmatter 暗色背景 | _editor-frontmatter | 暗 |
+| `#21262d` | frontmatter / dark 背景 | _editor-frontmatter / _editor-dark | 暗 |
+| `#444c56` | frontmatter / dark 边框 | _editor-frontmatter / _editor-dark | 暗 |
+| `#fafafa` | frontmatter 背景 | _editor-frontmatter | 亮 |
+| `#f0f0f0` | frontmatter 背景 | _editor-frontmatter | 亮 |
+| `#7aa6d8` | dark 链接色 | _editor-dark | 暗 |
+| `#93b9e0` | dark 链接 hover | _editor-dark | 暗 |
+| `#5d4d00` | dark alert warning 背景 | _editor-dark | 暗 |
+| `#f0d96f` | dark alert warning 文字 | _editor-dark | 暗 |
+| `#2d2d2d` | dark frontmatter / math 背景 | _editor-dark | 暗 |
+
+#### L. 导出样式（`exportStyles.scss`）
+
+导出 HTML 独立样式表中的颜色，与编辑器内容样式镜像。
+
+| 颜色值 | 用途 | 亮/暗 |
+|--------|------|--------|
+| `#1a1a1a` | 导出根背景 | 亮 |
+| `#e5e5e5` | 导出根文字 | 亮 |
+| `rgba(255, 255, 255, 0.08)` | 导出暗色背景 | 暗 |
+| `#ff7b72` | 导出代码红色 | 暗 |
+| `var(--editor-text-muted)` | 导出暗色次要文字 | 暗 |
+
+
+### 新增颜色约定
+
+1. UI chrome 背景 → 用海拔变量，不新增颜色
+2. UI chrome 文字 → 用 Tailwind class，不新增颜色
+3. 编辑器内容 → 先查本表格能否复用已有色值
+4. 确需新增 → 在本表格登记 + 跑 `npm run lint:design-tokens:baseline`
 
 ---
 
