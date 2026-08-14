@@ -126,6 +126,7 @@
 - **type**：`feat` / `fix` / `perf` / `revert` / `docs` / `style` / `refactor` / `chore` / `test` / `build` / `ci`（与 release-please 默认 changelog sections 对齐）
 - **scope**：模块名，如 `editor` / `sidebar` / `tauri` / `markdownIO` / `testing` 等
 - **summary**：1 句小写英文祈使句，描述"这次 commit 干了什么"
+- **禁止使用 `git commit -m "xx" -m "xx"` 多 `-m` 拼接**：多个 `-m` 会生成多个段落而非换行 bullet，正确做法是用单个 `-m` 配合实际换行
 - **footer**（可选）：
   - `BREAKING CHANGE: <说明>` — 触发 major
   - `Closes #x` / `Refs #x` — 关联 issue

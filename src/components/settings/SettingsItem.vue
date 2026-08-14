@@ -24,6 +24,8 @@ const props = withDefaults(defineProps<{
   variant?: 'row' | 'toplabel'
   /** 是否可点击（switch 行需要 cursor-pointer） */
   clickable?: boolean
+  /** label 下方次要提示文本（如版本号、说明文字等） */
+  hint?: string
 }>(), {
   variant: 'row',
   clickable: false,
@@ -59,11 +61,15 @@ onBeforeUnmount(() => {
   <div
     v-if="variant === 'row'"
     :data-settings-item="itemId"
-    class="velo-setting-row h-8"
+    class="flex flex-col justify-center"
     :class="{ 'cursor-pointer': clickable }"
+    :style="hint ? undefined : { height: '2rem' }"
   >
-    <span class="velo-setting-label">{{ label }}</span>
-    <slot />
+    <div class="flex items-center justify-between">
+      <span class="velo-setting-label">{{ label }}</span>
+      <slot />
+    </div>
+    <span v-if="hint" class="velo-setting-hint">{{ hint }}</span>
   </div>
   <!-- variant="toplabel"：上 label 下控件，复用现有 .velo-setting-toplabel 样式 -->
   <div

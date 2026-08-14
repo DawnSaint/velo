@@ -167,8 +167,14 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
           Promise.resolve(result).then(realDoc => {
             if (view.isDestroyed) return
             // 冷启动竞态守卫：若 view.state 已被 modelValue watch 替换
-            // （用户在 rAF / Worker 期间切到另一个文件），中止加载初始大文档
-            if (view.state !== initialState) return
+            // （用户在 rAF / Worker 期间切到另一个文件），中止加载初始大文档。
+            // 仍需通知外层关闭 loading 遮罩 —— onReady 设了 docLoading=true，
+            // 此路径放弃后 modelValue watch 会接管加载并自行关 loading，
+            // 但如果 watch 路径也未触发（modelValue 未变），遮罩会永久卡住。
+            if (view.state !== initialState) {
+              opts.onLargeDocReady?.()
+              return
+            }
             // C1: 预设窄 viewport hint，避免 updateState 时为整个大文档构建装饰
             setInitialViewportHint({ from: 0, to: 5000 })
             const newState = EditorState.create({

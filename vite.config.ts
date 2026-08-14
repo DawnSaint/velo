@@ -17,15 +17,20 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    resolve: {
-      conditions: ['module', 'worker', 'browser', 'development', 'production', 'default'],
-    },
   },
   server: {
     port: 5273,
     strictPort: true,
     watch: {
       ignored: ['**/src-tauri/**', '**/__tests__/**', '**/docs/**', '**/e2e/**', '**/scripts/**'],
+    },
+    proxy: {
+      // dev 环境代理 GitHub API,避免 WebView2 跨域/CSP/混合内容拦截
+      '/github-api': {
+        target: 'https://api.github.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/github-api/, ''),
+      },
     },
   },
   css: {

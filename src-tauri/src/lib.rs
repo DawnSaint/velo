@@ -49,13 +49,18 @@ fn store_window_payload(app: &AppHandle, label: &str, payload: CliArgsPayload) {
     }
 }
 
-fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String, String> {
-    let label = next_app_window_label();
-    store_window_payload(app, &label, payload);
+/// 创建一个 app 窗口。`label` 为 None 时使用自增 label（动态窗口），
+/// Some(label) 时使用指定 label（主窗口 = "main"）。
+fn create_window(
+    app: &AppHandle,
+    label: &str,
+    payload: CliArgsPayload,
+) -> Result<String, String> {
+    store_window_payload(app, label, payload);
 
     let mut builder = WebviewWindowBuilder::new(
         app,
-        label.clone(),
+        label.to_string(),
         WebviewUrl::App("index.html".into()),
     )
     .title("Velo")
@@ -65,6 +70,14 @@ fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String,
     .resizable(true)
     .fullscreen(false)
     .disable_drag_drop_handler();
+
+    // GPU 硬件加速：用户可在设置中关闭（仅 Windows WebView2 有效）。
+    // additional_browser_args 会完全替换 wry 的默认参数，所以禁用 GPU 时
+    // 必须保留默认的 --disable-features 再追加 --disable-gpu。
+    #[cfg(target_os = "windows")]
+    if let Some(args) = gpu_accel::additional_browser_args_if_disabled() {
+        builder = builder.additional_browser_args(&args);
+    }
 
     // macOS: 原生装饰 + overlay 标题栏,交通灯浮在自定义 header 左上角。
     // 标题设为空:overlay 标题栏会居中显示 title 文本,与自定义 header 的
@@ -84,16 +97,22 @@ fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String,
     match build_result {
         Ok(win) => {
             let _ = win.set_focus();
-            Ok(label)
+            Ok(label.to_string())
         }
         Err(e) => {
             let state = app.state::<PendingWindowCliArgs>();
             if let Ok(mut guard) = state.0.lock() {
-                guard.remove(&label);
+                guard.remove(label);
             }
             Err(format!("create app window: {e}"))
         }
     }
+}
+
+/// 创建动态 app 窗口（二次启动 / 顶栏新窗口入口）。
+fn create_app_window(app: &AppHandle, payload: CliArgsPayload) -> Result<String, String> {
+    let label = next_app_window_label();
+    create_window(app, &label, payload)
 }
 
 /// 解析 argv:.md 文件归 files,目录归 dirs,其它丢弃。
@@ -167,6 +186,21 @@ async fn export_pdf(
 /// 仅在桌面端引入 pdf 模块(避免 mobile entry 编译失败)。
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod pdf;
+
+/// 前端设置面板:读取 GPU 硬件加速启用状态。仅 Windows 有意义。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn gpu_accel_state() -> bool {
+    gpu_accel::gpu_accel_enabled()
+}
+
+/// 前端设置面板:切换 GPU 硬件加速。写入注册表偏好,需重启应用生效
+///（additional_browser_args 在 WebView 创建时固定）。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_gpu_accel(enabled: bool) {
+    gpu_accel::set_gpu_accel(enabled);
+}
 
 /// 打开 Windows 设置 > 默认应用页面,供前端设置面板按钮调用。
 #[cfg(target_os = "windows")]
@@ -245,6 +279,10 @@ mod folder_menu;
 #[cfg(target_os = "windows")]
 mod file_assoc;
 
+/// Windows GPU 硬件加速偏好读写（WebView2 additional_browser_args）。
+#[cfg(target_os = "windows")]
+mod gpu_accel;
+
 /// Linux 文件夹右键菜单:按桌面环境检测 + 写 action 文件(v0.7.x)。
 #[cfg(target_os = "linux")]
 mod linux_menu;
@@ -283,31 +321,31 @@ pub fn run() {
             open_default_apps_settings,
             shell_integration_state,
             set_shell_integration,
+            #[cfg(target_os = "windows")]
+            gpu_accel_state,
+            #[cfg(target_os = "windows")]
+            set_gpu_accel,
         ])
         .setup(|app| {
             // 首次启动:argv 解析后按 main label 暂存,等前端 onMounted 主动来拉
             let args: Vec<String> = std::env::args().skip(1).collect();
             let payload = parse_cli_args(&args);
-            store_window_payload(app.handle(), MAIN_WINDOW_LABEL, payload);
 
-            // 窗口装饰平台适配:
-            //   macOS  — tauri.conf.json 已设 decorations:true + titleBarStyle:Overlay,
-            //            直接 show 即可,交通灯浮在 header 上。
-            //            title 设为空(同 create_app_window),避免 overlay 标题栏
-            //            居中显示 "Velo" 与 header 菜单/tab 重叠。
-            //   Win/Linux — tauri.conf.json 的 decorations:true 会导致原生标题栏闪烁,
-            //            这里先 set_decorations(false) 再 show,避免闪现。
-            //   (tauri.conf.json 不支持平台条件配置,所以统一设 true 再在此覆写)
-            if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = win.set_decorations(false);
+            // 主窗口由代码创建（非 tauri.conf.json 配置驱动），以便在创建时
+            // 注入 additional_browser_args（GPU 加速偏好）。tauri.conf.json 的
+            // windows 配置已清空，避免配置驱动的窗口与代码创建的窗口冲突。
+            // 创建后立即 show（配置中 visible:false 的等效由代码完成）。
+            let label = MAIN_WINDOW_LABEL.to_string();
+            match create_window(app.handle(), &label, payload) {
+                Ok(_) => {
+                    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                        let _ = win.show();
+                    }
                 }
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = win.set_title("");
+                Err(e) => {
+                    log::error!("创建主窗口失败: {e}");
+                    return Err(e.into());
                 }
-                let _ = win.show();
             }
 
             // 注册/刷新"在 Velo 中打开"文件夹右键菜单。

@@ -62,6 +62,14 @@
 .dark .velo-setting-label {
   color: rgb(209 213 219); /* gray-300 */
 }
+/* label 下方次要提示文本（如版本号、说明文字等） */
+.velo-setting-hint {
+  font-size: 0.75rem;
+  color: rgb(156 163 175); /* gray-400 */
+}
+.dark .velo-setting-hint {
+  color: rgb(107 114 128); /* gray-500 */
+}
 /* 行内右侧数值(如字号当前值):等宽数字避免跳动 */
 .velo-setting-value {
   font-size: 0.8125rem;

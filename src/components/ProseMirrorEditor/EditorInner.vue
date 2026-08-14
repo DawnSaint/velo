@@ -807,13 +807,23 @@ watch(() => props.modelValue, async (newVal) => {
     emit('loading-change', true)
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    // rAF 期间可能已切到另一个 tab(modelValue 再变),token 失效 → 放弃
-    if (myToken !== parseToken) return
+    // rAF 期间可能已切到另一个 tab(modelValue 再变),token 失效 → 放弃。
+    // 必须关 loading 遮罩：本次异步链放弃了，如果不重置，遮罩会永久卡住。
+    // 后续触发的 modelValue watch 会重新设 loading=true 并接管加载。
+    if (myToken !== parseToken) {
+      docLoading.value = false
+      emit('loading-change', false)
+      return
+    }
     // C0: 优先消费 pendingPmDoc(延迟期间 loadContentInto 可能已存入)。
     const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
     const doc = pendingDoc ?? await fromMarkdownAsync(newVal, schema as VeloSchema)
-    // Worker 解析期间可能又切了 tab,token 失效 → 放弃
-    if (myToken !== parseToken) return
+    // Worker 解析期间可能又切了 tab,token 失效 → 放弃（同上，必须关 loading）
+    if (myToken !== parseToken) {
+      docLoading.value = false
+      emit('loading-change', false)
+      return
+    }
     const openFocus = decideOpenFocus(doc)
     // C1: 预设窄 viewport hint，让 decoration 插件只为首屏节点构建装饰，
     // 避免为整个大文档同步跑 shiki tokenization + 创建 header widget DOM。
