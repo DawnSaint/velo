@@ -4,6 +4,23 @@
 // 暗色走 html.dark 选择器（.dark class 挂在 <html> 上，Teleport 到 body
 // 的元素仍是 html 的后代，匹配有效）。
 
+// ── 统一快捷键 badge ──
+// 跨组件共享：右键菜单 / 文件菜单 / 命令面板等所有需要展示快捷键的地方。
+// 等宽小字 + pressed 底色 pill，亮暗自适应。
+.velo-kbd {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  margin-left: 1.25rem;
+  color: rgb(107 114 128); // gray-500  
+  white-space: nowrap;
+
+  html.dark & {
+    color: rgb(156 163 175); // gray-400
+  }
+}
+
 .ctx-menu-item {
   display: flex;
   align-items: center;
@@ -30,21 +47,6 @@
 .ctx-menu-item__label {
   min-width: 0;
   flex: 1 1 auto;
-}
-
-// 菜单项右侧快捷键提示:等宽小字、灰色(label)、与文本留间隙。
-.ctx-menu-item__key {
-  flex: 0 0 auto;
-  margin-left: 1.25rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  color: rgb(156 163 175); // gray-400
-
-  html.dark & {
-    color: rgb(107 114 128); // gray-500
-  }
 }
 
 .ctx-menu-item--danger {

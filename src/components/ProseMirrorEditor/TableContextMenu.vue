@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+﻿﻿<script setup lang="ts">
 // 表格单元格右键菜单 —— 行列增删 + 行列移动 + 单元格对齐 + 删除表格。
 //
 // 菜单项走 .ctx-menu-item / .ctx-menu-separator 全局 class(见 _context-menu.scss),
@@ -72,11 +72,11 @@ function fire(action: TableAction) {
     <!-- 行操作组 -->
     <button class="ctx-menu-item" data-testid="table-add-row-before" @click="fire('add-row-before')">
       <span class="ctx-menu-item__label">上方插入行</span>
-      <span v-if="shortcutFor('add-row-before')" class="ctx-menu-item__key">{{ shortcutFor('add-row-before') }}</span>
+      <span v-if="shortcutFor('add-row-before')" class="velo-kbd">{{ shortcutFor('add-row-before') }}</span>
     </button>
     <button class="ctx-menu-item" data-testid="table-add-row-after" @click="fire('add-row-after')">
       <span class="ctx-menu-item__label">下方插入行</span>
-      <span v-if="shortcutFor('add-row-after')" class="ctx-menu-item__key">{{ shortcutFor('add-row-after') }}</span>
+      <span v-if="shortcutFor('add-row-after')" class="velo-kbd">{{ shortcutFor('add-row-after') }}</span>
     </button>
     <!-- 行移动:仅 body 行时显示(header row 不可移动) -->
     <button
@@ -85,7 +85,8 @@ function fire(action: TableAction) {
       data-testid="table-move-row-up"
       @click="fire('move-row-up')"
     >
-      上移该行
+      <span class="ctx-menu-item__label">上移该行</span>
+      <span v-if="shortcutFor('move-row-up')" class="velo-kbd">{{ shortcutFor('move-row-up') }}</span>
     </button>
     <button
       v-if="!hideMoveRow"
@@ -93,11 +94,12 @@ function fire(action: TableAction) {
       data-testid="table-move-row-down"
       @click="fire('move-row-down')"
     >
-      下移该行
+      <span class="ctx-menu-item__label">下移该行</span>
+      <span v-if="shortcutFor('move-row-down')" class="velo-kbd">{{ shortcutFor('move-row-down') }}</span>
     </button>
     <button v-if="!hideDeleteRow" class="ctx-menu-item" data-testid="table-delete-row" @click="fire('delete-row')">
       <span class="ctx-menu-item__label">删除行</span>
-      <span v-if="shortcutFor('delete-row')" class="ctx-menu-item__key">{{ shortcutFor('delete-row') }}</span>
+      <span v-if="shortcutFor('delete-row')" class="velo-kbd">{{ shortcutFor('delete-row') }}</span>
     </button>
 
     <div class="ctx-menu-separator" />
@@ -110,14 +112,16 @@ function fire(action: TableAction) {
       右侧插入列
     </button>
     <button v-if="!hideMoveColumn" class="ctx-menu-item" data-testid="table-move-column-left" @click="fire('move-column-left')">
-      左移该列
+      <span class="ctx-menu-item__label">左移该列</span>
+      <span v-if="shortcutFor('move-column-left')" class="velo-kbd">{{ shortcutFor('move-column-left') }}</span>
     </button>
     <button v-if="!hideMoveColumn" class="ctx-menu-item" data-testid="table-move-column-right" @click="fire('move-column-right')">
-      右移该列
+      <span class="ctx-menu-item__label">右移该列</span>
+      <span v-if="shortcutFor('move-column-right')" class="velo-kbd">{{ shortcutFor('move-column-right') }}</span>
     </button>
     <button class="ctx-menu-item" data-testid="table-delete-column" @click="fire('delete-column')">
       <span class="ctx-menu-item__label">删除列</span>
-      <span v-if="shortcutFor('delete-column')" class="ctx-menu-item__key">{{ shortcutFor('delete-column') }}</span>
+      <span v-if="shortcutFor('delete-column')" class="velo-kbd">{{ shortcutFor('delete-column') }}</span>
     </button>
 
     <div class="ctx-menu-separator" />

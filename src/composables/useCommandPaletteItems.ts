@@ -11,6 +11,7 @@ import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import type { CommandPaletteItem } from '@/utils/commandPalette'
+import { useEditorStore } from '@/stores/editor'
 import type { SidebarTab } from '@/stores/persistence'
 import { basenameOfPath, normalizeDisplayPath } from '@/utils/statusPath'
 
@@ -40,14 +41,15 @@ export function useCommandPaletteItems(opts: {
   const exportStore = useExportStore()
   const workspaceStore = useWorkspaceStore()
   const recentFilesStore = useRecentFilesStore()
+  const editorStore = useEditorStore()
 
   return computed<CommandPaletteItem[]>(() => {
     const needWorkspace = !workspaceStore.activeRoot
+    const hasDoc = !!documentStore.activeId
     const items: CommandPaletteItem[] = [
       {
         id: 'file.new',
         title: '新建文件',
-        subtitle: '创建一份未保存的新 Markdown 文档',
         shortcut: 'Ctrl+N',
         group: 'app',
         keywords: ['new file', 'new document', 'markdown'],
@@ -56,7 +58,6 @@ export function useCommandPaletteItems(opts: {
       ...(opts.tauri ? [{
         id: 'window.new',
         title: '新窗口',
-        subtitle: '打开一个独立的 Velo 窗口',
         shortcut: 'Ctrl+Shift+N',
         group: 'app' as const,
         keywords: ['new window'],
@@ -65,7 +66,6 @@ export function useCommandPaletteItems(opts: {
       ...(opts.tauri ? [{
         id: 'window.fullscreen',
         title: opts.isFullscreen.value ? '退出全屏' : '全屏模式',
-        subtitle: '切换窗口全屏',
         shortcut: 'F11',
         group: 'app' as const,
         keywords: ['fullscreen', '全屏'],
@@ -74,7 +74,6 @@ export function useCommandPaletteItems(opts: {
       ...(opts.tauri ? [{
         id: 'window.alwaysOnTop',
         title: opts.isAlwaysOnTop.value ? '取消窗口最前' : '保持窗口最前',
-        subtitle: '窗口浮在所有普通窗口之上',
         group: 'app' as const,
         keywords: ['always on top', 'pin', '置顶', '最前'],
         run: () => opts.toggleAlwaysOnTop(),
@@ -82,7 +81,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'editor.focusMode',
         title: opts.focusMode.value ? '退出专注模式' : '专注模式',
-        subtitle: '当前段落外内容降透明度',
         shortcut: 'F8',
         group: 'app',
         keywords: ['focus mode', '专注', 'focus'],
@@ -91,7 +89,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'editor.typewriterMode',
         title: opts.typewriterMode.value ? '退出打字机模式' : '打字机模式',
-        subtitle: '光标锁定在视口中线',
         shortcut: 'F9',
         group: 'app',
         keywords: ['typewriter mode', '打字机', 'typewriter', '锁屏'],
@@ -100,7 +97,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'file.open',
         title: '打开文件',
-        subtitle: '从磁盘选择一个 Markdown 文件',
         shortcut: 'Ctrl+O',
         group: 'app',
         keywords: ['open file'],
@@ -109,82 +105,98 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'file.save',
         title: '保存',
-        subtitle: documentStore.currentFilePath ? normalizeDisplayPath(documentStore.currentFilePath) : '未命名文件会进入另存为',
         shortcut: 'Ctrl+S',
         group: 'app',
         keywords: ['save file'],
+        hidden: !hasDoc,
         run: () => documentStore.save(),
       },
       {
         id: 'file.saveAs',
         title: '另存为',
-        subtitle: '选择新位置保存当前文档',
         shortcut: 'Ctrl+Shift+S',
         group: 'app',
         keywords: ['save as'],
+        hidden: !hasDoc,
         run: () => documentStore.saveAs(),
       },
       {
         id: 'file.versionHistory',
         title: '浏览版本历史',
-        subtitle: '查看当前文件的保存版本快照，diff 对比与恢复',
         group: 'app',
         keywords: ['version', 'history', 'timeline', 'snapshot', '版本', '历史', '时间线'],
         disabled: !documentStore.currentFilePath,
         disabledReason: '需要先保存文件',
+        hidden: !hasDoc,
         run: () => opts.openVersionHistory(),
       },
       {
         id: 'file.export',
         title: exportStore.exporting ? '导出中…' : '导出',
-        subtitle: '导出为 HTML 或 PDF',
         shortcut: 'Ctrl+Shift+E',
         group: 'app',
         keywords: ['export', 'html', 'pdf'],
         disabled: exportStore.exporting,
         disabledReason: '导出中…',
+        hidden: !hasDoc,
         run: () => exportStore.exportDocument(),
       },
       {
         id: 'edit.find',
         title: '查找',
-        subtitle: '在当前文档中查找',
         shortcut: 'Ctrl+F',
         group: 'app',
         keywords: ['find', 'search current file'],
+        hidden: !hasDoc,
         run: () => opts.openFind(),
       },
       {
         id: 'edit.replace',
         title: '替换',
-        subtitle: '在当前文档中查找并替换',
         shortcut: 'Ctrl+H',
         group: 'app',
         keywords: ['replace'],
+        hidden: !hasDoc,
         run: () => opts.openReplace(),
       },
       {
         id: 'editor.toggleSource',
         title: documentStore.sourceMode ? '切换到所见即所得' : '切换源码模式',
-        subtitle: documentStore.sourceMode ? '返回 ProseMirror 所见即所得编辑器' : '使用源码模式编辑 Markdown',
         shortcut: 'Ctrl+`',
         group: 'app',
         keywords: ['source mode', 'wysiwyg', 'markdown source'],
+        hidden: !hasDoc,
         run: () => documentStore.toggleSourceMode(),
+      },
+      {
+        id: 'editor.readMode',
+        title: documentStore.readOnly ? '退出阅读模式' : '阅读模式',
+        shortcut: 'Ctrl+Shift+R',
+        group: 'app',
+        keywords: ['read mode', 'read only', '阅读', '只读'],
+        hidden: !hasDoc,
+        run: () => { documentStore.readOnly = !documentStore.readOnly },
+      },
+      {
+        id: 'editor.toggleTheme',
+        title: editorStore.darkMode ? '切换到浅色模式' : '切换到暗色模式',
+        group: 'app',
+        keywords: ['theme', 'dark', 'light', '暗色', '浅色', '主题', '深色', '夜间', '日间'],
+        run: () => { editorStore.themeMode = editorStore.darkMode ? 'light' : 'dark' },
       },
       {
         id: 'editor.formatCJK',
         title: '格式化排版',
-        subtitle: '智能中英文间距 / 全角标点 / 引号 / 空白清理',
         shortcut: 'Ctrl+Shift+L',
         group: 'app',
         keywords: ['format', 'cjk', '排版', '格式化', '中英文', '间距', '全角', '标点', '引号', '空白', '中文'],
+        hidden: !hasDoc,
         run: () => opts.formatCJK(),
       },
       {
         id: 'settings.open',
         title: '打开设置',
-        subtitle: '调整编辑器外观和行为',
+        shortcut: 'Ctrl+,',
         group: 'app',
         keywords: ['settings', 'preferences'],
         run: () => opts.showSettingsPanel(),
@@ -192,7 +204,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.openFolder',
         title: '打开文件夹作为工作区',
-        subtitle: '选择一个目录作为当前工作区',
         group: 'workspace',
         keywords: ['open folder', 'workspace'],
         run: () => opts.openFolderAsWorkspace(),
@@ -200,7 +211,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.quickOpen',
         title: '快速打开文件',
-        subtitle: '在当前工作区中按文件名查找 Markdown',
         shortcut: 'Ctrl+P',
         group: 'workspace',
         keywords: ['quick open', 'file search'],
@@ -211,7 +221,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.search',
         title: '搜索工作区',
-        subtitle: '全文搜索当前工作区中的 Markdown',
         shortcut: 'Ctrl+Shift+F',
         group: 'workspace',
         keywords: ['workspace search', 'search all files'],
@@ -222,7 +231,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.files',
         title: '显示工作区文件',
-        subtitle: '打开左侧文件树',
         group: 'workspace',
         keywords: ['file tree', 'explorer', 'workspace files'],
         disabled: needWorkspace,
@@ -232,7 +240,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.outline',
         title: '显示大纲',
-        subtitle: '打开当前文档的大纲视图',
         group: 'workspace',
         keywords: ['outline', 'headings'],
         run: () => opts.showSidebarTab('outline'),
@@ -240,7 +247,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.assets',
         title: '显示资产面板',
-        subtitle: '查看当前文档的图片资产',
         group: 'workspace',
         keywords: ['assets', 'images', 'pictures'],
         run: () => opts.showSidebarTab('assets'),
@@ -248,7 +254,6 @@ export function useCommandPaletteItems(opts: {
       {
         id: 'workspace.close',
         title: '关闭工作区',
-        subtitle: workspaceStore.activeRoot ? normalizeDisplayPath(workspaceStore.activeRoot) : '当前没有打开的工作区',
         group: 'workspace',
         keywords: ['close workspace'],
         disabled: needWorkspace,

@@ -67,7 +67,7 @@ _editor-dark.scss       ← 暗色模式（非 alert / 非 image 部分）
 _math.scss              ← 数学公式 NodeView + 编辑壳
 _mermaid.scss           ← mermaid widget / toolbar / error / loading
 _footnote.scss          ← 脚注 reference / definition
-_context-menu.scss      ← 右键菜单通用项样式（.ctx-menu-item / --danger / separator），跨 4 份 *ContextMenu 组件共用
+_context-menu.scss      ← 右键菜单通用项样式（.ctx-menu-item / --danger / separator）+ 统一快捷键 badge（.velo-kbd，跨所有菜单 / 面板共用）
 _settings.scss          ← 设置页共享样式（.velo-setting-row / .velo-switch / .velo-select-trigger / .velo-select-panel / .velo-slider-* 等），跨 SettingsPage + 各分组组件共用
 ```
 
@@ -263,6 +263,29 @@ btn.className = 'velo-icon-btn my-comp-btn'
   // 它们全部由 .velo-icon-btn 提供
 }
 ```
+
+---
+
+## 公共快捷键 badge（`.velo-kbd`）
+
+所有需要展示快捷键提示的 UI（右键菜单 / 文件菜单 / 命令面板等）共享公共类 `velo-kbd`，定义在 `_context-menu.scss`。
+
+统一前各处自行硬编码字体、字号、颜色、背景，存在三套不一致的写法（SCSS 硬编码 monospace / Tailwind `font-mono` / inline style）。`.velo-kbd` 统一为：`var(--font-mono)` 字体、`0.625rem` 字号、`--surface-pressed` 底色 pill、亮 gray-500 / 暗 gray-400 文字色。
+
+### 使用规则
+
+- **新增快捷键展示**：`class="velo-kbd"`，不需要自行声明字体 / 字号 / 颜色 / 背景 / 圆角。
+- **默认带 `margin-left: 1.25rem`**：在 flex 行中 label 用 `flex: 1` 占满空间时，快捷键自然右对齐且与 label 间有间距。
+- **需要防止压缩时**加 `shrink-0`（Tailwind utility）。
+- **暗色自适应**：`html.dark` 下颜色自动翻面，无需各组件声明。
+
+### 使用位置
+
+| 组件 | 位置 |
+|------|------|
+| `TableContextMenu.vue` | 右键菜单项右侧快捷键 |
+| `FileMenuButton.vue` | 文件菜单项右侧快捷键 |
+| `QuickCommandPanel.vue` | 命令面板行右侧快捷键 |
 
 ---
 

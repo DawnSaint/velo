@@ -16,13 +16,12 @@ const items: CommandPaletteItem[] = [
 ]
 
 describe('commandPalette', () => {
-  it('空 query 保持分组顺序和组内源顺序', () => {
+  it('空 query 保持分组顺序和组内源顺序（recent 组不进命令模式）', () => {
     const sections = buildCommandPaletteSections(items, '')
 
-    expect(sections.map(s => s.key)).toEqual(['app', 'workspace', 'recent'])
+    expect(sections.map(s => s.key)).toEqual(['app', 'workspace'])
     expect(sections[0].rows.map(r => r.item.id)).toEqual(['save', 'open'])
     expect(sections[1].rows.map(r => r.item.id)).toEqual(['quick'])
-    expect(sections[2].rows.map(r => r.item.id)).toEqual(['recent'])
   })
 
   it('title 命中时返回高亮段', () => {
@@ -32,12 +31,10 @@ describe('commandPalette', () => {
     expect(open?.titleSegments.some(seg => seg.match && seg.text === '打开')).toBe(true)
   })
 
-  it('可通过 subtitle 和 keywords 匹配', () => {
-    const byPath = buildCommandPaletteSections(items, 'docs').flatMap(s => s.rows)
-    const byKeyword = buildCommandPaletteSections(items, 'recent').flatMap(s => s.rows)
+  it('可通过 keywords 匹配', () => {
+    const byKeyword = buildCommandPaletteSections(items, 'open file').flatMap(s => s.rows)
 
-    expect(byPath.map(r => r.item.id)).toContain('recent')
-    expect(byKeyword.map(r => r.item.id)).toContain('recent')
+    expect(byKeyword.map(r => r.item.id)).toContain('open')
   })
 
   it('disabled 项仍可匹配并保留状态', () => {

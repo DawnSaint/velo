@@ -88,6 +88,12 @@ export function formatShortcutKey(key: string): string {
   const labels = tokens.map((tok) => {
     if (tok === 'Mod') return isMac() ? '⌘' : 'Ctrl'
     if (tok === 'Shift') return isMac() ? '⇧' : 'Shift'
+    if (tok === 'Alt') return isMac() ? '⌥' : 'Alt'
+    // ArrowUp / ArrowDown / ArrowLeft / ArrowRight → ↑ ↓ ← →
+    const arrowMap: Record<string, string> = {
+      ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+    }
+    if (arrowMap[tok]) return arrowMap[tok]
     return tok.charAt(0).toUpperCase() + tok.slice(1)
   })
   return labels.join('+')

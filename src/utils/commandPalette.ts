@@ -22,6 +22,13 @@ export type CommandPaletteIcon =
   | 'workspace-switch'
   | 'recent-file'
   | 'version-history'
+  | 'fullscreen'
+  | 'pin'
+  | 'focus-mode'
+  | 'typewriter-mode'
+  | 'format-cjk'
+  | 'read-mode'
+  | 'theme'
 
 export interface CommandPaletteItem {
   id: string
@@ -33,6 +40,7 @@ export interface CommandPaletteItem {
   keywords?: string[]
   disabled?: boolean
   disabledReason?: string
+  hidden?: boolean
   run: () => void | Promise<unknown>
 }
 
@@ -48,14 +56,7 @@ export interface CommandPaletteRow {
 
 export interface CommandPaletteSection {
   key: CommandPaletteGroup
-  label: string
   rows: CommandPaletteRow[]
-}
-
-const GROUP_LABELS: Record<CommandPaletteGroup, string> = {
-  app: '命令',
-  workspace: '工作区',
-  recent: '最近文件',
 }
 
 const GROUP_ORDER: CommandPaletteGroup[] = ['app', 'workspace', 'recent']
@@ -88,7 +89,6 @@ function searchableFields(item: CommandPaletteItem): string[] {
     item.title,
     item.subtitle ?? '',
     item.shortcut ?? '',
-    GROUP_LABELS[item.group],
     ...(item.keywords ?? []),
   ].filter(Boolean)
 }
@@ -113,6 +113,7 @@ export function buildCommandPaletteSections(items: readonly CommandPaletteItem[]
 
   if (!query) {
     items.forEach((item) => {
+      if (item.group === 'recent' || item.hidden) return
       const rows = byGroup.get(item.group) ?? []
       rows.push({ item, titleSegments: buildCommandPaletteSegments(item.title, undefined) })
       byGroup.set(item.group, rows)
@@ -121,6 +122,7 @@ export function buildCommandPaletteSections(items: readonly CommandPaletteItem[]
   else {
     const scored: ScoredItem[] = []
     items.forEach((item, index) => {
+      if (item.group === 'recent' || item.hidden) return
       const hit = scoreItem(item, query, index)
       if (hit) scored.push(hit)
     })
@@ -132,6 +134,6 @@ export function buildCommandPaletteSections(items: readonly CommandPaletteItem[]
     }
   }
 
-  return GROUP_ORDER.map(key => ({ key, label: GROUP_LABELS[key], rows: byGroup.get(key) ?? [] }))
+  return GROUP_ORDER.map(key => ({ key, rows: byGroup.get(key) ?? [] }))
     .filter(section => section.rows.length > 0)
 }

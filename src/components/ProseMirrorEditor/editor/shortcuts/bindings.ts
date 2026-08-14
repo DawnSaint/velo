@@ -208,29 +208,35 @@ registerShortcut({
 
 // —— Alt+方向键:移动当前行/列(光标在 cell 内即可,无需 CellSelection) ——
 // 与 Mod-Shift-Arrow 共用 cmdMoveRow/cmdMoveColumn,后者已支持 TextSelection-in-cell。
+// 带 tableAction 会覆盖 Mod-Shift-Arrow 版本在右键菜单中的展示(后注册覆盖先注册),
+// 让菜单显示更简洁的 Alt+方向键 而非 Mod-Shift-Arrow。
 registerShortcut({
   key: 'Alt-ArrowUp',
   command: cmdMoveRow(-1),
   label: '表格:上移行',
   group: 'table',
+  tableAction: 'move-row-up',
 })
 registerShortcut({
   key: 'Alt-ArrowDown',
   command: cmdMoveRow(1),
   label: '表格:下移行',
   group: 'table',
+  tableAction: 'move-row-down',
 })
 registerShortcut({
   key: 'Alt-ArrowLeft',
   command: cmdMoveColumn(-1),
   label: '表格:左移列',
   group: 'table',
+  tableAction: 'move-column-left',
 })
 registerShortcut({
   key: 'Alt-ArrowRight',
   command: cmdMoveColumn(1),
   label: '表格:右移列',
   group: 'table',
+  tableAction: 'move-column-right',
 })
 
 // ============================================================

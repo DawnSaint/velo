@@ -341,8 +341,7 @@ onBeforeUnmount(() => {
             />
             <span
               v-else-if="row.shortcut"
-              class="shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 text-[11px] text-gray-400 dark:text-gray-500"
-              style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+              class="velo-kbd"
             >{{ row.shortcut }}</span>
           </button>
         </template>

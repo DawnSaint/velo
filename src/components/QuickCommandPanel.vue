@@ -18,7 +18,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import {
   AppWindowMac, AtSign, Code2, Download, File, FilePlusCorner, FileSearch, FileUp,
-  FolderOpen, Folders, FolderX, History, List, ListOrdered, Replace, Save, Search, Settings, Terminal, Upload,
+  FolderOpen, Folders, FolderX, Fullscreen, History, List, ListOrdered, Moon, PenOff, Pin, Replace, Save, Search, Settings, SunMoon, Terminal, TextCursorInput, Type, Upload,
 } from '@lucide/vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
@@ -182,6 +182,13 @@ const iconComponents: Record<CommandPaletteIcon, Component> = {
 'workspace-switch': FolderOpen,
 'recent-file': History,
 'version-history': History,
+  fullscreen: Fullscreen,
+  pin: Pin,
+  'focus-mode': Moon,
+  'typewriter-mode': TextCursorInput,
+  'format-cjk': Type,
+  'read-mode': PenOff,
+  theme: SunMoon,
 }
 
 function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): CommandPaletteIcon {
@@ -192,6 +199,10 @@ function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): Comman
   const byId: Record<string, CommandPaletteIcon> = {
     'file.new': 'new-doc',
     'window.new': 'new-window',
+    'window.fullscreen': 'fullscreen',
+    'window.alwaysOnTop': 'pin',
+    'editor.focusMode': 'focus-mode',
+    'editor.typewriterMode': 'typewriter-mode',
     'file.open': 'open-file',
     'file.save': 'save',
     'file.saveAs': 'save-as',
@@ -199,6 +210,9 @@ function iconFor(row: CommandPaletteRow, section: CommandPaletteSection): Comman
     'edit.find': 'find',
     'edit.replace': 'replace',
     'editor.toggleSource': 'source',
+    'editor.readMode': 'read-mode',
+    'editor.toggleTheme': 'theme',
+    'editor.formatCJK': 'format-cjk',
     'settings.open': 'settings',
     'workspace.openFolder': 'open-folder',
     'workspace.quickOpen': 'quick-open',
@@ -269,7 +283,7 @@ const sections = computed<UnifiedSection[]>(() => {
     const cmdSections = buildCommandPaletteSections(props.items, search.value)
     return cmdSections.map(s => ({
       key: s.key,
-      label: s.label,
+      label: '',
       rows: s.rows.map(r => ({
         key: r.item.id,
         primarySegments: r.titleSegments,
@@ -664,6 +678,7 @@ onBeforeUnmount(() => {
         <div
           v-if="mode !== 'line'"
           ref="listRef"
+          v-velo-scroll
           class="min-h-0 flex-1 overflow-y-auto py-1"
         >
           <div v-if="isEmpty" class="px-3 py-4 text-center text-xs text-gray-400">
@@ -680,7 +695,7 @@ onBeforeUnmount(() => {
                 type="button"
                 :data-flat-idx="flatRows.findIndex(r => r.sectionIndex === sectionIdx && r.rowIndex === rowIdx)"
                 :data-testid="`quick-command-row-${row.key}`"
-                class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors"
+                class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors"
                 :class="[
                   row.disabled ? 'cursor-default opacity-50' : 'cursor-pointer',
                   selection.section === sectionIdx && selection.index === rowIdx
@@ -716,11 +731,9 @@ onBeforeUnmount(() => {
                     </template>
                   </span>
                 </template>
-                <!-- command 行:图标盒 + 标题命中加粗 + 副标 + 快捷键 -->
+                <!-- command 行:图标 + 标题命中加粗 + 副标 + 快捷键 -->
                 <template v-else>
-                  <span class="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--surface-pressed)] text-gray-500 dark:text-gray-300" aria-hidden="true">
-                    <component :is="row.icon" :size="14" />
-                  </span>
+                  <component :is="row.icon" :size="15" class="shrink-0 text-gray-800 dark:text-gray-200" aria-hidden="true" />
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-gray-800 dark:text-gray-200">
                       <template v-for="(seg, i) in row.primarySegments" :key="i">
@@ -734,7 +747,7 @@ onBeforeUnmount(() => {
                   </span>
                   <span
                     v-if="row.shortcut"
-                    class="ml-auto shrink-0 rounded bg-[var(--surface-pressed)] px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:text-gray-400"
+                    class="velo-kbd shrink-0"
                   >
                     {{ row.shortcut }}
                   </span>
