@@ -275,18 +275,18 @@ watch(() => editorStore.visibleActivityBarItems, () => {
   align-items: center;
   justify-content: center;
   border-radius: 13px;
-  color: #9ca3af;
+  color: var(--chrome-text-secondary);
   transition:
     color 140ms ease,
     transform 140ms ease;
 }
 
 .activity-bar__button:hover {
-  color: #4b5563;
+  color: var(--chrome-text-primary);
 }
 
 :global(.dark .activity-bar__button:hover) {
-  color: #d1d5db;
+  color: var(--chrome-text-primary);
 }
 
 .activity-bar__button:focus-visible {

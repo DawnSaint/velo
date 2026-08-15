@@ -211,6 +211,12 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 | `--font-mono` | `_fonts.scss` `:root` | 等宽字体栈 | ✗ 静态 |
 | `--shiki-light` / `--shiki-dark` 等 | `_editor-code.scss` `:root` | shiki 双主题 token 颜色 | ✗ 静态（dark 切换靠 CSS cascade） |
 | `--editor-text-muted` | `index.scss` `:root` / `.dark` | 编辑器内容次要文字色（亮 `#888` / 暗 `#aaa`） | ✗ 静态（dark 切换靠 CSS cascade） |
+| `--chrome-text-secondary` | `index.scss` `:root` / `.dark` | UI chrome 次要文字色（亮 gray-500 / 暗 gray-400） | ✗ 静态 |
+| `--chrome-text-primary` | `index.scss` `:root` / `.dark` | UI chrome 主要文字色（亮 gray-700 / 暗 gray-300） | ✗ 静态 |
+| `--chrome-text-active` | `index.scss` `:root` / `.dark` | UI chrome 激活态文字色（亮 gray-800 / 暗 gray-300） | ✗ 静态 |
+| `--chrome-accent-blue` | `index.scss` `:root` / `.dark` | UI chrome 蓝色强调色（亮 blue-500 / 暗 blue-400） | ✗ 静态 |
+| `--code-header-dark-bg` | `index.scss` `:root` | 代码块 / emoji dropdown 暗色背景（gray-800） | ✗ 静态 |
+| `--code-dark-shadow` | `index.scss` `:root` | 代码块 / emoji dropdown 暗色阴影 | ✗ 静态 |
 | `--toc-level` | `TocDecoration.ts` 行内 `style.setProperty` | TOC 缩进层级 | ✓ 运行时计算 |
 
 ### 禁令
@@ -286,24 +292,12 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 
 #### C. UI chrome 组件 scoped style
 
-组件 scoped style 中的硬编码颜色。**建议逐步迁移**到海拔变量 / Tailwind class。迁移后从 baseline 删除。
+组件 scoped style 中的硬编码颜色。已迁移到 UI chrome 文字变量的不再列入下表。
 
 | 颜色值 | Tailwind 对应 | 文件 | 用途 | 亮/暗 |
 |--------|-------------|------|------|--------|
-| `rgb(107 114 128)` | gray-500 | TabBar / AssetPanel / _context-menu / _settings | 标签次要文字 | 亮 |
-| `rgb(156 163 175)` | gray-400 | TabBar / AssetPanel / _context-menu / _mermaid | disabled / 占位文字 | 亮 |
-| `rgb(209 213 219)` | gray-300 | TabBar / StatusBar / _settings / ActivityBar / _mermaid | 暗色次要文字 | 暗 |
-| `rgb(75 85 99)` | gray-600 | StatusBar / _settings / AssetPanel | 标签文字 | 亮 |
-| `rgb(55 65 81)` | gray-700 | TabBar / _settings / WorkspaceSearchPanel / AssetPanel | 标签 hover 背景 / 文字 | 暗 |
-| `rgb(31 41 55)` | gray-800 | TabBar / AssetPanel | 标签激活背景 | 暗 |
 | `rgb(17 24 39)` | gray-900 | _settings | 设置页文字 | 亮 |
-| `#4b5563` | gray-600 | ActivityBar / _settings / _editor-code / _editor-emoji | 活动栏文字 | 亮 |
-| `#9ca3af` | gray-400 | ActivityBar | 活动栏次要文字 | 亮 |
-| `#d1d5db` | gray-300 | ActivityBar / _editor-code / _editor-emoji | 暗色次要文字 | 暗 |
-| `#d1d5db` | gray-300 | _settings / ActivityBar / _editor-code / _editor-emoji | 切换未激活态 / 暗色次要文字 | 亮+暗 |
-| `#4b5563` | gray-600 | _settings | 切换激活态 | 暗 |
-| `rgb(59 130 246)` | blue-500 | TabBar | 未保存圆点 | 亮 |
-| `rgb(96 165 250)` | blue-400 | TabBar / FileTree | 未保存圆点 | 暗 |
+| `#d1d5db` | gray-300 | _settings | switch 未激活态 | 亮 |
 | `rgb(245 158 11)` | amber-500 | TabBar | 警告圆点 | 亮 |
 | `rgb(251 191 36)` | amber-400 | TabBar | 警告圆点 | 暗 |
 | `rgb(243 244 246)` | gray-100 | AssetPanel / WorkspaceSearchPanel | 卡片背景 | 亮 |
@@ -320,16 +314,11 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 | `rgba(16, 24, 40, 0.12)` | — | FileTree | drag 阴影 | 亮 |
 | `rgba(0, 0, 0, 0.6)` | — | FileTree | drag 阴影 | 暗 |
 
-**合并建议**：
-- `rgb(107 114 128)`（gray-500）与 `#4b5563`（gray-600）在不同文件中表达"次要文字"——可统一为 Tailwind class `text-gray-500 dark:text-gray-400`
-- `rgb(156 163 175)`（gray-400）用于 disabled——可统一改为 `opacity-50` 方案（参考 `.velo-text-btn:disabled` 的迁移）
-- `rgb(209 213 219)`（gray-300）和 `rgb(229 231 235)`（gray-200）表达"暗色次要文字"——可合并为 `dark:text-gray-300`
-- `rgb(31 41 55)`（gray-800）、`rgb(55 65 81)`（gray-700）、`rgb(75 85 99)`（gray-600）分布在多个组件——可统一为 `dark:bg-gray-800` / `dark:text-gray-300`
-- TabBar 圆点 `rgb(59 130 246)` / `rgb(96 165 250)` 和 FileTree `rgb(59 130 246)` / `rgb(96 165 250)` 是同一套蓝色——应合并
-
-**剪除建议**：
-- `rgb(37 37 37)`（#252525）是独特的暗色，在 _settings 中只用了 1 处——可考虑用 `rgb(31 41 55)`（gray-800）替代
-- `#140406` 是 WindowControls 独有的极暗色——该组件为 macOS 风格窗口按钮，色彩固定不变，可保留
+> **已迁移到变量的颜色**（不再列入 baseline）：
+> - `--chrome-text-secondary`：gray-500 / gray-400 / `#4b5563` / `#9ca3af` — UI chrome 次要文字
+> - `--chrome-text-primary`：gray-700 / gray-600 / gray-300 / `#d1d5db` — UI chrome 主要文字
+> - `--chrome-text-active`：gray-800 / gray-300 — UI chrome 激活态文字
+> - `--chrome-accent-blue`：blue-500 / blue-400 — UI chrome 蓝色强调
 
 #### D. 右键菜单 danger 色（`_context-menu.scss`）
 
@@ -368,9 +357,9 @@ shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**�
 | `#d14` | 行内 code 文字 | 亮 |
 | `#ff7b72` | 代码红色 token | 暗 |
 | `#0d1117` | 代码暗色背景 | 暗 |
-| `#1f2937` | 代码块 header 背景 (gray-800) | 暗 |
+| `var(--code-header-dark-bg)` | 代码块 / emoji dropdown 暗色背景 (gray-800) | 暗 |
 | `#374151` | 代码块 header 暗色背景 (gray-700) | 暗 |
-| `#4b5563` | 代码块文字 (gray-600) | 亮 |
+| `var(--chrome-text-secondary)` | 代码块 / emoji dropdown 文字 (gray-500/400) | 亮+暗 |
 | `#f3f4f6` | 代码块背景 (gray-100) | 亮 |
 | `#e5e7eb` | 代码块暗色文字 (gray-200) | 暗 |
 | `#e8590c` | 代码 orange-600 | 亮 |
@@ -379,14 +368,12 @@ shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**�
 | `#fff` | 代码块 caret / cursor | 暗 |
 | `rgba(0, 0, 0, 0.05)` | 行内 code 背景 | 亮 |
 | `rgba(0, 0, 0, 0.15)` | 代码块阴影 | 亮 |
-| `rgba(0, 0, 0, 0.5)` | 代码块暗色阴影 | 暗 |
+| `var(--code-dark-shadow)` | 代码块 / emoji dropdown 暗色阴影 | 暗 |
 | `rgba(255, 215, 0, 0.18)` | CM6 find 高亮背景 | 亮 |
 | `rgba(255, 215, 0, 0.85)` | CM6 find 高亮边框 | 亮 |
 | `rgba(15, 76, 129, 0.35)` | CM6 selection 背景 | 亮 |
 | `rgba(255, 255, 255, 0.2)` | CM6 暗色背景 | 暗 |
 | `rgba(255, 255, 255, 0.08)` | 代码块暗色 hover 背景 | 暗 |
-
-**合并建议**：`#1f2937`（gray-800）在 _editor-code 和 _editor-emoji 中重复用于"代码块 header 暗色背景"——可合并。`rgba(0, 0, 0, 0.5)` 在多处用于"暗色阴影"——可合并。
 
 #### G. 编辑器内容 — alert / callout 色（`_editor-alerts.scss`）
 
@@ -506,7 +493,7 @@ GFM alert 五种级别的配色，对齐 GitHub alert 色。
 ### 新增颜色约定
 
 1. UI chrome 背景 → 用海拔变量，不新增颜色
-2. UI chrome 文字 → 用 Tailwind class，不新增颜色
+2. UI chrome 文字 → 用 `--chrome-text-*` 变量，不新增颜色
 3. 编辑器内容 → 先查本表格能否复用已有色值
 4. 确需新增 → 在本表格登记 + 跑 `npm run lint:design-tokens:baseline`
 

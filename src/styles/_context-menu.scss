@@ -13,11 +13,11 @@
   line-height: 1;
   letter-spacing: 0.02em;
   margin-left: 1.25rem;
-  color: rgb(107 114 128); // gray-500  
+  color: var(--chrome-text-secondary);
   white-space: nowrap;
 
   html.dark & {
-    color: rgb(156 163 175); // gray-400
+    color: var(--chrome-text-secondary);
   }
 }
 

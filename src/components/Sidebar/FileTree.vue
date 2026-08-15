@@ -814,12 +814,12 @@ function displayName(node: TreeNode): string {
  * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 surface-pressed 更亮)。 */
 .reveal-flash {
   background-color: rgb(219 234 254);   /* blue-100 */
-  outline: 2px solid rgb(59 130 246);  /* blue-500 */
+  outline: 2px solid var(--chrome-accent-blue);  /* blue-500 */
   outline-offset: -2px;
   transition: background-color 600ms ease-out, outline-color 600ms ease-out;
 }
 .dark .reveal-flash {
   background-color: rgb(30 58 138 / 0.4);   /* blue-900 @ 40% */
-  outline-color: rgb(96 165 250);          /* blue-400 */
+  outline-color: var(--chrome-accent-blue);          /* blue-400 */
 }
 </style>

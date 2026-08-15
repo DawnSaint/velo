@@ -1,24 +1,4 @@
 {
-  "src/components/ActivityBar.vue:#4b5563": {
-    "color": "#4b5563",
-    "type": "hex"
-  },
-  "src/components/ActivityBar.vue:#9ca3af": {
-    "color": "#9ca3af",
-    "type": "hex"
-  },
-  "src/components/ActivityBar.vue:#d1d5db": {
-    "color": "#d1d5db",
-    "type": "hex"
-  },
-  "src/components/Sidebar/AssetPanel.vue:rgb(107": {
-    "color": "rgb(107",
-    "type": "rgb"
-  },
-  "src/components/Sidebar/AssetPanel.vue:rgb(156": {
-    "color": "rgb(156",
-    "type": "rgb"
-  },
   "src/components/Sidebar/AssetPanel.vue:rgb(209": {
     "color": "rgb(209",
     "type": "rgb"
@@ -35,10 +15,6 @@
     "color": "rgb(55",
     "type": "rgb"
   },
-  "src/components/Sidebar/AssetPanel.vue:rgb(75": {
-    "color": "rgb(75",
-    "type": "rgb"
-  },
   "src/components/Sidebar/EditorOutline.vue:#fff": {
     "color": "#fff",
     "type": "hex"
@@ -51,14 +27,6 @@
     "color": "rgb(30",
     "type": "rgb"
   },
-  "src/components/Sidebar/FileTree.vue:rgb(59": {
-    "color": "rgb(59",
-    "type": "rgb"
-  },
-  "src/components/Sidebar/FileTree.vue:rgb(96": {
-    "color": "rgb(96",
-    "type": "rgb"
-  },
   "src/components/Sidebar/FileTree.vue:rgba(0": {
     "color": "rgba(0",
     "type": "rgb"
@@ -67,48 +35,12 @@
     "color": "rgba(16",
     "type": "rgb"
   },
-  "src/components/StatusBar.vue:rgb(209": {
-    "color": "rgb(209",
-    "type": "rgb"
-  },
-  "src/components/StatusBar.vue:rgb(75": {
-    "color": "rgb(75",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(107": {
-    "color": "rgb(107",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(156": {
-    "color": "rgb(156",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(209": {
-    "color": "rgb(209",
-    "type": "rgb"
-  },
   "src/components/TabBar.vue:rgb(245": {
     "color": "rgb(245",
     "type": "rgb"
   },
   "src/components/TabBar.vue:rgb(251": {
     "color": "rgb(251",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(31": {
-    "color": "rgb(31",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(55": {
-    "color": "rgb(55",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(59": {
-    "color": "rgb(59",
-    "type": "rgb"
-  },
-  "src/components/TabBar.vue:rgb(96": {
-    "color": "rgb(96",
     "type": "rgb"
   },
   "src/components/WindowControls.vue:#140406": {
@@ -143,10 +75,6 @@
     "color": "rgb(243",
     "type": "rgb"
   },
-  "src/components/WorkspaceSearchPanel.vue:rgb(55": {
-    "color": "rgb(55",
-    "type": "rgb"
-  },
   "src/lib/export/exportStyles.scss:#1a1a1a": {
     "color": "#1a1a1a",
     "type": "hex"
@@ -169,14 +97,6 @@
   },
   "src/lib/export/exportStyles.scss:rgba(255": {
     "color": "rgba(255",
-    "type": "rgb"
-  },
-  "src/styles/_context-menu.scss:rgb(107": {
-    "color": "rgb(107",
-    "type": "rgb"
-  },
-  "src/styles/_context-menu.scss:rgb(156": {
-    "color": "rgb(156",
     "type": "rgb"
   },
   "src/styles/_context-menu.scss:rgb(220": {
@@ -275,10 +195,6 @@
     "color": "#0d1117",
     "type": "hex"
   },
-  "src/styles/_editor-code.scss:#1f2937": {
-    "color": "#1f2937",
-    "type": "hex"
-  },
   "src/styles/_editor-code.scss:#24292e": {
     "color": "#24292e",
     "type": "hex"
@@ -295,20 +211,12 @@
     "color": "#374151",
     "type": "hex"
   },
-  "src/styles/_editor-code.scss:#4b5563": {
-    "color": "#4b5563",
-    "type": "hex"
-  },
   "src/styles/_editor-code.scss:#c9d1d9": {
     "color": "#c9d1d9",
     "type": "hex"
   },
   "src/styles/_editor-code.scss:#d14": {
     "color": "#d14",
-    "type": "hex"
-  },
-  "src/styles/_editor-code.scss:#d1d5db": {
-    "color": "#d1d5db",
     "type": "hex"
   },
   "src/styles/_editor-code.scss:#e1e4e8": {
@@ -411,24 +319,12 @@
     "color": "rgba(255",
     "type": "rgb"
   },
-  "src/styles/_editor-emoji.scss:#1f2937": {
-    "color": "#1f2937",
-    "type": "hex"
-  },
   "src/styles/_editor-emoji.scss:#374151": {
     "color": "#374151",
     "type": "hex"
   },
-  "src/styles/_editor-emoji.scss:#4b5563": {
-    "color": "#4b5563",
-    "type": "hex"
-  },
   "src/styles/_editor-emoji.scss:#666": {
     "color": "#666",
-    "type": "hex"
-  },
-  "src/styles/_editor-emoji.scss:#d1d5db": {
-    "color": "#d1d5db",
     "type": "hex"
   },
   "src/styles/_editor-emoji.scss:#e8590c": {
@@ -683,14 +579,6 @@
     "color": "#f77878",
     "type": "hex"
   },
-  "src/styles/_mermaid.scss:rgb(156": {
-    "color": "rgb(156",
-    "type": "rgb"
-  },
-  "src/styles/_mermaid.scss:rgb(209": {
-    "color": "rgb(209",
-    "type": "rgb"
-  },
   "src/styles/_mermaid.scss:rgb(34": {
     "color": "rgb(34",
     "type": "rgb"
@@ -698,10 +586,6 @@
   "src/styles/_mermaid.scss:rgba(128": {
     "color": "rgba(128",
     "type": "rgb"
-  },
-  "src/styles/_settings.scss:#4b5563": {
-    "color": "#4b5563",
-    "type": "hex"
   },
   "src/styles/_settings.scss:#d1d5db": {
     "color": "#d1d5db",
@@ -715,28 +599,8 @@
     "color": "#ffffff",
     "type": "hex"
   },
-  "src/styles/_settings.scss:rgb(107": {
-    "color": "rgb(107",
-    "type": "rgb"
-  },
   "src/styles/_settings.scss:rgb(17": {
     "color": "rgb(17",
-    "type": "rgb"
-  },
-  "src/styles/_settings.scss:rgb(209": {
-    "color": "rgb(209",
-    "type": "rgb"
-  },
-  "src/styles/_settings.scss:rgb(31": {
-    "color": "rgb(31",
-    "type": "rgb"
-  },
-  "src/styles/_settings.scss:rgb(55": {
-    "color": "rgb(55",
-    "type": "rgb"
-  },
-  "src/styles/_settings.scss:rgb(75": {
-    "color": "rgb(75",
     "type": "rgb"
   },
   "src/styles/_settings.scss:rgba(0": {
@@ -763,6 +627,10 @@
     "color": "#1b1e24",
     "type": "hex"
   },
+  "src/styles/index.scss:#1f2937": {
+    "color": "#1f2937",
+    "type": "hex"
+  },
   "src/styles/index.scss:#22262d": {
     "color": "#22262d",
     "type": "hex"
@@ -771,12 +639,36 @@
     "color": "#2a2f38",
     "type": "hex"
   },
+  "src/styles/index.scss:#374151": {
+    "color": "#374151",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#3b82f6": {
+    "color": "#3b82f6",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#60a5fa": {
+    "color": "#60a5fa",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#6b7280": {
+    "color": "#6b7280",
+    "type": "hex"
+  },
   "src/styles/index.scss:#888": {
     "color": "#888",
     "type": "hex"
   },
+  "src/styles/index.scss:#9ca3af": {
+    "color": "#9ca3af",
+    "type": "hex"
+  },
   "src/styles/index.scss:#aaa": {
     "color": "#aaa",
+    "type": "hex"
+  },
+  "src/styles/index.scss:#d1d5db": {
+    "color": "#d1d5db",
     "type": "hex"
   },
   "src/styles/index.scss:#e5e5e5": {

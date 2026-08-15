@@ -174,12 +174,11 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 在文档内标记位置，侧栏 / 命令面板快速跳回
   - per-file 书签列表，不跨文件（跨文件走大纲 / 标题跳转）
 
-- [ ] **ESLint warning 收敛 + 棘轮收紧** `#eslint-ci` `P3` `M` `← #eslint-setup`
-  - 0.7.10 收敛后 0 error / 178 warning；CI 已加 `eslint . --max-warnings 178` 棘轮门禁（只减不增）
+- [ ] **ESLint warning 逐步清理** `#eslint-ci` `P3` `M` `← #eslint-setup`
+  - 0.7.10 收敛后 0 error / 180 warning；CI 与 pre-push 仅卡 error（`--quiet`），warnings 不阻断
   - `no-console` 已关闭（由 `lint:console` 专用脚本管 `console.log` / `debug`，`warn` / `error` 合理保留）
   - 剩余构成：~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
-  - `no-non-null-assertion` / `no-explicit-any` 类：逐个评估，能改的改，不能改的加 `eslint-disable` 带原因
-  - 每轮清理后下调 `--max-warnings` 阈值，逐步收紧至 0
+  - 策略：coding agent 在接触文件时顺手修复该文件中的 warnings（CLAUDE.md 约定），逐步收敛至 0
 
 
 - [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`

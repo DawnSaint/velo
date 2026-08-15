@@ -364,8 +364,8 @@ html.dark .velo-editor .velo-code-lineno,
 }
 
 html.dark .velo-lang-dropdown {
-  background: #1f2937; // gray-800
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  background: var(--code-header-dark-bg);
+  box-shadow: var(--code-dark-shadow);
 }
 
 .velo-lang-dropdown-item {
@@ -377,7 +377,7 @@ html.dark .velo-lang-dropdown {
   align-items: center;
   gap: 6px;
   border-radius: 6px;    // rounded-md
-  color: #4b5563;        // text-gray-600
+  color: var(--chrome-text-secondary);        // gray-500/400
 
   &:hover,
   &.highlighted {
@@ -386,7 +386,7 @@ html.dark .velo-lang-dropdown {
 }
 
 html.dark .velo-lang-dropdown-item {
-  color: #d1d5db;        // text-gray-300
+  color: var(--chrome-text-primary);
 
   &:hover,
   &.highlighted {

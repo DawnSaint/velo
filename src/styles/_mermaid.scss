@@ -135,10 +135,10 @@
 // 暗色 hover 浅灰底已由公共类暗色规则覆盖,这里只写颜色差异。
 .dark .mermaid-btn,
 .dark .velo-editor .mermaid-btn {
-  color: rgb(156 163 175);
+  color: var(--chrome-text-secondary);
 }
 
 .dark .mermaid-btn:hover,
 .dark .velo-editor .mermaid-btn:hover {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }

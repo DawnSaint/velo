@@ -612,12 +612,12 @@ onBeforeUnmount(() => {
   width: 200px;
   min-width: 80px;
   background: transparent;
-  color: rgb(107 114 128);
+  color: var(--chrome-text-secondary);
   user-select: none;
 
   &:not(.tab-active):hover .tab-content {
     background: var(--surface-hover);
-    color: rgb(55 65 81);
+    color: var(--chrome-text-primary);
   }
 
   &::before,
@@ -642,7 +642,7 @@ onBeforeUnmount(() => {
 
   &.tab-active {
     background: var(--surface-2);
-    color: rgb(31 41 55);
+    color: var(--chrome-text-active);
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
     transition: none;
@@ -660,7 +660,7 @@ onBeforeUnmount(() => {
 
   &.tab-drop-before::before,
   &.tab-drop-after::after {
-    background: rgb(59 130 246);
+    background: var(--chrome-accent-blue);
     width: 2px;
   }
 
@@ -722,20 +722,20 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   margin-left: 4px;
   margin-bottom: 6px;
-  color: rgb(156 163 175);
+  color: var(--chrome-text-secondary);
   border-radius: 4px;
   transition: background-color 100ms ease, color 100ms ease;
   &:hover {
     background: var(--surface-hover);
-    color: rgb(55 65 81);
+    color: var(--chrome-text-primary);
   }
 }
 
 .dark .tab {
-  color: rgb(156 163 175);
+  color: var(--chrome-text-secondary);
   &:not(.tab-active):hover .tab-content {
     background: var(--surface-hover);
-    color: rgb(209 213 219);
+    color: var(--chrome-text-primary);
   }
   &.tab-divider::before,
   &.tab-divider-left::before,
@@ -744,11 +744,11 @@ onBeforeUnmount(() => {
   }
   &.tab-drop-before::before,
   &.tab-drop-after::after {
-    background: rgb(96 165 250);
+    background: var(--chrome-accent-blue);
   }
   &.tab-active {
     background: var(--surface-2);
-    color: rgb(209 213 219); /* gray-300 */
+    color: var(--chrome-text-active);
   }
 }
 .dark .tab-close:hover {
@@ -759,6 +759,6 @@ onBeforeUnmount(() => {
 }
 .dark .tab-new:hover {
   background: var(--surface-hover);
-  color: rgb(209 213 219);
+  color: var(--chrome-text-primary);
 }
 </style>

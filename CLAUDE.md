@@ -99,6 +99,7 @@
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
 - **测试**：开发中只跑改动相关的测试文件，尽量不主动跑全量测试
 - **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check
+- **ESLint warnings 顺手修**：每次改动后，用 `read_lints` 查看 warnings，顺手修复接触到的文件中的 warnings（如 `no-non-null-assertion`、`no-explicit-any` 等）。不要为了修 warnings 大范围改动无关文件——接触到的才修，逐步收敛。
 - **commit 前建议**：`npm run type-check` + `npm run test`
 
 ### 新增语法支持 checklist

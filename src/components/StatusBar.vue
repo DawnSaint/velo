@@ -242,7 +242,7 @@ onBeforeUnmount(() => {
 button.statusbar-segment:not(:disabled):hover,
 button.statusbar-segment:not(:disabled):focus-visible {
   background: var(--surface-hover);
-  color: rgb(75 85 99);
+  color: var(--chrome-text-primary);
   outline: none;
 }
 
@@ -254,7 +254,7 @@ button.statusbar-segment:disabled {
 :global(.dark button.statusbar-segment:not(:disabled):hover),
 :global(.dark button.statusbar-segment:not(:disabled):focus-visible) {
   background: var(--surface-hover);
-  color: rgb(209 213 219);
+  color: var(--chrome-text-primary);
 }
 
 .workspace-menu-item {
@@ -273,7 +273,7 @@ button.statusbar-segment:disabled {
 .workspace-menu-item:not(:disabled):focus-visible,
 .workspace-menu-item-active {
   background: var(--surface-hover);
-  color: rgb(75 85 99);
+  color: var(--chrome-text-primary);
   outline: none;
 }
 
@@ -281,7 +281,7 @@ button.statusbar-segment:disabled {
 :global(.dark .workspace-menu-item:not(:disabled):focus-visible),
 :global(.dark .workspace-menu-item-active) {
   background: var(--surface-hover);
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 
 .workspace-menu-item:disabled {

@@ -13,10 +13,7 @@
   margin-bottom: 0.25rem;
   font-size: 0.8125rem;
   font-weight: 500;
-  color: rgb(75 85 99); /* gray-600 */
-}
-.dark .velo-setting-toplabel {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 
 /* 次要文本按钮(「设为默认…」等) */
@@ -54,28 +51,19 @@
 .velo-setting-label {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: rgb(75 85 99); /* gray-600 */
-}
-.dark .velo-setting-label {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 /* label 下方次要提示文本（如版本号、说明文字等） */
 .velo-setting-hint {
   font-size: 0.75rem;
-  color: rgb(107 114 128); /* gray-500 */
-}
-.dark .velo-setting-hint {
-  color: rgb(107 114 128); /* gray-500 */
+  color: var(--chrome-text-secondary);
 }
 /* 行内右侧数值(如字号当前值):等宽数字避免跳动 */
 .velo-setting-value {
   font-size: 0.8125rem;
   font-weight: 500;
   font-feature-settings: 'tnum';
-  color: rgb(75 85 99); /* gray-600 */
-}
-.dark .velo-setting-value {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 
 /* ---------- 自定义下拉(VeloSelect) ---------- */
@@ -101,17 +89,17 @@
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .velo-select-trigger:hover {
-  border-color: rgb(209 213 219); /* gray-300 */
+  border-color: var(--chrome-text-primary);
 }
 .velo-select-trigger:focus-visible {
   border-color: var(--md-primary-color, #1F71D9);
   box-shadow: 0 0 0 1px var(--md-primary-color, #1F71D9);
 }
 .dark .velo-select-trigger {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 .dark .velo-select-trigger:hover {
-  border-color: rgb(75 85 99); /* gray-600 */
+  border-color: var(--chrome-text-secondary);
 }
 .dark .velo-select-trigger:focus-visible {
   border-color: var(--md-primary-color, #1F71D9);
@@ -176,7 +164,7 @@ html.dark .velo-select-panel::-webkit-scrollbar-thumb {
   padding: 0.375rem 0.5rem;
   border-radius: 0.375rem;
   font-size: 0.8125rem;
-  color: rgb(55 65 81); /* gray-700 */
+  color: var(--chrome-text-primary);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -198,7 +186,7 @@ html.dark .velo-select-panel::-webkit-scrollbar-thumb {
   text-overflow: ellipsis;
 }
 html.dark .velo-select-option {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 html.dark .velo-select-option:hover,
 html.dark .velo-select-option--highlighted {
@@ -277,7 +265,7 @@ html.dark .velo-select-swatch {
   transform: translateX(calc(var(--switch-w) - var(--switch-h)));
 }
 .dark .velo-switch:not(:checked) {
-  background: #4b5563; /* gray-600 */
+  background: var(--chrome-text-secondary);
 }
 .velo-switch:focus-visible {
   outline: 2px solid var(--md-primary-color, #1F71D9);
@@ -295,11 +283,11 @@ html.dark .velo-select-swatch {
 .velo-slider-knob {
   will-change: left;
   background: #ffffff;
-  border-color: rgb(209 213 219); /* gray-300 */
+  border-color: var(--chrome-text-primary);
 }
 .dark .velo-slider-knob {
-  background: rgb(31 41 55); /* gray-800 */
-  border-color: rgb(107 114 128); /* gray-500 */
+  background: var(--chrome-text-active);
+  border-color: var(--chrome-text-secondary);
 }
 .velo-slider-track:focus-visible {
   outline: 2px solid var(--md-primary-color, #1F71D9);

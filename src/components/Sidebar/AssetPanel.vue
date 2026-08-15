@@ -706,7 +706,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   padding: 0.5em 1em;
   font-size: 12px;
   font-weight: 600;
-  color: rgb(75 85 99); /* gray-600 */
+  color: var(--chrome-text-primary);
   cursor: pointer;
   transition: background-color 120ms ease;
   text-align: left;
@@ -719,7 +719,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .dark .asset-section__header {
-  color: rgb(156 163 175); /* gray-400 */
+  color: var(--chrome-text-secondary);
 }
 
 .dark .asset-section__header:hover {
@@ -729,7 +729,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 .asset-section__chevron {
   flex-shrink: 0;
   transition: transform 120ms ease;
-  color: rgb(156 163 175); /* gray-400 */
+  color: var(--chrome-text-secondary);
 }
 
 .asset-section__count {
@@ -743,12 +743,12 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   background: rgb(209 213 219); /* gray-300 */
   font-size: 9px;
   font-weight: 600;
-  color: rgb(107 114 128); /* gray-500 */
+  color: var(--chrome-text-secondary);
 }
 
 .dark .asset-section__count {
   background: rgb(55 65 81); /* gray-700 */
-  color: rgb(156 163 175); /* gray-400 */
+  color: var(--chrome-text-secondary);
 }
 
 .asset-subgroup {
@@ -761,11 +761,11 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   gap: 3px;
   padding: 4px 8px 2px;
   font-size: 10px;
-  color: rgb(156 163 175); /* gray-400 */
+  color: var(--chrome-text-secondary);
 }
 
 .dark .asset-subgroup__label {
-  color: rgb(107 114 128); /* gray-500 */
+  color: var(--chrome-text-secondary);
 }
 
 .asset-item {
@@ -813,7 +813,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .dark .asset-item__thumb {
-  background: rgb(31 41 55); /* gray-800 */
+  background: var(--chrome-text-active);
 }
 
 .asset-item__img {
@@ -831,25 +831,25 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 
 .asset-item__name {
   font-size: 12px;
-  color: rgb(55 65 81); /* gray-700 */
+  color: var(--chrome-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .dark .asset-item__name {
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--chrome-text-primary);
 }
 
 .asset-item__alt {
   font-size: 10px;
-  color: rgb(156 163 175); /* gray-400 */
+  color: var(--chrome-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .dark .asset-item__alt {
-  color: rgb(107 114 128); /* gray-500 */
+  color: var(--chrome-text-secondary);
 }
 </style>

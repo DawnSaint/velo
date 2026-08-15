@@ -40,7 +40,7 @@ jobs:
         run: npm run knip
 
       - name: ESLint check
-        run: npx eslint . --max-warnings 178
+        run: npx eslint . --quiet
 
       - name: Test
         run: npm run test

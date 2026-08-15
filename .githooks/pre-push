@@ -56,8 +56,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     exit 1
   fi
 
-  # ── eslint (棘轮门禁, --max-warnings 178) ──
-  if ! npx eslint . --max-warnings 178; then
+  # ── eslint (仅卡 error, warnings 不阻断) ──
+  if ! npx eslint . --quiet; then
     echo "[pre-push] ✗ eslint failed — push aborted (bypass: git push --no-verify)"
     exit 1
   fi

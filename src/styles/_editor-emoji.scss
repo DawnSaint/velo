@@ -60,8 +60,8 @@
 }
 
 html.dark .velo-emoji-dropdown {
-  background: #1f2937; // gray-800
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  background: var(--code-header-dark-bg);
+  box-shadow: var(--code-dark-shadow);
 }
 
 .velo-emoji-dropdown-item {
@@ -73,7 +73,7 @@ html.dark .velo-emoji-dropdown {
   align-items: center;
   gap: 8px;
   border-radius: 6px;
-  color: #4b5563; // text-gray-600
+  color: var(--chrome-text-secondary); // gray-500/400
 
   &:hover,
   &.highlighted {
@@ -82,7 +82,7 @@ html.dark .velo-emoji-dropdown {
 }
 
 html.dark .velo-emoji-dropdown-item {
-  color: #d1d5db; // text-gray-300
+  color: var(--chrome-text-primary);
 
   &:hover,
   &.highlighted {

@@ -671,6 +671,6 @@ function isCollapsed(fullPath: string): boolean {
   background-color: rgb(243 244 246);
 }
 .dark .velo-ws-hovered {
-  background-color: rgb(55 65 81);
+  background-color: var(--chrome-text-primary);
 }
 </style>
