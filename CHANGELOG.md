@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.11](https://github.com/DawnSaint/velo/compare/v0.7.10...v0.7.11) (2026-08-17)
+
+
+### Features
+
+* **editor:** unify shortcut display, improve command palette UX ([a696163](https://github.com/DawnSaint/velo/commit/a69616381d6e73d6ce3ff676b43acc3a1dc659b7))
+* **tauri:** add gpu acceleration toggle, updater fix, and large doc loading fix ([51cfe52](https://github.com/DawnSaint/velo/commit/51cfe52db53df0d2d90fc8e7c24b4ae83c2419a1))
+* **tauri:** switch update card source to RELEASE_NOTES.md, render as markdown, fix version check ([f8ea496](https://github.com/DawnSaint/velo/commit/f8ea4961e6b5a26630564c7637a05ed65c7aa9c6))
+
+
+### Bug Fixes
+
+* **sidebar:** fix updater UI overflow and disabled button style ([58de173](https://github.com/DawnSaint/velo/commit/58de173e265941977b2240608840114e79138f68))
+* **tauri:** use direct signing mode for updater artifacts ([05029f2](https://github.com/DawnSaint/velo/commit/05029f2b621fc85facd52dcde0939d311a2403de))
+* **updater:** update signing public key for auto-update ([d2915d5](https://github.com/DawnSaint/velo/commit/d2915d560250b0dee00d41d7a767effd4a7725b6))
+
 ## [0.7.10](https://github.com/DawnSaint/velo/compare/v0.7.9...v0.7.10) (2026-08-13)
 
 
