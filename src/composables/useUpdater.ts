@@ -17,11 +17,16 @@
 //   reqwest(代理不兼容)和版本对比(dev 版本相同时返回 null)。
 //   dev 环境 fetch 走 Vite proxy(/github-api),避免 WebView2 跨域/CSP/混合内容拦截;
 //   生产环境 fetch 走真实 GitHub API。downloadAndInstall 仍走 checkUpdate。
+// - **release notes 来源**:更新卡片展示用户手写的 docs/RELEASE_NOTES.md(中文、
+//   面向用户),而非 release-please 自动生成的 CHANGELOG.md(英文 commit 流水账)。
+//   fetch GitHub raw 拿到 RELEASE_NOTES.md 全文后正则提取目标版本段落;
+//   raw fetch 失败时降级回 release.body(GitHub Release 页面 changelog)。
 
 import { ref, readonly } from 'vue'
 import { check as checkUpdate, type DownloadEvent } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { isTauri } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { useNotifyStore } from '@/stores/notify'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'up-to-date' | 'error'
@@ -47,6 +52,12 @@ const RELEASES_API = 'https://api.github.com/repos/DawnSaint/velo/releases/lates
 /** dev 环境用 Vite proxy 避免 WebView2 跨域/CSP/混合内容拦截 */
 const RELEASES_API_DEV = '/github-api/repos/DawnSaint/velo/releases/latest'
 
+/** 仓库 master 分支 docs/RELEASE_NOTES.md 原始内容 */
+const RELEASE_NOTES_URL = 'https://raw.githubusercontent.com/DawnSaint/velo/master/docs/RELEASE_NOTES.md'
+
+/** dev 环境用 Vite proxy(raw.githubusercontent.com 也受 CSP 跨域拦截) */
+const RELEASE_NOTES_URL_DEV = '/github-raw/DawnSaint/velo/master/docs/RELEASE_NOTES.md'
+
 interface GithubRelease {
   tag_name: string
   body?: string
@@ -65,6 +76,48 @@ async function fetchLatestRelease(timeoutMs: number): Promise<GithubRelease | nu
     })
     if (!res.ok) return null
     return await res.json() as GithubRelease
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 从 RELEASE_NOTES.md 全文中提取目标版本对应的段落。
+ *
+ * 文件结构:每个版本以 `## [X.Y.Z]` 开头,直到下一个 `## [` 或文件结束。
+ * 提取出的段落保留 markdown 原文(### Added / - 等),由 UI 端渲染。
+ * 找不到对应版本时返回 null,调用方降级到 release.body。
+ */
+function extractReleaseNotesSection(markdown: string, version: string): string | null {
+  // 匹配 `## [X.Y.Z]` 形式的版本标题(方括号内为版本号)
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const startRe = new RegExp(`^## \\[${escaped}\\][^\\n]*$`, 'm')
+  const startMatch = markdown.match(startRe)
+  if (!startMatch) return null
+
+  const startIdx = startMatch.index! + startMatch[0].length
+  // 从版本标题之后查找下一个 `## [` 开头的行(下一个版本)
+  const rest = markdown.slice(startIdx)
+  const nextMatch = rest.match(/^## \[\d/m)
+  const endIdx = nextMatch ? nextMatch.index! : rest.length
+  return rest.slice(0, endIdx).trim() || null
+}
+
+/**
+ * fetch docs/RELEASE_NOTES.md 并提取目标版本段落。
+ * 失败(网络 / 解析不到对应版本)时返回 null,调用方降级到 release.body。
+ */
+async function fetchReleaseNotes(version: string, timeoutMs: number): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const url = import.meta.env.DEV ? RELEASE_NOTES_URL_DEV : RELEASE_NOTES_URL
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) return null
+    const text = await res.text()
+    return extractReleaseNotesSection(text, version)
+  } catch {
+    return null
   } finally {
     clearTimeout(timer)
   }
@@ -96,10 +149,27 @@ export function useUpdater() {
 
       // GitHub API 返回的 tag_name 格式为 "vX.Y.Z",去掉前缀 "v"
       const version = release.tag_name.replace(/^v/, '')
+      // 本地版本号与远程相同时不提示更新。
+      // fetchLatestRelease 拿的是 releases/latest 端点,永远返回最新 release,
+      // 必须自己对比版本号,否则本地与远程同版也会提示更新。
+      const localVersion = await getVersion()
+      if (localVersion === version) {
+        updateInfo.value = null
+        if (!silent) {
+          notify.info('当前已是最新版本')
+          status.value = 'idle'
+        } else {
+          status.value = 'up-to-date'
+        }
+        return
+      }
+      // 优先从 docs/RELEASE_NOTES.md 提取用户手写的版本日志;
+      // fetch 失败或找不到对应版本时降级回 release.body(GitHub Release 页面 changelog)。
+      const notes = await fetchReleaseNotes(version, 15_000)
       status.value = 'available'
       updateInfo.value = {
         version,
-        body: release.body,
+        body: notes ?? release.body,
         date: release.published_at,
       }
       if (silent) {

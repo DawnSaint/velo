@@ -373,7 +373,7 @@ shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**�
 | `rgba(255, 215, 0, 0.85)` | CM6 find 高亮边框 | 亮 |
 | `rgba(15, 76, 129, 0.35)` | CM6 selection 背景 | 亮 |
 | `rgba(255, 255, 255, 0.2)` | CM6 暗色背景 | 暗 |
-| `rgba(255, 255, 255, 0.08)` | 代码块暗色 hover 背景 | 暗 |
+| `rgba(255, 255, 255, 0.08)` | 代码块暗色 hover 背景 / 更新日志行内 code 暗色背景 | 暗 |
 
 #### G. 编辑器内容 — alert / callout 色（`_editor-alerts.scss`）
 
@@ -446,7 +446,7 @@ GFM alert 五种级别的配色，对齐 GitHub alert 色。
 | `rgba(0, 0, 0, 0.015)` | TOC 背景纹 | _toc | 亮 |
 | `rgba(0, 0, 0, 0.02)` | details 背景 / image 编辑背景 | _typography / _image | 亮 |
 | `rgba(0, 0, 0, 0.1)` | kbd 边框 | _typography | 亮 |
-| `rgba(0, 0, 0, 0.06)` | drop-cursor 背景 | _editor-base | 亮 |
+| `rgba(0, 0, 0, 0.06)` | drop-cursor 背景 / 更新日志行内 code 背景 | _editor-base / SystemGroup | 亮 |
 | `rgba(0, 0, 0, 0.2)` | image outline / border | _image | 亮 |
 | `rgba(0, 0, 0, 0.5)` | image 文字 | _image | 亮 |
 | `rgba(255, 215, 0, 0.35)` | find match 背景 | _editor-base | 亮 |
@@ -460,7 +460,7 @@ GFM alert 五种级别的配色，对齐 GitHub alert 色。
 | `rgba(128, 128, 128, 0.1)` | math / mermaid 背景 | _math / _mermaid | 亮+暗 |
 | `rgba(128, 128, 128, 0.05)` | mermaid 背景 | _mermaid | 亮 |
 | `rgba(128, 128, 128, 0.15)` | mermaid 边框 | _mermaid | 亮 |
-| `rgba(128, 128, 128, 0.25)` | mermaid 边框 | _mermaid | 亮 |
+| `rgba(128, 128, 128, 0.25)` | mermaid 边框 / 更新日志 hr 边框 | _mermaid / SystemGroup | 亮 |
 | `#fff8dc` | 脚注 hover 背景 | _footnote | 亮 |
 | `#f56c6c` | 脚注 hover 色 | _footnote | 亮 |
 | `#fff` | 脚注 / lists / toc 文字 / 选中色 | _footnote / _lists / _toc | 亮 |

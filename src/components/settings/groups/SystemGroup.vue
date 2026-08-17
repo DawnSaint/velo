@@ -5,6 +5,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import SettingsItem from '../SettingsItem.vue'
 import { useUpdater } from '@/composables/useUpdater'
 import { useNotifyStore } from '@/stores/notify'
+import { renderMarkdown } from '@/lib/renderMarkdown'
 
 // 当前版本：从 Tauri app.getInfo() 读取 package.json 中的 version 字段。
 const appVersion = ref('')
@@ -100,6 +101,12 @@ async function onCheckUpdate() {
   await checkForUpdate(false)
 }
 
+// 更新日志 markdown → HTML(renderMarkdown 内部走 DOMPurify sanitize)
+const releaseNotesHtml = computed(() => {
+  if (!updateInfo.value?.body) return ''
+  return renderMarkdown(updateInfo.value.body)
+})
+
 async function onStartDownload() {
   await startDownload()
 }
@@ -148,9 +155,7 @@ onMounted(async () => {
       <div class="flex items-center gap-2 text-[0.8125rem] font-medium text-gray-600 dark:text-gray-300">
         {{ updateStatus === 'downloaded' ? `新版本 v${updateInfo.version} 已下载完成` : `发现新版本 v${updateInfo.version}` }}
       </div>
-      <p v-if="updateInfo.body" class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">
-        {{ updateInfo.body }}
-      </p>
+      <div v-if="releaseNotesHtml" class="release-notes mt-1.5 text-xs text-gray-600 dark:text-gray-400" v-html="releaseNotesHtml"></div>
       <div class="mt-3 flex items-center gap-3">
         <!-- available: 下载并安装 -->
         <button
@@ -248,3 +253,78 @@ onMounted(async () => {
     </SettingsItem>
   </section>
 </template>
+
+<style scoped>
+.release-notes :deep() {
+  & p {
+    margin: 0.25rem 0;
+    line-height: 1.5;
+  }
+
+  & h3 {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--md-primary-color);
+  }
+
+  & h4 {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  & ul {
+    margin: 0.25rem 0;
+    padding-left: 1.1rem;
+    list-style: disc;
+  }
+
+  & ol {
+    margin: 0.25rem 0;
+    padding-left: 1.1rem;
+    list-style: decimal;
+  }
+
+  & li {
+    margin: 0.15rem 0;
+    line-height: 1.5;
+  }
+
+  & li > p {
+    margin: 0;
+    display: inline;
+  }
+
+  & code {
+    padding: 0.1rem 0.25rem;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.06);
+    font-size: 0.7rem;
+    font-family: var(--font-mono, monospace);
+  }
+
+  :is(.dark *) & code {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  & a {
+    color: var(--md-primary-color);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  & ul {
+    list-style: disc;
+  }
+
+  & hr {
+    margin: 0.5rem 0;
+    border: none;
+    border-top: 1px solid rgba(128, 128, 128, 0.25);
+  }
+}
+</style>

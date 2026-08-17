@@ -75,6 +75,18 @@
     "color": "rgb(243",
     "type": "rgb"
   },
+  "src/components/settings/groups/SystemGroup.vue:rgba(0": {
+    "color": "rgba(0",
+    "type": "rgb"
+  },
+  "src/components/settings/groups/SystemGroup.vue:rgba(128": {
+    "color": "rgba(128",
+    "type": "rgb"
+  },
+  "src/components/settings/groups/SystemGroup.vue:rgba(255": {
+    "color": "rgba(255",
+    "type": "rgb"
+  },
   "src/lib/export/exportStyles.scss:#1a1a1a": {
     "color": "#1a1a1a",
     "type": "hex"

@@ -48,6 +48,9 @@ module.exports = {
           // shikiHtml 需要 CodeBlockLangs 的语言列表来决定代码高亮主题。
           // TODO: 将语言列表抽取到 src/lib/ 消除此耦合
           'src/lib/export/shikiHtml\\.ts',
+          // renderMarkdown 复用 createParseProcessor 保证 parse 语义与编辑器一致。
+          // TODO: 将 parseProcessor 抽取到 src/lib/ 消除此耦合
+          'src/lib/renderMarkdown\\.ts',
         ],
       },
       to: {

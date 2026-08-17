@@ -304,3 +304,19 @@
 - **Decision**: 选 B。`plugins/order.ts`（CANONICAL_PLUGIN_ORDER 规范列表，按功能分组注释）是加载顺序唯一真相源。`resolvePlugins` 做 4 道校验（重复 id / 集合相等 / requires 存在 / requires 满足）后按 canonical index 排序。`EditorInner.vue` 的 `pluginEntries` 物理顺序无关，仅供代码组织。
 - **Consequences**: 新增 / 删除插件必须同时更新 `order.ts`，否则解析器抛集合不匹配错误（fail-fast）。插件依赖关系显式化（`requires` 字段），物理数组顺序与逻辑加载顺序解耦。
 
+---
+
+## v0.7.11 — 更新卡片日志来源 + 签名模式切换
+
+### ADR-20260817-001: 更新卡片日志来源从 GitHub Release body 改为 fetch RELEASE_NOTES.md
+
+- **Context**: 更新卡片展示的变更日志原取自 GitHub Release body（release-please 自动生成的英文 commit 流水账），与面向用户的中文版本日志 `docs/RELEASE_NOTES.md` 内容割裂。候选:A 保持 release.body（零额外请求，但内容是英文 commit 摘要，用户难读）；B fetch GitHub raw `docs/RELEASE_NOTES.md` 全文 + 正则提取目标版本段落（中文、面向用户，但需额外网络请求 + 降级 fallback）；C 在 release.body 中手动写中文日志（发版时双写，维护成本高且容易忘）。
+- **Decision**: 选 B。`useUpdater` 中 `fetchReleaseNotes` 从 GitHub raw 抓取 `RELEASE_NOTES.md` 全文，正则提取 `## [X.Y.Z]` 到下一个版本标题之间的段落；fetch 失败或找不到对应版本时降级回 `release.body`。dev 环境走 Vite proxy `/github-raw` 避免 CSP 跨域拦截。渲染走轻量 `lib/renderMarkdown.ts`（`createParseProcessor()` parse → 极简同步 walker → `sanitizeHtml` DOMPurify 洗），不走 `htmlRenderer.ts` 那套重管线。
+- **Consequences**: 更新卡片始终展示中文用户面向日志，与 `RELEASE_NOTES.md` 单一真相源对齐。代价：多一次网络请求（15s 超时 + 降级 fallback 兜底）；`RELEASE_NOTES.md` 的版本标题格式 `## [X.Y.Z]` 成为隐式契约，正则提取依赖此格式。
+
+### ADR-20260817-002: 更新包签名模式从 v1Compatible 切换为 direct signing
+
+- **Context**: Tauri updater 的 `createUpdaterArtifacts` 有两种签名模式。v1Compatible 模式生成 `.nsis.zip` + `.nsis.zip.sig`（先压缩再签名）；direct 模式（`"createUpdaterArtifacts": true`）直接签名 `.exe` 产出 `.exe.sig`，不再生成 `.nsis.zip` 中间产物。候选:A 保持 v1Compatible（兼容旧路径，但多一层 zip 包装，签名验证对象是 zip 而非 exe）；B 改为 direct signing（直接签名 exe，tauri-action 自动适配 `unzippedSigs=true` 优先读 `.exe.sig`）。
+- **Decision**: 选 B。`tauri.conf.json` 中 `createUpdaterArtifacts` 从 `"v1Compatible"` 改为 `true`。Tauri 直接签名 `.exe` 产出 `.exe.sig`，tauri-action 检测到 `unzippedSigs=true` 后自动优先使用 `.exe.sig` 生成 `latest.json`。
+- **Consequences**: 不再生成 `.nsis.zip` 中间产物，签名链路更简单（签名对象 = 最终安装文件本身）。tauri-action 自动适配，无需额外配置。后续版本更新流程不变。
+

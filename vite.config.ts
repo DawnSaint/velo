@@ -31,6 +31,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/github-api/, ''),
       },
+      // dev 环境代理 raw.githubusercontent.com,用于 fetch docs/RELEASE_NOTES.md
+      '/github-raw': {
+        target: 'https://raw.githubusercontent.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/github-raw/, ''),
+      },
     },
   },
   css: {
