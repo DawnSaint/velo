@@ -52,6 +52,7 @@ import { ChevronDown } from '@lucide/vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import ZoomIndicator from '@/components/ZoomIndicator.vue'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { useResizeSplitter } from '@/components/ProseMirrorEditor/composables/useResizeSplitter'
@@ -1542,6 +1543,9 @@ watch(editorRef, (v) => {
 
     <!-- Toast 通知容器：右上角浮层，Teleport 到 body，不占文档流 -->
     <ToastContainer />
+
+    <!-- Zoom 指示器：快捷键缩放时底部居中弹出，显示百分比 + 滑块 + 重置按钮 -->
+    <ZoomIndicator />
   </div>
 </template>
 

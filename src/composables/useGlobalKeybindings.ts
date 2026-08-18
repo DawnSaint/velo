@@ -15,6 +15,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useDocumentStore } from '@/stores/document'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { zoomIn, zoomOut, zoomReset } from '@/components/ProseMirrorEditor/editor/shortcuts/commands/zoomCommands'
 
 export function useGlobalKeybindings(opts: {
   tauri: boolean
@@ -60,6 +61,28 @@ export function useGlobalKeybindings(opts: {
     // before the closest check below, otherwise focus in FindReplace would let
     // browser find-in-page / find-next / reload slip through.
     if ((k === 'f' && !e.shiftKey) || k === 'g' || k === 'r') e.preventDefault()
+    // —— Zoom(v0.7.12):走全局 keydown 而非 ProseMirror keymap,
+    //    编辑器未 focus 时也能生效。用 e.code 判断物理键位,
+    //    不受键盘布局影响(US: Shift+= → +;其他布局可能不同)。
+    //    放在 data-fr-panel 检查之前 —— zoom 在任何焦点状态下都应生效。
+    if (e.shiftKey && (e.code === 'Equal' || k === '+' || k === '=')) {
+      e.preventDefault()
+      e.stopPropagation()
+      zoomIn()
+      return
+    }
+    if (e.shiftKey && (e.code === 'Minus' || k === '_' || k === '-')) {
+      e.preventDefault()
+      e.stopPropagation()
+      zoomOut()
+      return
+    }
+    if (e.shiftKey && (e.code === 'Digit0' || k === ')' || k === '0')) {
+      e.preventDefault()
+      e.stopPropagation()
+      zoomReset()
+      return
+    }
     const target = e.target as HTMLElement | null
     // 焦点在 FindReplace / 命令面板里 → 让面板自己处理(避免双触发)。
     // WorkspaceSearchPanel 不挂这条:它的输入框只接 ArrowUp/Down/Enter/Esc,

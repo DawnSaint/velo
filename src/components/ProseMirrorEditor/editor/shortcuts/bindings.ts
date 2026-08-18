@@ -13,7 +13,7 @@
 
 import { registerShortcut } from './registry'
 import { toggleMarkWithWrap } from './commands/markCommands'
-import { setHeading, setParagraph } from './commands/blockCommands'
+import { setHeading, setParagraph, promoteHeading, demoteHeading } from './commands/blockCommands'
 import { wrapInBulletList, wrapInOrderedList, wrapInBlockquote, wrapInCodeBlock } from './commands/listCommands'
 import { cmdFormatCJKDocument } from './commands/cjkCommands'
 import {
@@ -26,7 +26,6 @@ import {
   cmdMoveColumn,
 } from './commands/tableCommands'
 import { triggerLinkEdit } from './commands/linkCommands'
-import { zoomIn, zoomOut, zoomReset } from './commands/zoomCommands'
 import { schema } from '../schema'
 
 // ============================================================
@@ -244,25 +243,20 @@ registerShortcut({
 //  编辑器缩放(v0.7.12 #zoom)
 // ============================================================
 
+// Ctrl+= 提升标题级别(paragraph→h6, h6→h5, …, h2→h1, h1→noop)
+// Ctrl+- 降低标题级别(h1→h2, …, h5→h6, h6→paragraph, paragraph→noop)
 registerShortcut({
   key: 'Mod-=',
-  command: zoomIn,
-  label: '放大',
-  group: 'system',
+  command: promoteHeading(schema),
+  label: '提升标题级别',
+  group: 'block',
 })
 
 registerShortcut({
   key: 'Mod--',
-  command: zoomOut,
-  label: '缩小',
-  group: 'system',
-})
-
-registerShortcut({
-  key: 'Mod-Shift-0',
-  command: zoomReset,
-  label: '重置缩放',
-  group: 'system',
+  command: demoteHeading(schema),
+  label: '降低标题级别',
+  group: 'block',
 })
 
 // ============================================================

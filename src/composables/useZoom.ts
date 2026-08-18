@@ -6,13 +6,37 @@
 //
 // 调用集中在此 composable,快捷键(zoomCommands)和设置面板(EditorGroup)
 // 都只改 store.zoomLevel,不直接调 Tauri API —— 所有 IPC 出口收敛于此。
+//
+// zoomIndicatorVisible: 快捷键触发 zoom 时弹出指示器浮层,自动消失。
+//   zoomCommands 调 showZoomIndicator() 显示;ZoomIndicator 组件读此 ref
+//   决定显隐,用户拖动浮层滑块直接改 store.zoomLevel。
 
-import { watch } from 'vue'
+import { ref, watch } from 'vue'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri } from '@tauri-apps/api/core'
 import { useEditorStore } from '@/stores/editor'
 
 let initialized = false
+
+/** zoom 指示器是否可见(快捷键触发时显示,自动消失)。 */
+export const zoomIndicatorVisible = ref(false)
+
+let hideTimer: ReturnType<typeof setTimeout> | null = null
+/** 指示器自动消失延时(ms)。 */
+const INDICATOR_HIDE_DELAY = 2000
+
+/**
+ * 显示 zoom 指示器,并在 INDICATOR_HIDE_DELAY 后自动隐藏。
+ * 用户连续按快捷键时重置 timer,保持可见。
+ */
+export function showZoomIndicator(): void {
+  zoomIndicatorVisible.value = true
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => {
+    zoomIndicatorVisible.value = false
+    hideTimer = null
+  }, INDICATOR_HIDE_DELAY)
+}
 
 /**
  * 初始化 zoom 同步:watch editorStore.zoomLevel,变化时调 setWebviewZoom。
