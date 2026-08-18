@@ -58,6 +58,25 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
+## v0.7.12 — 编辑器缩放（zoom）
+
+> 当前迭代焦点。本节为版本工作面板，发版后整节删除。
+
+### 编辑器缩放 `#zoom` `P2` `M`
+
+> 通过 Tauri `set_webview_zoom` 命令对整个编辑器区域进行整体缩放（含文字、图片、代码块等所有内容），区别于设置中已有的「字号」滑块（仅调整正文字号 px 值）。zoom 是全局视觉缩放，不改变文档内容 / schema。
+
+- [x] **数据层**：`editorStore` 新增 `zoomLevel` 字段（`number`，默认 `1.0`，范围 `0.5`–`2.0`，步长 `0.1`）；`hydrateSettings` / `snapshotSettings` 加入对应字段守门与序列化；`persistence.ts` 的 `PersistedSettings['editor']` 类型同步新增
+- [x] **Tauri 权限**：`src-tauri/capabilities/default.json` 新增 `core:webview:allow-set-webview-zoom` 权限，使前端可调用 `set_webview_zoom` 命令
+- [x] **缩放执行层**：封装 `useZoom` composable（或直接在 `App.vue` watch `store.zoomLevel` 变化时调用 Tauri `setWebviewZoom`），保持 zoom 调用集中一处
+- [x] **快捷键**：在 `editor/shortcuts/bindings.ts` 注册 `Mod-=`（放大，步长 +0.1）、`Mod--`（缩小，步长 -0.1）快捷键；重置使用 `Mod-Shift-0`（避免与 `Mod-0` 段落快捷键冲突）
+  - 三个命令函数 `zoomIn` / `zoomOut` / `zoomReset` 写在新建 `editor/shortcuts/commands/zoomCommands.ts`，走 `editorStore` 修改 `zoomLevel`
+- [x] **设置面板**：`EditorGroup.vue` 新增「缩放」设置项（滑块 + 百分比显示，复用已有 `velo-slider-track` 样式），与「字号」并列
+- [x] **持久化**：zoom 级别持久化到 `velo-settings.json`（全局 UI 偏好，非 per-workspace）
+- [x] **架构文档同步**：更新 `docs/architecture/editor.md` 记录 zoom 快捷键与执行层位置；更新 `docs/ARCHITECTURE.md` 如涉及数据流
+- [x] **测试**：`editorStore` 的 `zoomLevel` hydrate / snapshot 单元测试；`zoomCommands` 的边界 clamp 测试
+
+
 ## P1 — 核心功能
 
 ### 知识库 — 工作区索引 `#workspace-index` `P1` `L`

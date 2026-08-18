@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useEditorStore } from '@/stores/editor'
+import { useEditorStore, ZOOM_LEVEL_MIN, ZOOM_LEVEL_MAX, ZOOM_LEVEL_DEFAULT, clampZoomLevel } from '@/stores/editor'
 import { BUNDLED_THEMES, NO_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 import { THEME_PALETTES } from '@/components/ProseMirrorEditor/nodes/themePalettes'
 import SettingsItem from '../SettingsItem.vue'
@@ -110,6 +110,67 @@ function endDrag(e: PointerEvent) {
   sliderTrackRef.value?.releasePointerCapture(e.pointerId)
 }
 
+/* ---------- 缩放滑块 ---------- */
+// 复用字号滑块的 velo-slider-track 样式,但数据走 store.zoomLevel(number)。
+// 范围 0.5–2.0,步长 0.1,显示百分比。拖动中用独立 ref 避免与字号滑块互相干扰。
+const zoomTrackRef = ref<HTMLElement | null>(null)
+const zoomDragPointerId = ref<number | null>(null)
+const zoomDraggingRatio = ref<number | null>(null)
+
+// 拖动中的 zoom 级别(0.1 粒度);非拖动取 store 值。
+const activeZoom = computed(() => {
+  if (zoomDraggingRatio.value !== null) {
+    const v = ZOOM_LEVEL_MIN + zoomDraggingRatio.value * (ZOOM_LEVEL_MAX - ZOOM_LEVEL_MIN)
+    return Math.round(v * 10) / 10
+  }
+  return store.zoomLevel
+})
+
+const zoomKnobRatio = computed(() => {
+  const v = zoomDraggingRatio.value !== null
+    ? activeZoom.value
+    : store.zoomLevel
+  return (v - ZOOM_LEVEL_MIN) / (ZOOM_LEVEL_MAX - ZOOM_LEVEL_MIN)
+})
+
+// 当前 zoom 的百分比显示文本,如 "100%" / "150%"。
+const zoomPercent = computed(() => `${Math.round(activeZoom.value * 100)}%`)
+
+function zoomRatioFromClientX(clientX: number): number {
+  const el = zoomTrackRef.value
+  if (!el) return 0
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0) return 0
+  return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+}
+
+function commitZoomRatio(r: number) {
+  const v = ZOOM_LEVEL_MIN + r * (ZOOM_LEVEL_MAX - ZOOM_LEVEL_MIN)
+  store.zoomLevel = clampZoomLevel(Math.round(v * 10) / 10)
+}
+
+function onZoomPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  zoomTrackRef.value?.setPointerCapture(e.pointerId)
+  zoomDragPointerId.value = e.pointerId
+  zoomDraggingRatio.value = zoomRatioFromClientX(e.clientX)
+}
+
+function onZoomPointerMove(e: PointerEvent) {
+  if (zoomDragPointerId.value !== e.pointerId) return
+  e.preventDefault()
+  zoomDraggingRatio.value = zoomRatioFromClientX(e.clientX)
+}
+
+function endZoomDrag(e: PointerEvent) {
+  if (zoomDragPointerId.value !== e.pointerId) return
+  if (zoomDraggingRatio.value !== null) commitZoomRatio(zoomDraggingRatio.value)
+  zoomDraggingRatio.value = null
+  zoomDragPointerId.value = null
+  zoomTrackRef.value?.releasePointerCapture(e.pointerId)
+}
+
 /* ---------- 辅助输入 ---------- */
 // 多选下拉，控制实时输入插件的开关（.auto / autoPairEnabled）。
 const inputAssistOptions: VeloMultiSelectOption[] = [
@@ -213,6 +274,39 @@ const formatRuleValue = computed<string[]>({
           <span
             class="velo-slider-knob absolute top-1/2 block h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
             :style="{ left: `${knobRatio * 100}%` }"
+          />
+        </div>
+      </div>
+    </SettingsItem>
+
+    <!-- 缩放:滑块选择器,与字号同范式。显示百分比,步长 0.1。
+         走 Tauri set_webview_zoom,对整个编辑器区域做全局视觉缩放。 -->
+    <SettingsItem label="缩放" :keywords="['zoom', '缩放', 'scale']">
+      <div class="flex items-center gap-3">
+        <span
+          class="velo-setting-value whitespace-nowrap"
+          :class="{ 'text-transparent': activeZoom === ZOOM_LEVEL_DEFAULT }"
+        >{{ zoomPercent }}</span>
+        <div
+          ref="zoomTrackRef"
+          class="velo-slider-track relative h-8 w-48 touch-none select-none"
+          :class="{ 'is-dragging': zoomDraggingRatio !== null }"
+          role="slider"
+          aria-label="缩放"
+          :aria-valuenow="activeZoom"
+          :aria-valuemin="ZOOM_LEVEL_MIN"
+          :aria-valuemax="ZOOM_LEVEL_MAX"
+          :aria-valuetext="`缩放 ${zoomPercent}`"
+          tabindex="0"
+          @pointerdown="onZoomPointerDown"
+          @pointermove="onZoomPointerMove"
+          @pointerup="endZoomDrag"
+          @pointercancel="endZoomDrag"
+        >
+          <span class="velo-slider-line absolute inset-x-0 top-1/2 block h-0.5 -translate-y-1/2 rounded-full bg-gray-200 dark:bg-gray-700" />
+          <span
+            class="velo-slider-knob absolute top-1/2 block h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
+            :style="{ left: `${zoomKnobRatio * 100}%` }"
           />
         </div>
       </div>

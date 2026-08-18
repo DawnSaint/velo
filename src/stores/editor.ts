@@ -19,6 +19,27 @@ export type ThemeMode = 'system' | 'light' | 'dark'
  *  ActivityBar.vue 与 App.vue 共用此类型;canonical home 在 store 而非组件。 */
 export type ActivityBarItem = 'files' | 'outline' | 'search' | 'assets' | 'history' | 'settings'
 
+// ========== Zoom 常量(v0.7.12) ==========
+// 走 Tauri set_webview_zoom 的全局视觉缩放范围 / 步长。
+// 常量在此定义,editor/shortcuts/commands/zoomCommands.ts 与 EditorGroup.vue 复用。
+/** 最小缩放级别(50%)。 */
+export const ZOOM_LEVEL_MIN = 0.5
+/** 最大缩放级别(200%)。 */
+export const ZOOM_LEVEL_MAX = 2.0
+/** 每次放大 / 缩小的步长。 */
+export const ZOOM_LEVEL_STEP = 0.1
+/** 默认缩放级别(100%)。 */
+export const ZOOM_LEVEL_DEFAULT = 1.0
+
+/** 把 zoomLevel clamp 到合法范围 [0.5, 2.0]。 */
+export function clampZoomLevel(v: number): number {
+  if (Number.isNaN(v)) return ZOOM_LEVEL_DEFAULT
+  if (v === Number.POSITIVE_INFINITY) return ZOOM_LEVEL_MAX
+  if (v === Number.NEGATIVE_INFINITY) return ZOOM_LEVEL_MIN
+  if (!Number.isFinite(v)) return ZOOM_LEVEL_DEFAULT
+  return Math.min(ZOOM_LEVEL_MAX, Math.max(ZOOM_LEVEL_MIN, v))
+}
+
 /** 可自定义的 4 个视图入口(顺序即从上到下)。'settings' 固定底部 —— 既不可重排也不可隐藏。 */
 const DEFAULT_ACTIVITY_BAR_ORDER: ActivityBarItem[] = ['files', 'outline', 'search', 'assets', 'history']
 const ACTIVITY_BAR_REORDERABLE: readonly ActivityBarItem[] = ['files', 'outline', 'search', 'assets', 'history']
@@ -26,6 +47,9 @@ const ACTIVITY_BAR_HIDEABLE: readonly ActivityBarItem[] = ['files', 'outline', '
 
 export const useEditorStore = defineStore('editor', () => {
   const fontSize = ref('16px')
+  /** 编辑器缩放级别(v0.7.12)。走 Tauri set_webview_zoom,对整个编辑器区域做全局视觉缩放。
+   *  默认 1.0,范围 0.5–2.0,步长 0.1。持久化为全局 UI 偏好(同 fontSize)。 */
+  const zoomLevel = ref(1.0)
   const primaryColor = ref('#1F71D9')
   const fontFamily = ref('-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif')
   /** 用户主题偏好：跟随系统 / 始终浅色 / 始终暗色。持久化字段。 */
@@ -153,6 +177,9 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
     if (typeof e.cjkLetterSpacing === 'boolean') cjkLetterSpacing.value = e.cjkLetterSpacing
     if (typeof e.autoPairEnabled === 'boolean') autoPairEnabled.value = e.autoPairEnabled
+    if (typeof e.zoomLevel === 'number' && Number.isFinite(e.zoomLevel)) {
+      zoomLevel.value = clampZoomLevel(e.zoomLevel)
+    }
     // 排版格式化设置: RuleScopes 字段向后兼容旧版 boolean，非规则字段逐字段守门
     if (e.cjkFormatting && typeof e.cjkFormatting === 'object') {
       const src = e.cjkFormatting as unknown as Record<string, unknown>
@@ -195,6 +222,7 @@ export const useEditorStore = defineStore('editor', () => {
       themeColorAffectsDoc: themeColorAffectsDoc.value,
       cjkLetterSpacing: cjkLetterSpacing.value,
       autoPairEnabled: autoPairEnabled.value,
+      zoomLevel: zoomLevel.value,
       cjkFormatting: { ...cjkFormatting.value },
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
@@ -216,6 +244,7 @@ export const useEditorStore = defineStore('editor', () => {
     themeColorAffectsDoc,
     cjkLetterSpacing,
     autoPairEnabled,
+    zoomLevel,
     cjkFormatting,
     activityBarOrder,
     activityBarHidden,

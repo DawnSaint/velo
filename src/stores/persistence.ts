@@ -50,6 +50,9 @@ export interface PersistedSettings {
     activityBarOrder?: ActivityBarItem[]
     /** ActivityBar 被隐藏的入口(可选,v0.6.1)。仅含可隐藏的视图入口(不含 settings)。 */
     activityBarHidden?: ActivityBarItem[]
+    /** 编辑器缩放级别(可选,v0.7.12)。默认 1.0,范围 0.5–2.0,步长 0.1。
+     *  走 Tauri set_webview_zoom,对整个编辑器区域做全局视觉缩放。 */
+    zoomLevel?: number
   }
   document: {
     autoSaveEnabled: boolean

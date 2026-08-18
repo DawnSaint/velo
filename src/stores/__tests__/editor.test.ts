@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useEditorStore, normalizeActivityBarConfig } from '../editor'
+import {
+  useEditorStore,
+  normalizeActivityBarConfig,
+  clampZoomLevel,
+  ZOOM_LEVEL_MIN,
+  ZOOM_LEVEL_MAX,
+  ZOOM_LEVEL_DEFAULT,
+} from '../editor'
 
 describe('editor store 默认值', () => {
   beforeEach(() => {
@@ -48,6 +55,17 @@ describe('editor store 默认值', () => {
   it('showCodeLineNumbers 默认 false(v0.5.11 可选行号,默认关闭)', () => {
     const store = useEditorStore()
     expect(store.showCodeLineNumbers).toBe(false)
+  })
+
+  it('zoomLevel 默认 1.0(v0.7.12)', () => {
+    const store = useEditorStore()
+    expect(store.zoomLevel).toBe(1.0)
+  })
+
+  it('zoomLevel 可写且双向反映', () => {
+    const store = useEditorStore()
+    store.zoomLevel = 1.5
+    expect(store.zoomLevel).toBe(1.5)
   })
 
   it('所有 ref 可写且双向反映', () => {
@@ -166,5 +184,96 @@ describe('normalizeActivityBarConfig 防御性归一化', () => {
     const { order, hidden } = normalizeActivityBarConfig('files', { settings: true })
     expect(order).toEqual(['files', 'outline', 'search', 'assets', 'history'])
     expect(hidden).toEqual([])
+  })
+})
+
+describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('hydrate 合法 zoomLevel 写入 store', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      fontFamily: '',
+      zoomLevel: 1.3,
+    })
+    expect(store.zoomLevel).toBe(1.3)
+  })
+
+  it('hydrate 超出范围 clamp 到 MAX', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      fontFamily: '',
+      zoomLevel: 5.0,
+    })
+    expect(store.zoomLevel).toBe(ZOOM_LEVEL_MAX)
+  })
+
+  it('hydrate 超出范围 clamp 到 MIN', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      fontFamily: '',
+      zoomLevel: 0.1,
+    })
+    expect(store.zoomLevel).toBe(ZOOM_LEVEL_MIN)
+  })
+
+  it('hydrate 缺失 zoomLevel 不改默认值', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      fontFamily: '',
+    })
+    expect(store.zoomLevel).toBe(ZOOM_LEVEL_DEFAULT)
+  })
+
+  it('hydrate 非法类型(字符串)不改默认值', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      fontFamily: '',
+      zoomLevel: '1.5' as unknown as number,
+    })
+    expect(store.zoomLevel).toBe(ZOOM_LEVEL_DEFAULT)
+  })
+
+  it('snapshot 包含 zoomLevel', () => {
+    const store = useEditorStore()
+    store.zoomLevel = 1.4
+    const snap = store.snapshotSettings()
+    expect(snap.zoomLevel).toBe(1.4)
+  })
+})
+
+describe('clampZoomLevel', () => {
+  it('合法值原样返回', () => {
+    expect(clampZoomLevel(1.0)).toBe(1.0)
+    expect(clampZoomLevel(0.5)).toBe(0.5)
+    expect(clampZoomLevel(2.0)).toBe(2.0)
+  })
+
+  it('低于 MIN clamp 到 MIN', () => {
+    expect(clampZoomLevel(0.1)).toBe(ZOOM_LEVEL_MIN)
+    expect(clampZoomLevel(-1)).toBe(ZOOM_LEVEL_MIN)
+  })
+
+  it('高于 MAX clamp 到 MAX', () => {
+    expect(clampZoomLevel(3.0)).toBe(ZOOM_LEVEL_MAX)
+    expect(clampZoomLevel(100)).toBe(ZOOM_LEVEL_MAX)
+  })
+
+  it('NaN / Infinity 回退默认', () => {
+    expect(clampZoomLevel(Number.NaN)).toBe(ZOOM_LEVEL_DEFAULT)
+    expect(clampZoomLevel(Number.POSITIVE_INFINITY)).toBe(ZOOM_LEVEL_MAX)
+    expect(clampZoomLevel(Number.NEGATIVE_INFINITY)).toBe(ZOOM_LEVEL_MIN)
   })
 })

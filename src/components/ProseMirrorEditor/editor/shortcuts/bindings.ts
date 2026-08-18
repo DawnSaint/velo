@@ -26,6 +26,7 @@ import {
   cmdMoveColumn,
 } from './commands/tableCommands'
 import { triggerLinkEdit } from './commands/linkCommands'
+import { zoomIn, zoomOut, zoomReset } from './commands/zoomCommands'
 import { schema } from '../schema'
 
 // ============================================================
@@ -237,6 +238,31 @@ registerShortcut({
   label: '表格:右移列',
   group: 'table',
   tableAction: 'move-column-right',
+})
+
+// ============================================================
+//  编辑器缩放(v0.7.12 #zoom)
+// ============================================================
+
+registerShortcut({
+  key: 'Mod-=',
+  command: zoomIn,
+  label: '放大',
+  group: 'system',
+})
+
+registerShortcut({
+  key: 'Mod--',
+  command: zoomOut,
+  label: '缩小',
+  group: 'system',
+})
+
+registerShortcut({
+  key: 'Mod-Shift-0',
+  command: zoomReset,
+  label: '重置缩放',
+  group: 'system',
 })
 
 // ============================================================

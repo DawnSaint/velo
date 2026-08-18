@@ -33,6 +33,7 @@ import { useWorkspaceSearch } from '@/composables/useWorkspaceSearch'
 import { useGlobalKeybindings } from '@/composables/useGlobalKeybindings'
 import { useCrossModeSync } from '@/composables/useCrossModeSync'
 import { useUpdater } from '@/composables/useUpdater'
+import { useZoom } from '@/composables/useZoom'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
@@ -839,6 +840,11 @@ const { onRevealHeading, onBreadcrumbReveal, onLineEnter, onLinePreview, onLineC
 // ========== 自动更新 ==========
 // 启动后静默检查一次,有更新走 Toast 提示(不自动下载)。10s 延迟避开首屏 busy 链路。
 const { autoCheck: autoCheckUpdate } = useUpdater()
+
+// ========== 编辑器缩放(v0.7.12) ==========
+// watch editorStore.zoomLevel 变化时调 Tauri setWebviewZoom。
+// 快捷键(zoomCommands)和设置面板(EditorGroup)只改 store,IPC 出口收敛于此。
+useZoom()
 
 // ========== composable: 工作区搜索编排 ==========
 const {
