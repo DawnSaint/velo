@@ -355,8 +355,6 @@ export function cmdDeleteRow(_schema: Schema, anchorPos?: number): ShortcutComma
       const tableStart = sel.$anchorCell.start(-1)
       const tablePos = tableStart - 1
       const children = tableChildren(table)
-      let bodyCount = 0
-      children.forEach((c) => { if (c.type.name === BODY_ROW) bodyCount++ })
       // 要删的行号 = [max(rect.top,1), rect.bottom) 中实际存在的(跳过 header=0)。
       const removeFrom = Math.max(rect.top, 1)
       const removedBodyRows = Math.max(0, Math.min(rect.bottom, children.length) - removeFrom)

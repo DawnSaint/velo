@@ -84,7 +84,10 @@ export default ts.config(
     rules: {
       // ── 降级为 warn：渐进式收紧，不阻断 CI ──
       'no-unused-vars': 'off', // 交给 @typescript-eslint/no-unused-vars
-      '@typescript-eslint/no-unused-vars': 'warn',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-non-null-assertion': 'warn',
       '@typescript-eslint/no-non-null-asserted-optional-chain': 'warn',
@@ -123,6 +126,7 @@ export default ts.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-non-null-asserted-optional-chain': 'off',
     },
   },
 

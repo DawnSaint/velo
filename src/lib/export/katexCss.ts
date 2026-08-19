@@ -38,7 +38,7 @@ const katexWoff2Modules = import.meta.glob(
 // modulePath 形如 `'../../../node_modules/katex/dist/fonts/KaTeX_AMS-Regular.woff2'`。
 const katexWoff2DataUris: Record<string, string> = {}
 for (const [modulePath, dataUri] of Object.entries(katexWoff2Modules)) {
-  const filename = modulePath.split('/').pop()!
+  const filename = modulePath.split('/').at(-1) ?? ''
   katexWoff2DataUris[filename] = dataUri
 }
 

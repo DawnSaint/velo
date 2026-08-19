@@ -224,7 +224,7 @@ export function useUpdater() {
           case 'Started':
             totalBytes = event.data.contentLength ?? 0
             break
-          case 'Progress':
+          case 'Progress': {
             downloadedBytes += event.data.chunkLength
             if (totalBytes > 0) {
               downloadProgress.value = Math.round((downloadedBytes / totalBytes) * 100)
@@ -239,6 +239,7 @@ export function useUpdater() {
               lastDownloadedBytes = downloadedBytes
             }
             break
+          }
           case 'Finished':
             downloadProgress.value = 100
             downloadSpeed.value = ''

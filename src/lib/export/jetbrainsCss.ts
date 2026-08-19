@@ -17,7 +17,7 @@ const jetbrainsWoff2Modules = import.meta.glob(
 
 const jetbrainsWoff2DataUris: Record<string, string> = {}
 for (const [modulePath, dataUri] of Object.entries(jetbrainsWoff2Modules)) {
-  const filename = modulePath.split('/').pop()!
+  const filename = modulePath.split('/').at(-1) ?? ''
   jetbrainsWoff2DataUris[filename] = dataUri
 }
 

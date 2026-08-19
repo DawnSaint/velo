@@ -996,7 +996,7 @@ const foldDecoPlugin = new Plugin<FoldState>({
         }
         // lazy 取 store:pinia 必须在 component setup 后才活跃
         let foldStore
-        let filePath: string | null = null
+        let filePath: string | null
         try {
           foldStore = useFoldStore()
           filePath = useDocumentStore().currentFilePath

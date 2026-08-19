@@ -1,4 +1,4 @@
-﻿﻿<script setup lang="ts">
+<script setup lang="ts">
 // 表格单元格右键菜单 —— 行列增删 + 行列移动 + 单元格对齐 + 删除表格。
 //
 // 菜单项走 .ctx-menu-item / .ctx-menu-separator 全局 class(见 _context-menu.scss),
@@ -12,7 +12,7 @@ import { ref, computed } from "vue"
 import ContextMenuShell from "../ContextMenuShell.vue"
 import { getTableActionShortcutMap, formatShortcutKey } from "./editor/shortcuts/registry"
 
-const props = defineProps<{
+defineProps<{
   /** 视口坐标(mouseEvent.clientX/Y，已由父级 clamp) */
   x: number
   y: number

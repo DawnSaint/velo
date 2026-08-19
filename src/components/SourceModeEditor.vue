@@ -37,7 +37,7 @@ import { headingChainFromMarkdown, type HeadingBreadcrumb } from '@/utils/breadc
 import { attachVeloScroll, detachVeloScroll } from '@/directives/veloScroll'
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  modelValue?: string
   darkMode?: boolean
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有(与 ProseMirrorEditor 对仗)。 */
   findOpen?: boolean

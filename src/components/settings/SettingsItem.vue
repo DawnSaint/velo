@@ -29,6 +29,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   variant: 'row',
   clickable: false,
+  keywords: () => [],
+  hint: '',
 })
 
 // 唯一 id：label 去空格 + Vue 实例 uid，保证 DOM 定位唯一。

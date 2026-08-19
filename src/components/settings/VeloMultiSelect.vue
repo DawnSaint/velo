@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
   noneLabel?: string
 }>(), {
   widthClass: 'w-48',
+  ariaLabel: '',
   allLabel: '全部',
   noneLabel: '无',
 })

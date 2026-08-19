@@ -70,7 +70,7 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.2",
     "@tauri-apps/cli": "^2.11.4",
     "@vitejs/plugin-vue": "^6.0.0",
@@ -81,18 +81,19 @@
     "@wdio/mocha-framework": "^9.29.0",
     "@wdio/spec-reporter": "^9.29.0",
     "dependency-cruiser": "^18.1.1",
-    "eslint": "^9.39.5",
+    "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-vue": "^9.33.0",
+    "eslint-plugin-vue": "^10.10.0",
     "jsdom": "^29.1.1",
     "knip": "^6.32.0",
     "prettier": "^3.9.6",
     "sass": "^1.101.0",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.66.0",
+    "typescript-eslint": "^8.67.0",
     "vite": "^8.1.2",
     "vitest": "^4.1.8",
+    "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.0"
   }
 }

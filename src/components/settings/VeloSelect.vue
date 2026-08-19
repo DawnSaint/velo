@@ -27,6 +27,7 @@ const props = withDefaults(defineProps<{
   ariaLabel?: string
 }>(), {
   widthClass: 'w-48',
+  ariaLabel: '',
 })
 
 const emit = defineEmits<{

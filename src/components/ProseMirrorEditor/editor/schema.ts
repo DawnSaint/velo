@@ -325,7 +325,7 @@ const nodes: Record<string, NodeSpec> = {
     }],
     toDOM: (node) => {
       // htmlSource / htmlAttrs 是序列化元数据,htmlAttrs 需展开到 DOM
-      const { htmlSource: _, htmlAttrs, ...domAttrs } = node.attrs
+      const { htmlSource: _htmlSource, htmlAttrs, ...domAttrs } = node.attrs
       if (htmlAttrs) Object.assign(domAttrs, htmlAttrs)
       return ['img', domAttrs]
     },
