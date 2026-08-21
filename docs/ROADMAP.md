@@ -162,9 +162,10 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ## P3 — 远期方向
 
-- [ ] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
+- [x] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
   - 消费 build.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
-  - Phase 1: `continue-on-error`（report 不阻塞 release attach）；Phase 2: 稳定后移除，硬门
+  - [x] Phase 1: `continue-on-error`（report 不阻塞 release attach）
+  - [ ] Phase 2: 稳定后移除 `continue-on-error`，硬门
   - 前置：`cargo install tauri-driver` + 匹配的 `msedgedriver.exe`；appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore
 
 - [ ] **AI 辅助写作（本地 LLM 优先）** `#ai-assist` `P3` `L` `?`
@@ -194,7 +195,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - per-file 书签列表，不跨文件（跨文件走大纲 / 标题跳转）
 
 - [ ] **ESLint warning 逐步清理** `#eslint-ci` `P3` `M` `← #eslint-setup`
-  - 0.7.10 收敛后 0 error / 180 warning；CI 与 pre-push 仅卡 error（`--quiet`），warnings 不阻断
+  - 0.7.10 收敛后 0 error / 180 warning；CI 仅卡 error（`--quiet`），warnings 不阻断
   - `no-console` 已关闭（由 `lint:console` 专用脚本管 `console.log` / `debug`，`warn` / `error` 合理保留）
   - 剩余构成：~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
   - 策略：coding agent 在接触文件时顺手修复该文件中的 warnings（CLAUDE.md 约定），逐步收敛至 0

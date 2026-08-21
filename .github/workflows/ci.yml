@@ -1,12 +1,14 @@
 name: CI
 
+# 独立开发 + AI 驱动，不需要每次 push 都跑 CI。
+# 触发方式：
+#   1. workflow_dispatch —— 发版前手动跑一次全量检查
+#   2. push tag v* —— release-please 创建 tag 时自动跑，发版兜底
 on:
   push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -25,16 +25,18 @@ export function killStaleVelo(): void {
   }
 }
 
-/** 优先 debug profile,不存在退到 release。两个都没有 → 抛清晰错误。 */
+/** 优先环境变量 VELO_E2E_BINARY（CI 下载产物路径），其次 debug profile，不存在退到 release。两个都没有 → 抛清晰错误。 */
 export function findVeloBinary(): string {
+  const envBinary = process.env.VELO_E2E_BINARY
+  if (envBinary && existsSync(envBinary)) return envBinary
   const repoRoot = path.resolve(__dirname, '..', '..')
   const debugPath = path.join(repoRoot, 'src-tauri', 'target', 'debug', 'velo.exe')
   const releasePath = path.join(repoRoot, 'src-tauri', 'target', 'release', 'velo.exe')
   if (existsSync(debugPath)) return debugPath
   if (existsSync(releasePath)) return releasePath
   throw new Error(
-    `[velo-e2e] velo.exe not found in src-tauri/target/{debug,release}. ` +
-      `Run 'npm run tauri:build:debug' first.`,
+    `[velo-e2e] velo.exe not found. ` +
+      `Set VELO_E2E_BINARY env or run 'npm run tauri:build:debug' first.`,
   )
 }
 
@@ -57,8 +59,12 @@ export async function restartWithArgs(browser: WebdriverIO.Browser, args: string
 }
 
 /** 一次性预构建 debug binary;Cargo 自身有增量,无变动时秒级。
- *  spawnSync stdio inherit 让构建日志走主进程,失败立即看见。 */
+ *  CI 环境跳过构建,binary 由前置 job 下载提供（VELO_E2E_BINARY）。 */
 export function buildDebugBinaryOnce(): void {
+  if (process.env.VELO_E2E_BINARY) {
+    console.log('[velo-e2e] VELO_E2E_BINARY set, skipping build')
+    return
+  }
   const repoRoot = path.resolve(__dirname, '..', '..')
   const res = spawnSync('npm', ['run', 'tauri:build:debug'], {
     cwd: repoRoot,

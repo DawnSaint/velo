@@ -100,7 +100,7 @@
 - **测试**：开发中只跑改动相关的测试文件，尽量不主动跑全量测试
 - **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check
 - **ESLint warnings 顺手修**：每次改动后，用 `read_lints` 查看 warnings，顺手修复接触到的文件中的 warnings（如 `no-non-null-assertion`、`no-explicit-any` 等）。不要为了修 warnings 大范围改动无关文件——接触到的才修，逐步收敛。
-- **commit 前建议**：`npm run type-check` + `npm run test`
+- **commit 前建议**：`npm run type-check` + `npm run test`；发版前本地跑 `npm run ci` 做全量检查
 
 ### 新增语法支持 checklist
 
@@ -153,7 +153,7 @@
    - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
    - 自动生成根目录 `CHANGELOG.md`（从 commit summary 提取；`docs/RELEASE_NOTES.md` 不受影响，始终手动维护）
 3. 人工 review release PR → merge → release-please 自动创建 tag（`vX.Y.Z`）+ GitHub Release
-4. tag push 触发 `build.yml`（workflow 名 **Build**），**同时构建 Windows + macOS ARM64** 并上传到该 Release
+4. tag push 触发 `ci.yml`（CI 全量检查）和 `build.yml`（workflow 名 **Build**），CI 跑完后 **同时构建 Windows + macOS ARM64** 并上传到该 Release；`build.yml` 同时跑 E2E 验收门（Phase 1 `continue-on-error`，失败不阻塞发版）
 
 **其他平台（手动构建，不创建 Release）**：
 
@@ -161,10 +161,18 @@
 6. 手动构建**不创建 Release**，仅产出 build artifact（避免 tauri-action 自动创建新 Release 条目）；Release 只由 release-please 的 tag push 路径接管
 
 
+### 发版前本地全量检查
+
+发版前在本地跑一次与 CI 完全一致的全量检查：
+```
+npm run ci
+```
+等价于依次执行：type-check → lint:deps → lint:console → lint:design-tokens → knip → eslint --quiet → test → build。任何一步失败即中止。
+
 ### 手动发版（应急）
 
 正常使用 release-please 自动发版。如需手动发版（如 release-please 故障）：
-1. `npm run type-check && npm run test && npm run build`
+1. `npm run ci`
 2. 手动改 `package.json` 版本号
 3. `node scripts/sync-tauri-version.mjs`（同步 Tauri 三文件，含 Cargo.lock）
 4. 手动改 `docs/RELEASE_NOTES.md` / `docs/ROADMAP.md` / `docs/DECISIONS.md`
@@ -173,7 +181,7 @@
 ### 配置文件
 
 - `.github/workflows/release-please.yml` — push 到 master 触发，管理版本号 + release PR
-- `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release；`workflow_dispatch` 手动构建指定平台（仅 artifact，不创建 Release）
-- `.github/workflows/ci.yml` — push / PR 到 master 触发，type-check + lint:deps + lint:console + lint:design-tokens + knip + eslint + test + build
+- `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release + 跑 E2E（Phase 1 `continue-on-error`）；`workflow_dispatch` 手动构建指定平台（仅 artifact）或勾选 `run-e2e` 只跑 E2E
+- `.github/workflows/ci.yml` — `workflow_dispatch` 手动触发 + tag push（`v*`）自动触发；type-check + lint:deps + lint:console + lint:design-tokens + knip + eslint + test + build。不在每次 push master 时触发，独立开发 + AI 驱动下每次 push 跑 CI 太慢，改为发版前跑一次
 - `release-please-config.json` — release-type / extra-files
 - `.release-please-manifest.json` — 版本起点

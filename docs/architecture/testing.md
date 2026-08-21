@@ -198,8 +198,8 @@ npm run test:e2e              # onPrepare 自动 tauri:build:debug + killStaleVe
 
 - **Windows only**;`e2e/helpers/platform.ts` 非 Windows 平台 `process.exit(0)` 不报错
 - **不并行**:`tauri-plugin-single-instance` 让多 session 互相路由,`maxInstances: 1` 是硬约束;`taskkill /F /IM velo.exe /T` 在 `onPrepare` / `afterSession` / `onComplete` 三处兜底清残留
-- **CI 挂钩走 build.yml**(`windows-latest` 作业消费刚构建的产物跑 multi-window.spec),详见 ROADMAP `#ci-pipeline`;落空前开发者本机手动跑(npm run test:e2e)
-- **构建走 debug profile**(`tauri build --debug --no-bundle`):无需 installer,Cargo 增量后续秒级
+- **CI 挂钩走 build.yml**:tag push 自动触发 `e2e` job(Windows),`workflow_dispatch` 勾选 `run-e2e` 手动触发;CI 中构建 release 裸 binary(`tauri build --no-bundle`),通过 `VELO_E2E_BINARY` 环境变量传给 wdio;Phase 1 `continue-on-error`,失败不阻塞 release attach
+- **本地构建走 debug profile**(`tauri build --debug --no-bundle`):无需 installer,Cargo 增量后续秒级;CI 走 release profile 更接近用户产物
 
 ---
 
@@ -258,11 +258,10 @@ debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `s
 
 ## CI 集成
 
-- GitHub Actions `.github/workflows/ci.yml` 走 `push` 到 master + `PR`;步骤 checkout → setup-node → `npm ci` → type-check → lint:deps(dependency-cruiser) → lint:console → lint:design-tokens → knip(死码检测) → eslint --quiet(仅卡 error) → `npm test`(vitest,ubuntu) → `npm run build`
-- pre-push hook（`.githooks/pre-push`）在 push master/tag 时跑与 CI 一致的检查（type-check + lint:deps + lint:console + lint:design-tokens + knip + eslint + test），但不跑 build（较慢）；`--no-verify` 可绕过，CI 是最终兜底门禁
+- GitHub Actions `.github/workflows/ci.yml` 走 `workflow_dispatch`（手动触发）+ tag push（`v*`）触发;步骤 checkout → setup-node → `npm ci` → type-check → lint:deps(dependency-cruiser) → lint:console → lint:design-tokens → knip(死码检测) → eslint --quiet(仅卡 error) → `npm test`(vitest,ubuntu) → `npm run build`。不在每次 push master 时触发——独立开发 + AI 驱动下每次 push 跑 CI 太慢，改为发版前手动触发或 tag push 自动触发
 - 不挂覆盖率阈值,只挂"测试通过"门
-- ESLint 仅卡 error（`--quiet`），warnings 不阻断 push / CI；存量 warnings 通过 CLAUDE.md 约定引导 coding agent 在接触文件时顺手修复
-- **E2E 挂钩 build.yml**:vitest 单测是每个 PR 的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → 挂到 ROADMAP `#ci-pipeline` 落地时同仓库新建的 `build.yml`(windows-latest 作业)产物;设计细节见 ROADMAP
+- ESLint 仅卡 error（`--quiet`），warnings 不阻断 CI；存量 warnings 通过 CLAUDE.md 约定引导 coding agent 在接触文件时顺手修复
+- **E2E 挂钩 build.yml**:vitest 单测是发版前的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → `build.yml` 的 `e2e` job 在 tag push 时自动跑,`workflow_dispatch` 可手动触发;Phase 1 `continue-on-error` 不阻塞发版,稳定后改为硬门
 
 ---
 
