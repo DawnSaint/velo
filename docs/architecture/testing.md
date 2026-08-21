@@ -159,7 +159,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 
 测试不是越多越好。下列**不写**测试:
 
-- **纯展示 / 低交互组件** —— `DraftRecoveryDialog.vue` 这类,没有用户可见的失败模式。
+- **纯展示 / 低交互组件** —— `DiffView.vue` 这类,没有用户可见的失败模式。
 - **薄封装 / 转发层** —— `src/tauri/*.ts` 只是转发 Tauri API,测它等于测 mock。
 - **稳定的样板代码** —— boilerplate 配置、纯 CSS 调整、props 透传。
 - **只断言“代码跑过了”的用例** —— 半年没抓到回归、又无行为断言,是死重,敢删。阶段性审计一次。

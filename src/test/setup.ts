@@ -94,6 +94,16 @@ vi.mock('@tauri-apps/api/window', () => ({
   }),
 }))
 
+// getAllWebviewWindows 在旧版用于 loadRecoverableDrafts 排除其他活跃窗口的草稿。
+// Hot Exit 改为 per-workspace 后不再需要,但保留 mock 避免其他代码路径报错。
+const getAllWebviewWindowsMock = vi.fn(async () => [
+  { label: 'main' },
+])
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getAllWebviewWindows: getAllWebviewWindowsMock,
+  getCurrentWebviewWindow: () => ({ label: 'main' }),
+}))
+
 vi.mock('@tauri-apps/api/path', () => ({
   // 草稿 / 设置 / 大纲持久化都通过 appDataDir() 拿到数据目录,join() 拼路径。
   // 测试里返回固定字符串,让 readDir / writeTextFile 这类 fs 操作的 path 参数可预测。

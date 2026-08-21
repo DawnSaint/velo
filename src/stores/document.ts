@@ -8,15 +8,15 @@ import { useRecentFilesStore } from './recentFiles'
 import { useNotifyStore } from './notify'
 import {
   saveDraft as saveDraftToFs,
-  loadDrafts as loadDraftsFromFs,
+  loadDraft as loadDraftFromFs,
   deleteDraft as deleteDraftFromFs,
   saveVersionSnapshot,
   pruneVersionSnapshots,
   VERSION_SNAPSHOT_CAP,
-  type Draft,
   type PersistedSettings,
   type SnapshotTrigger,
 } from './persistence'
+import { useWorkspaceStore } from './workspace'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 import { formatError } from '@/utils/formatError'
@@ -92,13 +92,10 @@ export const useDocumentStore = defineStore('document', () => {
   const sourceMode = ref(false)
   const autoSaveEnabled = ref(false)
   const autoSaveOnBlur = ref(false)
-  // 草稿 id 的 window scope(Tauri 窗口 label);同一窗口所有标签共享
-  const draftScope = ref<string | null>(null)
   // newDoc 的「显式切换意图」信号;全局(EditorInner watch)
   const focusRequestToken = ref(0)
   // 切标签信号;用来触发 EditorInner 恢复缓存 state
   const tabSwitchToken = ref(0)
-  const pendingRecoveryDrafts = ref<Draft[]>([])
 
   function activeDoc(): DocState | undefined {
     return documents.value.get(activeId.value)
@@ -207,9 +204,6 @@ export const useDocumentStore = defineStore('document', () => {
     sourceMode.value = !sourceMode.value
   }
 
-  function setDraftScope(scope: string | null) {
-    draftScope.value = scope
-  }
 
   // 缓存上一次写进原生 title bar 的字符串。setContent 每次按键都调
   // syncTitle,但 dirty 状态在编辑过程中通常保持不变(只有 clean ↔ dirty
@@ -672,31 +666,60 @@ export const useDocumentStore = defineStore('document', () => {
       seen.add(p)
       deduped.push(p)
     }
+    // Hot Exit: 并发读磁盘 + 查草稿,有草稿则用草稿内容恢复(dirty=true)。
+    const ws = activeWorkspaceRoot()
     const reads = await Promise.all(deduped.map(async (p) => {
+      // 先查草稿(per-workspace;无 workspace 时用 fallback key)
+      let draftContent: string | null = null
+      let hasDraft = false
+      const draftId = `file-${encodePathAsId(p)}`
+      const draft = await loadDraftFromFs(ws, draftId)
+      if (draft) {
+        draftContent = draft.content
+        hasDraft = true
+      }
+      // 没有草稿 → 读磁盘原文
+      let diskContent: string | null = null
+      let diskErr: unknown = null
       try {
-        const c = await readTextFile(p)
-        return { p, c, err: null as unknown }
+        diskContent = await readTextFile(p)
       }
       catch (err) {
-        return { p, c: null as string | null, err }
+        diskErr = err
       }
+      return { p, draftContent, hasDraft, diskContent, diskErr }
     }))
     const restored: string[] = []
-    for (const { p, c, err } of reads) {
-      if (c === null) {
+    for (const { p, draftContent, hasDraft, diskContent, diskErr } of reads) {
+      // 磁盘读失败且没有草稿 → 跳过
+      if (diskContent === null && !hasDraft) {
         if (opts.silent) {
-          console.warn(`[tabs-restore] skip ${p}: ${formatError(err)}`)
+          console.warn(`[tabs-restore] skip ${p}: ${formatError(diskErr)}`)
         }
         else {
-          console.error('打开文件失败', p, err)
-          useNotifyStore().error(`无法打开 ${p}:${formatError(err)}`)
+          console.error('打开文件失败', p, diskErr)
+          useNotifyStore().error(`无法打开 ${p}:${formatError(diskErr)}`)
         }
         continue
       }
       const id = findTabByPath(p)
       if (!id) continue // 标签可能已在 Phase 1 和 2 之间被关闭
       const d = documents.value.get(id)!
-      loadContentInto(d, c, p)
+      if (hasDraft && draftContent !== null) {
+        // Hot Exit 恢复:用草稿内容装载,设磁盘基线让 dirty=true。
+        // 磁盘文件存在 → 用磁盘内容做 baseline(Ctrl+S 把草稿写回磁盘正常路径);
+        // 磁盘文件不存在(已删) → 用空串做 baseline(dirty=true 阻止静默重载)。
+        loadContentInto(d, draftContent, p)
+        d.lastSavedContent = diskContent ?? ''
+        void syncTitle()
+        // 草稿已被消费,删掉磁盘上的草稿文件
+        const draftId = `file-${encodePathAsId(p)}`
+        await deleteDraftFromFs(ws, draftId)
+      }
+      else {
+        // 正常路径:用磁盘内容装载
+        loadContentInto(d, diskContent!, p)
+      }
       restored.push(p)
     }
     return restored
@@ -757,14 +780,16 @@ export const useDocumentStore = defineStore('document', () => {
     return true
   }
 
-  /** 草稿定时落盘:遍历所有脏盘标签各落一份(每 doc 的 pathId 各自独立)。 */
+  /** 草稿定时落盘:遍历所有脏盘标签各落一份(每 doc 的 pathId 各自独立)。
+   *  无 workspace 时 ws 回退到 FALLBACK_NO_WORKSPACE,草稿仍落盘。 */
   async function saveAllDrafts() {
+    const ws = activeWorkspaceRoot()
     for (const d of [...documents.value.values()]) {
       if (d.content === d.lastSavedContent) continue
       const id = currentDraftIdFor(d)
       if (!id) continue
-      await saveDraftToFs({
-        version: 1,
+      await saveDraftToFs(ws, {
+        version: 2,
         id,
         originalPath: d.currentFilePath,
         content: d.content,
@@ -855,7 +880,15 @@ export const useDocumentStore = defineStore('document', () => {
       d.userReadOnly = false
       d.virtualFileName = null
 
-      if (oldDraftId) await deleteDraftFromFs(oldDraftId)
+      if (oldDraftId) {
+        // saveAs 前的 oldDraftId 可能来自旧 workspace(路径切换后 workspace 变了);
+        // 尝试用当前 workspace 删,再尝试旧 workspace —— 但 oldDraftId 已含旧 workspace
+        // 信息,per-workspace 后 oldDraftId 是纯 id(不含 scope),直接用当前 ws 删即可。
+        // saveAs 切了路径后 currentFilePath 变成新路径,但 oldDraftId 是旧 doc 的,
+        // clearDraftForDoc 会用新 path 算 id —— 不匹配。这里直接用 oldDraftId 删。
+        const ws2 = activeWorkspaceRoot()
+        await deleteDraftFromFs(ws2, oldDraftId)
+      }
       await clearDraftForDoc(d)
       void syncTitle()
       // 路径变了：换被监听的文件
@@ -1193,16 +1226,23 @@ export const useDocumentStore = defineStore('document', () => {
     return { state: d.cmState, scrollTop: d.scrollTop }
   }
 
-  // ========== 崩溃恢复草稿 ==========
+  // ========== 崩溃恢复草稿(Hot Exit,per-workspace)==========
   //
-  // dirty 时定期把当前内容写到 appDataDir/drafts/{id}.json;启动时扫描这个目录,
-  // 展示给用户让他选择恢复 / 丢弃。
+  // dirty 时定期把当前内容写到 appDataDir/drafts/{workspaceKey}/{id}.json;
+  // 启动恢复时在 loadContentIntoTabs 里优先读草稿,有草稿则用草稿内容恢复
+  // 并设 dirty=true(VSCode Hot Exit 语义),不弹 Dialog。
   //
-  // ID 策略(window scope + per-doc path):
-  //   - 文件: path 的 UTF-8 字节做 base64,把 + / = 替成 _ 变成合法文件名;
-  //          确定性 → 同一文件反复 dirty 时原地覆盖
-  //   - 未命名:无窗口 scope 时保留旧 fixed slot;有 scope 时每个窗口一个 slot
-  const UNTITLED_DRAFT_ID = 'untitled'
+  // 草稿按 workspace 隔离:A 工作区的草稿只在下次打开 A 时恢复。
+  //
+  // ID 策略(per-doc path,无 window scope):
+  //   - 文件: file-{encodePathAsId(path)}; 确定性 → 同一文件反复 dirty 原地覆盖
+  //   - 未命名: untitled-{seq}; 同一 workspace 下未命名文档各一个 slot
+  //
+  //   无 workspace(activeRoot = null)时用 FALLBACK_NO_WORKSPACE 作 key,
+  //   草稿仍能落盘 + 恢复 —— 覆盖"只打开文件没开工作区"的场景(同 VSCode/Typora)。
+
+  const UNTITLED_DRAFT_PREFIX = 'untitled'
+  const FALLBACK_NO_WORKSPACE = '_no_workspace'
 
   function encodePathAsId(path: string): string {
     const bytes = new TextEncoder().encode(path)
@@ -1211,26 +1251,22 @@ export const useDocumentStore = defineStore('document', () => {
     return btoa(binary).replace(/[/+=]/g, '_')
   }
 
-  function safeDraftScope(): string | null {
-    if (!draftScope.value) return null
-    return draftScope.value.replace(/[^a-zA-Z0-9_-]/g, '_')
+  /** 当前 active workspace root;无 workspace 时返回 fallback key(草稿仍落盘)。 */
+  function activeWorkspaceRoot(): string {
+    return useWorkspaceStore().activeRoot ?? FALLBACK_NO_WORKSPACE
   }
 
   function currentDraftIdFor(d: DocState): string | null {
-    const scope = safeDraftScope()
-    if (!d.currentFilePath) return scope ? `win-${scope}-untitled` : UNTITLED_DRAFT_ID
+    if (!d.currentFilePath) {
+      // 未命名文档:用 doc id 做确定性 slot
+      return `${UNTITLED_DRAFT_PREFIX}-${d.id}`
+    }
     try {
-      const fileId = `file-${encodePathAsId(d.currentFilePath)}`
-      return scope ? `win-${scope}-${fileId}` : fileId
+      return `file-${encodePathAsId(d.currentFilePath)}`
     }
     catch {
       return null
     }
-  }
-
-  function currentDraftId(): string | null {
-    const d = activeDoc()
-    return d ? currentDraftIdFor(d) : null
   }
 
   /** 当前 active doc dirty → 落一份草稿。App.vue 周期性调,clean 时直接 return。 */
@@ -1238,10 +1274,11 @@ export const useDocumentStore = defineStore('document', () => {
     const d = activeDoc()
     if (!d) return
     if (d.content === d.lastSavedContent) return
+    const ws = activeWorkspaceRoot()
     const id = currentDraftIdFor(d)
     if (!id) return
-    await saveDraftToFs({
-      version: 1,
+    await saveDraftToFs(ws, {
+      version: 2,
       id,
       originalPath: d.currentFilePath,
       content: d.content,
@@ -1257,86 +1294,15 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   async function clearDraftForDoc(d: DocState) {
+    const ws = activeWorkspaceRoot()
     const id = currentDraftIdFor(d)
     if (!id) return
-    await deleteDraftFromFs(id)
-  }
-
-  /** App.vue 启动时调一次,扫出所有"上一会话留下的"草稿。 */
-  async function loadRecoverableDrafts() {
-    const all = await loadDraftsFromFs()
-    // 所有已开标签的草稿 id 都不算"待恢复"(本会话已打开 / 内容跟磁盘一致)
-    const openIds = new Set<string>()
-    for (const d of documents.value.values()) {
-      const id = currentDraftIdFor(d)
-      if (id) openIds.add(id)
-    }
-    const recoverable = all.filter(d => !openIds.has(d.id))
-    // 按时间倒序,最新的在最上面
-    recoverable.sort((a, b) => b.savedAt - a.savedAt)
-    pendingRecoveryDrafts.value = recoverable
-  }
-
-  /** 用户选了"恢复这条草稿" → 新开标签(或复用干净未命名)装进去。 */
-  async function recoverDraft(id: string) {
-    const draft = pendingRecoveryDrafts.value.find(d => d.id === id)
-    if (!draft) return
-    if (!isPristineBlank(activeDoc())) {
-      const nid = createTab()
-      switchTab(nid)
-    }
-    const d = activeDoc()!
-    // loadContentInto 会把 currentFilePath 切到 draft 的原文件,
-    // 这样 currentDraftId() 也会跟着切,下一次定时 save 会原地覆盖这条草稿
-    loadContentInto(d, draft.content, draft.originalPath)
-
-    // 把 lastSavedContent 强行偏离 content,让 dirty=true。
-    // 优先用磁盘真实内容做 baseline —— 这样 Ctrl+S 时 save() 是把草稿写到磁盘
-    // (正常路径),而 checkExternalChange 后续会走 confirm 分支把决定权交回用户。
-    if (draft.originalPath) {
-      try {
-        const disk = await readTextFile(draft.originalPath)
-        d.lastSavedContent = disk
-      }
-      catch {
-        // 文件已删 / 权限 / 网络盘断 —— 用空串当 baseline,反正只要 ≠ content
-        // 就能让 dirty=true,达到「阻止静默重载」的目的。
-        d.lastSavedContent = ''
-      }
-    }
-    else {
-      // 未命名文档(originalPath=null),没有磁盘对照。用空串保证 dirty=true。
-      d.lastSavedContent = ''
-    }
-    // dirty 变了 → title 上要出现 / 消失 "•",刷一次
-    syncTitle()
-
-    // 切完路径后重过滤一次弹窗:
-    // 1) 用户点的这条要从列表移除(原行为)。
-    // 2) 同 currentDraftId 的其他草稿也清掉(防御性):理论上 saveDraft
-    //    原地覆盖,同 id 只应有一条;但如果同 id 真出现多条(比如 saveDraft
-    //    在 race 下),再点恢复会用另一份历史覆盖刚恢复的内容,UX 上是 bug。
-    const cur = currentDraftId()
-    const exclude = new Set<string>([id])
-    if (cur) exclude.add(cur)
-    pendingRecoveryDrafts.value = pendingRecoveryDrafts.value.filter(d => !exclude.has(d.id))
-    await deleteDraftFromFs(id)
-  }
-
-  /** 用户选了"丢弃这条草稿"。 */
-  async function discardDraft(id: string) {
-    pendingRecoveryDrafts.value = pendingRecoveryDrafts.value.filter(d => d.id !== id)
-    await deleteDraftFromFs(id)
-  }
-
-  /** 关闭恢复弹窗(对单条 / 全部都"暂不处理")—— 草稿留在磁盘,下次启动还能选。 */
-  function dismissRecoveryDialog() {
-    pendingRecoveryDrafts.value = []
+    await deleteDraftFromFs(ws, id)
   }
 
   /** 恢复版本快照到编辑器:新开标签(或复用干净未命名)装入快照内容。
-   *  语义同 recoverDraft:设 lastSavedContent 为磁盘当前内容让 dirty=true,
-   *  用户 Ctrl+S 把快照写回磁盘,或 discard 放弃。 */
+   *  语义同 Hot Exit 恢复:设 lastSavedContent 为磁盘当前内容让 dirty=true,
+   *  用户 Ctrl+S 把快照写回磁盘,或关闭标签时放弃。 */
   async function restoreVersionContent(filePath: string, content: string) {
     if (!isPristineBlank(activeDoc())) {
       const nid = createTab()
@@ -1388,12 +1354,10 @@ export const useDocumentStore = defineStore('document', () => {
     autoSaveEnabled,
     autoSaveOnBlur,
     toggleSourceMode,
-    setDraftScope,
     readOnly,
     readOnlyLocked,
     virtualFileName,
     fileName,
-    pendingRecoveryDrafts,
     focusRequestToken,
     // 生命周期 / IO
     init,
@@ -1440,13 +1404,9 @@ export const useDocumentStore = defineStore('document', () => {
     captureCmStateForDoc,
     peekActiveCmStateForRestore,
     findTabByPath,
-    // 草稿
+    // 草稿(Hot Exit)
     saveCurrentDraft,
     clearCurrentDraft,
-    loadRecoverableDrafts,
-    recoverDraft,
-    discardDraft,
-    dismissRecoveryDialog,
     // 版本历史
     restoreVersionContent,
     hydrateSettings,

@@ -3,6 +3,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useDocumentStore } from '../document'
 import { useRecentFilesStore } from '../recentFiles'
 import { useNotifyStore } from '../notify'
+import { useWorkspaceStore } from '../workspace'
 import { readTextFile, writeTextFile, watch } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
@@ -909,14 +910,20 @@ describe('document store', () => {
     })
   })
 
-  // 8. 崩溃恢复草稿
-  // 底层 persistence.ts 的 IO 行为(mkdir / writeTextFile / readDir / rename / remove / exists)
-  // 在 jsdom 里走 setup.ts 里的 stub,这里主要验证 store 层的草稿状态机。
+  // 8. 崩溃恢复草稿(Hot Exit,per-workspace)
+  // 草稿按 workspace 隔离:saveCurrentDraft / saveAllDrafts 需要 activeWorkspaceRoot。
+  // 启动恢复在 loadContentIntoTabs 里优先读草稿,有草稿则用草稿内容恢复(dirty=true)。
   describe('草稿(draft)管理', () => {
+    /** 在测试中设置 workspace root,让草稿 IO 能正常走 */
+    function setupWorkspace(root = '/test-ws') {
+      const wsStore = useWorkspaceStore()
+      wsStore.setActiveRoot(root)
+    }
+
     it('saveCurrentDraft:clean 时直接 return,不调底层写盘', async () => {
       const store = useDocumentStore()
       store.init('hello')
-      // 重新绑定 writeTextFile 的 mock,统计调用次数
+      setupWorkspace()
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
 
@@ -924,37 +931,50 @@ describe('document store', () => {
       expect(writes).not.toHaveBeenCalled()
     })
 
-    it('saveCurrentDraft:dirty 时写一份草稿到 appDataDir/drafts/', async () => {
+    it('saveCurrentDraft:无 workspace 时仍落盘到 fallback 目录', async () => {
       const store = useDocumentStore()
-      store.init('hello')
-      store.setContent('hello world') // 真实编辑 → dirty
-      // currentFilePath 还是 null(刚 init),会用 'untitled' 这个固定 ID
+      store.init('')
+      store.setContent('dirty content')
+      // 不调 setupWorkspace → activeWorkspaceRoot 回退到 _no_workspace
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
 
       await store.saveCurrentDraft()
-      // 至少要写一次(tmp 写 + rename 算写两次,具体取决于 persistence 实现)
       expect(writes).toHaveBeenCalled()
+      // 草稿路径中包含 drafts/ 子目录(fallback key 被 Base64 编码后不含 _no_workspace 原文)
+      const calledPaths = writes.mock.calls.map(c => String(c[0]))
+      const hit = calledPaths.some(p => p.includes('drafts/') && p.endsWith('.json.tmp'))
+      expect(hit).toBe(true)
     })
 
-    // 回归:btoa 是 latin-1 only,直接对含非 ASCII 字符的路径会抛
-    // InvalidCharacterError → currentDraftId 之前直接 return null → draft 静默不写。
-    // 修复后 dirty 文件(非 ASCII 路径)应当正常落盘。
+    it('saveCurrentDraft:dirty 时写一份草稿到 appDataDir/drafts/{workspaceKey}/', async () => {
+      const store = useDocumentStore()
+      store.init('hello')
+      store.setContent('hello world') // dirty
+      setupWorkspace()
+      const writes = vi.mocked(writeTextFile)
+      writes.mockClear()
+
+      await store.saveCurrentDraft()
+      expect(writes).toHaveBeenCalled()
+      // 写出路径里应包含 drafts/ 子目录(per-workspace)
+      const calledPaths = writes.mock.calls.map(c => String(c[0]))
+      const hit = calledPaths.some(p => p.includes('drafts/') && p.endsWith('.json.tmp'))
+      expect(hit).toBe(true)
+    })
+
     it('saveCurrentDraft:非 ASCII 路径下能正常落盘(回归 btoa 编码 bug)', async () => {
       const store = useDocumentStore()
       store.init('')
       store.loadContent('你好', '/文档/笔记.md')
-      store.setContent('你好世界') // 真实编辑 → dirty
+      store.setContent('你好世界') // dirty
+      setupWorkspace()
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
 
       await store.saveCurrentDraft()
 
-      // 关键断言:dirty 状态下 writeTextFile 必须被调到,不能因为 ID 编码失败而 return
       expect(writes).toHaveBeenCalled()
-      // 写出路径里应包含 UTF-8 编码后的 id(不再是 null,也不再抛)。
-      // saveDraft 走 .tmp + rename 原子写,所以 writeTextFile 看到的总是
-      // .../file-<id>.json.tmp 路径,不是 .json。
       const calledPaths = writes.mock.calls.map(c => String(c[0]))
       const hit = calledPaths.some(p => p.includes('file-') && p.endsWith('.json.tmp'))
       expect(hit).toBe(true)
@@ -965,183 +985,41 @@ describe('document store', () => {
       store.init('')
       store.loadContent('v1', '/文档/v.md')
       store.setContent('v1-edited') // dirty
+      setupWorkspace()
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
       await store.saveCurrentDraft()
       const firstPaths = writes.mock.calls.map(c => String(c[0]))
 
-      // 再编辑一次(仍是同一文件),写盘路径应该跟上次一致
       store.setContent('v1-edited-again')
       writes.mockClear()
       await store.saveCurrentDraft()
       const secondPaths = writes.mock.calls.map(c => String(c[0]))
 
-      // tmp + rename 各写一次,所以取"非 .tmp 路径"做比较更直观
       const finalOf = (paths: string[]) => paths.find(p => !p.endsWith('.tmp')) ?? ''
       expect(finalOf(firstPaths)).toBe(finalOf(secondPaths))
     })
 
-    it('saveCurrentDraft:不同 draftScope 下同一文件草稿 id 不冲突', async () => {
+    it('saveCurrentDraft:不同 workspace 下同一文件草稿路径不同', async () => {
       const store = useDocumentStore()
       store.init('')
       store.loadContent('base', '/same.md')
       store.setContent('window one')
-      store.setDraftScope('main')
+      setupWorkspace('/ws-a')
       const writes = vi.mocked(writeTextFile)
       writes.mockClear()
       await store.saveCurrentDraft()
       const firstPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
 
-      store.setDraftScope('velo-window-1')
+      setupWorkspace('/ws-b')
       writes.mockClear()
       await store.saveCurrentDraft()
       const secondPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
 
-      expect(firstPath).toContain('win-main-file-')
-      expect(secondPath).toContain('win-velo-window-1-file-')
+      // 草稿文件名相同(file-{id}),但目录不同(per-workspace)
       expect(firstPath).not.toBe(secondPath)
     })
-
-    it('saveCurrentDraft:多个 untitled window 使用各自 scoped slot', async () => {
-      const store = useDocumentStore()
-      store.init('')
-      store.setContent('')
-      store.setContent('dirty')
-      const writes = vi.mocked(writeTextFile)
-
-      store.setDraftScope('main')
-      writes.mockClear()
-      await store.saveCurrentDraft()
-      const firstPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
-
-      store.setDraftScope('velo-window-1')
-      writes.mockClear()
-      await store.saveCurrentDraft()
-      const secondPath = writes.mock.calls.map(c => String(c[0])).find(p => p.endsWith('.json.tmp')) ?? ''
-
-      expect(firstPath).toContain('win-main-untitled')
-      expect(secondPath).toContain('win-velo-window-1-untitled')
-      expect(firstPath).not.toBe(secondPath)
-    })
-
-    it('saveCurrentDraft:无 draftScope 时保留旧 untitled id', async () => {
-      const store = useDocumentStore()
-      store.init('')
-      store.setContent('dirty')
-      const writes = vi.mocked(writeTextFile)
-      writes.mockClear()
-
-      await store.saveCurrentDraft()
-
-      const calledPaths = writes.mock.calls.map(c => String(c[0]))
-      expect(calledPaths.some(p => p.includes('/untitled.json.tmp'))).toBe(true)
-    })
-    it('loadRecoverableDrafts:排除当前文档的草稿,按时间倒序', async () => {
-      // 准备两份磁盘上的草稿:一份对应当前文件,一份对应另一个文件
-      // setup.ts 里 readTextFile 是 mock,我们要劫持它返回草稿 JSON
-      const { readDir, exists } = await import('@tauri-apps/plugin-fs')
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readDir).mockResolvedValue([
-        { name: 'file-others.json', isDirectory: false, isFile: true, isSymlink: false },
-        { name: 'untitled.json', isDirectory: false, isFile: true, isSymlink: false },
-      ] as any)
-      const draftsJson: Record<string, string> = {
-        'file-others.json': JSON.stringify({
-          version: 1, id: 'file-others',
-          originalPath: '/other.md', content: 'other content',
-          savedAt: 1000,
-        }),
-        'untitled.json': JSON.stringify({
-          version: 1, id: 'untitled',
-          originalPath: null, content: 'untitled content',
-          savedAt: 2000,
-        }),
-      }
-      vi.mocked(readTextFile).mockImplementation(async (p: any) => {
-        const name = String(p).split(/[\\/]/).pop()!
-        return draftsJson[name] ?? ''
-      })
-
-      const store = useDocumentStore()
-      store.init('') // currentFilePath = null
-      await store.loadRecoverableDrafts()
-
-      // currentFilePath 是 null,currentDraftId 是 'untitled'
-      // 所以 untitled 那条被排除,只剩 file-others
-      expect(store.pendingRecoveryDrafts.length).toBe(1)
-      expect(store.pendingRecoveryDrafts[0].id).toBe('file-others')
-    })
-
-    // 回归:App.vue onMounted 顺序。loadRecoverableDrafts 必须在 CLI 打开文件
-    // 之后调 —— 不然 currentFilePath 还是 null,filter 不知道有"刚要打开的文件"
-    // 这回事,弹窗里会出现一个"自己刚打开的文件"的草稿,点恢复会把磁盘内容
-    // 覆盖回那份草稿(issue #3)。本测试覆盖 store 层:openPath 之后再调 filter,
-    // 应当排除刚打开文件的草稿。
-    it('loadRecoverableDrafts:openPath 设置 currentFilePath 之后,排除该文件的草稿', async () => {
-      // 镜像 stores/document.ts 里的 encodePathAsId —— 草稿 id 必须跟 store
-      // 实际计算的一致,filter 才会匹配。
-      const encodePathAsId = (path: string) => {
-        const bytes = new TextEncoder().encode(path)
-        let binary = ''
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-        return btoa(binary).replace(/[/+=]/g, '_')
-      }
-      const p1Id = `file-${encodePathAsId('/p1.md')}`
-      const othersId = `file-${encodePathAsId('/other.md')}`
-
-      // 准备三份磁盘上的草稿:对应 CLI 即将打开的文件 / 另一份文件 / untitled
-      const { readDir, exists, readTextFile } = await import('@tauri-apps/plugin-fs')
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readDir).mockResolvedValue([
-        { name: 'file-p1.json', isDirectory: false, isFile: true, isSymlink: false },
-        { name: 'file-others.json', isDirectory: false, isFile: true, isSymlink: false },
-        { name: 'untitled.json', isDirectory: false, isFile: true, isSymlink: false },
-      ] as any)
-      const draftsJson: Record<string, string> = {
-        'file-p1.json': JSON.stringify({
-          version: 1, id: p1Id,
-          originalPath: '/p1.md', content: 'p1 dirty content',
-          savedAt: 1500,
-        }),
-        'file-others.json': JSON.stringify({
-          version: 1, id: othersId,
-          originalPath: '/other.md', content: 'other content',
-          savedAt: 1000,
-        }),
-        'untitled.json': JSON.stringify({
-          version: 1, id: 'untitled',
-          originalPath: null, content: 'untitled content',
-          savedAt: 2000,
-        }),
-      }
-      // readTextFile 既要被 openPath 读文件内容用,也要被 loadDrafts 读草稿用。
-      // 草稿目录是 /appData/drafts(看 join mock),文件目录是 /p1.md 这种。
-      // 草稿的 path 形如 /appData/drafts/file-p1.json,取 basename 后命中 draftsJson;
-      // openPath 读 /p1.md 时 basename 是 p1.md,不在 draftsJson 里,返回 ''。
-      vi.mocked(readTextFile).mockImplementation(async (p: any) => {
-        const name = String(p).split(/[\\/]/).pop()!
-        return draftsJson[name] ?? ''
-      })
-
-      const store = useDocumentStore()
-      store.init('')
-
-      // 模拟 CLI 启动:openPath 先设好 currentFilePath
-      await store.openPath('/p1.md')
-      expect(store.currentFilePath).toBe('/p1.md')
-
-      // 再扫草稿:此时 currentDraftId = p1Id,应被排除。
-      // loadRecoverableDrafts 的 filter 是 d.id !== cur:cur = p1Id 时只排除 p1Id 那条;
-      // file-others 和 untitled 跟当前文件无关,会留在列表里。
-      await store.loadRecoverableDrafts()
-
-      const ids = store.pendingRecoveryDrafts.map(d => d.id)
-
-      expect(ids).not.toContain(p1Id)
-      // 其他草稿不受影响
-      expect(ids).toContain(othersId)
-      expect(ids).toContain('untitled')
-    })
+  })
 
     // 阻塞 #2:CLI 启动 / cli-args 走 openPath 失败时用户必须能看到反馈。
     // 之前 readTextFile 抛错会冒泡成 unhandled rejection(那两处都是 void openPath(...)),
@@ -1186,86 +1064,23 @@ describe('document store', () => {
       expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/new.md'])
     })
 
-    it('recoverDraft:把内容装进当前编辑器并从列表移除', async () => {
-      const store = useDocumentStore()
-      store.init('') // 空编辑器
-      // 直接挂两条待恢复草稿到 store
-      store.pendingRecoveryDrafts = [
-        { version: 1, id: 'a', originalPath: '/a.md', content: 'A content', savedAt: 1 },
-        { version: 1, id: 'b', originalPath: '/b.md', content: 'B content', savedAt: 2 },
-      ]
-
-      await store.recoverDraft('a')
-
-      expect(store.content).toBe('A content\n')
-      expect(store.currentFilePath).toBe('/a.md')
-      expect(store.pendingRecoveryDrafts.map(d => d.id)).toEqual(['b'])
-    })
-
-    // 重要 #3:recoverDraft 切到草稿的原文件后,弹窗里其他同 id 草稿(同一文件)必须清掉。
-    // 之前实现只 filter 了当前这条,如果用户曾经对同一文件有多份历史草稿(理论上 saveDraft
-    // 原地覆盖,不该出现,但边缘情况),用户能连续点"恢复"覆盖刚恢复的内容。
-    it('recoverDraft:恢复同 id 草稿后,弹窗里同 id 其他草稿也清掉', async () => {
-      const store = useDocumentStore()
-      store.init('')
-      // 模拟"同文件多份历史草稿"的边缘情况:同 id 出现两次(虽然 saveDraft 不该这么干)
-      // 列表按 savedAt 倒序展示,newest 在最上面,用户看到点的是 newest。
-      store.pendingRecoveryDrafts = [
-        { version: 1, id: 'file-x', originalPath: '/x.md', content: 'newest', savedAt: 200 },
-        { version: 1, id: 'file-x', originalPath: '/x.md', content: 'oldest', savedAt: 100 },
-        { version: 1, id: 'file-y', originalPath: '/y.md', content: 'y', savedAt: 150 },
-      ]
-
-      await store.recoverDraft('file-x')
-
-      // file-x 那条恢复后被 filter 掉(原行为);这里还多了一道 currentDraftId 过滤,
-      // 所以即使同 id 还有另一条,也会一起被清。file-y 不受影响。
-      const remaining = store.pendingRecoveryDrafts.map(d => d.id)
-      expect(remaining).not.toContain('file-x')
-      expect(remaining).toEqual(['file-y'])
-      // 内容应该是用户点的最新那条
-      expect(store.content).toBe('newest\n')
-      expect(store.currentFilePath).toBe('/x.md')
-    })
-
-    it('discardDraft:从列表移除,不清当前内容', async () => {
-      const store = useDocumentStore()
-      store.init('keep this')
-      store.pendingRecoveryDrafts = [
-        { version: 1, id: 'a', originalPath: '/a.md', content: 'A', savedAt: 1 },
-      ]
-
-      await store.discardDraft('a')
-
-      expect(store.content).toBe('keep this') // 当前内容没动
-      expect(store.pendingRecoveryDrafts.length).toBe(0)
-    })
-
-    it('dismissRecoveryDialog:清空列表(草稿留在磁盘,下次启动还在)', () => {
-      const store = useDocumentStore()
-      store.pendingRecoveryDrafts = [
-        { version: 1, id: 'a', originalPath: '/a.md', content: 'A', savedAt: 1 },
-      ]
-      store.dismissRecoveryDialog()
-      expect(store.pendingRecoveryDrafts.length).toBe(0)
-    })
-
     it('save() 成功后会清掉当前文档的草稿(走 clearCurrentDraft)', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello world')
       // 把底层 IO 写权限都打开
       vi.mocked(writeTextFile).mockResolvedValue()
-      // exists 用来判断"草稿文件在不在磁盘上";在的话就 remove
-      // 这里让它返回 true,触发 remove 分支
       const { remove, exists } = await import('@tauri-apps/plugin-fs')
       vi.mocked(exists).mockResolvedValue(true)
       vi.mocked(remove).mockResolvedValue()
+
+      // clearDraftForDoc 需要 activeWorkspaceRoot; mock workspace store
+      const wsStore = useWorkspaceStore()
+      wsStore.setActiveRoot('/test-ws')
 
       await store.save()
       // remove 至少要调一次(删草稿)
       expect(vi.mocked(remove)).toHaveBeenCalled()
     })
-  })
 
   // ========== 多标签 + openFilePaths(v0.6.x 标签持久化) ==========
   //

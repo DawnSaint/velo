@@ -62,6 +62,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    *  暴露给 UI/App.vue 直接渲染 aside 宽度;持久化由 activeWorkspace.sidebarWidth 承担。 */
   const sidebarWidth = ref<number>(SIDEBAR_WIDTH_DEFAULT)
 
+  /** 用户是否显式关闭了工作区(closeWorkspace)。
+   *  用于区分 activeRoot=null 的两种场景:
+   *  - true = 用户主动关闭,snapshotActiveForPersistence 返回 active=null(覆盖磁盘)
+   *  - false = 动态窗口 / watcher 误触发,返回 active=undefined(不覆盖磁盘)
+   *  setActiveRoot(非 null) 时重置为 false。 */
+  let activeExplicitlyCleared = false
+
   /** 历史工作区根路径列表(派生自 workspaces 的 keys),用于切换下拉。 */
   const knownRoots = computed<string[]>(() => Object.keys(workspaces.value))
 
@@ -101,6 +108,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setActiveRoot(root: string | null) {
     activeRoot.value = root
     if (root) {
+      activeExplicitlyCleared = false
       const ws = ensureWorkspace(root)
       ws.sidebarTab = sidebarTab.value
       sidebarWidth.value = ws.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT
@@ -123,6 +131,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 关闭当前工作区,回到"无工作区"模式(仍可用单文件 open/saveAs)。 */
   function closeWorkspace() {
     setActiveRoot(null)
+    // 标记为显式关闭:让 snapshotActiveForPersistence 返回 active=null(覆盖磁盘),
+    // 而非 active=undefined(watcher 误触发不覆盖)。
+    activeExplicitlyCleared = true
   }
 
   /**
@@ -326,6 +337,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    *  sidebarTab / sidebarWidth 应用到当前 UI;动态窗口只加载 known roots 和 per-root state。 */
   function loadFrom(data: PersistedWorkspaces, options: { restoreActive?: boolean } = {}) {
     const restoreActive = options.restoreActive ?? true
+    activeExplicitlyCleared = false // 启动恢复重置标记,避免上一会话残留
     // 旧 JSON 可能没有 recentFiles / sidebarWidth 字段,统一兜底,免得调用方需要判 undefined
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(data.workspaces)) {
@@ -355,7 +367,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function snapshotActiveForPersistence(): WorkspacePatch {
     const active = activeRoot.value
     return {
-      active,
+      // 有 active workspace → 写入路径(string)
+      // 无 active workspace + 用户显式关闭 → null(覆盖磁盘,下次冷启动不恢复)
+      // 无 active workspace + watcher 误触发 → undefined(不覆盖磁盘已有 active)
+      active: active ?? (activeExplicitlyCleared ? null : undefined),
       workspaces: active && workspaces.value[active]
         ? { [active]: snapshotWorkspaceState(workspaces.value[active]) }
         : {},

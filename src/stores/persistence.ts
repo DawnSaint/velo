@@ -205,16 +205,19 @@ export async function saveFoldState(s: PersistedFoldState): Promise<void> {
   }
 }
 
-// ========== 崩溃恢复草稿 ==========
+// ========== 崩溃恢复草稿(Hot Exit,per-workspace)==========
 //
-// 脏盘期间定时把当前内容写到 appDataDir/drafts/{id}.json。
-// 启动时扫描这个目录,文件还在磁盘上且内容跟磁盘一致 → 自动清理;
-// 否则展示给用户让他选择恢复 / 丢弃。
+// 脏盘期间定时把当前内容写到 appDataDir/drafts/{workspaceKey}/{id}.json。
+// 草稿按工作区隔离:在 A 工作区编辑的未保存内容不会在打开 B 工作区时恢复,
+// 只在下次打开 A 工作区时静默恢复(Hot Exit 语义,同 VSCode)。
+//
+// workspaceKey = encodePathAsId(workspaceRoot),与 versions/ 中的 pathId 同款逻辑。
+// 无工作区(无 activeRoot)时,草稿不落盘 —— 没有 workspace 归属无法恢复。
 //
 // 落盘用 .tmp + rename 做原子写:写到一半进程死了不会留半截文件污染启动。
 
 const DRAFTS_DIR = 'drafts'
-const DRAFT_VERSION = 1
+const DRAFT_VERSION = 2
 
 export interface Draft {
   version: number
@@ -227,18 +230,42 @@ export interface Draft {
   savedAt: number
 }
 
-async function ensureDraftsDir(): Promise<string | null> {
+/**
+ * 把工作区根路径编码成合法目录名。
+ * 与 versions/ 的 encodePathAsId 逻辑完全一致,复用同一编码。
+ */
+function encodeWorkspaceKey(workspaceRoot: string): string {
+  const bytes = new TextEncoder().encode(workspaceRoot)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary).replace(/[/+=]/g, '_')
+}
+
+async function ensureWorkspaceDraftsDir(workspaceRoot: string): Promise<string | null> {
   if (!tauriOnly()) return null
   try {
     const dir = await appDataDir()
-    const draftsDir = await join(dir, DRAFTS_DIR)
-    if (!(await exists(draftsDir))) {
-      await mkdir(draftsDir, { recursive: true })
+    const key = encodeWorkspaceKey(workspaceRoot)
+    const wsDraftsDir = await join(dir, DRAFTS_DIR, key)
+    if (!(await exists(wsDraftsDir))) {
+      await mkdir(wsDraftsDir, { recursive: true })
     }
-    return draftsDir
+    return wsDraftsDir
   }
   catch (e) {
-    console.error('创建 drafts 目录失败', e)
+    console.error('创建 workspace drafts 目录失败', e)
+    return null
+  }
+}
+
+async function workspaceDraftsDirPath(workspaceRoot: string): Promise<string | null> {
+  if (!tauriOnly()) return null
+  try {
+    const dir = await appDataDir()
+    const key = encodeWorkspaceKey(workspaceRoot)
+    return await join(dir, DRAFTS_DIR, key)
+  }
+  catch {
     return null
   }
 }
@@ -248,12 +275,12 @@ function draftFileName(id: string): string {
 }
 
 /**
- * 写一份草稿。原子写:先写 .tmp,再 rename 到目标。
+ * 写一份草稿到指定工作区目录。原子写:先写 .tmp,再 rename 到目标。
  * 失败仅记录日志不抛 —— 草稿写盘失败不能让主流程(键入/自动保存)炸。
  */
-export async function saveDraft(draft: Draft): Promise<void> {
+export async function saveDraft(workspaceRoot: string, draft: Draft): Promise<void> {
   try {
-    const draftsDir = await ensureDraftsDir()
+    const draftsDir = await ensureWorkspaceDraftsDir(workspaceRoot)
     if (!draftsDir) return
     const finalPath = await join(draftsDir, draftFileName(draft.id))
     const tmpPath = await join(draftsDir, `${draft.id}.json.tmp`)
@@ -265,50 +292,38 @@ export async function saveDraft(draft: Draft): Promise<void> {
   }
 }
 
+
 /**
- * 列出所有草稿。读不到草稿 / 目录不存在 → 返回空数组,不抛。
- * 解析失败的单个文件跳过(打 warn),不让一条坏数据卡死整个恢复流程。
+ * 读取指定工作区下某条草稿的单条内容(启动恢复用)。
  */
-export async function loadDrafts(): Promise<Draft[]> {
-  if (!tauriOnly()) return []
+export async function loadDraft(workspaceRoot: string, id: string): Promise<Draft | null> {
+  if (!tauriOnly()) return null
   try {
-    const dir = await appDataDir()
-    const draftsDir = await join(dir, DRAFTS_DIR)
-    if (!(await exists(draftsDir))) return []
-    const entries = await readDir(draftsDir)
-    const drafts: Draft[] = []
-    for (const entry of entries) {
-      // 只处理 .json(过滤 .tmp 残留、可能的目录)
-      if (!entry.name || !entry.name.endsWith('.json')) continue
-      try {
-        const path = await join(draftsDir, entry.name)
-        const json = await readTextFile(path)
-        const parsed = JSON.parse(json)
-        if (typeof parsed !== 'object' || parsed === null) continue
-        if (parsed.version !== DRAFT_VERSION) continue
-        if (typeof parsed.id !== 'string' || typeof parsed.content !== 'string') continue
-        drafts.push(parsed as Draft)
-      }
-      catch (e) {
-        console.warn(`跳过损坏的草稿 ${entry.name}`, e)
-      }
-    }
-    return drafts
+    const draftsDir = await workspaceDraftsDirPath(workspaceRoot)
+    if (!draftsDir) return null
+    const path = await join(draftsDir, draftFileName(id))
+    if (!(await exists(path))) return null
+    const json = await readTextFile(path)
+    const parsed = JSON.parse(json)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    if (parsed.version !== DRAFT_VERSION && parsed.version !== 1) return null
+    if (typeof parsed.id !== 'string' || typeof parsed.content !== 'string') return null
+    return parsed as Draft
   }
   catch (e) {
-    console.warn('加载草稿列表失败', e)
-    return []
+    console.warn(`读取草稿 ${id} 失败`, e)
+    return null
   }
 }
 
 /**
- * 删一个草稿。失败仅记录日志 —— 删不掉不应该阻塞用户的恢复选择。
+ * 删一个草稿。失败仅记录日志 —— 删不掉不应该阻塞恢复流程。
  */
-export async function deleteDraft(id: string): Promise<void> {
+export async function deleteDraft(workspaceRoot: string, id: string): Promise<void> {
   if (!tauriOnly()) return
   try {
-    const dir = await appDataDir()
-    const draftsDir = await join(dir, DRAFTS_DIR)
+    const draftsDir = await workspaceDraftsDirPath(workspaceRoot)
+    if (!draftsDir) return
     const path = await join(draftsDir, draftFileName(id))
     if (await exists(path)) {
       await remove(path)
@@ -556,8 +571,11 @@ export interface PersistedWorkspaces {
 }
 
 export interface WorkspacePatch {
-  /** 当前窗口的 active root;只作为下一次 main 冷启动 hint 写回。 */
-  active: string | null
+  /** 当前窗口的 active root;只作为下一次 main 冷启动 hint 写回。
+   *  - string: 有 active workspace,覆盖磁盘
+   *  - null: 用户显式关闭工作区,覆盖磁盘为 null
+   *  - undefined: 当前窗口无 active workspace(动态窗口 / watcher 误触发),不覆盖磁盘 */
+  active: string | null | undefined
   /** 当前窗口改动到的 workspace roots;保存时 merge 到磁盘现有 map。 */
   workspaces: Record<string, WorkspaceState>
 }
@@ -603,7 +621,12 @@ export async function saveWorkspacePatch(patch: WorkspacePatch): Promise<void> {
     const current = await loadWorkspaces()
     const merged: PersistedWorkspaces = {
       version: WORKSPACES_VERSION,
-      active: patch.active,
+      // patch.active = undefined:当前窗口无 active workspace(动态窗口 / watcher 误触发),
+      //   不覆盖磁盘上已有的 active —— 否则动态窗口切个 sidebarTab 就把 main 窗口持久化
+      //   的 active workspace 清成 null。
+      // patch.active = null:用户显式关闭工作区,覆盖磁盘为 null。
+      // patch.active = string:有 active workspace,正常覆盖。
+      active: patch.active !== undefined ? patch.active : (current?.active ?? null),
       workspaces: {
         ...(current?.workspaces ?? {}),
         ...patch.workspaces,

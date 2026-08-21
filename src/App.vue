@@ -41,7 +41,6 @@ import { registerBuiltinSettingsGroups } from '@/components/settings/registerGro
 import { getSettingsGroups } from '@/components/settings/registry'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
 import DiffView from '@/components/DiffView.vue'
-import DraftRecoveryDialog from '@/components/DraftRecoveryDialog.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -60,7 +59,6 @@ import { NodeSelection } from 'prosemirror-state'
 import { resolveImageAssetAbsPath, dirnameSync } from '@/utils/imagePath'
 import { mark, measure, report } from '@/utils/perf'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { confirm } from '@/tauri/dialog'
 import { isTauri } from '@tauri-apps/api/core'
 import {
   getCurrentWindowLabel,
@@ -444,6 +442,15 @@ async function onWindowBlur() {
 // fs:watch 在网络盘 / 原子 rename / 某些同步工具下会漏报，focus 兜底。
 function onWindowFocus() {
   void documentStore.checkExternalChange()
+}
+
+// webview 刷新 / 页面卸载前静默落盘草稿 + workspace 状态(Hot Exit)。
+// Tauri 的 onCloseRequested 只管窗口关闭,不覆盖 F5 / Ctrl+R webview 刷新;
+// pagehide 在 Tauri webview reload / 导航离开时触发。fire-and-forget 落盘 ——
+// Tauri IPC 在 pagehide 期间仍可用,microtask 内完成写盘。
+function onPageHide() {
+  void documentStore.saveAllDrafts()
+  void saveWorkspacePatch(workspaceStore.snapshotActiveForPersistence())
 }
 
 // ========== 空状态(无标签)入口 ==========
@@ -948,11 +955,20 @@ watch(
   },
 )
 
-// ========== 草稿定时落盘 ==========
+// ========== 草稿落盘 ==========
 // dirty 时每 DRAFT_SAVE_INTERVAL_MS 写一份到 appDataDir/drafts/,崩溃 / 强杀时
 // 下次启动能恢复。store 自己已经在 save() / saveAs() 成功后清掉了,这里只管"周期"。
+//
+// 除了 30s 定时器,还叠加一个 content 变化 → 2s debounce 的即时落盘:用户编辑后
+// 不用等 30s,2s 内没有新按键就先落一份。这样即使用户编辑后立即关闭窗口 /
+// 刷新 webview(pagehide 异步 IO 不可靠),草稿也已经在磁盘上了。30s 定时器
+// 仍保留作为长会话兜底(用户持续编辑不停止时 2s debounce 会不断重置)。
 const DRAFT_SAVE_INTERVAL_MS = 30_000
+const DRAFT_DEBOUNCE_MS = 2_000
 let draftTimer: ReturnType<typeof setInterval> | null = null
+const debouncedDraftSave = debounce(() => {
+  void documentStore.saveAllDrafts()
+}, DRAFT_DEBOUNCE_MS)
 
 onMounted(async () => {
   // Vue 已把 App.vue 根挂上 DOM —— 打 mark(后续 await 链路里的 keydown 挂载
@@ -998,7 +1014,6 @@ onMounted(async () => {
   if (tauri) {
     try {
       windowLabel = getCurrentWindowLabel()
-      documentStore.setDraftScope(windowLabel)
       initialPayload = await takeWindowCliArgs(windowLabel)
     }
     catch (e) {
@@ -1080,9 +1095,15 @@ onMounted(async () => {
   // 单文件打开,已由上方 Phase 1 (createTabsFromPaths) 立即创建全部标签条目 +
   // Phase 2 (loadContentIntoTabs) 异步加载内容。无持久化标签时仍走 last-file
   // 作 fallback(打开最近文件到单一标签)。
+  //
+  // 走 loadContentIntoTabs 而非 openPathInTab:统一草稿恢复路径 —— 即使无 workspace,
+  // fallback 草稿(_no_workspace)也能被检出并恢复。
   if (shouldRestoreActive && !initialFile && !initialDir && persistedOpenTabs.length === 0 && store.startupMode === 'last-file') {
     const lastPath = recentFilesStore.entries[0]?.path
-    if (lastPath) await documentStore.openPathInTab(lastPath)
+    if (lastPath) {
+      documentStore.createTabsFromPaths([lastPath], lastPath)
+      void documentStore.loadContentIntoTabs([lastPath])
+    }
   }
 
   // Fallback: 没有持久化标签且没有 CLI / last-file 打开文件时,创建空白标签。
@@ -1097,6 +1118,15 @@ onMounted(async () => {
   draftTimer = setInterval(() => {
     void documentStore.saveAllDrafts()
   }, DRAFT_SAVE_INTERVAL_MS)
+
+  // 0.26) content 变化 → 2s debounce 落盘草稿(即时保护)。
+  //      30s 定时器是长会话兜底;这里覆盖"编辑后短时间内关闭 / 刷新"场景。
+  //      dirty 时 debounce 触发 saveCurrentDraft,clean 时 store 内部直接 return。
+  //      必须在 load 之后挂,否则启动恢复 loadContentIntoTabs 装载内容时会误触发。
+  watch(
+    () => documentStore.content,
+    () => { debouncedDraftSave() },
+  )
 
   // 0.5) 设置变化 → 落盘的 watch。必须在 load 之后挂,否则 load 自身会触发写盘。
   // deep watch store 的 snapshot —— 新增设置字段时不需要在这里加 watch 源,
@@ -1125,15 +1155,12 @@ onMounted(async () => {
     { deep: true },
   )
 
-  // 1.5) 扫一遍 appDataDir/drafts/,把"上一会话留下的"草稿装进 store。
-  //      必须在启动 payload 打开文件之后,让 currentDraftId 能排除当前文档草稿。
-  await documentStore.loadRecoverableDrafts()
-
   // 3) keydown 监听已在最前面(0-pre)挂上 —— 启动期 await 期间也要能拦 Ctrl+F
 
-  // 4) 失焦自动保存 + 重新聚焦时核对磁盘
+  // 4) 失焦自动保存 + 重新聚焦时核对磁盘 + webview 卸载前落盘草稿
   window.addEventListener('blur', onWindowBlur)
   window.addEventListener('focus', onWindowFocus)
+  window.addEventListener('pagehide', onPageHide)
 
   // 4.5) 代码块主题切换:用户改 store.codeLightTheme / codeDarkTheme →
   //  ensureTheme 异步追加 → dispatch setMeta({ highlighter, lightTheme, darkTheme })
@@ -1231,34 +1258,19 @@ view.dispatch(view.state.tr.setMeta(cjkAutoFormatKey, cfg))
 )
 
 
-  // 5) 关闭拦截:脏 → 弹原生确认。dev web 端没有 Tauri runtime,getCurrentWindow
-  //    / onCloseRequested / confirm 这些 Tauri 同步 API 一调就 throw,所以整段
-  //    用 tauri 守门跳过;浏览器自带 beforeunload 弹原生确认(用户没要求,本项目
-  //    不做)。保存可能因为用户取消另存为对话框 / 写盘失败而返回 false —— 此时
-  //    *不能* destroy,否则用户的修改就丢了。
+  // 5) Hot Exit 关闭:窗口关闭时静默落盘所有脏标签的草稿,不弹确认框。
+  //    下次打开同一工作区时,loadContentIntoTabs 优先读草稿恢复(dirty=true),
+  //    用户接着干即可 —— VSCode Hot Exit 语义。
+  //    dev web 端无 Tauri runtime,onCloseRequested 会 throw,整段 tauri 守门跳过。
   if (tauri) {
     const win = getCurrentWindow()
     await win.onCloseRequested(async (event) => {
-      // 多标签:统计所有脏盘标签;任一脏盘都先拦截,交给用户统一处理
       const dirtyCount = documentStore.tabs.filter(t => t.dirty).length
       if (dirtyCount === 0) return
+      // 有未保存修改 → 落盘草稿后直接关闭,不弹 dialog
       event.preventDefault()
-      const wantSave = await confirm(
-        `${dirtyCount} 个文档有未保存的修改，是否全部保存？`,
-        { title: '未保存的修改', kind: 'warning' },
-      )
-      if (wantSave) {
-        // saveAllDirtyTabs 遍历所有脏盘标签写盘;无 path 的走 saveAs 弹 dialog。
-        // 任一失败 / 用户取消另存为 → 返回 false,不 destroy(保留用户修改)。
-        const ok = await documentStore.saveAllDirtyTabs()
-        if (ok) await win.destroy()
-        return
-      }
-      const discard = await confirm('放弃所有修改并直接关闭？', {
-        title: '确认关闭',
-        kind: 'warning',
-      })
-      if (discard) await win.destroy()
+      await documentStore.saveAllDrafts()
+      await win.destroy()
     })
   }
 
@@ -1276,6 +1288,7 @@ draftTimer = null
 // keydown / dirtyFlushTimer / stopWorkspaceWatch 的清理已由各 composable 的 onBeforeUnmount 接管
 window.removeEventListener('blur', onWindowBlur)
 window.removeEventListener('focus', onWindowFocus)
+window.removeEventListener('pagehide', onPageHide)
 darkMediaQuery.removeEventListener('change', onSystemThemeChange)
 })
 
@@ -1513,15 +1526,6 @@ watch(editorRef, (v) => {
       @set-active-root="workspaceStore.setActiveRoot"
       @toggle-source-mode="documentStore.toggleSourceMode()"
       @toggle-read-only="documentStore.readOnly = !documentStore.readOnly"
-    />
-
-    <!-- 崩溃恢复弹窗:启动时如果 appDataDir/drafts/ 里有上一会话留下的草稿就弹出 -->
-    <DraftRecoveryDialog
-      :drafts="documentStore.pendingRecoveryDrafts"
-      :visible="documentStore.pendingRecoveryDrafts.length > 0"
-      @recover="(id) => void documentStore.recoverDraft(id)"
-      @discard="(id) => void documentStore.discardDraft(id)"
-      @dismiss="documentStore.dismissRecoveryDialog()"
     />
 
     <!-- 统一命令面板(v0.6.2):合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板。
