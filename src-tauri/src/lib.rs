@@ -187,6 +187,10 @@ async fn export_pdf(
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod pdf;
 
+/// Git 历史集成(#local-timeline-git):调用系统 git 获取文件 commit 历史,
+/// 供版本历史面板展示。非 Git 仓库 / git 未安装时静默降级。
+mod git;
+
 /// 前端设置面板:读取 GPU 硬件加速启用状态。仅 Windows 有意义。
 #[cfg(target_os = "windows")]
 #[tauri::command]
@@ -325,6 +329,9 @@ pub fn run() {
             gpu_accel_state,
             #[cfg(target_os = "windows")]
             set_gpu_accel,
+            git::git_repo_root,
+            git::git_file_history,
+            git::git_show_file,
         ])
         .setup(|app| {
             // 首次启动:argv 解析后按 main label 暂存,等前端 onMounted 主动来拉

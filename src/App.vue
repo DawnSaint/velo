@@ -1457,7 +1457,7 @@ watch(editorRef, (v) => {
         <template v-else>
         <DiffView
           v-if="versionHistoryStore.diffViewActive"
-          @restore="(snap) => void documentStore.restoreVersionContent(snap.filePath, snap.content)"
+          @restore="(snap) => void documentStore.restoreVersionContent(snap.filePath, snap.content ?? '')"
         />
         <template v-else>
         <Breadcrumbs

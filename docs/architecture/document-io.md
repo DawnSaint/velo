@@ -79,3 +79,4 @@
   - `undefined`: 动态窗口 / watcher 误触发(无 `activeRoot` 但非用户主动关闭),`saveWorkspacePatch` 保留磁盘已有 `active` 不覆盖
 
   `snapshotActiveForPersistence` 通过 `activeExplicitlyCleared` 标记区分后两种场景:`active ?? (activeExplicitlyCleared ? null : undefined)`。`setActiveRoot(非 null)` 重置标记,`loadFrom` 启动恢复也重置。`pagehide` 中同步保存 workspace 状态,防止 500ms debounce 未触发。
+- **Git 条目缓存 key 含文件路径**(`versionHistory.ts`): `gitContentCache` / `gitDiffStats` 的 key 是 `git:<hash>:<filePath>`,不是 `git:<hash>`。同一 commit 中不同文件的内容不同,同仓库中 A/B 文件的 commit 历史可能交集(同一 commit 同时修改两个文件),若 key 不含文件路径会导致跨文件缓存污染——A 的 content 被复用给 B。`loadGitHistory` 中预加载 / diff 统计也不依赖 `allEntries` computed(它读 `documentStore.currentFilePath`,竞态场景下可能返回旧文件的条目),而是直接用传入的 `filePath` 参数构建条目列表。`loadGitContent` 用 `entry.filePath` 从 `gitRootByFile` 查找仓库根,不依赖 `currentFileGitRoot` computed。`invalidate(filePath)` 同步清除该文件的 `gitContentCache` / `gitDiffStats` 条目(按 `:<filePath>` 后缀匹配)。

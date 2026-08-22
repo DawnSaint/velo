@@ -125,9 +125,13 @@ vi.mock('@tauri-apps/api/path', () => ({
 // / invoke 等)给个 stub,免得业务代码意外走到真实实现抛 "no IPC"。
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: vi.fn(() => true),
-  invoke: vi.fn(async (command: string) => {
+  invoke: vi.fn(async (command: string, args?: Record<string, unknown>) => {
     if (command === 'take_window_cli_args') return { files: [], dirs: [] }
     if (command === 'new_app_window') return 'velo-window-test'
+    // git 命令默认返回空结果(具体测试用 vi.mocked 覆盖)
+    if (command === 'git_repo_root') return null
+    if (command === 'git_file_history') return []
+    if (command === 'git_show_file') return ''
     return undefined
   }),
   convertFileSrc: vi.fn((p: string) => p),
