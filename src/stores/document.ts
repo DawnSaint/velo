@@ -17,6 +17,7 @@ import {
   type SnapshotTrigger,
 } from './persistence'
 import { useWorkspaceStore } from './workspace'
+import { useVersionHistoryStore } from './versionHistory'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 import { formatError } from '@/utils/formatError'
@@ -141,6 +142,8 @@ export const useDocumentStore = defineStore('document', () => {
     const d = activeDoc()
     return d ? d.content !== d.lastSavedContent : false
   })
+  /** 磁盘基线(只读);用于版本历史 diff old 方,即使无已保存快照也能正确展示未保存修改 */
+  const lastSavedContent = computed(() => activeDoc()?.lastSavedContent ?? '')
   const readOnlyLocked = computed(() => activeDoc()?.readOnlyLocked ?? false)
   const readOnly = computed({
     get: () => {
@@ -826,15 +829,18 @@ export const useDocumentStore = defineStore('document', () => {
       await clearDraftForDoc(d)
       // 写一份版本快照(只读归档,不影响基线 / echo / fs:watch)
       const savedAt = Date.now()
-      await saveVersionSnapshot({
+      const versionSnapshot = {
         version: 1,
         id: String(savedAt),
         filePath: path,
         content: snapshot,
         savedAt,
         trigger,
-      })
+      } as const
+      await saveVersionSnapshot(versionSnapshot)
       await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
+      // 同步追加快照到 versionHistoryStore 内存缓存,使版本历史面板即时刷新
+      useVersionHistoryStore().appendSnapshot(path, versionSnapshot)
       void syncTitle()
       return true
     }
@@ -1349,6 +1355,7 @@ export const useDocumentStore = defineStore('document', () => {
     content,
     currentFilePath,
     dirty,
+    lastSavedContent,
     // 全局
     sourceMode,
     autoSaveEnabled,

@@ -1,31 +1,34 @@
 <script setup lang="ts">
 // DiffView(#local-timeline):编辑器区 diff 视图。
 // 当用户在侧栏 VersionHistoryPanel 选中某快照时,编辑器区切换为 DiffView,
-// 展示该版本(旧)与当前内容(新)的行级 diff。顶部工具栏:
-//  - 左:版本时间 + 触发方式
+// 展示该版本与其前一版本的行级 diff(同 VSCode Local History 语义)。
+// 顶部工具栏:
+//  - 左:版本时间 + diff 行数统计
 //  - 右:「恢复此版本」(emit restore)+「关闭」(回到编辑器)
+//
+// 选中虚拟"未保存"条目(UNSAVED_ID)时不显示「恢复此版本」按钮。
 
 import { computed } from 'vue'
 import { RotateCcw, X, ArrowRight } from '@lucide/vue'
-import { useVersionHistoryStore } from '@/stores/versionHistory'
-import { useDocumentStore } from '@/stores/document'
+import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { diffLines, type DiffLine } from '@/utils/lineDiff'
 import type { VersionSnapshot } from '@/stores/persistence'
 
 const versionHistory = useVersionHistoryStore()
-const documentStore = useDocumentStore()
 
 const emit = defineEmits<{
   'restore': [snapshot: VersionSnapshot]
 }>()
 
 const selected = computed<VersionSnapshot | null>(() => versionHistory.selectedSnapshot)
-const currentContent = computed(() => documentStore.content)
+const isSelectedUnsaved = computed(() => versionHistory.selectedSnapshotId === UNSAVED_ID)
 
+/** diff: old = 前一版本内容, new = 选中条目自身内容 */
 const diffResult = computed<DiffLine[]>(() => {
   const snap = selected.value
   if (!snap) return []
-  return diffLines(snap.content, currentContent.value)
+  const oldContent = versionHistory.diffOldContent(snap.id)
+  return diffLines(oldContent, snap.content)
 })
 
 const diffStats = computed(() => {
@@ -48,12 +51,6 @@ function formatTime(ts: number): string {
   return `${month}-${day} ${hh}:${mm}:${ss}`
 }
 
-function triggerLabel(trigger: string): string {
-  if (trigger === 'auto') return '自动保存'
-  if (trigger === 'blur') return '失焦保存'
-  return '手动保存'
-}
-
 function onRestore() {
   const snap = selected.value
   if (!snap) return
@@ -72,11 +69,17 @@ function onClose() {
     <div class="flex shrink-0 items-center justify-between border-b border-[var(--surface-border)] px-4 py-2">
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span v-if="selected" class="flex items-center gap-1.5">
-          <span class="font-medium text-gray-700 dark:text-gray-200">{{ formatTime(selected.savedAt) }}</span>
-          <span class="rounded bg-[var(--surface-hover)] px-1.5 py-0.5 text-[10px]">{{ triggerLabel(selected.trigger) }}</span>
+          <!-- 未保存条目 -->
+          <template v-if="isSelectedUnsaved">
+            <span class="font-medium text-blue-600 dark:text-blue-400">未保存内容</span>
+          </template>
+          <!-- 真实快照 -->
+          <template v-else>
+            <span class="font-medium text-gray-700 dark:text-gray-200">{{ formatTime(selected.savedAt) }}</span>
+          </template>
         </span>
         <ArrowRight class="h-3.5 w-3.5 text-gray-300 dark:text-gray-600" />
-        <span>当前内容</span>
+        <span>此版本</span>
         <span
           v-if="diffStats.added > 0 || diffStats.removed > 0"
           class="flex items-center gap-2"
@@ -87,7 +90,9 @@ function onClose() {
         <span v-else class="text-gray-400">内容一致</span>
       </div>
       <div class="flex items-center gap-2">
+        <!-- 未保存条目不显示「恢复此版本」:它就是当前内容,恢复无意义 -->
         <button
+          v-if="!isSelectedUnsaved"
           class="flex items-center gap-1.5 rounded-md bg-[var(--accent,#1F71D9)] px-3 py-1 text-xs font-medium text-white transition-colors hover:opacity-90"
           :disabled="!selected"
           @click="onRestore"
@@ -106,7 +111,7 @@ function onClose() {
     </div>
 
     <!-- diff 内容 -->
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <div v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <div class="font-mono text-xs leading-relaxed">
         <div
           v-for="(line, idx) in diffResult"

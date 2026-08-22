@@ -49,7 +49,7 @@
 
 ## 版本历史(#local-timeline)
 
-每次保存(手动 / 自动 / 失焦)写一份快照到 `appDataDir/versions/{pathId}/{timestamp}.json`,保留最近 20 个(超出按 `savedAt` 修剪)。与草稿分工:草稿是 dirty 期间 30s 定时落盘用于 Hot Exit 崩溃恢复,写盘成功后清除;版本快照是保存点的只读归档,不参与基线 / echo / fs:watch。`saveDoc` 写盘成功后调 `saveVersionSnapshot` + `pruneVersionSnapshots`(persistence.ts),不经 `versionHistoryStore`(避免循环依赖);store 只在 UI 层懒加载。恢复快照走 `restoreVersionContent`(同 Hot Exit 恢复语义:新开标签 + 设磁盘基线让 dirty=true)。浏览入口为 ActivityBar「版本历史」(`SidebarTab='history'`)→ 侧栏 `VersionHistoryPanel` 列出快照条目;点击条目 → 编辑器区切换为 `DiffView`(覆盖编辑器,行级 diff + 「恢复此版本」按钮)。命令面板「浏览版本历史」同样触发此流程。
+每次保存(手动 / 自动 / 失焦)写一份快照到 `appDataDir/versions/{pathId}/{timestamp}.json`,保留最近 50 个且不超过 30 天,超出任一限制时按 `savedAt` 修剪最旧的。快照由系统自动管理,用户不可手动删除单条或清空全部(面板只提供查看 / diff / 恢复)。与草稿分工:草稿是 dirty 期间 30s 定时落盘用于 Hot Exit 崩溃恢复,写盘成功后清除;版本快照是保存点的只读归档,不参与基线 / echo / fs:watch。`saveDoc` 写盘成功后调 `saveVersionSnapshot` + `pruneVersionSnapshots`(persistence.ts)落盘,再调 `versionHistoryStore.appendSnapshot` 同步更新内存缓存(`snapshotsByFile`,同样按 CAP + 过期天数修剪),使版本历史面板即时刷新;缓存未加载(面板未打开)时 `appendSnapshot` 跳过,下次打开时 `loadSnapshots` 从磁盘读。恢复快照走 `restoreVersionContent`(同 Hot Exit 恢复语义:新开标签 + 设磁盘基线让 dirty=true)。浏览入口为 ActivityBar「版本历史」(`SidebarTab='history'`)→ 侧栏 `VersionHistoryPanel` 列出快照条目(每条显示与前一版本的 +/- 行数统计);点击条目 → 编辑器区切换为 `DiffView`(覆盖编辑器,行级 diff + 「恢复此版本」按钮)。命令面板「浏览版本历史」同样触发此流程。diff 语义同 VSCode Local History:每个条目与其**前一版本**做 diff(列表倒序,最新在前,前一版本 = 该条目后面那个),而非与当前编辑器内容做 diff;未保存条目的前一版本 = 最新已保存快照(或磁盘基线,无快照时),最旧的快照无前一版本(diff old = 空字符串)。文档 dirty 时列表头部插入虚拟「未保存」条目(`UNSAVED_ID`,不落盘),`content` = 当前编辑器内容;`openVersionHistory` dirty 时默认选中未保存条目,否则选最新快照。
 
 ## 持久化
 

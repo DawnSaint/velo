@@ -1,21 +1,42 @@
 <script setup lang="ts">
 // 版本历史侧栏面板(#local-timeline):列出当前文件的版本快照条目。
 // 点击条目 → versionHistory.selectSnapshot → 编辑器区切换为 DiffView。
-// 顶部标题栏右侧 Trash2 图标 hover 显示「清除全部历史」。
+// 快照由系统自动管理(保存时记录,按 CAP + 过期天数自动修剪),
+// 用户不可手动删除单条或清空全部。
+//
+// dirty 时列表头部插入虚拟"未保存"条目(UNSAVED_ID)。
 //
 // 由 ActivityBar「版本历史」入口驱动(App.vue showSidebarTab('history'))。
 
 import { computed, onMounted, watch } from 'vue'
-import { History, Trash2 } from '@lucide/vue'
-import { useVersionHistoryStore } from '@/stores/versionHistory'
+import { History, Circle } from '@lucide/vue'
+import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { useDocumentStore } from '@/stores/document'
+import { diffLines } from '@/utils/lineDiff'
 import type { VersionSnapshot } from '@/stores/persistence'
 
 const versionHistory = useVersionHistoryStore()
 const documentStore = useDocumentStore()
 
-const snapshots = computed<VersionSnapshot[]>(() => versionHistory.currentFileSnapshots ?? [])
+const snapshots = computed<VersionSnapshot[]>(() => versionHistory.displaySnapshots ?? [])
 const selectedId = computed<string | null>(() => versionHistory.selectedSnapshotId)
+
+/** 每个条目与其前一版本的 diff 行数统计(+added / -removed)。
+ *  diff old 方取 versionHistory.diffOldContent(前一版本内容),
+ *  diff new 方取该条目自身 content。 */
+const diffStatsMap = computed(() => {
+  const map = new Map<string, { added: number; removed: number }>()
+  for (const snap of snapshots.value) {
+    const old = versionHistory.diffOldContent(snap.id)
+    let added = 0, removed = 0
+    for (const l of diffLines(old, snap.content)) {
+      if (l.type === 'added') added++
+      else if (l.type === 'removed') removed++
+    }
+    map.set(snap.id, { added, removed })
+  }
+  return map
+})
 
 function formatTime(ts: number): string {
   const date = new Date(ts)
@@ -34,33 +55,12 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)} 天前`
 }
 
-function triggerLabel(trigger: string): string {
-  if (trigger === 'auto') return '自动'
-  if (trigger === 'blur') return '失焦'
-  return '手动'
-}
-
-function triggerClass(trigger: string): string {
-  if (trigger === 'auto') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-  if (trigger === 'blur') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-  return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+function isUnsaved(snap: VersionSnapshot): boolean {
+  return snap.id === UNSAVED_ID
 }
 
 function onSelectSnapshot(id: string) {
   versionHistory.selectSnapshot(id)
-}
-
-async function onDeleteSnapshot(e: Event, id: string) {
-  e.stopPropagation()
-  const path = documentStore.currentFilePath
-  if (!path) return
-  await versionHistory.deleteSnapshot(path, id)
-}
-
-async function onClearAll() {
-  const path = documentStore.currentFilePath
-  if (!path) return
-  await versionHistory.clearHistory(path)
 }
 
 // 切换文件时重新加载快照
@@ -81,19 +81,11 @@ onMounted(async () => {
 <template>
   <div class="flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 头部 -->
-    <div class="flex shrink-0 items-center justify-between border-b border-[var(--surface-border)] px-4 py-2.5">
+    <div class="flex shrink-0 items-center border-b border-[var(--surface-border)] px-4 py-2.5">
       <div class="flex items-center gap-1.5">
         <History class="h-4 w-4 text-[var(--text-secondary)]" />
         <span class="text-sm font-medium text-gray-700 dark:text-gray-200">版本历史</span>
       </div>
-      <button
-        v-if="snapshots.length > 0"
-        class="rounded p-0.5 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-red-500 dark:text-gray-500"
-        title="清除全部历史"
-        @click="onClearAll"
-      >
-        <Trash2 class="h-4 w-4" />
-      </button>
     </div>
 
     <!-- 空状态 -->
@@ -109,7 +101,8 @@ onMounted(async () => {
     <!-- 版本列表 -->
     <div
       v-else
-      class="min-h-0 flex-1 overflow-y-auto py-1"
+      v-velo-scroll
+      class="min-h-0 flex-1 overflow-y-auto"
     >
       <button
         v-for="snap in snapshots"
@@ -122,26 +115,30 @@ onMounted(async () => {
       >
         <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-medium text-gray-700 dark:text-gray-200">
-              {{ formatTime(snap.savedAt) }}
-            </span>
-            <span
-              class="rounded px-1.5 py-0.5 text-[10px] font-medium"
-              :class="triggerClass(snap.trigger)"
-            >
-              {{ triggerLabel(snap.trigger) }}
-            </span>
+            <!-- 未保存条目:蓝点 + "未保存"标签 -->
+            <template v-if="isUnsaved(snap)">
+              <Circle class="h-2 w-2 fill-current text-blue-500 dark:text-blue-400" />
+              <span class="text-xs font-medium text-blue-600 dark:text-blue-400">未保存</span>
+            </template>
+            <!-- 真实快照:时间 -->
+            <template v-else>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-200">
+                {{ formatTime(snap.savedAt) }}
+              </span>
+            </template>
           </div>
-          <button
-            class="shrink-0 rounded p-0.5 text-gray-300 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 dark:text-gray-600"
-            title="删除此版本"
-            @click="onDeleteSnapshot($event, snap.id)"
+          <!-- diff 行数统计 -->
+          <span
+            v-if="diffStatsMap.get(snap.id)?.added || diffStatsMap.get(snap.id)?.removed"
+            class="flex shrink-0 items-center gap-1.5 text-[10px] font-medium"
           >
-            <Trash2 class="h-3.5 w-3.5" />
-          </button>
+            <span class="text-green-600 dark:text-green-400">+{{ diffStatsMap.get(snap.id)!.added }}</span>
+            <span class="text-red-600 dark:text-red-400">-{{ diffStatsMap.get(snap.id)!.removed }}</span>
+          </span>
+          <span v-else class="shrink-0 text-[10px] text-gray-300 dark:text-gray-600">无变化</span>
         </div>
         <span class="text-[11px] text-gray-400">
-          {{ relativeTime(snap.savedAt) }}
+          {{ isUnsaved(snap) ? '当前编辑器内容' : relativeTime(snap.savedAt) }}
         </span>
       </button>
     </div>

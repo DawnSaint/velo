@@ -344,8 +344,12 @@ export async function deleteDraft(workspaceRoot: string, id: string): Promise<vo
 
 const VERSIONS_DIR = 'versions'
 const VERSION_SNAPSHOT_VERSION = 1
-/** 每个文件保留的最多快照数,超出时按 savedAt 修剪最旧的。 */
-export const VERSION_SNAPSHOT_CAP = 20
+/** 每个文件保留的最多快照数(对齐 VS Code maxFileEntries 默认值)。超出时按 savedAt 修剪最旧的。 */
+export const VERSION_SNAPSHOT_CAP = 50
+
+/** 快照最长保留天数(对齐 VS Code 30 天过期清理)。超出天数的快照在 prune 时删除。 */
+export const VERSION_SNAPSHOT_MAX_AGE_DAYS = 30
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 export type SnapshotTrigger = 'manual' | 'auto' | 'blur'
 
@@ -477,49 +481,22 @@ export async function deleteVersionSnapshot(filePath: string, id: string): Promi
 }
 
 /**
- * 修剪旧快照:按 savedAt 倒序保留前 keepN 个,删掉其余。
- * 在 saveVersionSnapshot 之后调,保证每文件不超过 cap 个。
+ * 修剪旧快照:按 savedAt 倒序保留前 keepN 个,且删除超过 maxAgeDays 天的。
+ * 在 saveVersionSnapshot 之后调,保证每文件不超过 cap 个且不保留过旧快照。
  */
 export async function pruneVersionSnapshots(filePath: string, keepN: number): Promise<void> {
   if (!tauriOnly()) return
   try {
     const snapshots = await loadVersionSnapshots(filePath)
-    if (snapshots.length <= keepN) return
-    const toDelete = snapshots.slice(keepN)
+    const now = Date.now()
+    const cutoff = now - VERSION_SNAPSHOT_MAX_AGE_DAYS * MS_PER_DAY
+    const toDelete = snapshots.filter((s, i) => i >= keepN || s.savedAt < cutoff)
     for (const s of toDelete) {
       await deleteVersionSnapshot(filePath, s.id)
     }
   }
   catch (e) {
     console.error('修剪版本快照失败', e)
-  }
-}
-
-/**
- * 清空某文件的全部版本历史。用于用户"清除历史"操作。
- */
-export async function clearAllVersionSnapshots(filePath: string): Promise<void> {
-  if (!tauriOnly()) return
-  try {
-    const dir = await appDataDir()
-    const versionsDir = await join(dir, VERSIONS_DIR)
-    const pathId = encodePathAsId(filePath)
-    const fileDir = await join(versionsDir, pathId)
-    if (!(await exists(fileDir))) return
-    const entries = await readDir(fileDir)
-    for (const entry of entries) {
-      if (!entry.name || !entry.name.endsWith('.json')) continue
-      try {
-        const path = await join(fileDir, entry.name)
-        await remove(path)
-      }
-      catch (e) {
-        console.warn(`删除版本快照 ${entry.name} 失败`, e)
-      }
-    }
-  }
-  catch (e) {
-    console.error('清空版本历史失败', e)
   }
 }
 
