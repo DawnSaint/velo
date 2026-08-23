@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.12](https://github.com/DawnSaint/velo/compare/v0.7.11...v0.7.12) (2026-08-23)
+
+
+### Features
+
+* **editor:** add webview zoom and rebind heading level shortcuts ([9c53725](https://github.com/DawnSaint/velo/commit/9c53725ed3d51a4e45ee6822396e9e8c26196a60))
+* **editor:** add zoom support via Tauri set_webview_zoom ([e2ecbd9](https://github.com/DawnSaint/velo/commit/e2ecbd94a49f93603b47f3dbd0253414d652a9de))
+* **editor:** implement Hot Exit with per-workspace draft recovery ([9389666](https://github.com/DawnSaint/velo/commit/93896662f9fa951ea459fab8a35257b4f33bdcfd))
+* **versionHistory:** add Git history integration and diff semantics rework ([f0ad4cf](https://github.com/DawnSaint/velo/commit/f0ad4cfab4de21c56b1d2d7a0cd94918badf1475))
+* **versionHistory:** add Git history integration, UI polish, and doc sync for v0.7.12 ([299c9b8](https://github.com/DawnSaint/velo/commit/299c9b8932e74c44501cd3397e4b50c42addc165))
+
 ## [0.7.11](https://github.com/DawnSaint/velo/compare/v0.7.10...v0.7.11) (2026-08-17)
 
 
