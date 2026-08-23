@@ -104,6 +104,8 @@ pub struct GitCommitEntry {
     pub author_date: i64,
     /// commit message 第一行
     pub subject: String,
+    /// commit message 完整内容(subject + body)
+    pub message: String,
 }
 
 /// 检测文件是否在 Git 仓库内。
@@ -159,8 +161,9 @@ pub async fn git_file_history(file_path: String) -> Result<Vec<GitCommitEntry>, 
     // 计算相对路径
     let rel_path = relative_to_repo(&repo_root, &file_path);
 
-    // git log --follow 格式: <hash>\x1f<short>\x1f<author>\x1f<timestamp>\x1f<subject>\x1e
-    let format = "%H\x1f%h\x1f%an\x1f%at\x1f%s\x1e";
+    // git log --follow 格式: <hash>\x1f<short>\x1f<author>\x1f<timestamp>\x1f<subject>\x1f<message>\x1e
+    // %s = subject(第一行), %B = 完整 raw body(含 subject + body 换行)
+    let format = "%H\x1f%h\x1f%an\x1f%at\x1f%s\x1f%B\x1e";
     let log_output = run_git(
         &repo_root,
         &[
@@ -189,12 +192,15 @@ pub async fn git_file_history(file_path: String) -> Result<Vec<GitCommitEntry>, 
             continue;
         }
         let author_date = fields[3].trim().parse::<i64>().unwrap_or(0) * 1000; // s → ms
+        // %B 输出的完整 message 末尾会带一个换行,trim 掉
+        let message = fields.get(5).map(|s| s.trim_end().to_string()).unwrap_or_default();
         entries.push(GitCommitEntry {
             hash: fields[0].to_string(),
             short_hash: fields[1].to_string(),
             author: fields[2].to_string(),
             author_date,
             subject: fields[4].to_string(),
+            message,
         });
     }
 

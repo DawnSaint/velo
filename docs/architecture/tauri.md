@@ -1,6 +1,6 @@
 # Tauri Boundary
 
-> **本文件负责**: Tauri API 封装层、capabilities、CLI/single-instance、Windows NSIS 安装器集成（文件关联 + 文件夹/md 文件右键菜单 + per-user 安装）、web-dev 降级、应用自动更新、GPU 硬件加速。
+> **本文件负责**: Tauri API 封装层、capabilities、CLI/single-instance、Windows NSIS 安装器集成（文件关联 + 文件夹/md 文件右键菜单 + per-user 安装）、web-dev 降级、应用自动更新、GPU 硬件加速、Git 历史命令。
 >
 > **何时阅读**: 改 `src/tauri/*`、`src-tauri/*` command/capability、CLI 参数、single-instance、Windows shell 集成或 NSIS 安装器 hooks、updater 配置 / CI 签名时。
 >
@@ -53,6 +53,7 @@
   - **Cargo.lock 不进 release-please 的 extra-files**: 锁文件里 velo 自己的 `[[package]]` 节在数组深层,想精准 bump 需要 filter 表达式 `$.package[?(@.name == "velo")].version`,但 `GenericToml` 底层走 `node-jsonpath`,只支持 `.` / `[*]` / `[0]`,**不支持 `?(...)`**——配了也只会静默返回 0 结果、锁文件原封不动。
   - **`CheckIfAppIsRunning` 替换为内联代码**: Tauri 默认的 `utils.nsh` 中 `CheckIfAppIsRunning` 宏在用户点"取消"时调用 `Abort`(在 Section 中只停止当前 Section,不关闭安装器窗口 → 安装页面卡住)。替换为内联代码,取消路径改为 `Quit`(直接关闭安装器),安装在 Install 和 Uninstall 两个 Section 中各内联一份(标签前缀 `velo_` / `un_velo_` 避免冲突)。
 
+- **Git 历史命令(v0.7.12)**: `src-tauri/src/git.rs` 模块通过 `std::process::Command` 调用系统 git,提供三个 `#[tauri::command]`:`git_repo_root`(判断文件是否在 Git 仓库中,返回仓库根路径)、`git_file_history`(获取文件的 commit 历史列表,含 hash / 时间 / 完整 message `%B` / 作者)、`git_show_file`(获取指定 commit 中某文件的完整内容)。`git_file_history` 用 `\x00`(NULL)分隔 commit 记录、`\x01`(SOH)分隔字段,解析完整 commit message(含多行 body);`git_show_file` 走 `git show <hash>:<relative_path>` 获取文件内容。前端封装 `src/tauri/git.ts` 走 `tauriOnly()` 守门,非 Tauri 环境返回空。不依赖 libgit2,直接调系统 git 二进制——简单且零额外依赖,前提是用户机器装了 git(未装时命令报错,前端静默降级为纯本地快照模式)。Git 历史作为版本历史面板的额外数据源融入,不做独立 Git 面板(详见 DECISIONS ADR-20260823-001)。
 - **GPU 硬件加速（仅 Windows WebView2）**: WebView2 默认开启 GPU 硬件加速。用户可在「设置 > 系统」关闭（类似 Chrome 的「使用图形加速功能」开关）。偏好存 `HKCU\Software\com.velo.editor\ShellIntegration\GpuAcceleration`（"1"/"0",未设置 → true 向后兼容），与 shell integration 偏好同路径。`create_window` 在创建 WebView 前调 `gpu_accel::additional_browser_args_if_disabled()`：偏好为关闭时返回 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu`（必须保留 wry 默认的 disable-features，因为用户自定义 args 会完全替换默认值），偏好为开启时返回 None（走 wry 默认路径）。**切换后需重启生效**：`additional_browser_args` 在 WebView 创建时固定，运行时无法动态修改；前端 `set_gpu_accel` command 写入注册表后 toast 提示用户重启。macOS WKWebView / Linux WebKitGTK 的 GPU 加速由系统控制，wry 未暴露等效 API，前端在非 Windows 平台隐藏开关。
 - **应用自动更新(#updater)**: Tauri 2 Updater plugin(`tauri-plugin-updater`) + Process plugin(`tauri-plugin-process`,relaunch 用)。
   - **签名密钥**: Ed25519 自签名密钥对(`tauri signer generate` 生成),免费。私钥存 CI GitHub Secret(`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`),公钥写 `tauri.conf.json` 的 `plugins.updater.pubkey`。与 Windows 代码签名证书(Sectigo / DigiCert,需购买,消除 SmartScreen 警告)是两回事,updater 不依赖后者。

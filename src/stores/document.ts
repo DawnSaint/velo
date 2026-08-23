@@ -1306,23 +1306,28 @@ export const useDocumentStore = defineStore('document', () => {
     await deleteDraftFromFs(ws, id)
   }
 
-  /** 恢复版本快照到编辑器:新开标签(或复用干净未命名)装入快照内容。
+  /** 恢复版本快照到编辑器:在当前 Tab 直接恢复(同文件)或复用干净未命名 Tab。
    *  语义同 Hot Exit 恢复:设 lastSavedContent 为磁盘当前内容让 dirty=true,
-   *  用户 Ctrl+S 把快照写回磁盘,或关闭标签时放弃。 */
+   *  用户 Ctrl+S 把快照写回磁盘,或关闭标签时放弃。
+   *  不新开同文件 Tab —— 两个 Tab 指向同一文件会互相触发"已在外部更新"提示。 */
   async function restoreVersionContent(filePath: string, content: string) {
-    if (!isPristineBlank(activeDoc())) {
+    const d = activeDoc()
+    // 当前 Tab 是其他已打开文件(非空白、非目标文件) → 新开 Tab 避免覆盖用户正在编辑的内容
+    // 当前 Tab 就是目标文件 → 直接在当前 Tab 恢复(不新开同文件 Tab,避免 watcher 冲突)
+    // 当前 Tab 是干净空白未命名 → 复用它
+    if (d && d.currentFilePath !== filePath && !isPristineBlank(d)) {
       const nid = createTab()
       switchTab(nid)
     }
-    const d = activeDoc()!
-    loadContentInto(d, content, filePath)
+    const target = activeDoc()!
+    loadContentInto(target, content, filePath)
     // 用磁盘真实内容做 baseline —— 同 recoverDraft 语义。
     try {
       const disk = await readTextFile(filePath)
-      d.lastSavedContent = disk
+      target.lastSavedContent = disk
     }
     catch {
-      d.lastSavedContent = ''
+      target.lastSavedContent = ''
     }
     void syncTitle()
   }

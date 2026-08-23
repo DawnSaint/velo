@@ -5,7 +5,6 @@
 // 测试 mock 统一打本模块,不散布 @tauri-apps/api/core。
 
 import { invoke } from '@tauri-apps/api/core'
-import { isTauri } from '@tauri-apps/api/core'
 import { tauriOnly } from './fs'
 
 export interface GitCommitEntry {
@@ -19,6 +18,8 @@ export interface GitCommitEntry {
   authorDate: number
   /** commit message 第一行 */
   subject: string
+  /** commit message 完整内容(subject + body) */
+  message: string
 }
 
 /** Rust 端返回的 JSON 结构(serde 默认 camelCase 不开启,字段是 snake_case) */
@@ -28,6 +29,7 @@ interface GitCommitEntryRaw {
   author: string
   author_date: number
   subject: string
+  message: string
 }
 
 function toEntry(raw: GitCommitEntryRaw): GitCommitEntry {
@@ -37,6 +39,7 @@ function toEntry(raw: GitCommitEntryRaw): GitCommitEntry {
     author: raw.author,
     authorDate: raw.author_date,
     subject: raw.subject,
+    message: raw.message,
   }
 }
 
@@ -70,5 +73,3 @@ export async function gitShowFile(repoRoot: string, commitHash: string, filePath
   return invoke<string>('git_show_file', { repoRoot, commitHash, filePath })
 }
 
-/** re-export for test convenience */
-export { isTauri }

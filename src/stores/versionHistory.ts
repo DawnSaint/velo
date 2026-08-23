@@ -71,6 +71,7 @@ export interface TimelineEntry {
     shortHash: string
     author: string
     subject: string
+    message: string
   }
   /** 本地快照原始数据(source='local'/'unsaved' 时有值) */
   snapshot?: VersionSnapshot
@@ -100,6 +101,10 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
    *  false 期间 diffStatsMap 不计算依赖 Git content 的统计,避免先显示错误的全文新增再跳变。
    *  非仓库 / 无 Git 条目时也为 true(无异步加载)。 */
   const gitContentLoaded = ref(true)
+
+  /** Git 历史是否正在加载(gitRepoRoot → gitFileHistory → Promise.all 预加载全程)。
+   *  UI 据此显示 loading spinner。 */
+  const gitLoading = ref(false)
 
   /** diff 视图是否激活(编辑器区显示 DiffView 而非编辑器) */
   const diffViewActive = ref(false)
@@ -174,6 +179,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
         shortHash: g.shortHash,
         author: g.author,
         subject: g.subject,
+        message: g.message,
       },
     }
   }
@@ -388,6 +394,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
 
   async function loadGitHistory(filePath: string): Promise<void> {
     const token = ++gitLoadToken
+    gitLoading.value = true
     // 检测是否在 git 仓库中
     const repoRoot = await gitRepoRoot(filePath)
     if (token !== gitLoadToken) return // 已被新调用取代
@@ -395,6 +402,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     if (!repoRoot) {
       gitEntriesByFile.value.set(filePath, [])
       gitContentLoaded.value = true
+      gitLoading.value = false
       return
     }
 
@@ -407,12 +415,14 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     const snaps = snapshotsByFile.value.get(filePath) ?? null
     if (snaps === null) {
       gitContentLoaded.value = true
+      gitLoading.value = false
       return
     }
     const gitEntries: TimelineEntry[] = entries.map(g => gitToEntry(g, filePath))
     const toPreload = gitEntries.filter(e => e.content === null)
     if (toPreload.length === 0) {
       gitContentLoaded.value = true
+      gitLoading.value = false
       return
     }
 
@@ -435,6 +445,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
       if (content !== undefined) computeGitDiffStats(e.id, content, all)
     }
     gitContentLoaded.value = true
+    gitLoading.value = false
   }
 
   /** 使某文件的缓存失效(下次 load 会从磁盘重读) */
@@ -443,8 +454,24 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     gitEntriesByFile.value.delete(filePath)
     gitRootByFile.value.delete(filePath)
     gitContentLoaded.value = true
+    gitLoading.value = false
     // 清除该文件对应的 gitContentCache / gitDiffStats 条目
     // (id 格式 git:<hash>:<filePath>,按 filePath 后缀匹配)
+    for (const key of [...gitContentCache.value.keys()]) {
+      if (key.endsWith(':' + filePath)) gitContentCache.value.delete(key)
+    }
+    for (const key of [...gitDiffStats.value.keys()]) {
+      if (key.endsWith(':' + filePath)) gitDiffStats.value.delete(key)
+    }
+  }
+
+  /** 仅使某文件的 Git 缓存失效(保留本地快照缓存)。
+   *  用于刷新按钮:重新拉取 Git 历史,不影响本地快照列表。 */
+  function invalidateGit(filePath: string): void {
+    gitEntriesByFile.value.delete(filePath)
+    gitRootByFile.value.delete(filePath)
+    gitContentLoaded.value = true
+    gitLoading.value = false
     for (const key of [...gitContentCache.value.keys()]) {
       if (key.endsWith(':' + filePath)) gitContentCache.value.delete(key)
     }
@@ -477,6 +504,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     gitContentCache.value.clear()
     gitDiffStats.value.clear()
     gitContentLoaded.value = true
+    gitLoading.value = false
   }
 
   /** 打开版本历史:加载当前文件快照 + Git 历史 + 选中最新一条 + 激活 diff 视图 */
@@ -537,6 +565,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     diffOldContent,
     diffOldContentAsync,
     gitContentLoaded,
+    gitLoading,
     loadGitContent,
     VERSION_SNAPSHOT_CAP,
     UNSAVED_ID,
@@ -546,6 +575,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     loadGitHistory,
     appendSnapshot,
     invalidate,
+    invalidateGit,
     invalidateAll,
     openVersionHistory,
     closeDiffView,

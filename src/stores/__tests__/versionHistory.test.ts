@@ -457,8 +457,8 @@ describe('versionHistory store', () => {
         if (command === 'git_repo_root') return '/repo'
         if (command === 'git_file_history') {
           return [
-            { hash: 'abc1234', short_hash: 'abc1234', author: 'Alice', author_date: 3000, subject: 'fix: typo' },
-            { hash: 'def5678', short_hash: 'def5678', author: 'Bob', author_date: 1000, subject: 'feat: init' },
+            { hash: 'abc1234', short_hash: 'abc1234', author: 'Alice', author_date: 3000, subject: 'fix: typo', message: 'fix: typo' },
+            { hash: 'def5678', short_hash: 'def5678', author: 'Bob', author_date: 1000, subject: 'feat: init', message: 'feat: init' },
           ]
         }
         if (command === 'git_show_file') return 'git content'
@@ -499,7 +499,7 @@ describe('versionHistory store', () => {
         if (command === 'git_repo_root') return '/repo'
         if (command === 'git_file_history') {
           return [
-            { hash: 'abc1234', short_hash: 'abc1234', author: 'Alice', author_date: 3000, subject: 'fix' },
+            { hash: 'abc1234', short_hash: 'abc1234', author: 'Alice', author_date: 3000, subject: 'fix', message: 'fix' },
           ]
         }
         if (command === 'git_show_file') return 'git content'
@@ -528,7 +528,7 @@ describe('versionHistory store', () => {
         if (command === 'git_repo_root') return '/repo'
         if (command === 'git_file_history') {
           return [
-            { hash: 'abc1234', short_hash: 'abc1234', author: 'A', author_date: 3000, subject: 'init' },
+            { hash: 'abc1234', short_hash: 'abc1234', author: 'A', author_date: 3000, subject: 'init', message: 'init' },
           ]
         }
         return undefined
@@ -559,8 +559,8 @@ describe('versionHistory store', () => {
         if (command === 'git_repo_root') return '/repo'
         if (command === 'git_file_history') {
           return [
-            { hash: 'aaa1111', short_hash: 'aaa1111', author: 'A', author_date: 3000, subject: 'new' },
-            { hash: 'bbb2222', short_hash: 'bbb2222', author: 'B', author_date: 1000, subject: 'old' },
+            { hash: 'aaa1111', short_hash: 'aaa1111', author: 'A', author_date: 3000, subject: 'new', message: 'new' },
+            { hash: 'bbb2222', short_hash: 'bbb2222', author: 'B', author_date: 1000, subject: 'old', message: 'old' },
           ]
         }
         if (command === 'git_show_file') {
@@ -615,7 +615,7 @@ describe('versionHistory store', () => {
         if (command === 'git_file_history') {
           // a.md 和 b.md 的历史都包含 commit shared123
           return [
-            { hash: 'shared123', short_hash: 'shared123', author: 'A', author_date: 3000, subject: 'shared commit' },
+            { hash: 'shared123', short_hash: 'shared123', author: 'A', author_date: 3000, subject: 'shared commit', message: 'shared commit' },
           ]
         }
         if (command === 'git_show_file') {

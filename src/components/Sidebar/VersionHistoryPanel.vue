@@ -14,8 +14,8 @@
 //
 // 由 ActivityBar「版本历史」入口驱动(App.vue showSidebarTab('history'))。
 
-import { computed, watch } from 'vue'
-import { History, Circle, GitBranch, GitCommit } from '@lucide/vue'
+import { computed, ref, watch } from 'vue'
+import { History, GitBranch, GitCommit, RefreshCw, Loader2 } from '@lucide/vue'
 import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { useDocumentStore } from '@/stores/document'
 import { diffLines } from '@/utils/lineDiff'
@@ -29,6 +29,42 @@ const selectedId = computed<string | null>(() => versionHistory.selectedEntryId)
 
 /** Git 仓库状态:undefined=未检测, null=非 git 仓库, string=仓库根 */
 const gitRepoStatus = computed(() => versionHistory.currentFileGitRoot)
+
+/** Git 历史正在加载 */
+const gitLoading = computed(() => versionHistory.gitLoading)
+
+/** Git 条目 hover tooltip 状态 */
+const hoveredGitEntry = ref<TimelineEntry | null>(null)
+const tooltipStyle = ref({ left: '0px', top: '0px' })
+
+function onGitMouseEnter(entry: TimelineEntry, e: MouseEvent) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  // tooltip 显示在条目右侧,如果右侧空间不足则显示在左侧
+  const tooltipWidth = 320
+  const left = rect.right + 8 + tooltipWidth > window.innerWidth
+    ? rect.left - 8 - tooltipWidth
+    : rect.right + 8
+  tooltipStyle.value = {
+    left: `${Math.max(8, left)}px`,
+    top: `${rect.top}px`,
+  }
+  hoveredGitEntry.value = entry
+}
+
+function onGitMouseLeave() {
+  hoveredGitEntry.value = null
+}
+
+/** 格式化 Git commit 完整时间 */
+function formatGitDate(ts: number): string {
+  const d = new Date(ts)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
 
 /** 本地快照 + Git 条目的 diff 行数统计
  *  - Git 条目从 gitDiffStats 缓存读取(预加载后已计算)
@@ -91,6 +127,14 @@ function onToggleGit() {
   versionHistory.includeGit = !versionHistory.includeGit
 }
 
+/** 刷新当前文件的 Git 历史 */
+async function onRefreshGit() {
+  const path = documentStore.currentFilePath
+  if (!path) return
+  versionHistory.invalidateGit(path)
+  await versionHistory.loadGitHistory(path)
+}
+
 // 切换文件时重新加载快照 + Git 历史
 // immediate=true 确保组件挂载时也触发首次加载(替代 onMounted)
 // 用竞态守卫避免快速切换时上一次加载覆盖新数据
@@ -124,24 +168,41 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
         <History class="h-4 w-4 text-[var(--text-secondary)]" />
         <span class="text-sm font-medium text-gray-700 dark:text-gray-200">版本历史</span>
       </div>
-      <!-- Git 历史开关 -->
-      <button
-        v-if="gitRepoStatus !== undefined && gitRepoStatus !== null"
-        class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
-        :class="versionHistory.includeGit
-          ? 'bg-[var(--accent,#1F71D9)]/10 text-[var(--accent,#1F71D9)]'
-          : 'text-gray-400 hover:bg-[var(--surface-hover)]'"
-        :title="versionHistory.includeGit ? '关闭 Git 历史加载' : '开启 Git 历史加载'"
-        @click="onToggleGit"
-      >
-        <GitBranch class="h-3 w-3" />
-        <span>Git</span>
-      </button>
+      <!-- Git 历史开关 + 刷新按钮 -->
+      <div v-if="gitRepoStatus !== undefined && gitRepoStatus !== null" class="flex items-center gap-1">
+        <button
+          class="rounded-md p-1 transition-colors hover:bg-[var(--surface-hover)]"
+          :class="versionHistory.includeGit
+            ? 'text-orange-500 dark:text-orange-400'
+            : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'"
+          :title="versionHistory.includeGit ? '关闭 Git 历史加载' : '开启 Git 历史加载'"
+          @click="onToggleGit"
+        >
+          <GitBranch class="h-3 w-3" />
+        </button>
+        <button
+          class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
+          :disabled="gitLoading"
+          title="刷新 Git 历史"
+          @click="onRefreshGit"
+        >
+          <RefreshCw class="h-3 w-3" :class="{ 'animate-spin': gitLoading }" />
+        </button>
+      </div>
+    </div>
+
+    <!-- 加载中(Git 历史加载期间不显示列表) -->
+    <div
+      v-if="gitLoading"
+      class="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
+    >
+      <Loader2 class="h-5 w-5 animate-spin" />
+      <span class="text-xs">正在加载版本历史...</span>
     </div>
 
     <!-- 空状态 -->
     <div
-      v-if="entries.length === 0"
+      v-else-if="entries.length === 0"
       class="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
     >
       <History :size="28" :stroke-width="1.2" />
@@ -160,22 +221,24 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
         :key="entry.id"
         class="group flex w-full cursor-pointer flex-col gap-1 px-3 py-2 text-left transition-colors"
         :class="selectedId === entry.id
-          ? 'bg-[var(--surface-hover)] border-l-2 border-[var(--accent,#1F71D9)]'
-          : 'border-l-2 border-transparent hover:bg-[var(--surface-hover)]'"
+          ? 'bg-[var(--surface-hover)]'
+          : 'hover:bg-[var(--surface-hover)]'"
         @click="onSelectEntry(entry.id)"
+        @mouseenter="isGit(entry) ? onGitMouseEnter(entry, $event) : undefined"
+        @mouseleave="isGit(entry) ? onGitMouseLeave() : undefined"
       >
         <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
-            <!-- 未保存条目:蓝点 + "未保存"标签 -->
+          <div class="flex min-w-0 items-center gap-2">
+            <!-- 未保存条目:amber dot + "未保存"标签(颜色/大小对齐 TabBar tab-dot) -->
             <template v-if="isUnsaved(entry)">
-              <Circle class="h-2 w-2 fill-current text-blue-500 dark:text-blue-400" />
-              <span class="text-xs font-medium text-blue-600 dark:text-blue-400">未保存</span>
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-200">未保存</span>
             </template>
-            <!-- Git 条目:Git icon + 短 hash -->
+            <!-- Git 条目:Git icon + commit subject(truncate) -->
             <template v-else-if="isGit(entry)">
-              <GitCommit class="h-3 w-3 text-orange-500 dark:text-orange-400" />
-              <span class="text-xs font-medium text-gray-700 dark:text-gray-200">
-                {{ entry.git?.shortHash }}
+              <GitCommit class="h-3 w-3 shrink-0 text-orange-500 dark:text-orange-400" />
+              <span class="truncate text-xs font-medium text-gray-700 dark:text-gray-200">
+                {{ entry.git?.subject }}
               </span>
             </template>
             <!-- 本地快照:时间 -->
@@ -195,14 +258,44 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
           </span>
           <span v-else-if="!isGit(entry)" class="shrink-0 text-[10px] text-gray-300 dark:text-gray-600">无变化</span>
         </div>
-        <!-- 第二行:Git 条目显示 commit subject,本地快照显示相对时间 -->
+        <!-- 第二行:Git 条目显示时间,本地快照显示相对时间 -->
         <span v-if="isGit(entry)" class="truncate text-[11px] text-gray-400">
-          {{ entry.git?.subject }}
+          {{ relativeTime(entry.timestamp) }}
         </span>
         <span v-else class="text-[11px] text-gray-400">
           {{ isUnsaved(entry) ? '当前编辑器内容' : relativeTime(entry.timestamp) }}
         </span>
       </button>
     </div>
+
+    <!-- Git 条目 hover tooltip:显示完整提交信息 -->
+    <Teleport to="body">
+      <div
+        v-if="hoveredGitEntry?.git"
+        class="fixed z-[1100] w-80 rounded-lg bg-[var(--surface-3)] p-3 text-xs shadow-[var(--shadow-popover)] ring-1 ring-black/5 dark:ring-white/10"
+        :style="tooltipStyle"
+      >
+        <!-- subject -->
+        <div class="mb-2 break-words font-medium text-gray-800 dark:text-gray-100">
+          {{ hoveredGitEntry.git.subject }}
+        </div>
+        <!-- 元信息:hash · 提交者 · 时间 同一行 -->
+        <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+          <GitCommit class="h-3 w-3 shrink-0 text-orange-500 dark:text-orange-400" />
+          <span class="shrink-0">{{ hoveredGitEntry.git.shortHash }}</span>
+          <span class="shrink-0">·</span>
+          <span class="truncate">{{ hoveredGitEntry.git.author }}</span>
+          <span class="shrink-0">·</span>
+          <span class="shrink-0">{{ formatGitDate(hoveredGitEntry.timestamp) }}</span>
+        </div>
+        <!-- message body(如果有) -->
+        <div
+          v-if="hoveredGitEntry.git.message !== hoveredGitEntry.git.subject"
+          class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words border-t border-[var(--surface-border)] pt-2 text-[11px] text-gray-600 dark:text-gray-300"
+        >
+          {{ hoveredGitEntry.git.message }}
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

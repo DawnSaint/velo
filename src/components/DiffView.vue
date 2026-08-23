@@ -4,16 +4,16 @@
 // 展示该版本与其前一版本的行级 diff(同 VSCode Local History 语义)。
 // 顶部工具栏:
 //  - 左:版本时间 + diff 行数统计
-//  - 右:「恢复此版本」(emit restore)+「关闭」(回到编辑器)
+//  - 右:「恢复」(emit restore) / 「回退修改」(emit revert) +「关闭」(回到编辑器)
 //
-// 选中虚拟"未保存"条目(UNSAVED_ID)时不显示「恢复此版本」按钮。
-// 选中 Git 条目时不显示「恢复此版本」按钮(Git commit 不可直接恢复为编辑器内容)。
+// 选中虚拟"未保存"条目(UNSAVED_ID)时显示「回退修改」按钮(回退到上一版本)。
+// 选中 Git 条目时不显示「恢复」按钮(Git commit 不可直接恢复为编辑器内容)。
 //
 // Git 条目的 content 和前一版本 content 都可能需要异步加载(git show),
 // 加载期间显示 loading spinner。
 
 import { computed, ref, watch } from 'vue'
-import { RotateCcw, X, ArrowRight, Loader2 } from '@lucide/vue'
+import { X, Loader2, Undo2 } from '@lucide/vue'
 import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { diffLines, type DiffLine } from '@/utils/lineDiff'
 import type { TimelineEntry } from '@/stores/versionHistory'
@@ -22,6 +22,7 @@ const versionHistory = useVersionHistoryStore()
 
 const emit = defineEmits<{
   'restore': [snapshot: TimelineEntry]
+  'revert': [filePath: string, content: string]
 }>()
 
 const selected = computed<TimelineEntry | null>(() => versionHistory.selectedEntry)
@@ -110,6 +111,16 @@ function onRestore() {
   versionHistory.closeDiffView()
 }
 
+/** 回退未保存修改:把编辑器内容恢复到上一版本(已保存内容) */
+async function onRevert() {
+  const entry = selected.value
+  if (!entry) return
+  const oldResult = await versionHistory.diffOldContentAsync(entry.id)
+  const oldContent = oldResult.content ?? ''
+  emit('revert', entry.filePath, oldContent)
+  versionHistory.closeDiffView()
+}
+
 function onClose() {
   versionHistory.closeDiffView()
 }
@@ -123,39 +134,46 @@ function onClose() {
         <span v-if="selected" class="flex items-center gap-1.5">
           <!-- 未保存条目 -->
           <template v-if="isSelectedUnsaved">
-            <span class="font-medium text-blue-600 dark:text-blue-400">未保存内容</span>
+            <span class="font-medium text-gray-700 dark:text-gray-200">未保存内容</span>
           </template>
           <!-- Git 条目 -->
           <template v-else-if="isSelectedGit">
-            <span class="font-medium text-orange-600 dark:text-orange-400">{{ selected.git?.shortHash }}</span>
-            <span class="truncate text-gray-400">{{ selected.git?.subject }}</span>
+            <span class="truncate font-medium text-gray-700 dark:text-gray-200">{{ selected.git?.subject }}</span>
+            <span class="shrink-0 font-mono text-[11px] text-orange-600 dark:text-orange-400">{{ selected.git?.shortHash }}</span>
           </template>
           <!-- 本地快照 -->
           <template v-else>
             <span class="font-medium text-gray-700 dark:text-gray-200">{{ formatTime(selected.timestamp) }}</span>
           </template>
         </span>
-        <ArrowRight class="h-3.5 w-3.5 text-gray-300 dark:text-gray-600" />
-        <span>此版本</span>
         <span
           v-if="!loading && (diffStats.added > 0 || diffStats.removed > 0)"
-          class="flex items-center gap-2"
+          class="tabular-nums"
         >
           <span class="text-green-600 dark:text-green-400">+{{ diffStats.added }}</span>
-          <span class="text-red-600 dark:text-red-400">-{{ diffStats.removed }}</span>
+          <span class="ml-1.5 text-red-600 dark:text-red-400">-{{ diffStats.removed }}</span>
         </span>
         <span v-else-if="!loading" class="text-gray-400">内容一致</span>
       </div>
       <div class="flex items-center gap-2">
-        <!-- 未保存条目和 Git 条目不显示「恢复此版本」 -->
+        <!-- 本地快照:显示「恢复」 -->
         <button
           v-if="!isSelectedUnsaved && !isSelectedGit"
-          class="flex items-center gap-1.5 rounded-md bg-[var(--accent,#1F71D9)] px-3 py-1 text-xs font-medium text-white transition-colors hover:opacity-90"
+          class="rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
           :disabled="!selected"
           @click="onRestore"
         >
-          <RotateCcw class="h-3.5 w-3.5" />
           恢复此版本
+        </button>
+        <!-- 未保存条目:显示「回退修改」 -->
+        <button
+          v-else-if="isSelectedUnsaved"
+          class="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          :disabled="!selected"
+          @click="onRevert"
+        >
+          <Undo2 class="h-3.5 w-3.5" />
+          回退修改
         </button>
         <button
           class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"

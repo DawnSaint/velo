@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor` / `export` / `workspace`)、ProseMirror 核心(markdownIO round-trip 含 underline mark / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / CJK 排版三件套:字间距装饰插件 / 括号自动配对插件 / 智能排版格式化器库(5 组规则 + 保护区扫描 + 完整性校验回滚 + WYSIWYG 往返) / markdownPaste 插件 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理) / emoji 短码 round-trip(`:smile:` → emoji atom 节点 → `:smile:` idempotent)+ emoji 源码编辑(光标靠近展开 `:shortcode:` / 移出 commit 重建 / Escape 还原 / 降级纯文本)+ emoji 自动补全(`:short` 输入态下拉模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 + settingsActive 空态 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor`(含 zoomLevel) / `export` / `workspace` / `versionHistory`(本地快照 + Git 历史合并 / 异步 diff / 缓存))、ProseMirror 核心(markdownIO round-trip 含 underline mark / 语法实时转换 / 键位 / NodeView / 插件 / 查找替换 / CJK 排版三件套:字间距装饰插件 / 括号自动配对插件 / 智能排版格式化器库(5 组规则 + 保护区扫描 + 完整性校验回滚 + WYSIWYG 往返) / markdownPaste 插件 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理) / emoji 短码 round-trip(`:smile:` → emoji atom 节点 → `:smile:` idempotent)+ emoji 源码编辑(光标靠近展开 `:shortcode:` / 移出 commit 重建 / Escape 还原 / 降级纯文本)+ emoji 自动补全(`:short` 输入态下拉模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 + settingsActive 空态 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 build.yml，见 ROADMAP `#ci-pipeline`。
 
@@ -67,9 +67,10 @@ src/
 ├── stores/
 │   └── __tests__/
 │       ├── document.test.ts          openFilePaths / openPathsInTabs 批量并行恢复 / openPathInTab({ silent }) / closeTab 收敛
-│       ├── editor.test.ts
+│       ├── editor.test.ts             zoomLevel hydrate / snapshot / clampZoomLevel 边界
 │       ├── export.test.ts
 │       ├── recentFiles.test.ts
+│       ├── versionHistory.test.ts      本地快照 diff 语义 / 虚拟未保存条目 / Git 历史合并排序 / 异步 diff 流程 / 缓存失效
 │       └── workspace.test.ts
 ├── lib/export/
 │   └── __tests__/
@@ -101,6 +102,7 @@ src/
         │   └── imageSourceEdit.test.ts  HTML 图片源码编辑:独立 `<img>` → image 节点(htmlSource/htmlAttrs round-trip) / 源码编辑 trigger+commit / preview widget / 嵌套 img → html_block 渲染层 proxyDomURL
         │   └── emojiSourceEdit.test.ts  emoji 源码编辑:光标靠近展开 `:shortcode:` / 移出 commit 重建 emoji / Escape 还原 / 降级纯文本 / 预览 widget
         │   └── emojiSuggest.test.ts     emoji 自动补全:`:short` 输入态下拉 / node-emoji 模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭 / code mark+code_block+源码编辑 session 内不激活
+        │   └── zoomCommands.test.ts    zoom 命令边界 clamp(zoomIn / zoomOut / zoomReset 步长 + 上下限)
         ├── nodes/__tests__/
         │   ├── HtmlNodeView.test.ts   html_block NodeView:块级 HTML 源码切换(点击按钮→code_block 替换→光标移出 commit / Escape 还原) / 独立 img 分流(→ image 节点) / 嵌套 img proxyDomURL 代理
         │   └── mathLazyRender.test.ts B3 NodeView 延迟渲染:视口外不调 katex.render / 进入视口渲染 / 滚出销毁+缓存 / 缓存同步恢复 / edit 态不销毁(fake IntersectionObserver)

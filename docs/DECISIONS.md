@@ -320,3 +320,19 @@
 - **Decision**: 选 B。`tauri.conf.json` 中 `createUpdaterArtifacts` 从 `"v1Compatible"` 改为 `true`。Tauri 直接签名 `.exe` 产出 `.exe.sig`，tauri-action 检测到 `unzippedSigs=true` 后自动优先使用 `.exe.sig` 生成 `latest.json`。
 - **Consequences**: 不再生成 `.nsis.zip` 中间产物，签名链路更简单（签名对象 = 最终安装文件本身）。tauri-action 自动适配，无需额外配置。后续版本更新流程不变。
 
+---
+
+## v0.7.12 — 版本历史 Git 集成 + Hot Exit
+
+### ADR-20260823-001: Git 历史作为版本历史面板数据源融入，不做独立 Git 面板
+
+- **Context**: ADR-20260810-001 放弃了用户面向的 Git 面板。但写作用户在 Git 仓库中的文件仍缺少 commit 级别的历史浏览能力。候选:A 独立 Git 面板（commit list / diff / branch 视图，功能重且多数写作者不用 git）；B 把 Git commit 历史作为版本历史面板的额外数据源融入（本地快照 + Git commit 混合时间线，轻量，复用已有 diff UI）；C 不做（用户自行用外部 git 工具）。
+- **Decision**: 选 B。Rust 后端 `git.rs` 提供 `git_repo_root` / `git_file_history` / `git_show_file` 三命令（`std::process::Command` 调系统 git），前端 `src/tauri/git.ts` 封装。`versionHistory` store 将 Git commit 与本地快照合并为统一 `TimelineEntry[]` 按时间排序，`VersionHistoryPanel` 用视觉标识区分来源。Git 条目仅支持查看 diff，不支持「恢复此版本」。非 Git 仓库静默降级为纯本地快照。用户可开关 Git 历史加载。
+- **Consequences**: 用户在版本历史面板统一浏览本地快照 + Git commit，无需独立面板。ADR-20260810-001 的"不做 Git 面板"结论不变——本方案是版本历史的数据源扩展而非 Git 管理工具。Git 条目的 diff 语义与本地快照一致（与前一版本对比）。缓存 key 含文件路径防跨文件污染。后续若需完整 Git 管理功能（branch / commit / push）仍走外部工具。
+
+### ADR-20260823-002: Hot Exit 走 per-workspace 草稿 + 静默恢复
+
+- **Context**: 编辑器异常退出后用户未保存内容丢失。候选:A per-doc 草稿（每文档独立草稿文件，恢复时逐文档匹配）；B per-workspace 草稿（按工作区目录隔离，启动恢复在该工作区的标签集内静默完成）；C Dialog 提示恢复（用户选择是否恢复）。
+- **Decision**: 选 B。脏盘每 30s 写草稿到 `appDataDir/drafts/{workspaceKey}/{id}.json`，workspaceKey = `encodePathAsId(workspaceRoot)`。启动时 `loadContentIntoTabs` 并发查草稿，有草稿则用草稿内容装载 + 设磁盘基线让 `dirty=true`，并删除已消费草稿。无 Dialog，无中断（同 VSCode Hot Exit 语义）。无 workspace 时用 `_no_workspace` fallback key 覆盖"只打开文件没开工作区"的场景。`pagehide` 同步落盘防 debounce 未触发。
+- **Consequences**: 用户异常退出后重启自动恢复未保存内容，零交互成本。草稿按工作区隔离，A 工作区的草稿不在 B 工作区恢复。草稿 ID 简化为 `file-{encodePathAsId(path)}` / `untitled-{docId}`，无 window scope——多窗口隔离由 per-workspace 目录天然保证。草稿与版本快照分工明确：草稿是 dirty 期间定时落盘的崩溃恢复手段（写盘成功后清除），版本快照是保存点的只读归档。
+

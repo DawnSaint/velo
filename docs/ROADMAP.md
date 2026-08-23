@@ -42,7 +42,6 @@
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P2  #system-tray ──→ #daily-note
-    #local-timeline ──→ #local-timeline-git
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #font-ui（独立）
@@ -56,49 +55,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
 
-
-
-## v0.7.12 — 编辑器缩放 + 版本历史增强
-
-> 当前迭代焦点。本节为版本工作面板，发版后整节删除。
-
-### 编辑器缩放 `#zoom` `P2` `M`
-
-> 通过 Tauri `set_webview_zoom` 命令对整个编辑器区域进行整体缩放（含文字、图片、代码块等所有内容），区别于设置中已有的「字号」滑块（仅调整正文字号 px 值）。zoom 是全局视觉缩放，不改变文档内容 / schema。
-
-- [x] **数据层**：`editorStore` 新增 `zoomLevel` 字段（`number`，默认 `1.0`，范围 `0.5`–`2.0`，步长 `0.1`）；`hydrateSettings` / `snapshotSettings` 加入对应字段守门与序列化；`persistence.ts` 的 `PersistedSettings['editor']` 类型同步新增
-- [x] **Tauri 权限**：`src-tauri/capabilities/default.json` 新增 `core:webview:allow-set-webview-zoom` 权限，使前端可调用 `set_webview_zoom` 命令
-- [x] **缩放执行层**：封装 `useZoom` composable（或直接在 `App.vue` watch `store.zoomLevel` 变化时调用 Tauri `setWebviewZoom`），保持 zoom 调用集中一处
-- [x] **快捷键**：在 `useGlobalKeybindings` 注册 `Mod-Shift-=`（放大，步长 +0.1）、`Mod-Shift--`（缩小，步长 -0.1）全局快捷键（走 keydown 而非 ProseMirror keymap，编辑器未 focus 时也能生效）；重置使用 `Mod-Shift-0`（避免与 `Mod-0` 段落快捷键冲突）
-  - 三个命令函数 `zoomIn` / `zoomOut` / `zoomReset` 写在 `editor/shortcuts/commands/zoomCommands.ts`，走 `editorStore` 修改 `zoomLevel`；`Mod-=` / `Mod--` 留给标题级别升降（promoteHeading / demoteHeading）
-- [x] **设置面板**：`EditorGroup.vue` 新增「缩放」设置项（滑块 + 百分比显示，复用已有 `velo-slider-track` 样式），与「字号」并列
-- [x] **持久化**：zoom 级别持久化到 `velo-settings.json`（全局 UI 偏好，非 per-workspace）
-- [x] **架构文档同步**：更新 `docs/architecture/editor.md` 记录 zoom 快捷键与执行层位置；更新 `docs/ARCHITECTURE.md` 如涉及数据流
-- [x] **测试**：`editorStore` 的 `zoomLevel` hydrate / snapshot 单元测试；`zoomCommands` 的边界 clamp 测试
-
-### 版本历史 diff 语义重构 `#local-timeline` `P2` `M`
-
-> diff 从「快照 vs 当前内容」改为「快照 vs 前一版本」（对齐 VSCode Local History），移除手动删除 / 清空操作，快照保留数提升到 50 个 + 30 天过期，保存后即时刷新 UI。
-
-- [x] **diff 语义**：`diffOldContent` 返回前一版本内容而非当前编辑器内容；`DiffView` / `VersionHistoryPanel` 统一消费
-- [x] **虚拟未保存条目**：dirty 时列表头部插入 `UNSAVED_ID` 虚拟条目，`content` = 当前编辑器内容
-- [x] **快照管理**：移除手动删除单条 / 清空全部；`VERSION_SNAPSHOT_CAP` 从 20 → 50，新增 30 天过期清理
-- [x] **即时刷新**：`appendSnapshot` 保存后同步内存缓存，面板即时刷新
-- [x] **diff 行数统计**：每个条目显示与前一版本的 +added / -removed 行数
-- [x] **测试**：`diffOldContent` 全路径单元测试 + 未保存条目生命周期测试
-
-### Git 历史集成 `#local-timeline-git` `P2` `M` `← #local-timeline`
-
-> 当文件所在目录是 Git 仓库时，版本历史面板读取 Git commit 历史作为额外条目，与本地快照合并按时间排序；提供开关让用户选择是否加载 Git 历史。
-
-- [x] **Rust 后端**：新建 `git.rs` 模块，实现 `git_repo_root` / `git_file_history` / `git_show_file` 三个 `#[tauri::command]`，用 `std::process::Command` 调用系统 git
-- [x] **前端封装**：`src/tauri/git.ts`，invoke 封装 + `tauriOnly()` 守门
-- [x] **store 扩展**：`versionHistory` 引入 `TimelineEntry` 类型，`displayEntries` 合并本地快照 + Git commit 按时间排序；`diffOldContent` 同步 + `diffOldContentAsync` 异步获取 Git 条目内容
-- [x] **UI 适配**：`VersionHistoryPanel` 区分 Git 条目视觉标识 + 加载开关；`DiffView` 适配异步 content 加载（loading 态），Git 条目不支持「恢复此版本」
-- [x] **懒加载策略**：列表只加载 commit metadata（`git log` 一次性），`content` 在用户点击时才 `git show` 单次获取
-- [x] **非 Git 仓库降级**：文件不在 Git 仓库中时静默降级为纯本地快照模式
-- [x] **测试**：store 合并排序逻辑 + 异步 diff 流程单元测试（28 tests passed）
-- [x] **架构文档同步**：更新 `docs/architecture/document-io.md` 版本历史章节
 
 
 ## P1 — 核心功能
