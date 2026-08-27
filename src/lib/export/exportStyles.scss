@@ -33,7 +33,7 @@ html, body {
 }
 
 // 等宽字体栈:与编辑器 _fonts.scss 的 --font-mono 定义同步。
-// 导出 HTML 的 @font-face 由 lib/export/jetbrainsCss.ts 在 JS 层注入 base64 data URI,
+// 导出 HTML 的 @font-face 由 lib/export/fontFaceCss.ts 在 JS 层注入 base64 data URI,
 // 不从 _fonts.scss 重复 Forward(那里 url() 指向 bundled 资源,外部浏览器解析不到)。
 :root {
   --font-mono: 'JetBrains Mono', Menlo, Operator Mono, Consolas, Monaco, monospace;

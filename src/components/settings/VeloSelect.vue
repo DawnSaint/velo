@@ -16,6 +16,8 @@ export interface VeloSelectOption {
   label: string
   /** 色块预览:hex 颜色数组,渲染为小圆点(代码块主题用) */
   swatches?: string[]
+  /** 字体预览:CSS font-family 字符串,选项文字用此字体渲染(字体选配用) */
+  fontFamily?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -196,7 +198,7 @@ onBeforeUnmount(() => {
     @click="toggleDropdown"
     @keydown="onTriggerKeydown"
   >
-    <span class="velo-select-option__label">{{ selectedOption?.label }}</span>
+    <span class="velo-select-option__label" :style="selectedOption?.fontFamily ? { fontFamily: selectedOption.fontFamily } : undefined">{{ selectedOption?.label }}</span>
     <!-- chevron-down:12px SVG,opacity 0.45,展开时旋转 180°(见 _settings.scss) -->
     <svg class="velo-select-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
       <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -229,7 +231,7 @@ onBeforeUnmount(() => {
           @click="selectOption(option)"
           @mouseenter="highlightIndex = idx"
         >
-          <span class="velo-select-option__label">{{ option.label }}</span>
+          <span class="velo-select-option__label" :style="option.fontFamily ? { fontFamily: option.fontFamily } : undefined">{{ option.label }}</span>
           <!-- 色块预览:keyword / string / func / comment 四个代表色 -->
           <span v-if="option.swatches && option.swatches.length > 0" class="velo-select-swatches">
             <span

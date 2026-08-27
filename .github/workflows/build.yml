@@ -231,13 +231,13 @@ jobs:
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
-      # GitHub Actions windows-latest 自带 Edge，下载匹配版本的 msedgedriver
+      # GitHub Actions windows-latest 自带 Edge，下载匹配版本的 msedgedriver。
+      # 微软已废弃 azureedge.net CDN 域名（DNS NXDOMAIN），新地址为 msedgedriver.microsoft.com。
       - name: Install msedgedriver
         shell: powershell
         run: |
           $edgeVersion = (Get-Item "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion
-          $majorVersion = $edgeVersion.Split('.')[0]
-          $url = "https://msedgedriver.azureedge.net/${edgeVersion}/edgewebdriver_win64.zip"
+          $url = "https://msedgedriver.microsoft.com/${edgeVersion}/edgedriver_win64.zip"
           Invoke-WebRequest -Uri $url -OutFile edgewebdriver.zip
           Expand-Archive -Path edgewebdriver.zip -DestinationPath C:\edgedriver -Force
           echo "C:\edgedriver" >> $env:GITHUB_PATH

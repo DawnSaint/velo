@@ -4,6 +4,8 @@ import { DEFAULT_LIGHT_THEME, DEFAULT_DARK_THEME } from '@/components/ProseMirro
 import type { PersistedSettings } from './persistence'
 import type { CJKFormattingSettings, RuleScopes } from '@/lib/cjkFormatter'
 import { createDefaultFormatting, RULE_DEFS } from '@/lib/cjkFormatter'
+import { buildFontStack } from '@/utils/fontStacks'
+import { isMacOS } from '@/utils/platform'
 
 /** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
 export type StartupMode = 'last-file' | 'new-doc'
@@ -51,7 +53,17 @@ export const useEditorStore = defineStore('editor', () => {
    *  默认 1.0,范围 0.5–2.0,步长 0.1。持久化为全局 UI 偏好(同 fontSize)。 */
   const zoomLevel = ref(1.0)
   const primaryColor = ref('#1F71D9')
-  const fontFamily = ref('-apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif')
+  // 字体选配：三类独立选择，持久化存 key（非 CSS stack 字符串）。
+  // fontFamily / fontMono 为 computed，由 buildFontStack 从 key 派生出完整 CSS font-family stack。
+  // 默认值按平台：macOS → charter/pingfang/sfmono，Windows → cambria/yahei/cascadiacode。
+  // 旧设置文件存 'system' 的值在 hydrate 时迁移为当前平台的默认 key。
+  const latinFont = ref(isMacOS ? 'charter' : 'cambria')
+  const cjkFont = ref(isMacOS ? 'pingfang' : 'yahei')
+  const monoFont = ref(isMacOS ? 'sfmono' : 'cascadiacode')
+  /** 正文字体族（latin + cjk 拼接），注入编辑器 --md-font-family。 */
+  const fontFamily = computed(() => buildFontStack(latinFont.value, cjkFont.value, monoFont.value).sans)
+  /** 等宽字体族，注入 --font-mono。 */
+  const fontMono = computed(() => buildFontStack(latinFont.value, cjkFont.value, monoFont.value).mono)
   /** 用户主题偏好：跟随系统 / 始终浅色 / 始终暗色。持久化字段。 */
   const themeMode = ref<ThemeMode>('system')
   /** 系统当前深浅色偏好（运行时从 matchMedia 读取，不持久化）。 */
@@ -162,7 +174,10 @@ export const useEditorStore = defineStore('editor', () => {
     if (!e) return
     if (typeof e.fontSize === 'string') fontSize.value = e.fontSize
     if (typeof e.primaryColor === 'string') primaryColor.value = e.primaryColor
-    if (typeof e.fontFamily === 'string') fontFamily.value = e.fontFamily
+    // 旧版存 'system' 的值迁移为当前平台的默认 key（system 已从下拉移除）
+    if (typeof e.latinFont === 'string') latinFont.value = e.latinFont === 'system' ? (isMacOS ? 'charter' : 'cambria') : e.latinFont
+    if (typeof e.cjkFont === 'string') cjkFont.value = e.cjkFont === 'system' ? (isMacOS ? 'pingfang' : 'yahei') : e.cjkFont
+    if (typeof e.monoFont === 'string') monoFont.value = e.monoFont === 'system' ? (isMacOS ? 'sfmono' : 'cascadiacode') : e.monoFont
     // themeMode 优先；旧版本设置文件没有 themeMode，从废弃的 darkMode 字段迁移
     if (e.themeMode === 'system' || e.themeMode === 'light' || e.themeMode === 'dark') {
       themeMode.value = e.themeMode
@@ -212,6 +227,9 @@ export const useEditorStore = defineStore('editor', () => {
     return {
       fontSize: fontSize.value,
       primaryColor: primaryColor.value,
+      latinFont: latinFont.value,
+      cjkFont: cjkFont.value,
+      monoFont: monoFont.value,
       fontFamily: fontFamily.value,
       themeMode: themeMode.value,
       codeLightTheme: codeLightTheme.value,
@@ -232,7 +250,11 @@ export const useEditorStore = defineStore('editor', () => {
   return {
     fontSize,
     primaryColor,
+    latinFont,
+    cjkFont,
+    monoFont,
     fontFamily,
+    fontMono,
     themeMode,
     systemDarkMode,
     darkMode,

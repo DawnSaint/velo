@@ -50,7 +50,7 @@
 
 ```
 index.scss              ← 入口：@forward 全部 partial + @layer base 全局 reset
-_fonts.scss             ← JetBrains Mono @font-face + --font-mono
+_fonts.scss             ← JetBrains Mono @font-face + --font-mono fallback
 _editor-base.scss       ← ProseMirror 壳 / 选区 / find 高亮 / drop-cursor / 专注模式 / 阅读模式
 _editor-typography.scss ← 标题 / 段落 / 引用 / 链接 / kbd / mark / details
 _editor-lists.scss      ← ul / ol / li + 任务列表 checkbox
@@ -206,9 +206,9 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 | `--shadow-card` / `--shadow-popover` | 同上 | 浮层阴影 | ✗ 静态 |
 | `--md-primary-color` | `App.vue` 设到 `<html>` | 主题强调色(UI chrome / 导出) | ✓ store.primaryColor |
 | `--md-doc-primary-color` | `App.vue` 设到 `<html>`(条件) | 文档内容强调色 | ✓ store.primaryColor(仅 themeColorAffectsDoc 开启时注入) |
-| `--md-font-family` | 同上 | 正文字体族 | ✓ props.fontFamily |
+| `--md-font-family` | 同上 | 正文字体族（latin + cjk 拼接） | ✓ store.fontFamily（computed from latinFont/cjkFont/monoFont） |
 | `--md-font-size` | 同上 | 正文字号 | ✓ props.fontSize |
-| `--font-mono` | `_fonts.scss` `:root` | 等宽字体栈 | ✗ 静态 |
+| `--font-mono` | `_fonts.scss` `:root`（fallback） | 等宽字体栈 | ✓ store.fontMono（computed，App.vue watch 注入；_fonts.scss 的 :root 静态值作 fallback） |
 | `--shiki-light` / `--shiki-dark` 等 | `_editor-code.scss` `:root` | shiki 双主题 token 颜色 | ✗ 静态（dark 切换靠 CSS cascade） |
 | `--editor-text-muted` | `index.scss` `:root` / `.dark` | 编辑器内容次要文字色（亮 `#888` / 暗 `#aaa`） | ✗ 静态（dark 切换靠 CSS cascade） |
 | `--chrome-text-secondary` | `index.scss` `:root` / `.dark` | UI chrome 次要文字色（亮 gray-500 / 暗 gray-400） | ✗ 静态 |

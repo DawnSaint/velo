@@ -350,6 +350,21 @@ watch(
   () => window.dispatchEvent(new CustomEvent('velo:font-size-change')),
 )
 
+// 字体选配 CSS 变量同步到 <html>。latinFont / cjkFont / monoFont 变化时,
+// 由 store 的 computed fontFamily / fontMono 派生出完整 CSS font-family stack,
+// 注入 --md-font-family（正文）和 --font-mono（等宽）。
+// 必须在 setup 顶层注册（同 primaryColor watch）：编辑器 mount 由 codeBlockReady
+// 守门，是一条独立于 onMounted 的异步链；放顶层 + immediate:true 确保首帧即正确字体。
+// 提到 <html> 后编辑器内容、UI chrome、导出 HTML 都能读到。
+watch(
+  [() => store.fontFamily, () => store.fontMono],
+  ([sans, mono]) => {
+    document.documentElement.style.setProperty('--md-font-family', sans)
+    document.documentElement.style.setProperty('--font-mono', mono)
+  },
+  { immediate: true },
+)
+
 // 简单 debounce：用于自动保存
 function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
   let timer: ReturnType<typeof setTimeout> | null = null

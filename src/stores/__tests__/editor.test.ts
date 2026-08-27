@@ -24,10 +24,45 @@ describe('editor store 默认值', () => {
     expect(store.primaryColor).toBe('#1F71D9')
   })
 
-  it('fontFamily 默认是带中文 fallback 的系统字体栈', () => {
+  it('fontFamily 默认包含 CJK fallback', () => {
     const store = useEditorStore()
+    // fontFamily 是 computed，由 buildFontStack(latin, cjk, mono) 派生
+    // CJK system stack 同时包含 PingFang SC 和 Microsoft YaHei 做跨平台 fallback
     expect(store.fontFamily).toContain('PingFang SC')
     expect(store.fontFamily).toContain('Microsoft YaHei')
+  })
+
+  it('latinFont / cjkFont / monoFont 默认按平台', () => {
+    const store = useEditorStore()
+    const expectedLatin = /Mac/.test(navigator.userAgent) ? 'charter' : 'cambria'
+    const expectedCjk = /Mac/.test(navigator.userAgent) ? 'pingfang' : 'yahei'
+    const expectedMono = /Mac/.test(navigator.userAgent) ? 'sfmono' : 'cascadiacode'
+    expect(store.latinFont).toBe(expectedLatin)
+    expect(store.cjkFont).toBe(expectedCjk)
+    expect(store.monoFont).toBe(expectedMono)
+  })
+
+  it('fontMono 默认是等宽字体栈', () => {
+    const store = useEditorStore()
+    expect(store.fontMono).toContain('ui-monospace')
+  })
+
+  it('改 latinFont 后 fontFamily computed 响应', () => {
+    const store = useEditorStore()
+    store.latinFont = 'georgia'
+    expect(store.fontFamily).toContain('Georgia')
+  })
+
+  it('改 cjkFont 后 fontFamily computed 响应', () => {
+    const store = useEditorStore()
+    store.cjkFont = 'songti'
+    expect(store.fontFamily).toContain('Songti')
+  })
+
+  it('改 monoFont 后 fontMono computed 响应', () => {
+    const store = useEditorStore()
+    store.monoFont = 'jetbrains'
+    expect(store.fontMono).toContain('JetBrains Mono')
   })
 
   it('themeMode 默认 system', () => {
@@ -197,7 +232,6 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.hydrateSettings({
       fontSize: '16px',
       primaryColor: '#1F71D9',
-      fontFamily: '',
       zoomLevel: 1.3,
     })
     expect(store.zoomLevel).toBe(1.3)
@@ -208,7 +242,6 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.hydrateSettings({
       fontSize: '16px',
       primaryColor: '#1F71D9',
-      fontFamily: '',
       zoomLevel: 5.0,
     })
     expect(store.zoomLevel).toBe(ZOOM_LEVEL_MAX)
@@ -219,7 +252,6 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.hydrateSettings({
       fontSize: '16px',
       primaryColor: '#1F71D9',
-      fontFamily: '',
       zoomLevel: 0.1,
     })
     expect(store.zoomLevel).toBe(ZOOM_LEVEL_MIN)
@@ -230,7 +262,6 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.hydrateSettings({
       fontSize: '16px',
       primaryColor: '#1F71D9',
-      fontFamily: '',
     })
     expect(store.zoomLevel).toBe(ZOOM_LEVEL_DEFAULT)
   })
@@ -240,7 +271,6 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.hydrateSettings({
       fontSize: '16px',
       primaryColor: '#1F71D9',
-      fontFamily: '',
       zoomLevel: '1.5' as unknown as number,
     })
     expect(store.zoomLevel).toBe(ZOOM_LEVEL_DEFAULT)
@@ -251,6 +281,55 @@ describe('editor store zoomLevel hydrate / snapshot (v0.7.12)', () => {
     store.zoomLevel = 1.4
     const snap = store.snapshotSettings()
     expect(snap.zoomLevel).toBe(1.4)
+  })
+})
+
+describe('editor store 字体选配 hydrate / snapshot', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('hydrate latinFont / cjkFont / monoFont 写入 store', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      latinFont: 'georgia',
+      cjkFont: 'songti',
+      monoFont: 'jetbrains',
+    })
+    expect(store.latinFont).toBe('georgia')
+    expect(store.cjkFont).toBe('songti')
+    expect(store.monoFont).toBe('jetbrains')
+    // computed 派生
+    expect(store.fontFamily).toContain('Georgia')
+    expect(store.fontFamily).toContain('Songti')
+    expect(store.fontMono).toContain('JetBrains Mono')
+  })
+
+  it('hydrate 缺失字体字段不改默认值', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+    })
+    const expectedLatin = /Mac/.test(navigator.userAgent) ? 'charter' : 'cambria'
+    const expectedCjk = /Mac/.test(navigator.userAgent) ? 'pingfang' : 'yahei'
+    const expectedMono = /Mac/.test(navigator.userAgent) ? 'sfmono' : 'cascadiacode'
+    expect(store.latinFont).toBe(expectedLatin)
+    expect(store.cjkFont).toBe(expectedCjk)
+    expect(store.monoFont).toBe(expectedMono)
+  })
+
+  it('snapshot 包含 latinFont / cjkFont / monoFont', () => {
+    const store = useEditorStore()
+    store.latinFont = 'georgia'
+    store.cjkFont = 'yahei'
+    store.monoFont = 'consolas'
+    const snap = store.snapshotSettings()
+    expect(snap.latinFont).toBe('georgia')
+    expect(snap.cjkFont).toBe('yahei')
+    expect(snap.monoFont).toBe('consolas')
   })
 })
 

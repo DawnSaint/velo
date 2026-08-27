@@ -24,7 +24,14 @@ export interface PersistedSettings {
   editor: {
     fontSize: string
     primaryColor: string
-    fontFamily: string
+    /** @deprecated 已被 latinFont / cjkFont / monoFont 三字段取代，仅保留用于读取旧版本设置文件。 */
+    fontFamily?: string
+    /** 西文字体 key（fontStacks.latin 的键），默认按平台：macOS 'charter' / Windows 'cambria'。 */
+    latinFont?: string
+    /** 中日韩字体 key（fontStacks.cjk 的键），默认按平台：macOS 'pingfang' / Windows 'yahei'。 */
+    cjkFont?: string
+    /** 等宽字体 key（fontStacks.mono 的键），默认按平台：macOS 'sfmono' / Windows 'cascadiacode'。 */
+    monoFont?: string
     /** 主题模式：跟随系统 / 始终浅色 / 始终暗色。取代旧版 darkMode: boolean。 */
     themeMode?: 'system' | 'light' | 'dark'
     /** @deprecated 已被 themeMode 取代，仅保留用于读取旧版本设置文件。 */

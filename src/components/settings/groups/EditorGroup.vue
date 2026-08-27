@@ -1,41 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useEditorStore, ZOOM_LEVEL_MIN, ZOOM_LEVEL_MAX, ZOOM_LEVEL_DEFAULT, clampZoomLevel } from '@/stores/editor'
-import { BUNDLED_THEMES, NO_THEME } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
-import { THEME_PALETTES } from '@/components/ProseMirrorEditor/nodes/themePalettes'
+import { useDocumentStore } from '@/stores/document'
 import SettingsItem from '../SettingsItem.vue'
-import VeloSelect, { type VeloSelectOption } from '../VeloSelect.vue'
+import VeloSelect from '../VeloSelect.vue'
 import VeloMultiSelect, { type VeloMultiSelectOption } from '../VeloMultiSelect.vue'
 
 const store = useEditorStore()
+const documentStore = useDocumentStore()
 
-// 从主题色板提取 4 个代表色(keyword / string / func / comment)作为色块预览;
-// 过滤空值(部分主题缺某些 scope 的颜色定义)。
-function themeSwatches(id: string): string[] {
-  const p = THEME_PALETTES[id]
-  if (!p) return []
-  return [p.keyword, p.string, p.func, p.comment].filter(c => c)
-}
-
-// 「无主题」选项:不使用 shiki 渲染,代码块显示纯文本。
-const NO_THEME_OPTION: VeloSelectOption = { value: NO_THEME, label: '无主题' }
-
-const lightThemeOptions = computed<VeloSelectOption[]>(() => [
-  NO_THEME_OPTION,
-  ...BUNDLED_THEMES.filter(t => t.type === 'light').map(t => ({
-    value: t.id,
-    label: t.displayName || t.id,
-    swatches: themeSwatches(t.id),
-  })),
-])
-const darkThemeOptions = computed<VeloSelectOption[]>(() => [
-  NO_THEME_OPTION,
-  ...BUNDLED_THEMES.filter(t => t.type === 'dark').map(t => ({
-    value: t.id,
-    label: t.displayName || t.id,
-    swatches: themeSwatches(t.id),
-  })),
-])
+/* ---------- 启动 / 保存 ---------- */
+const startupModeOptions = [
+  { value: 'last-file', label: '上次打开的文件' },
+  { value: 'new-doc', label: '新文档' },
+]
 
 /* ---------- 字号滑块 ---------- */
 // 可视"可拖圆 + 直线"选择器,Obsidian / 微信风格:一段带刻度直线 + 可拖圆。
@@ -312,24 +290,30 @@ const formatRuleValue = computed<string[]>({
       </div>
     </SettingsItem>
 
-    <!-- 代码块主题:浅色 + 深色,各一个下拉(带过滤)。切换走
-      lazy load(~100-300ms),由 App.vue watch store 触发 ensureTheme +
-      dispatch rebuild。独立于 darkMode toggle(后者是纯 CSS 切色)。 -->
-    <SettingsItem label="代码块主题(浅色)" :keywords="['code', 'theme', 'light', 'shiki']">
+    <SettingsItem label="启动时打开" :keywords="['startup', '启动', 'open']">
       <VeloSelect
-        v-model="store.codeLightTheme"
-        :options="lightThemeOptions"
-        aria-label="代码块浅色主题"
-      />
-    </SettingsItem>
-    <SettingsItem label="代码块主题(深色)" :keywords="['code', 'theme', 'dark', 'shiki']">
-      <VeloSelect
-        v-model="store.codeDarkTheme"
-        :options="darkThemeOptions"
-        aria-label="代码块深色主题"
+        v-model="store.startupMode"
+        :options="startupModeOptions"
+        aria-label="启动时打开"
       />
     </SettingsItem>
 
+    <SettingsItem label="自动保存" :keywords="['auto', 'save', '自动']" clickable>
+      <input
+        v-model="documentStore.autoSaveEnabled"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
+    <SettingsItem label="失焦保存" :keywords="['blur', 'focus', 'save', '失焦']" clickable>
+      <input
+        v-model="documentStore.autoSaveOnBlur"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
+    </SettingsItem>
 
     <SettingsItem label="代码块行号" :keywords="['line-number', '行号']" clickable>
       <input

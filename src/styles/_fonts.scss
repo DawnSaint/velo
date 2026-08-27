@@ -1,15 +1,19 @@
-// JetBrains Mono:代码块 / 行内代码 / kbd / 源码编辑态 / 数学公式编辑壳的
-// 等宽字体栈第一候选。
+// 内嵌等宽字体:代码块 / 行内代码 / kbd / 源码编辑态的字体候选。
 //
-// 字体文件放在 src/fonts/jetbrainsmono/(4 个 woff2,共 ~380KB)。CSS 里用相对
-// url() 引用,Vite 在 dev / build 把它当 bundled 资源处理(build 出 /assets/ 带 hash);
-// 导出 HTML 走单独一条 inlined base64 data URI 路径(见 lib/export/jetbrainsCss.ts,
-// 同文件 ?inline glob),避免外部浏览器 / 打印机 webview 解析不到 url() 回退系统字体。
+// 字体文件放在 src/fonts/<name>/(*.woff2)。CSS 里用相对 url() 引用,Vite 在
+// dev / build 把它当 bundled 资源处理(build 出 /assets/ 带 hash);导出 HTML
+// 走单独一条 inlined base64 data URI 路径(见 lib/export/fontFaceCss.ts,
+// 同文件 ?inline glob),避免外部浏览器 / 打印机 webview 解析不到 url() 回退
+// 系统字体。
 //
 // 不能放 public/:public/ 资源只能按 URL 字符串引用,Vite 禁止从 JS import
-// (jetbrainsCss.ts 的 ?inline glob 会报 "Assets in public directory cannot be
+// (fontFaceCss.ts 的 ?inline glob 会报 "Assets in public directory cannot be
 // imported from JavaScript")。放 src/ 让导出路径能 import 拿到 base64。
+//
+// --font-mono 的 :root 值是 fallback:App.vue watch store.fontMono 在运行时
+// 注入用户选择的等宽字体栈到 <html>,覆盖此静态值。
 
+// ── JetBrains Mono (4 woff2, ~380KB) ──
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: normal;
@@ -17,7 +21,6 @@
   font-display: swap;
   src: url('../fonts/jetbrainsmono/JetBrainsMono-Regular.woff2') format('woff2');
 }
-
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: normal;
@@ -25,7 +28,6 @@
   font-display: swap;
   src: url('../fonts/jetbrainsmono/JetBrainsMono-Bold.woff2') format('woff2');
 }
-
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: italic;
@@ -33,7 +35,6 @@
   font-display: swap;
   src: url('../fonts/jetbrainsmono/JetBrainsMono-Italic.woff2') format('woff2');
 }
-
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: italic;
@@ -42,6 +43,177 @@
   src: url('../fonts/jetbrainsmono/JetBrainsMono-BoldItalic.woff2') format('woff2');
 }
 
+// ── Fira Code (2 woff2, ~210KB) — 无斜体字形,浏览器自动合成 ──
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/firacode/FiraCode-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/firacode/FiraCode-Bold.woff2') format('woff2');
+}
+
+// ── Hack (4 woff2, ~440KB) ──
+@font-face {
+  font-family: 'Hack';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/hack/Hack-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Hack';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/hack/Hack-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Hack';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/hack/Hack-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Hack';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/hack/Hack-BoldItalic.woff2') format('woff2');
+}
+
+// ── IBM Plex Mono (4 woff2, ~63KB) ──
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ibmplexmono/IBMPlexMono-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/ibmplexmono/IBMPlexMono-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ibmplexmono/IBMPlexMono-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/ibmplexmono/IBMPlexMono-BoldItalic.woff2') format('woff2');
+}
+
+// ── Inconsolata (2 woff2, ~36KB) — 无斜体字形,浏览器自动合成 ──
+@font-face {
+  font-family: 'Inconsolata';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/inconsolata/Inconsolata-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inconsolata';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/inconsolata/Inconsolata-Bold.woff2') format('woff2');
+}
+
+// ── Source Code Pro (4 woff2, ~47KB) ──
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/sourcecodepro/SourceCodePro-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/sourcecodepro/SourceCodePro-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/sourcecodepro/SourceCodePro-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/sourcecodepro/SourceCodePro-BoldItalic.woff2') format('woff2');
+}
+
+// ── DejaVu Sans Mono (4 woff2, ~440KB) ──
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/dejavu/DejaVuSansMono-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/dejavu/DejaVuSansMono-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/dejavu/DejaVuSansMono-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/dejavu/DejaVuSansMono-BoldItalic.woff2') format('woff2');
+}
+
+// ── Noto Sans SC / 思源黑体 (2 woff2, ~2.3MB) — 简体中文字形,无斜体字形,浏览器自动合成 ──
+// Source Han Sans SC = Noto Sans SC(Google 发布版同名),fontsource 子集化后的 chinese-simplified 子集。
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/notosanssc/NotoSansSC-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/notosanssc/NotoSansSC-Bold.woff2') format('woff2');
+}
+
 :root {
-  --font-mono: 'JetBrains Mono', -apple-system-font, BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB, Microsoft YaHei UI, Microsoft YaHei, Arial, sans-serif;
+  // Fallback: App.vue watch store.fontMono 在运行时注入用户选择的等宽字体栈,
+  // 覆盖此静态值。仅在 store 未加载 / JS 未执行时短暂生效。
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, Menlo, monospace;
 }

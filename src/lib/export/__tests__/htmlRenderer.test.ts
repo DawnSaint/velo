@@ -27,6 +27,7 @@ const baseOpts = (content: string) => resolveExportThemes({
   primaryColor: '#0F4C81',
   applyThemeColorToContent: true,
   fontFamily: 'sans-serif',
+  fontMono: 'ui-monospace, monospace',
   fontSize: '14px',
   currentFilePath: null,
 })

@@ -34,8 +34,8 @@ import { useEditorStore } from './editor'
 import { useNotifyStore } from './notify'
 import type { buildExportHtml } from '@/lib/export/htmlRenderer'
 
-// 懒加载导出渲染:htmlRenderer 顶层静态 import 了 katexCss + jetbrainsCss,二者
-// 各自 import.meta.glob(?inline, eager) 把 ~845KB base64 字体(20 katex + 4 jetbrains)
+// 懒加载导出渲染:htmlRenderer 顶层静态 import 了 katexCss + fontFaceCss,二者
+// 各自 import.meta.glob(?inline, eager) 把 base64 字体(20 katex woff2 + 24 内嵌等宽字体 woff2)
 // 烘进模块。若 eager 走静态 import,这 ~845KB 常驻主 bundle —— 即使用户从不导出。
 // 推迟到首次导出才加载(用户点导出时多一次 chunk fetch,可接受,与 katex 懒加载同范式)。
 // type 只用 `Parameters<typeof buildExportHtml>[0]`,import type 在运行时擦除不拉模块。
@@ -99,6 +99,7 @@ export const useExportStore = defineStore('export', () => {
           primaryColor: editorStore.primaryColor,
           applyThemeColorToContent: editorStore.themeColorAffectsDoc,
           fontFamily: editorStore.fontFamily,
+          fontMono: editorStore.fontMono,
           fontSize: editorStore.fontSize,
           currentFilePath: docStore.currentFilePath,
           lightTheme: editorStore.codeLightTheme,
@@ -113,6 +114,7 @@ export const useExportStore = defineStore('export', () => {
           primaryColor: editorStore.primaryColor,
           applyThemeColorToContent: editorStore.themeColorAffectsDoc,
           fontFamily: editorStore.fontFamily,
+          fontMono: editorStore.fontMono,
           fontSize: editorStore.fontSize,
           currentFilePath: docStore.currentFilePath,
           lightTheme: editorStore.codeLightTheme,

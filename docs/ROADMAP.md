@@ -44,7 +44,6 @@ P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #
 P2  #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
-    #font-ui（独立）
                                                                 │
 P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
@@ -122,9 +121,14 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ### 个性化
 
-- [ ] **字体配置 UI** `#font-ui` `P2` `S`
-  - `editorStore.fontFamily` 已有 store 字段，仅设置面板未暴露
-  - 补一个字体族选择器（系统字体 + 常用编程字体下拉）
+- [x] **字体配置 UI** `#font-ui` `P2` `S`
+  - ~~editorStore.fontFamily 已有 store 字段，仅设置面板未暴露~~
+  - ~~补一个字体族选择器（系统字体 + 常用编程字体下拉）~~
+  - 参考 vmark，拆分为三类独立选择：西文字体（latin）/ 中文字体（cjk）/ 等宽字体（mono），各一个下拉
+  - `src/utils/fontStacks.ts` 纯函数映射表 + `buildFontStack()` 拼接 sans 栈（stripTrailingGenerics 让 CJK 字形能回退到 CJK 字体）
+  - editorStore 新增 `latinFont` / `cjkFont` / `monoFont` 三 ref + `fontFamily` / `fontMono` 两个 computed
+  - App.vue watch 注入 `--md-font-family` + `--font-mono` 到 `<html>`
+  - 导出 HTML 同步注入 `--font-mono`
 
 ### 通知与反馈
 

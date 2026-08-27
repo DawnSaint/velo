@@ -63,7 +63,7 @@ import { renderCodeBlockHtml, codeBlockFallbackHtml } from './shikiHtml'
 import { sanitizeHtml } from './sanitizeHtml'
 import { get as emojiGet, has as emojiHas } from 'node-emoji'
 import { loadKatexCssWithFontsInlined } from './katexCss'
-import { buildJetbrainsFontFaceCss } from './jetbrainsCss'
+import { buildAllFontFaceCss } from './fontFaceCss'
 
 // ========== 入口 ==========
 
@@ -80,6 +80,8 @@ export interface ExportOptions {
   applyThemeColorToContent: boolean
   /** 编辑器的 fontFamily。 */
   fontFamily: string
+  /** 编辑器的 fontMono（等宽字体族，注入导出 HTML --font-mono）。 */
+  fontMono: string
   /** 编辑器的 fontSize(导出 HTML 用 px string)。 */
   fontSize: string
   /** 当前文件路径,用于解析相对图片路径;untitled 时为 null。 */
@@ -112,7 +114,7 @@ function escapeHtml(text: string): string {
 
 export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult> {
   const warnings: string[] = []
-  const { content, fileName, darkMode, primaryColor, applyThemeColorToContent, fontFamily, fontSize, currentFilePath, lightTheme, darkTheme } = opts
+  const { content, fileName, darkMode, primaryColor, applyThemeColorToContent, fontFamily, fontMono, fontSize, currentFilePath, lightTheme, darkTheme } = opts
 
   // 1) markdown → mdast(复用 editor/markdownIO.ts 的同一份 pipeline)
   const processor = unified()
@@ -170,9 +172,9 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   // 让导出 HTML 完全自包含(否则 url(fonts/...) 在外部 webview / 打印机 webview
   // 都解析不到,公式字体回退到系统字体,与编辑器内不一致)。
   const katexCss = await loadKatexCssWithFontsInlined()
-  // JetBrains Mono 字体 @font-face(内联 data URI),让导出 HTML 在外部浏览器 /
+  // 内嵌字体 @font-face(内联 data URI),让导出 HTML 在外部浏览器 /
   // 打印机 webview 内也使用同一套等宽字体,不依赖 /fonts/... 路径。
-  const jetbrainsCss = buildJetbrainsFontFaceCss()
+  const fontFaceCss = buildAllFontFaceCss()
 
   const title = fileName || 'Velo Export'
   const html = `<!DOCTYPE html>
@@ -185,11 +187,12 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
 :root {
   --md-primary-color: ${escapeHtml(primaryColor)};
   --md-font-family: ${escapeHtml(fontFamily)};
+  --font-mono: ${escapeHtml(fontMono)};
   --md-font-size: ${escapeHtml(fontSize)};
   ${applyThemeColorToContent ? `--md-doc-primary-color: ${escapeHtml(primaryColor)};` : ''}
 }
 ${editorCss}
-${jetbrainsCss}
+${fontFaceCss}
 ${katexCss}
 /* 导出 HTML 自适应:浏览器 / 打印机的系统暗色会翻面,不需要 <html class="dark"> */
 @media (prefers-color-scheme: dark) {
@@ -703,7 +706,7 @@ function footnoteSlug(label: string): string {
 }
 
 /** 给测试用:把缺省 light / dark 主题填充成 DEFAULT_*。 */
-export function resolveExportThemes(opts: Partial<ExportOptions> & Pick<ExportOptions, 'content' | 'fileName' | 'darkMode' | 'primaryColor' | 'applyThemeColorToContent' | 'fontFamily' | 'fontSize' | 'currentFilePath'>): ExportOptions {
+export function resolveExportThemes(opts: Partial<ExportOptions> & Pick<ExportOptions, 'content' | 'fileName' | 'darkMode' | 'primaryColor' | 'applyThemeColorToContent' | 'fontFamily' | 'fontMono' | 'fontSize' | 'currentFilePath'>): ExportOptions {
   return {
     ...opts,
     lightTheme: opts.lightTheme ?? DEFAULT_LIGHT_THEME,
