@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onBeforeUnmount, provide, computed } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
+import { useSystemStore } from '@/stores/system'
 import { useOutlineStore } from '@/stores/outline'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from '@/stores/workspace'
@@ -76,6 +77,7 @@ const MAIN_WINDOW_LABEL = 'main'
 
 const store = useEditorStore()
 const documentStore = useDocumentStore()
+const systemStore = useSystemStore()
 const outlineStore = useOutlineStore()
 const foldStore = useFoldStore()
 const exportStore = useExportStore()
@@ -398,6 +400,7 @@ async function initSettings() {
   if (!loaded) return
   store.hydrateSettings(loaded.editor)
   documentStore.hydrateSettings(loaded.document)
+  systemStore.hydrateSettings(loaded.system)
 }
 
 function snapshotSettings(): PersistedSettings {
@@ -405,6 +408,7 @@ function snapshotSettings(): PersistedSettings {
     version: 1,
     editor: store.snapshotSettings(),
     document: documentStore.snapshotSettings(),
+    system: systemStore.snapshotSettings(),
   }
 }
 
@@ -1147,7 +1151,7 @@ onMounted(async () => {
   // deep watch store 的 snapshot —— 新增设置字段时不需要在这里加 watch 源,
   // store 的 snapshotSettings 已经覆盖所有持久化字段。
   watch(
-    [() => store.snapshotSettings(), () => documentStore.snapshotSettings()],
+    [() => store.snapshotSettings(), () => documentStore.snapshotSettings(), () => systemStore.snapshotSettings()],
     () => { debouncedSettingsSave() },
     { deep: true },
   )

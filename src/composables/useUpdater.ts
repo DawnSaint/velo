@@ -4,8 +4,9 @@
 // 提供 reactive 状态供设置页 UI 消费。
 //
 // 设计取舍:
-// - **静默检查 + 主动提示**:启动后自动检查一次,有更新走 Toast 提示用户去设置页
-//   手动下载安装(不自动下载,避免打断用户编辑)。
+// - **自动检查 + 后台下载**:启动后自动检查一次,有更新则后台静默下载(不打断编辑),
+//   下载完成后 Toast 提示用户去设置页安装(不自动安装,安装重启由用户确认)。
+//   整条自动链路受「设置 > 系统 > 自动更新」开关控制(systemStore.autoUpdateEnabled)。
 // - **下载进度**:downloadAndInstall 的 onEvent 回调更新 progress 状态,UI 渲染进度条。
 // - **relaunch**:安装完成后调 process.relaunch 退出并重启;Windows NSIS 安装器
 //   在 install() 返回前完成文件替换,relaunch 直接启动新版本。
@@ -28,6 +29,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { isTauri } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { useNotifyStore } from '@/stores/notify'
+import { useSystemStore } from '@/stores/system'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'up-to-date' | 'error'
 
@@ -125,6 +127,7 @@ async function fetchReleaseNotes(version: string, timeoutMs: number): Promise<st
 
 export function useUpdater() {
   const notify = useNotifyStore()
+  const systemStore = useSystemStore()
 
   async function checkForUpdate(silent = false): Promise<void> {
     if (!isTauri()) return
@@ -172,9 +175,8 @@ export function useUpdater() {
         body: notes ?? release.body,
         date: release.published_at,
       }
-      if (silent) {
-        notify.info(`发现新版本 v${version},请在「设置 > 系统」中查看详情`, 8000)
-      }
+      // silent(自动链路)时不弹「发现新版本」toast —— autoCheck 会接着后台下载,
+      // 下载开始/完成的提示由 autoCheck 统一发出,避免 toast 重复。
     } catch (e) {
       errorMsg.value = String(e)
       // 静默检查时网络错误不弹 toast(中国大陆直连 GitHub 不稳定,启动弹红 toast 打扰用户);
@@ -195,9 +197,10 @@ export function useUpdater() {
   // 缓存 Update 对象：download() 后持有，install() 时复用
   let pendingUpdate: Awaited<ReturnType<typeof checkUpdate>> = null
 
-  async function startDownload(): Promise<void> {
-    if (!isTauri()) return
-    if (status.value !== 'available') return
+  /** 下载更新。返回是否成功到达 'downloaded' 状态(自动链路据此决定是否发完成提示)。 */
+  async function startDownload(silent = false): Promise<boolean> {
+    if (!isTauri()) return false
+    if (status.value !== 'available') return false
 
     status.value = 'downloading'
     downloadProgress.value = 0
@@ -208,8 +211,9 @@ export function useUpdater() {
       const update = await checkUpdate({ timeout: 15_000 })
       if (!update) {
         status.value = 'up-to-date'
-        notify.info('当前已是最新版本')
-        return
+        // 自动链路(前端 fetch 已判有新版)到这里说明签名/版本对不上,静默不弹
+        if (!silent) notify.info('当前已是最新版本')
+        return false
       }
 
       pendingUpdate = update
@@ -249,17 +253,23 @@ export function useUpdater() {
 
       // 下载完成，进入 'downloaded' 状态，等用户选择立即安装或稍后
       status.value = 'downloaded'
+      return true
     } catch (e) {
       // 下载失败后重置为 'available'：卡片保持展示、按钮恢复可点击，方便用户重试
       status.value = 'available'
       downloadProgress.value = 0
       downloadSpeed.value = ''
       errorMsg.value = String(e)
-      if (isNetworkError(e)) {
+      // 自动链路失败不弹 toast(与静默检查同策略:大陆直连 GitHub 不稳定,
+      // 启动阶段弹红色错误打扰用户),只记日志;设置页卡片仍展示可手动重试。
+      if (silent) {
+        console.warn('[updater] 后台下载失败', e)
+      } else if (isNetworkError(e)) {
         notify.warning('下载失败,请检查网络后重试')
       } else {
         notify.error(`下载失败: ${e}`)
       }
+      return false
     }
   }
 
@@ -299,11 +309,20 @@ export function useUpdater() {
     return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
   }
 
-  /** 启动时自动检查(仅一次)。App.vue onMounted 调用。 */
+  /** 启动时自动更新(仅一次)。App.vue onMounted 调用。
+   *  受「设置 > 系统 > 自动更新」开关控制:关闭时跳过整条链路(检查也不做)。
+   *  开启时:静默检查 → 有新版后台静默下载 → Toast 提示去设置页安装(不自动安装重启)。 */
   async function autoCheck(): Promise<void> {
     if (autoChecked) return
     autoChecked = true
+    if (!systemStore.autoUpdateEnabled) return
     await checkForUpdate(true)
+    if (status.value !== 'available' || !updateInfo.value) return
+    notify.info(`发现新版本 v${updateInfo.value.version}，正在后台下载…`, 8000)
+    const downloaded = await startDownload(true)
+    if (downloaded && updateInfo.value) {
+      notify.success(`新版本 v${updateInfo.value.version} 已下载完成，可在「设置 > 系统」中立即安装`, 8000)
+    }
   }
 
   return {

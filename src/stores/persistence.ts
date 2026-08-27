@@ -65,6 +65,11 @@ export interface PersistedSettings {
     autoSaveEnabled: boolean
     autoSaveOnBlur: boolean
   }
+  /** 系统级设置(v0.8.x #updater)。旧版本设置文件无此节,hydrate 时保持 store 默认值。 */
+  system?: {
+    /** 自动更新开关(可选,默认 true)。开启时启动自动检查+后台下载新版本。 */
+    autoUpdateEnabled?: boolean
+  }
 }
 
 /**

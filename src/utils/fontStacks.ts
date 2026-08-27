@@ -36,6 +36,11 @@ interface FontEntry {
   platforms: 'all' | readonly ('macos' | 'windows')[]
 }
 
+/** satisfies 校验每个条目符合 FontEntry 形状(stack + platforms),
+ *  同时保留 as const 的字面量键类型 —— buildFontStack 与 AppearanceGroup 依赖
+ *  keyof typeof fontStacks.xxx 做 key 索引。 */
+type FontStackMap = Record<'latin' | 'cjk' | 'mono', Record<string, FontEntry>>
+
 export const fontStacks = {
   latin: {
     system: { stack: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', platforms: 'all' },
@@ -68,7 +73,7 @@ export const fontStacks = {
     sourcecodepro: { stack: '"Source Code Pro", ui-monospace, Consolas, Menlo, monospace', platforms: 'all' },
     dejavu: { stack: '"DejaVu Sans Mono", ui-monospace, Consolas, Menlo, monospace', platforms: 'all' },
   },
-} as const
+} as const satisfies FontStackMap
 
 // ---------------------------------------------------------------------------
 // 工具函数

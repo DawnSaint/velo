@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import SettingsItem from '../SettingsItem.vue'
 import { useUpdater } from '@/composables/useUpdater'
+import { useSystemStore } from '@/stores/system'
 import { useNotifyStore } from '@/stores/notify'
 import { renderMarkdown } from '@/lib/renderMarkdown'
 
@@ -86,6 +87,9 @@ async function toggleGpuAccel() {
 }
 
 // ========== 自动更新 ==========
+// 开关持久化走 velo-settings.json 的 system 节(App.vue deep watch 自动落盘),
+// 控制 useUpdater.autoCheck 的启动自动检查+后台下载链路;手动检查不受影响。
+const systemStore = useSystemStore()
 const {
   status: updateStatus,
   updateInfo,
@@ -140,6 +144,21 @@ onMounted(async () => {
       >
         {{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}
       </button>
+    </SettingsItem>
+    <!-- 自动更新开关：控制启动时静默检查 + 后台下载；下载完成后仍需用户确认安装重启。 -->
+    <SettingsItem
+      v-if="tauri"
+      label="自动更新"
+      hint="启动时自动检查并在后台下载新版本"
+      :keywords="['auto', 'update', '自动', '更新', '下载', '升级', '版本']"
+      clickable
+    >
+      <input
+        v-model="systemStore.autoUpdateEnabled"
+        type="checkbox"
+        role="switch"
+        class="velo-switch"
+      >
     </SettingsItem>
     <!-- 发现新版本：版本号 + 更新说明 + 下载安装按钮（up-to-date / error 只走 toast，不占 UI） -->
     <!--
