@@ -21,10 +21,7 @@ defineEmits<{
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
             <FilePlus class="h-5 w-5" />
           </div>
-          <div>
-            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">新建空白文档</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">从零开始写作</div>
-          </div>
+          <div class="text-sm font-medium text-gray-900 dark:text-gray-100">新建空白文档</div>
         </button>
 
         <button
@@ -34,10 +31,7 @@ defineEmits<{
           <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
             <FolderOpen class="h-5 w-5" />
           </div>
-          <div>
-            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">打开已有文件</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">打开工作区或 .md 文件</div>
-          </div>
+          <div class="text-sm font-medium text-gray-900 dark:text-gray-100">打开已有文件</div>
         </button>
       </div>
     </div>

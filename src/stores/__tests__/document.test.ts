@@ -4,7 +4,8 @@ import { useDocumentStore } from '../document'
 import { useRecentFilesStore } from '../recentFiles'
 import { useNotifyStore } from '../notify'
 import { useWorkspaceStore } from '../workspace'
-import { readTextFile, writeTextFile, watch } from '@tauri-apps/plugin-fs'
+import { useVersionHistoryStore } from '../versionHistory'
+import { readTextFile, writeTextFile, watch, exists, readDir, remove, mkdir, rename } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
 /**
@@ -1080,6 +1081,67 @@ describe('document store', () => {
       await store.save()
       // remove 至少要调一次(删草稿)
       expect(vi.mocked(remove)).toHaveBeenCalled()
+    })
+
+    it('无变化时 save() 跳过写盘 + 快照(不生成空 diff 历史条目)', async () => {
+      const store = await setupOpenedFile('hello', '/p.md')
+      // 不 setContent → content === lastSavedContent → clean
+      expect(store.dirty).toBe(false)
+
+      // 清掉 setupOpenedFile 期间 recentFiles 落盘等对 writeTextFile 的调用
+      vi.mocked(writeTextFile).mockClear()
+      vi.mocked(writeTextFile).mockResolvedValue()
+      const ok = await store.save()
+
+      // 成功返回;writeTextFile 不应以文档路径 /p.md 被调用(无变化 early return)
+      expect(ok).toBe(true)
+      const docWrites = vi.mocked(writeTextFile).mock.calls.filter(
+        ([p]) => String(p) === '/p.md',
+      )
+      expect(docWrites).toHaveLength(0)
+    })
+
+    it('auto 保存回到合并起点:只删旧快照不写新快照(无变化条目不进历史)', async () => {
+      const store = await setupOpenedFile('hello', '/p.md')
+      const vhStore = useVersionHistoryStore()
+      const wsStore = useWorkspaceStore()
+      wsStore.setActiveRoot('/test-ws')
+
+      // 1) 先做一次 manual save 生成基线快照(content='hello')
+      vi.mocked(writeTextFile).mockResolvedValue()
+      vi.mocked(exists).mockResolvedValue(false) // 无旧快照目录
+      vi.mocked(remove).mockResolvedValue()
+      vi.mocked(mkdir).mockResolvedValue()
+      store.setContent('hello!')
+      await store.save() // manual save → 写快照 content='hello!'
+
+      // 2) 版本历史缓存里现在有一条 auto 快照(content='hello!')
+      //    模拟它前面还有一条 manual 快照(content='hello')作为合并基线
+      const base = Date.now()
+      vhStore.snapshotsByFile.set('/p.md', [
+        { version: 1, id: String(base), filePath: '/p.md', content: 'hello!', savedAt: base, trigger: 'auto' },
+        { version: 1, id: 'manual-baseline', filePath: '/p.md', content: 'hello', savedAt: base - 100000, trigger: 'manual' },
+      ])
+
+      // 3) 用户把内容改回 'hello' → auto save
+      //    新内容 'hello' === 合并基线 manual-baseline.content → 回到合并起点
+      store.setContent('hello')
+      store.autoSaveEnabled = true
+
+      // mock deleteVersionSnapshot 走的 readDir / remove 等
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readDir).mockResolvedValue([])
+      vi.mocked(writeTextFile).mockClear()
+
+      await store.save('auto') // auto save
+
+      // 验证:版本历史缓存里 auto 快照被删,只剩 manual 基线
+      // (不写新快照 —— 因为新内容与合并基线相同)
+      const cached = vhStore.snapshotsByFile.get('/p.md')!
+      expect(cached).toHaveLength(1)
+      expect(cached[0].id).toBe('manual-baseline')
+      // auto 快照被删
+      expect(cached.find(s => s.id === String(base))).toBeUndefined()
     })
 
   // ========== 多标签 + openFilePaths(v0.6.x 标签持久化) ==========

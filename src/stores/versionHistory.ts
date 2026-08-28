@@ -3,7 +3,7 @@
 // 管理 UI 层状态:当前文件版本快照列表的懒加载缓存 + 选中态 + diff 视图开关。
 // IO 逻辑在 persistence.ts;document.ts 的 saveDoc 在写盘成功后调
 // persistence 的 saveVersionSnapshot + pruneVersionSnapshots 落盘,
-// 再调本 store 的 appendSnapshot 同步更新内存缓存,使 UI 即时刷新。
+// 再调本 store 的 upsertSnapshot 同步更新内存缓存,使 UI 即时刷新。
 //
 // UI 形态(v0.8):左侧 ActivityBar「版本历史」入口 → 侧栏 VersionHistoryPanel
 // 列出快照条目;点击条目 → 编辑器区切换为 DiffView(覆盖编辑器),diff 展示
@@ -138,9 +138,12 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     return val === undefined ? undefined : val
   })
 
-  /** 虚拟"未保存"条目;dirty 时生成,代表当前编辑器内容 */
+  /** 虚拟"未保存"条目;dirty 时生成,代表当前编辑器内容。
+   *  自动保存模式下不生成 —— save() 同步推进 lastSavedContent 导致 dirty
+   *  反复横跳,未保存条目忽现忽隐。自动保存的核心理念是用户无需关心保存状态。 */
   const unsavedEntry = computed<TimelineEntry | null>(() => {
     if (!documentStore.dirty) return null
+    if (documentStore.autoSaveEnabled) return null
     const path = documentStore.currentFilePath
     if (!path) return null
     return {
@@ -480,20 +483,33 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     }
   }
 
-  /** 保存后追加快照到内存缓存(若已加载)。
+  /** 保存后更新内存缓存(若已加载)。
    *
-   * saveDoc 写盘 + saveVersionSnapshot + pruneVersionSnapshots 之后调,
-   * 把新快照 prepend 到缓存列表(保持倒序)并按 CAP + 过期天数修剪,使 UI 即时刷新。
+   * saveDoc 写盘 + saveVersionSnapshot + pruneVersionSnapshots 之后调。
+   * 正常追加新快照到缓存列表头部(保持倒序)并按 CAP + 过期天数修剪。
+   * 若 `mergedOldId` 非空(auto 快照合并),先从缓存中移除旧快照再追加新快照。
    * 缓存未加载(null)时跳过 —— 下次打开 VersionHistoryPanel 时 loadSnapshots 从磁盘读。 */
-  function appendSnapshot(filePath: string, snapshot: VersionSnapshot): void {
+  function upsertSnapshot(filePath: string, snapshot: VersionSnapshot, mergedOldId: string | null = null): void {
     const cached = snapshotsByFile.value.get(filePath)
     if (!cached) return
     const now = Date.now()
     const cutoff = now - VERSION_SNAPSHOT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
-    const next = [snapshot, ...cached]
+    const filtered = mergedOldId
+      ? cached.filter(s => s.id !== mergedOldId)
+      : cached
+    const next = [snapshot, ...filtered]
       .filter(s => s.savedAt >= cutoff)
       .slice(0, VERSION_SNAPSHOT_CAP)
     snapshotsByFile.value.set(filePath, next)
+  }
+
+  /** 从缓存中删除指定快照(不写新快照)。
+   *  用于 auto 保存回到合并起点时:磁盘快照已被 saveDoc 删除,
+   *  这里同步移除内存缓存中的对应条目。缓存未加载(null)时跳过。 */
+  function removeSnapshot(filePath: string, snapshotId: string): void {
+    const cached = snapshotsByFile.value.get(filePath)
+    if (!cached) return
+    snapshotsByFile.value.set(filePath, cached.filter(s => s.id !== snapshotId))
   }
 
   /** 使所有缓存失效 */
@@ -514,8 +530,9 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     const snapshots = await loadCurrentFileSnapshots()
     // 并行加载 Git 历史
     await loadGitHistory(path)
-    // dirty 时默认选中未保存条目,否则选最新条目
-    if (documentStore.dirty) {
+    // dirty 且非自动保存模式时选中未保存条目,否则选最新条目。
+    // 自动保存模式下 unsavedEntry 不生成,不应选中 UNSAVED_ID。
+    if (documentStore.dirty && !documentStore.autoSaveEnabled) {
       selectedEntryId.value = UNSAVED_ID
       diffViewActive.value = true
     } else if (snapshots.length > 0) {
@@ -573,7 +590,8 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     loadSnapshots,
     loadCurrentFileSnapshots,
     loadGitHistory,
-    appendSnapshot,
+    upsertSnapshot,
+    removeSnapshot,
     invalidate,
     invalidateGit,
     invalidateAll,

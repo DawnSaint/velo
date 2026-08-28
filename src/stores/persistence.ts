@@ -475,7 +475,7 @@ export async function loadVersionSnapshots(filePath: string): Promise<VersionSna
 /**
  * 删单个版本快照。失败仅记录日志。
  */
-async function deleteVersionSnapshot(filePath: string, id: string): Promise<void> {
+export async function deleteVersionSnapshot(filePath: string, id: string): Promise<void> {
   if (!tauriOnly()) return
   try {
     const dir = await appDataDir()

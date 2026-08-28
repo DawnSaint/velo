@@ -95,7 +95,9 @@ const displayTabs = computed<DisplayTab[]>(() => {
     isSettings: false,
     displayActive: t.active && !props.settingsActive,
     fileName: t.fileName,
-    dirty: t.dirty,
+    // 自动保存模式下不显示 tab dirty 点 —— save() 同步推进 lastSavedContent
+    // 导致 dirty 在 true/false 之间反复横跳，tab 点闪烁割裂感。
+    dirty: t.dirty && !documentStore.autoSaveEnabled,
     active: t.active,
     readOnlyLocked: t.readOnlyLocked,
   }))

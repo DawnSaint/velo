@@ -1537,6 +1537,7 @@ watch(editorRef, (v) => {
       :current-file-path="documentStore.currentFilePath"
       :content="documentStore.content"
       :dirty="documentStore.dirty"
+      :auto-save-enabled="documentStore.autoSaveEnabled"
       :source-mode="documentStore.sourceMode"
       :read-only="documentStore.readOnly"
       :read-only-locked="documentStore.readOnlyLocked"

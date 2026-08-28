@@ -86,11 +86,11 @@ describe('versionHistory store', () => {
     })
   })
 
-  describe('appendSnapshot', () => {
+  describe('upsertSnapshot', () => {
     it('缓存未加载(null)时跳过', () => {
       const store = useVersionHistoryStore()
       // 不 loadSnapshots,缓存为 null
-      store.appendSnapshot('/test.md', {
+      store.upsertSnapshot('/test.md', {
         version: 1, id: '100', filePath: '/test.md', content: 'x', savedAt: 100, trigger: 'manual',
       })
       expect(store.snapshotsByFile.get('/test.md')).toBeUndefined()
@@ -103,12 +103,46 @@ describe('versionHistory store', () => {
       store.snapshotsByFile.set('/test.md', [
         { version: 1, id: '200', filePath: '/test.md', content: 'b', savedAt: base - 100, trigger: 'auto' },
       ])
-      store.appendSnapshot('/test.md', {
+      store.upsertSnapshot('/test.md', {
         version: 1, id: '300', filePath: '/test.md', content: 'c', savedAt: base, trigger: 'manual',
       })
       const cached = store.snapshotsByFile.get('/test.md')!
       expect(cached).toHaveLength(2)
       expect(cached[0].id).toBe('300') // 新快照在前
+      expect(cached[1].id).toBe('200')
+    })
+
+    it('mergedOldId 非空时替换旧快照(合并)', () => {
+      const store = useVersionHistoryStore()
+      const base = Date.now()
+      store.snapshotsByFile.set('/test.md', [
+        { version: 1, id: 'auto1', filePath: '/test.md', content: 'a', savedAt: base - 50, trigger: 'auto' },
+        { version: 1, id: 'manual1', filePath: '/test.md', content: 'm', savedAt: base - 1000, trigger: 'manual' },
+      ])
+      // 合并:删掉 auto1,写新快照 auto2
+      store.upsertSnapshot('/test.md', {
+        version: 1, id: 'auto2', filePath: '/test.md', content: 'ab', savedAt: base, trigger: 'auto',
+      }, 'auto1')
+      const cached = store.snapshotsByFile.get('/test.md')!
+      // auto1 被替换为 auto2,manual1 保留
+      expect(cached).toHaveLength(2)
+      expect(cached[0].id).toBe('auto2')
+      expect(cached[1].id).toBe('manual1')
+      expect(cached.find(s => s.id === 'auto1')).toBeUndefined()
+    })
+
+    it('mergedOldId 为 null 时正常追加(不合并)', () => {
+      const store = useVersionHistoryStore()
+      const base = Date.now()
+      store.snapshotsByFile.set('/test.md', [
+        { version: 1, id: '200', filePath: '/test.md', content: 'b', savedAt: base - 100, trigger: 'manual' },
+      ])
+      store.upsertSnapshot('/test.md', {
+        version: 1, id: '300', filePath: '/test.md', content: 'c', savedAt: base, trigger: 'manual',
+      }, null)
+      const cached = store.snapshotsByFile.get('/test.md')!
+      expect(cached).toHaveLength(2)
+      expect(cached[0].id).toBe('300')
       expect(cached[1].id).toBe('200')
     })
 
@@ -121,7 +155,7 @@ describe('versionHistory store', () => {
         version: 1, id: String(cap - i), filePath: '/test.md', content: `c${i}`, savedAt: base - (cap - i), trigger: 'manual' as const,
       }))
       store.snapshotsByFile.set('/test.md', existing)
-      store.appendSnapshot('/test.md', {
+      store.upsertSnapshot('/test.md', {
         version: 1, id: 'new', filePath: '/test.md', content: 'new', savedAt: base, trigger: 'manual',
       })
       const cached = store.snapshotsByFile.get('/test.md')!
@@ -140,7 +174,7 @@ describe('versionHistory store', () => {
         { version: 1, id: 'old10d', filePath: '/test.md', content: 'a', savedAt: now - 10 * msPerDay, trigger: 'manual' },
         { version: 1, id: 'old40d', filePath: '/test.md', content: 'b', savedAt: now - 40 * msPerDay, trigger: 'manual' },
       ])
-      store.appendSnapshot('/test.md', {
+      store.upsertSnapshot('/test.md', {
         version: 1, id: 'new', filePath: '/test.md', content: 'c', savedAt: now, trigger: 'manual',
       })
       const cached = store.snapshotsByFile.get('/test.md')!
@@ -148,6 +182,27 @@ describe('versionHistory store', () => {
       expect(cached).toHaveLength(2)
       expect(cached[0].id).toBe('new')
       expect(cached[1].id).toBe('old10d')
+    })
+  })
+
+  describe('removeSnapshot', () => {
+    it('缓存未加载(null)时跳过', () => {
+      const store = useVersionHistoryStore()
+      store.removeSnapshot('/test.md', 'nonexistent')
+      expect(store.snapshotsByFile.get('/test.md')).toBeUndefined()
+    })
+
+    it('从缓存中删除指定快照', () => {
+      const store = useVersionHistoryStore()
+      const base = Date.now()
+      store.snapshotsByFile.set('/test.md', [
+        { version: 1, id: 'auto1', filePath: '/test.md', content: 'a', savedAt: base - 50, trigger: 'auto' },
+        { version: 1, id: 'manual1', filePath: '/test.md', content: 'b', savedAt: base - 1000, trigger: 'manual' },
+      ])
+      store.removeSnapshot('/test.md', 'auto1')
+      const cached = store.snapshotsByFile.get('/test.md')!
+      expect(cached).toHaveLength(1)
+      expect(cached[0].id).toBe('manual1')
     })
   })
 
@@ -238,6 +293,52 @@ describe('versionHistory store', () => {
       // 非 dirty → displayEntries === 空列表(无 Git)
       expect(store.displayEntries).toEqual([])
       expect(store.unsavedEntry).toBeNull()
+    })
+
+    it('自动保存模式下 dirty 时不生成未保存条目(避免闪烁)', async () => {
+      const docStore = useDocumentStore()
+      vi.mocked(readTextFile).mockResolvedValue('hello')
+      await docStore.openPath('/test.md')
+      docStore.setContent('hello modified') // dirty
+      docStore.autoSaveEnabled = true // 开启自动保存
+
+      vi.mocked(exists).mockResolvedValue(false)
+      const store = useVersionHistoryStore()
+      await store.loadSnapshots('/test.md')
+
+      // dirty=true 但 autoSaveEnabled=true → unsavedEntry 不生成
+      expect(docStore.dirty).toBe(true)
+      expect(store.unsavedEntry).toBeNull()
+      expect(store.displayEntries).toEqual([])
+    })
+
+    it('自动保存模式下 openVersionHistory 不选中未保存条目', async () => {
+      const docStore = useDocumentStore()
+      vi.mocked(readTextFile).mockResolvedValue('hello')
+      await docStore.openPath('/test.md')
+      docStore.setContent('hello modified') // dirty
+      docStore.autoSaveEnabled = true
+
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readDir).mockResolvedValue([
+        { name: '1000.json', isDirectory: false, isFile: true, isSymlink: false },
+      ] as any)
+      vi.mocked(readTextFile).mockImplementation(async (p: any) => {
+        const name = String(p).split(/[\\/]/).pop()!
+        if (name.endsWith('.json')) {
+          return JSON.stringify({
+            version: 1, id: '1000', filePath: '/test.md', content: 'hello', savedAt: 1000, trigger: 'manual',
+          })
+        }
+        return 'hello'
+      })
+
+      const store = useVersionHistoryStore()
+      await store.openVersionHistory()
+
+      // 自动保存模式下不选中 UNSAVED_ID,选最新快照
+      expect(store.selectedEntryId).not.toBe(UNSAVED_ID)
+      expect(store.selectedEntryId).toBe('1000')
     })
 
     it('dirty + 有已保存快照时 displayEntries = [未保存, ...快照]', async () => {

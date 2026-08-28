@@ -11,10 +11,12 @@ import {
   loadDraft as loadDraftFromFs,
   deleteDraft as deleteDraftFromFs,
   saveVersionSnapshot,
+  deleteVersionSnapshot,
   pruneVersionSnapshots,
   VERSION_SNAPSHOT_CAP,
   type PersistedSettings,
   type SnapshotTrigger,
+  type VersionSnapshot,
 } from './persistence'
 import { useWorkspaceStore } from './workspace'
 import { useVersionHistoryStore } from './versionHistory'
@@ -218,7 +220,9 @@ export const useDocumentStore = defineStore('document', () => {
   function syncTitle() {
     const d = activeDoc()
     const name = d ? docFileName(d) : '未命名'
-    const isDirty = d ? d.content !== d.lastSavedContent : false
+    // 自动保存模式下不在标题栏显示 dirty 标记 —— save() 同步推进 lastSavedContent
+    // 导致 dirty 反复横跳,标题栏 • 忽闪忽闪割裂感强。
+    const isDirty = (d && !autoSaveEnabled.value) ? d.content !== d.lastSavedContent : false
     // macOS overlay 标题栏隐藏 title 文本(见文件顶部 isMacOS 注释)。
     // 非 macOS 保留完整标题(Windows 任务栏 / Linux 窗口列表需要)。
     const next = isMacOS ? '' : `${name}${isDirty ? ' •' : ''} - Velo Editor`
@@ -811,11 +815,22 @@ export const useDocumentStore = defineStore('document', () => {
     return saveDoc(d, trigger)
   }
 
+  /**
+   * 自动保存快照合并窗口:连续两次 auto 保存间隔在此窗口内,
+   * 新快照替换旧快照(删旧 + 写新),而非追加。避免版本历史被 +1/-1
+   * 碎片条目淹没,用户浏览时看到的是累积 diff 而非一堆小改动。
+   * manual / blur 保存始终新建独立快照(用户明确的保存意图)。
+   */
+  const AUTO_SNAPSHOT_MERGE_WINDOW_MS = 5 * 60 * 1000 // 5 分钟
+
   /** 指定 doc 写盘(无需切换激活)。无 path / 只读 → false。
-   *  写盘成功后写一份版本快照 + 修剪旧快照。 */
+   *  写盘成功后写一份版本快照 + 修剪旧快照。
+   *  无变化(content === lastSavedContent)时跳过写盘 + 快照,避免生成无意义的历史条目。 */
   async function saveDoc(d: DocState, trigger: SnapshotTrigger = 'manual'): Promise<boolean> {
     if (d.userReadOnly || d.readOnlyLocked) return false
     if (!d.currentFilePath) return false
+    // 无变化时不写盘、不写快照 —— 避免 Ctrl+S 在 clean 状态下产生空 diff 历史条目
+    if (d.content === d.lastSavedContent) return true
     const path = d.currentFilePath
     const snapshot = d.content
     const previousBaseline = d.lastSavedContent
@@ -827,20 +842,47 @@ export const useDocumentStore = defineStore('document', () => {
       await writeTextFile(path, snapshot)
       // 写盘成功 → 草稿没用了,清掉
       await clearDraftForDoc(d)
-      // 写一份版本快照(只读归档,不影响基线 / echo / fs:watch)
-      const savedAt = Date.now()
-      const versionSnapshot = {
-        version: 1,
-        id: String(savedAt),
-        filePath: path,
-        content: snapshot,
-        savedAt,
-        trigger,
-      } as const
-      await saveVersionSnapshot(versionSnapshot)
-      await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
-      // 同步追加快照到 versionHistoryStore 内存缓存,使版本历史面板即时刷新
-      useVersionHistoryStore().appendSnapshot(path, versionSnapshot)
+      // 写版本快照:自动保存时,若最近一条快照也是 auto 且在合并窗口内,
+      // 删掉旧快照(磁盘 + 内存缓存),用新快照替换 —— 版本历史列表里只保留
+      // 一条合并条目,diff 统计展示累积变化量,而非一堆 +1/-1 碎片。
+      // 若新内容与被合并旧快照的前一条快照内容相同(回到了合并起点),
+      // 只删旧快照不写新快照 —— 避免版本历史出现无变化的条目。
+      let mergedOldId: string | null = null
+      let skipNewSnapshot = false
+      if (trigger === 'auto') {
+        const cached = useVersionHistoryStore().snapshotsByFile.get(path)
+        const latest = cached?.[0]
+        if (latest && latest.trigger === 'auto'
+          && Date.now() - latest.savedAt < AUTO_SNAPSHOT_MERGE_WINDOW_MS) {
+          mergedOldId = latest.id
+          // 旧 auto 快照的前一条快照(idx=1)是合并前的基线;
+          // 新内容与之相同 → 回到合并起点,不写新快照
+          const prevBeforeMerged = cached && cached.length > 1 ? cached[1] : undefined
+          if (prevBeforeMerged && snapshot === prevBeforeMerged.content) {
+            skipNewSnapshot = true
+          }
+          await deleteVersionSnapshot(path, mergedOldId)
+        }
+      }
+      if (!skipNewSnapshot) {
+        const savedAt = Date.now()
+        const versionSnapshot: VersionSnapshot = {
+          version: 1,
+          id: String(savedAt),
+          filePath: path,
+          content: snapshot,
+          savedAt,
+          trigger,
+        }
+        await saveVersionSnapshot(versionSnapshot)
+        await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
+        // 同步更新 versionHistoryStore 内存缓存,使版本历史面板即时刷新
+        useVersionHistoryStore().upsertSnapshot(path, versionSnapshot, mergedOldId)
+      } else {
+        // 回到合并起点:只从缓存中删除被合并的旧快照,不写新快照
+        useVersionHistoryStore().removeSnapshot(path, mergedOldId)
+        await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
+      }
       void syncTitle()
       return true
     }

@@ -10,6 +10,7 @@ function mountStatusBar(overrides: Record<string, unknown> = {}) {
       currentFilePath: 'C:\\notes\\drafts\\a.md',
       content: '你好 Velo\n\nsecond paragraph',
       dirty: false,
+      autoSaveEnabled: false,
       sourceMode: false,
       readOnly: false,
       readOnlyLocked: false,
@@ -31,6 +32,12 @@ describe('StatusBar', () => {
   it('shows dirty indicator only when dirty', () => {
     expect(mountStatusBar({ dirty: false }).text()).not.toContain('未保存')
     expect(mountStatusBar({ dirty: true }).text()).toContain('未保存')
+  })
+
+  it('hides dirty indicator when autoSave is enabled (avoid flicker)', () => {
+    // 自动保存模式下 save() 同步推进 lastSavedContent 导致 dirty 反复横跳,
+    // UI 层不显示「未保存」标记以消除闪烁割裂感。
+    expect(mountStatusBar({ dirty: true, autoSaveEnabled: true }).text()).not.toContain('未保存')
   })
 
   it('opens workspace menu and emits workspace actions', async () => {

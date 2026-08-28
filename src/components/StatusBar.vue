@@ -11,6 +11,8 @@ const props = defineProps<{
   currentFilePath: string | null
   content: string
   dirty: boolean
+  /** 自动保存模式 —— 不显示「未保存」标记，避免 save() 推进基线导致 dirty 闪烁 */
+  autoSaveEnabled: boolean
   sourceMode: boolean
   /** 编辑器 effective 只读状态 —— 由 App.vue 透传 documentStore.readOnly。 */
   readOnly: boolean
@@ -137,7 +139,7 @@ onBeforeUnmount(() => {
     </div>
 
     <span
-      v-if="dirty && !settingsActive"
+      v-if="dirty && !autoSaveEnabled && !settingsActive"
       class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-amber-600 dark:text-amber-400"
       title="当前文档有未保存修改"
     >
