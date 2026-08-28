@@ -2,7 +2,9 @@
 //
 // 迁自 EditorInner.vue 的 fixedStrikethroughInputRule:
 //   原 `(?<![\w:/])(~{1,2})(.+?)\1(?!\w|\/)$` —— 末尾紧贴触发
-//   去 `$` + 加 `g`。`(?<![\w:/])` 防 URL 误匹配(`http://x~y`),保留。
+//   去 `$` + 加 `g`。`(?<![/:])` 防 URL 误匹配(`http://x~y`),保留。
+//   旧版 lookbehind 含 `\w` 会阻止 `a~~b~~` 识别,与 remark-gfm 行为
+//   不一致(gfm 允许 `a~~b~~c`),已移除 `\w`。
 //
 // 内部 backref `\1` 保留 —— 开闭必须对称。
 //
@@ -14,7 +16,7 @@ import type { InlineSyntax } from '../../editor/syntaxRegistry'
 
 export const strikeSyntax: InlineSyntax = {
   name: 'strike',
-  pattern: /(?<![\w:/])(~{2})([^\n]+?)\1(?!\w|\/)/g,
+  pattern: /(?<![/:])(~{2})([^\n]+?)\1(?!\w|\/)/g,
   apply(tr, { schema, from, to, match }) {
     const inner = match[2]
     if (!inner) return false

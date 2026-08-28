@@ -1,7 +1,8 @@
 // 语法注册入口 —— EditorInner.vue 一次性 import 这个文件,触发 register 副作用。
 //
 // 顺序约定:
-//  1. block syntaxes 优先级高于 inline(block 命中时整段换 type,inline 不再尝试)
+//  1. block syntaxes 先跑,命中后整段换 type;但 inline 仍会继续在同一
+//     textblock 上跑(支持黏贴 `# a==bc==` 时 block 命中后 inline 也处理)
 //  2. block 内部按"特异性"排序:更具体的写在前面
 //     - heading / codeBlock / hr 互不冲突,顺序无关
 //     - bulletList(`- ` / `- [ ] `)/ orderedList(`\d+. `)同上

@@ -114,11 +114,12 @@ describe('highlight: fromMarkdown', () => {
     expect(hasHighlightMark(para)).toBe(false)
   })
 
-  it('"text==hi=="(无空格边界)→ 不识别(避免误匹配)', () => {
+  it('"text==hi=="(word 字符紧邻 ==)→ 识别为 highlight(允许 word==hl==word)', () => {
     const doc = fromMarkdown('text==hi==', schema)
     const para = doc.firstChild!
-    expect(textOf(para)).toBe('text==hi==')
-    expect(hasHighlightMark(para)).toBe(false)
+    expect(textOf(para)).toBe('texthi')
+    const span = findHighlightSpan(para)
+    expect(span?.text).toBe('hi')
   })
 })
 
@@ -184,12 +185,16 @@ describe('highlight: round-trip', () => {
     expect(roundTrip('text ==hi== more')).toBe('text ==hi== more')
   })
 
-  it('"==a *b* c==" round-trip(emphasis 规范化:`*` → `_`)', () => {
-    expect(roundTrip('==a *b* c==')).toBe('==a _b_ c==')
+  it('"text==hi==" round-trip(word 字符紧邻 ==,无空格边界)', () => {
+    expect(roundTrip('text==hi==')).toBe('text==hi==')
   })
 
-  it('"==*x*==" round-trip(纯 emphasis 在 highlight 内,规范化后输出 `==_x_==`)', () => {
-    expect(roundTrip('==*x*==')).toBe('==_x_==')
+  it('"==a *b* c==" round-trip(emphasis marker 保真: `*` 保留)', () => {
+    expect(roundTrip('==a *b* c==')).toBe('==a *b* c==')
+  })
+
+  it('"==*x*==" round-trip(纯 emphasis 在 highlight 内,marker 保真输出 `==*x*==`)', () => {
+    expect(roundTrip('==*x*==')).toBe('==*x*==')
   })
 
   it('"==xx==" + 普通段落 + "==yy==" 多段都 round-trip', () => {

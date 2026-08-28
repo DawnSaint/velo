@@ -10,6 +10,7 @@
 // 不能进 Phase 2(EditorInner 接入)。
 
 import { describe, expect, it } from 'vitest'
+import type { Node } from 'prosemirror-model'
 import { fromMarkdown, toMarkdown } from '../editor/markdownIO'
 import { schema } from '../editor/schema'
 
@@ -652,5 +653,65 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
       expect(canon2).toBe(canon)
       expect(canon3).toBe(canon)
     }
+  })
+})
+
+// emphasis/strong marker attr (`*` vs `_`) 在 fromMarkdown → toMarkdown round-trip 中保留。
+// mdast emphasis/strong 节点不记录分隔符种类,annotateEmphasisMarker 从原始文本
+// position 回查并注入 _marker 字段,inlineNodeToPM 读取它创建带正确 marker 的 mark。
+// 修复前:fromMarkdown 用 schema 默认值 marker:'*',导致 `_xxx_` 加载后
+// markSourceEdit 显示成 `*xxx*`。
+describe('emphasis/strong marker attr round-trip', () => {
+  function getMarker(doc: Node, markName: string): string {
+    let marker = ''
+    doc.descendants(node => {
+      if (node.isText) {
+        const m = node.marks.find(mk => mk.type.name === markName)
+        if (m) marker = m.attrs.marker as string
+      }
+      return true
+    })
+    return marker
+  }
+
+  it('_xxx_ → fromMarkdown → emphasis marker = _', () => {
+    const doc = fromMarkdown('_xxx_', schema)
+    expect(getMarker(doc, 'emphasis')).toBe('_')
+  })
+
+  it('*xxx* → fromMarkdown → emphasis marker = *', () => {
+    const doc = fromMarkdown('*xxx*', schema)
+    expect(getMarker(doc, 'emphasis')).toBe('*')
+  })
+
+  it('__bold__ → fromMarkdown → strong marker = _', () => {
+    const doc = fromMarkdown('__bold__', schema)
+    expect(getMarker(doc, 'strong')).toBe('_')
+  })
+
+  it('**bold** → fromMarkdown → strong marker = *', () => {
+    const doc = fromMarkdown('**bold**', schema)
+    expect(getMarker(doc, 'strong')).toBe('*')
+  })
+
+  it('_xxx_ and *yyy* 同一段 → marker 各自保留', () => {
+    const doc = fromMarkdown('_xxx_ and *yyy*', schema)
+    const markers: string[] = []
+    doc.descendants(node => {
+      if (node.isText) {
+        const m = node.marks.find(mk => mk.type.name === 'emphasis')
+        if (m) markers.push(m.attrs.marker as string)
+      }
+      return true
+    })
+    expect(markers).toEqual(['_', '*'])
+  })
+
+  it('CJK 格式化 round-trip: _xxx_ → toMarkdown → fromMarkdown → marker 仍为 _', () => {
+    // 模拟 cmdFormatCJKDocument: toMarkdown → fromMarkdown
+    const doc1 = fromMarkdown('_xxx_', schema)
+    const md = toMarkdown(doc1)
+    const doc2 = fromMarkdown(md, schema)
+    expect(getMarker(doc2, 'emphasis')).toBe('_')
   })
 })

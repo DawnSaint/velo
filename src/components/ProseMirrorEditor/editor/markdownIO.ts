@@ -24,22 +24,27 @@ import { createParseProcessor } from './parseProcessor'
 // ============================================================
 
 /**
- * 自定义 strong handler —— 覆盖 mdast-util-to-markdown 默认 handler。
+ * 自定义 strong / emphasis handler —— 覆盖 mdast-util-to-markdown 默认 handler。
  *
- * 默认 handler 在 strong 内容以标点结尾且后跟字母时,会把字母编码为 HTML 实体
- * (如 `&#x6B63;`),防止 `**` 闭合判定失败(CommonMark right-flanking 规则)。
- * 但 remarkCjkEmphasis 插件已在 parse 阶段修复 CJK 标点导致的解析问题,
- * outside 编码不再必要 —— 保留它会令源码视图出现丑陋的 `&#x6B63;`。
+ * 两个 handler 共同解决两个问题:
  *
- * 保留 inside 编码(内容首尾是空白时仍需编码,防 `**` delimiter 歧义)。
- * outside 编码跳过:不设置 attentionEncodeSurroundingInfo。
+ * 1. **marker 保真**:默认 handler 用全局 option(strong:'*' / emphasis:'_')决定
+ *    分隔符,PM doc 中 mark.attrs.marker 记录的 `*`/`_` 在序列化时丢失。
+ *    修复:wrapWithMarks 把 attrs.marker 写入 mdast 节点的 `_marker` 字段,
+ *    handler 优先读 `node._marker`,fallback 到 state.options。
+ *    这样 `*xxx*` 的 emphasis(marker='*')序列化后仍是 `*xxx*`,不再变 `_xxx_`。
+ *
+ * 2. **CJK outside 编码跳过**:默认 strong handler 在内容以标点结尾且后跟字母时,
+ *    会把字母编码为 HTML 实体(如 `&#x6B63;`),防 `**` 闭合判定失败。
+ *    但 remarkCjkEmphasis 插件已在 parse 阶段修复 CJK 标点问题,outside 编码不再必要。
+ *    保留 inside 编码(内容首尾是空白时仍需编码,防 delimiter 歧义)。
  */
 function encodeCharRef(code: number): string {
   return '&#x' + code.toString(16).toUpperCase() + ';'
 }
 
 const strongHandler = function (node: any, _parent: any, state: any, info: any) {
-  const marker = state.options.strong || '*'
+  const marker = node._marker || state.options.strong || '*'
   const exit = state.enter('strong')
   const tracker = state.createTracker(info)
   const before = tracker.move(marker + marker)
@@ -75,6 +80,46 @@ strongHandler.peek = function (_node: any, _parent: any, state: any) {
   return state.options.strong || '*'
 }
 
+/**
+ * 自定义 emphasis handler —— 与 strongHandler 同范式。
+ * 读 `node._marker` 决定用 `*` 还是 `_`,保 marker 保真。
+ * emphasis 单字符分隔符,strong 双字符;其余逻辑(inside 编码 / outside 跳过)一致。
+ */
+const emphasisHandler = function (node: any, _parent: any, state: any, info: any) {
+  const marker = node._marker || state.options.emphasis || '_'
+  const exit = state.enter('emphasis')
+  const tracker = state.createTracker(info)
+  const before = tracker.move(marker)
+
+  let between = tracker.move(
+    state.containerPhrasing(node, {
+      after: marker,
+      before,
+      ...tracker.current(),
+    })
+  )
+
+  // inside 编码:内容首尾是空白时编码为 HTML 实体,防 delimiter 歧义。
+  const head = between.charAt(0)
+  if (head === ' ' || head === '\t') {
+    between = encodeCharRef(head.charCodeAt(0)) + between.slice(1)
+  }
+  const tail = between.charAt(between.length - 1)
+  if (tail === ' ' || tail === '\t') {
+    between = between.slice(0, -1) + encodeCharRef(tail.charCodeAt(0))
+  }
+
+  const after = tracker.move(marker)
+  exit()
+
+  state.attentionEncodeSurroundingInfo = undefined
+
+  return before + between + after
+}
+emphasisHandler.peek = function (_node: any, _parent: any, state: any) {
+  return state.options.emphasis || '_'
+}
+
 // 主线程 processor = parse 管线（共享） + stringify 配置（仅主线程需要）。
 // parse 部分由 createParseProcessor() 提供，与 markdownWorker.ts 共享同一配置。
 const processor = createParseProcessor()
@@ -87,8 +132,11 @@ const processor = createParseProcessor()
     rule: '-',
     ruleSpaces: false,
     handlers: {
-      // 自定义 strong handler(见上方 strongHandler 定义)。
+      // 自定义 strong / emphasis handler(见上方定义):
+      // 读 node._marker 保 `*`/`_` 分隔符往返不串(emphasis 默认 '_',
+      // strong 默认 '*' → 恒定输出会丢 PM doc 中 mark.attrs.marker)。
       strong: strongHandler,
+      emphasis: emphasisHandler,
       // ==xxx== 高亮。mdast 没有原生 highlight 节点,这里走 state.write
       // 原样输出 `==`,内层 children 走 state.all 让 remark-stringify 自己序列化
       // (嵌套 strong / emphasis / link 都正确)。
@@ -177,6 +225,7 @@ const processor = createParseProcessor()
  */
 function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
   annotateMathDelimiterCount(tree, md)
+  annotateEmphasisMarker(tree, md)
   const blocks = tree.children.flatMap(n => mdastBlockToPM(n, schema))
   if (blocks.length === 0) {
     return schema.node('doc', null, [schema.node('paragraph')])
@@ -323,8 +372,36 @@ function annotateMathDelimiterCount(tree: Root, md: string): void {
   visit(tree)
 }
 
-// ============================================================
-//  extractLangsFromDoc:扫 doc 收集所有 fenced code 块用到的 lang
+/**
+ * 从原始 markdown 文本回查 emphasis / strong 节点实际使用的分隔符(`*` / `_`),
+ * 注入到 mdast 节点的 `_marker` 字段。mdast 的 emphasis/strong 节点本身不记录
+ * 分隔符种类(只有 type + children),remarkStringify 用全局 option
+ * (emphasis:'_' / strong:'*')决定输出。但 PM schema 的 emphasis/strong 有
+ * marker attr(markSourceEdit 的 buildMarkSource 读它决定源码显示 `*xxx*` / `_xxx_`),
+ * fromMarkdown 默认用 schema 默认值 `'*'`,会导致 `_xxx_` 加载后光标进入 mark
+ * 源码编辑显示成 `*xxx*`。
+ *
+ * 与 annotateMathDelimiterCount 同范式:从 node.position.start.offset 回查 md 原文。
+ * position 含分隔符本身(emphasis: md[start] 是首个 `_`/`*`;
+ * strong: md[start] 和 md[start+1] 都是 `_`/`*`)。
+ */
+function annotateEmphasisMarker(tree: Root, md: string): void {
+  const visit = (node: any): void => {
+    if (node.type === 'emphasis' || node.type === 'strong') {
+      const offset = node.position?.start?.offset
+      if (typeof offset === 'number' && offset < md.length) {
+        const ch = md[offset]
+        if (ch === '_' || ch === '*') {
+          node._marker = ch
+        }
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const c of node.children) visit(c)
+    }
+  }
+  visit(tree)
+}
 // ============================================================
 //
 // 给 shiki 预装 grammar 用。doc 里出现的 lang 在 App.vue 启动期装进
@@ -638,12 +715,12 @@ function inlineNodeToPM(
     case 'emphasis':
       return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
-          activeMarks.concat({ type: schema.marks.emphasis })))
+          activeMarks.concat({ type: schema.marks.emphasis, attrs: { marker: n._marker ?? '*' } })))
 
     case 'strong':
       return n.children.flatMap((c: PhrasingContent) =>
         inlineNodeToPM(c, schema,
-          activeMarks.concat({ type: schema.marks.strong })))
+          activeMarks.concat({ type: schema.marks.strong, attrs: { marker: n._marker ?? '*' } })))
 
     case 'highlight':
       // remarkHighlight 注入的自定义节点,无 GFM 原生对应物。
@@ -1226,11 +1303,11 @@ function wrapWithMarks(
     if (name === 'strike_through') {
       node = { type: 'delete', children: [node] }
     }
-    else if (name === 'emphasis') {
-      node = { type: 'emphasis', children: [node] }
+    if (name === 'emphasis') {
+      node = { type: 'emphasis', children: [node], _marker: mark.attrs.marker as string }
     }
     else if (name === 'strong') {
-      node = { type: 'strong', children: [node] }
+      node = { type: 'strong', children: [node], _marker: mark.attrs.marker as string }
     }
     else if (name === 'link') {
       node = {

@@ -8,18 +8,21 @@
 //    边界 + 中间内容,state 切换 flush 成 highlight 节点
 //
 // word boundary 规则(只挡前面不挡后面):
-//   `(?<![\w:/])==` —— `==` 之前不能紧跟 word/`:`/`/`(避免 `text==hi==` 误识别)
+//   `(?<![/:])==` —— `==` 之前不能紧跟 `:`/`/`(避免 URL 中的 `==` 被误切)
 //   `==([^=\n]+?)==` —— inner 不含 `=` / `\n`(至少 1 字符)
 //   后面不挡 —— `==bold and **strong**==` 这种 word 字符紧跟 open 是合法的
-//   (Obsidian / Logseq 接受),只在 state-machine 边界匹配时复用同样的"前缀 word 检查"
+//   (Obsidian / Logseq 接受),只在 state-machine 边界匹配时复用同样的"前缀检查"
+//
+// 允许 `a==bc==` 中 `==` 前面紧跟单词字符(word==hl==word 是合法语法);
+// 旧版 `(?<![\w:/])` 挡了 `\w` 导致 `a==bc==` 无法识别,与实时转换端保持一致。
 
 import { visit } from 'unist-util-visit'
 import type { Root, Text, PhrasingContent } from 'mdast'
 
-const HL_RE = /(?<![\w:/])==([^=\n]+?)==/g
+const HL_RE = /(?<![/:])==([^=\n]+?)==/g
 
-/** word-boundary 拒绝字符:`\w`(含 `_`)+ `:` + `/` */
-const isBoundaryRejectChar = (c: string) => /[\w:/]/.test(c)
+/** boundary 拒绝字符:`:` + `/`(挡 URL 中的 `==` 被误切) */
+const isBoundaryRejectChar = (c: string) => /[/:]/.test(c)
 
 /**
  * 单段文本节点相对 `==` 的形态。
@@ -142,8 +145,8 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
           break
         }
         case 'endEq': {
-          // prefix + `==` —— 检查 prefix 末尾是否是 word-boundary 拒绝字符
-          // 拒绝字符 = 这是无效的 open,整段当 plain 输出
+          // prefix + `==` —— 检查 prefix 末尾是否是 boundary 拒绝字符(`:` / `/`)
+          // 拒绝字符 = 这是无效的 open(URL 中的 ==),整段当 plain 输出
           const lastChar = variant.prefix.length > 0
             ? variant.prefix.charAt(variant.prefix.length - 1)
             : '' // prefix 为空就是纯 `==`,已走 pure 分支,不会到这

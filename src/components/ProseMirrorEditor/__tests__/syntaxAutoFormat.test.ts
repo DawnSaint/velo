@@ -41,6 +41,8 @@ import { highlightSyntax } from '../syntax/inline/highlight'
 import { underlineSyntax } from '../syntax/inline/underline'
 import { inlineCodeSyntax } from '../syntax/inline/code'
 import { inlineMathSyntax } from '../syntax/inline/inlineMath'
+import { subSyntax } from '../syntax/inline/sub'
+import { supSyntax } from '../syntax/inline/sup'
 import { htmlTagSyntax } from '../syntax/inline/htmlTag'
 
 beforeAll(() => {
@@ -58,13 +60,16 @@ beforeAll(() => {
   registerInlineSyntax(linkSyntax)
   registerInlineSyntax(footnoteRefSyntax)
   registerInlineSyntax(inlineMathSyntax)
-  // 与 syntax/index.ts 注册顺序对齐:emphasisStar → strong → strike → emphasisUnderscore
+  // 与 syntax/index.ts 注册顺序对齐:emphasisStar → strong → sub → strike →
+  // emphasisUnderscore → highlight → underline → sup
   registerInlineSyntax(emphasisStarSyntax)
   registerInlineSyntax(strongSyntax)
+  registerInlineSyntax(subSyntax)
   registerInlineSyntax(strikeSyntax)
   registerInlineSyntax(emphasisUnderscoreSyntax)
   registerInlineSyntax(highlightSyntax)
   registerInlineSyntax(underlineSyntax)
+  registerInlineSyntax(supSyntax)
   registerInlineSyntax(inlineCodeSyntax)
   registerInlineSyntax(htmlTagSyntax)
 })
@@ -730,6 +735,76 @@ describe('syntaxAutoFormat: inline syntaxes', () => {
       if (child.type.name === 'html_inline') hasHtmlInline = true
     })
     expect(hasHtmlInline).toBe(false)
+    cleanup()
+  })
+
+  // ------------------------------------------------------------------
+  //  word 字符紧邻 inline 标记的语法(highlight / strike / sub)
+  //  旧版 lookbehind 含 \w 导致 `a==bc==` / `a~~b~~` / `H~2~O` 无法识别,
+  //  已移除 \w,与 remark 解析端(remarkHighlight / remark-gfm / remarkSupSub)对齐。
+  // ------------------------------------------------------------------
+
+  it('"a==bc==" 段中键入(word 字符紧邻 ==)→ 加 highlight mark', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('x ')]),
+    ])
+    typeAt(view, 3, 'a==bc==')
+    const para = view.state.doc.firstChild!
+    const hl = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'bc')
+    expect(hl?.marks.find(m => m.type.name === 'highlight')).toBeDefined()
+    cleanup()
+  })
+
+  it('heading 中 "a==bc==" → highlight 仍命中(标题内 inline 语法)', () => {
+    // 先建 heading 节点,模拟 `# ` 已触发后的状态
+    const { view, cleanup } = mountView([
+      schema.node('heading', { level: 1 }, [schema.text('a')]),
+    ])
+    // 在 heading 内容后逐字符输入 ==bc==
+    typeAt(view, 2, '==bc==')
+    const heading = view.state.doc.firstChild!
+    expect(heading.type.name).toBe('heading')
+    const hl = Array.from({ length: heading.childCount }, (_, i) => heading.child(i))
+      .find(c => c.text === 'bc')
+    expect(hl?.marks.find(m => m.type.name === 'highlight')).toBeDefined()
+    cleanup()
+  })
+
+  it('黏贴 "# a==bc==" → heading + highlight 都命中(block 命中后 inline 不跳过)', () => {
+    const { view, cleanup } = mountView()
+    // 一次性插入整段 —— block(heading) 和 inline(highlight) 必须在同一笔处理
+    typeAt(view, 1, '# a==bc==')
+    const heading = view.state.doc.firstChild!
+    expect(heading.type.name).toBe('heading')
+    expect(heading.attrs.level).toBe(1)
+    const hl = Array.from({ length: heading.childCount }, (_, i) => heading.child(i))
+      .find(c => c.text === 'bc')
+    expect(hl?.marks.find(m => m.type.name === 'highlight')).toBeDefined()
+    cleanup()
+  })
+
+  it('"a~~bc~~" 段中键入(word 字符紧邻 ~~)→ 加 strike mark', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('x ')]),
+    ])
+    typeAt(view, 3, 'a~~bc~~')
+    const para = view.state.doc.firstChild!
+    const struck = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === 'bc')
+    expect(struck?.marks.find(m => m.type.name === 'strike_through')).toBeDefined()
+    cleanup()
+  })
+
+  it('"H~2~O" 段中键入(word 字符紧邻 ~)→ 加 subscript mark(化学式)', () => {
+    const { view, cleanup } = mountView([
+      schema.node('paragraph', null, [schema.text('x ')]),
+    ])
+    typeAt(view, 3, 'H~2~O')
+    const para = view.state.doc.firstChild!
+    const sub = Array.from({ length: para.childCount }, (_, i) => para.child(i))
+      .find(c => c.text === '2')
+    expect(sub?.marks.find(m => m.type.name === 'subscript')).toBeDefined()
     cleanup()
   })
 })

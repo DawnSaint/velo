@@ -14,7 +14,6 @@
     margin: 1em 0;
     padding: 0.15em 1em;
     border-left: 4px solid;
-    font-style: normal; // 覆盖 blockquote 的 italic 防泄漏
   }
 
   .velo-alert::before {

@@ -346,10 +346,13 @@ export const syntaxAutoFormatPlugin = new Plugin({
     let touched = false
 
     for (const block of blocks) {
-      // block 命中后通常段落类型整个换,inline 不再尝试当前 block
+      // block 命中后段落类型整个换(如 paragraph → heading),但段内 inline
+      // 语法(==hl== / **bold** 等)仍需处理 —— 粘贴 `# a==bc==` 时 block 命中
+      // 的同一笔 transaction 中如果跳过 inline,a==bc== 永远不会被转化。
+      // tryInlineSyntaxes 内部用 tr.mapping.map 校正位置,block 命中后映射
+      // 自动指向新 doc 中对应 textblock 的范围。
       if (tryBlockSyntaxes(tr, block, blockSyntaxes)) {
         touched = true
-        continue
       }
       if (tryInlineSyntaxes(tr, block, inlineSyntaxes, activeEditRanges)) {
         touched = true

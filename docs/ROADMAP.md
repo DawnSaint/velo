@@ -152,11 +152,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] Phase 2: 稳定后移除 `continue-on-error`，硬门
   - 前置：`cargo install tauri-driver` + 匹配的 `msedgedriver.exe`；appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore
 
-- [ ] **AI 辅助写作（本地 LLM 优先）** `#ai-assist` `P3` `L` `?`
-  - 集成 Ollama：通过 Tauri shell 调 `ollama run`，不依赖云端，隐私零泄露
-  - 场景化命令挂在命令面板 `>` 模式下：「润色这段」「展开大纲」「总结全文」「改写更简洁」，选区作为输入
-  - 可选：行内补全（类似 Copilot，走本地小模型，只对 markdown 文本补全）
-  - 排期时评估引入 Coherence Layer（内容寻址版本追踪 + DAG + 人类/AI/外部溯源）作为基础设施
+- [ ] **AI 辅助写作** `#ai-assist` `P3` `?`
 
 - [ ] **主题市场** `#theme-market` `P3` `XL` `?`
   - 自定义颜色方案 / 字号规范 / 段落间距整套打包
@@ -186,10 +182,9 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 
 - [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`
-  > 暂不引入 HTML `<table>` 兜底方案(单元格合并 / Excel 粘贴等天然依赖它的功能单独规划)。
 
   - [ ] **插入时选 MxN 尺寸**:当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
-  - [ ] **列宽持久化**:当前列宽拖拽(`columnResizing`)只改变运行期显示,保存后再打开会回落默认。效果 = 拖拽结果进 schema + markdownIO 双向携带,刷新 / 重开后保持用户设过的列宽;未显式设宽的列保持默认。
+
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
 - [ ] **AI Coherence Layer 共享版本数据层** `#coherence-layer` `P3` `L` `← #local-timeline`
   - 在本地版本时间线基础上抽象出统一的版本数据层，供未来 AI 集成消费

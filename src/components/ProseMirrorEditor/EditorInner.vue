@@ -18,7 +18,7 @@ import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
-import { baseKeymap, chainCommands, selectAll, splitBlock } from 'prosemirror-commands'
+import { baseKeymap, chainCommands, liftEmptyBlock, selectAll, splitBlock } from 'prosemirror-commands'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import type { Node as PMNode } from 'prosemirror-model'
@@ -371,6 +371,75 @@ function codeBlockEnter(state: any, dispatch?: any): boolean {
   return true
 }
 
+// 代码块内 Shift-Enter:在 code_block 后插入空段落并将光标移入,
+// 用户感知"跳出代码块"。与 Typora 的 Ctrl+Enter 退出语义一致,
+// 但用 Shift-Enter(与 table cell 的 Shift-Enter 插 <br> 同键位族,
+// 都是"Enter 的变体")。code_block 外 return false。
+function codeBlockExit(state: any, dispatch?: any): boolean {
+  const { $head } = state.selection
+  if ($head.parent.type.name !== 'code_block') return false
+  const end = $head.after()
+  const paragraphType = state.schema.nodes.paragraph
+  const tr = state.tr.replaceWith(end, end, paragraphType.create())
+  tr.setSelection(TextSelection.near(tr.doc.resolve(end), 1))
+  if (dispatch) dispatch(tr.scrollIntoView())
+  return true
+}
+
+// ── Shift-Enter 多场景命令 ──
+
+// blockquote / alert 内 Shift-Enter:退出引用 / 警告框。
+// - 空段落 → liftEmptyBlock(提升空段落出 block,与 Enter 退出行为一致)
+// - 非空段落 → 在 block 后插入空段落并将光标移入
+// 不在 blockquote / alert 内时 return false。
+function shiftEnterExitBlock(state: any, dispatch?: any): boolean {
+  const { $head } = state.selection
+  // 向上找 blockquote / alert 祖先
+  let blockDepth = -1
+  for (let d = $head.depth; d > 0; d--) {
+    const name = $head.node(d).type.name
+    if (name === 'blockquote' || name === 'alert') {
+      blockDepth = d
+      break
+    }
+  }
+  if (blockDepth < 0) return false
+  // 空段落 → 提升出 block(避免 block 内残留空段 + block 外又插一段)
+  if ($head.parent.content.size === 0) return liftEmptyBlock(state, dispatch)
+  // 非空 → 在 block 后插入空段落
+  const end = $head.after(blockDepth)
+  const paragraphType = state.schema.nodes.paragraph
+  const tr = state.tr.replaceWith(end, end, paragraphType.create())
+  tr.setSelection(TextSelection.near(tr.doc.resolve(end), 1))
+  if (dispatch) dispatch(tr.scrollIntoView())
+  return true
+}
+
+// list_item 首层 paragraph 内 Shift-Enter:直接 splitBlock 在 list_item 内
+// 分裂段落,产生"带缩进的空段落"(list_item 内追加 paragraph)。
+// 效果等同 Enter(创建新 list_item) + Backspace(合并回 list_item)。
+// 跳过 splitListItem(Enter 会创建新 list_item,Shift-Enter 不创建)。
+// 不在 list_item 首层 paragraph 时 return false(嵌套 block / 普通段落走兜底)。
+function shiftEnterListItem(state: any, dispatch?: any): boolean {
+  const { selection } = state
+  if (!selection.empty) return false
+  const { $from } = selection
+  // 祖先链中有 list_item 吗?
+  let listItemDepth = -1
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type.name === 'list_item') {
+      listItemDepth = d
+      break
+    }
+  }
+  if (listItemDepth < 0) return false
+  // list_item 的直接子节点是 paragraph 吗?不是则说明在嵌套 block 内,
+  // 交给兜底 splitBlock 处理。
+  const directChild = $from.node(listItemDepth + 1)
+  if (!directChild || directChild.type.name !== 'paragraph') return false
+  return splitBlock(state, dispatch)
+}
+
 function dollarEnterCmd(state: any, dispatch?: any): boolean {
   const { $from } = state.selection
   const lineStart = $from.start()
@@ -389,6 +458,50 @@ function dollarEnterCmd(state: any, dispatch?: any): boolean {
 const dollarEnterToMathBlock = keymap({
   Enter: dollarEnterCmd,
 })
+
+// ============================================================
+//  list_item 内嵌套 block(blockquote / alert 等)的 Enter 守卫
+// ============================================================
+
+// splitListItem 只在光标直接在 list_item 的首层 paragraph 中时匹配
+// ($from.node(-1) 是 list_item)。当光标在 list_item 内的嵌套 block
+// (blockquote / alert / …)的 paragraph 中时,splitListItem 返回 false,
+// 接下来 liftListItem 会错误匹配(bullet_list 的 blockRange 谓词命中),
+// 把整个 list_item 提升出 list —— 用户看到 "list 降了一级"。
+//
+// 此守卫检测该场景,跳过 liftListItem 直接处理:
+// - 空段落 → liftEmptyBlock(提升出嵌套 block,与顶层 blockquote 退出一致)
+// - 非空段落 → splitBlock(在嵌套 block 内正常分裂段落)
+function splitInListItemNestedBlock(state: any, dispatch?: any): boolean {
+  const { selection } = state
+  if (!selection.empty) return false
+  const { $from } = selection
+
+  // 祖先链中有 list_item 吗?
+  let listItemDepth = -1
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type.name === 'list_item') {
+      listItemDepth = d
+      break
+    }
+  }
+  if (listItemDepth < 0) return false
+
+  // list_item 的直接子节点是 paragraph 吗?如果是,说明光标在 list_item 的
+  // 首层 paragraph 中,splitListItem / liftListItem 的正常逻辑应接管。
+  // list_item content 是 'paragraph block*',首子必须是 paragraph。
+  // 当光标在 list_item 的非首子(嵌套 block)中时,$from.node(listItemDepth)
+  // 是 list_item,而 $from.node(listItemDepth + 1) 是嵌套 block(blockquote /
+  // alert / ...),不是 paragraph。
+  const directChild = $from.node(listItemDepth + 1)
+  if (directChild && directChild.type.name === 'paragraph') return false
+
+  // 光标在 list_item 内的嵌套 block 中。
+  // 空段落 → liftEmptyBlock(提升出嵌套 block,与顶层 blockquote 退出行为一致);
+  // 非空 → splitBlock(在嵌套 block 内分裂段落)。
+  if ($from.parent.content.size === 0) return liftEmptyBlock(state, dispatch)
+  return splitBlock(state, dispatch)
+}
 
 // ============================================================
 //  image NodeView + Tauri 协议注入
@@ -486,15 +599,29 @@ const pluginEntries: PluginEntry[] = [
   //      但 cell schema 只允许 paragraph,会导致无效文档。
   //   3. dollarEnterCmd:`$$` + Enter → math_block 编辑态
   //   4. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
-  //   5. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
+  //   5. splitInListItemNestedBlock:list_item 内嵌套 block(blockquote / alert)
+  //      的 paragraph 中 Enter → 走 splitBlock 在嵌套 block 内分裂段落。
+  //      必须排在 liftListItem 之前 —— 否则 liftListItem 的 blockRange 谓词
+  //      会匹配到 bullet_list(首子是 list_item),把整个 list_item 提升出
+  //      list,用户感知 "list 降了一级"。
+  //   6. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
   //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
   //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
   //      时的行为割裂)
-  //   6. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
-  //   7. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
-  //   8. splitBlock:兜底,普通段落里换行
-  // Shift-Enter:table cell 内 → 插入 hardbreak(<br>)实现 cell 内换行;
-  //   cell 外 return false(不消费,保持原有无 Shift-Enter 行为)。
+  //   7. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
+  //   8. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
+  //   9. liftEmptyBlock:空段落(含 blockquote / alert / list_item 内的空段落)
+  //      按 Enter → 提升出父节点(用户感知"退出引用/警告框")。
+  //      必须排在 splitBlock 之前 —— splitBlock 在空段落里也会成功(分裂出
+  //      另一个空段落),导致用户被困在 blockquote 内永远出不来。
+  //   10. splitBlock:兜底,普通段落里换行
+  // Shift-Enter 多场景命令链:
+  //   1. codeBlockExit:code_block 内 → 在 block 后插入段落(跳出代码块)
+  //   2. cmdTableCellHardBreak:table cell 内 → 插 <br>(格内换行)
+  //   3. shiftEnterExitBlock:blockquote / alert 内 → 在 block 后插入段落(退出引用)
+  //   4. shiftEnterListItem:list_item 首层 paragraph 内 → splitBlock(产生缩进段落,
+  //      等同 Enter+Backspace,不创建新 list_item)
+  //   5. splitBlock:兜底,普通段落 / 嵌套 block 内正常换行
   {
     id: 'keymap.enter',
     plugin: keymap({
@@ -506,10 +633,18 @@ const pluginEntries: PluginEntry[] = [
         frontmatterEnterCommand,
         hrEnterCommand,
         splitListItem(schema.nodes.list_item),
+        splitInListItemNestedBlock,
         liftListItem(schema.nodes.list_item),
+        liftEmptyBlock,
         splitBlock,
       ),
-      'Shift-Enter': cmdTableCellHardBreak(),
+      'Shift-Enter': chainCommands(
+        codeBlockExit,
+        cmdTableCellHardBreak(),
+        shiftEnterExitBlock,
+        shiftEnterListItem,
+        splitBlock,
+      ),
     }),
   },
   // baseKeymap 装在最后:接管未自定义的所有键(Enter, Backspace-after-failed, ...)
