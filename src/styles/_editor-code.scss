@@ -59,6 +59,12 @@
   --shiki-dark-border: #30363d;
 }
 
+// code header 固定高度(1.75em 图标按钮内容行 + 1em 原 padding):header
+// 自身与下方"懒加载预留区"共用,保证有/无 header 两态外框高度相等。
+.velo-editor {
+  --velo-code-header-h: 2.75em;
+}
+
 .velo-editor pre {
   position: relative;
   margin: 1em 0;
@@ -162,7 +168,11 @@ html.dark .velo-editor :not(pre) > code {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0.5em;
+  // 定高(原 padding 0.5em + 内容行 1.75em = 2.75em,视觉不变):让
+  // "有 header"与"无 header(懒加载预留态,见下方预留规则)"共用同一
+  // --velo-code-header-h,两态外框高度严格相等 → 装饰切换零布局位移。
+  height: var(--velo-code-header-h, 2.75em);
+  padding: 0 0.5em;
   margin: 1em 0 0 0;
   pointer-events: auto;
   background-color: var(--shiki-light-bg);
@@ -263,6 +273,46 @@ html.dark .velo-code-header-widget,
   margin-top: 0;
   border-top: none;
   border-radius: 0 0 8px 8px;
+}
+
+// ============================================================
+//  懒加载高度预留(B1 viewport 门控配套,修"高度闪烁")
+//
+//  视口外的 code_block 没有 header widget(懒加载),进视口瞬间插入会推挤
+//  下方内容。这里让 pre 常驻预留与 header 等高的空间:
+//  - 未装饰态(无 velo-code-has-header class):padding-top 吸收 header
+//    高度,::before 在预留区画同色占位条 → 快速滚动一瞥是"空 header"
+//    而非布局跳变
+//  - 装饰态:pre 恢复常规 padding,header 紧贴其上(上方 `+ pre` 规则)
+//  两态外框高度 = 1em 间距 + header 高度 + pre 自身,严格相等。
+//  mermaid 除外:装饰态 pre 整体 display:none 由 SVG widget 接管,
+//  header 只在展开编辑态出现(必在视口内),预留无意义。
+// ============================================================
+.velo-editor pre.velo-code-block:not(.velo-code-has-header):not([data-language='mermaid']) {
+  padding-top: calc(0.75em + var(--velo-code-header-h, 2.75em));
+  border-radius: 0 0 8px 8px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--velo-code-header-h, 2.75em);
+    background-color: var(--shiki-light-bg);
+    border-bottom: 1px solid var(--shiki-light-border);
+    border-radius: 8px 8px 0 0;
+  }
+}
+
+// 占位条 dark 翻面(同 header widget 三路命中)
+html.dark .velo-editor pre.velo-code-block:not(.velo-code-has-header):not([data-language='mermaid']),
+.dark .velo-editor pre.velo-code-block:not(.velo-code-has-header):not([data-language='mermaid']),
+.velo-editor.dark pre.velo-code-block:not(.velo-code-has-header):not([data-language='mermaid']) {
+  &::before {
+    background-color: var(--shiki-dark-bg);
+    border-color: var(--shiki-dark-border);
+  }
 }
 
 // 折叠态:pre 隐藏,header 变独立卡片(全圆角 + 下边框 + 下 margin)

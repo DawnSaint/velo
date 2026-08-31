@@ -39,8 +39,9 @@ export const viewportKey = new PluginKey<ViewportRange | null>('viewport')
 
 /** 视口上下 buffer（像素）。快速滚动时避免 decoration 空白闪烁。 */
 const BUFFER_PX = 1000
-/** 滚动事件 debounce（毫秒）。 */
-const SCROLL_DEBOUNCE_MS = 100
+/** 滚动事件 trailing throttle 间隔（毫秒）。leading 立即触发后，持续滚动
+ *  期间每 SCROLL_THROTTLE_MS 至多补一次，停下后 trailing 再收尾一次。 */
+const SCROLL_THROTTLE_MS = 100
 /** range 变化容忍度（doc pos）。from/to 都在容忍度内时不 dispatch。 */
 const RANGE_TOLERANCE = 200
 
@@ -168,7 +169,8 @@ export const viewportPlugin = new Plugin<ViewportRange | null>({
   },
   view: (view: EditorView) => {
     let scrollContainer: HTMLElement | null = null
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null
+    let lastScrollTime = 0
 
     function updateViewport() {
       if (view.isDestroyed) return
@@ -186,12 +188,25 @@ export const viewportPlugin = new Plugin<ViewportRange | null>({
       view.dispatch(view.state.tr.setMeta(viewportKey, range))
     }
 
+    // leading + trailing throttle：首个 scroll 事件立即 updateViewport（decoration
+    // 在滚动开始就跟进，而非停下 100ms 后才补）；持续滚动期间每 SCROLL_THROTTLE_MS
+    // 至多补一次（trailing），停下后最后一次 trailing 收尾。比原纯 debounce 策略
+    // 少一个 SCROLL_THROTTLE_MS 的滞后窗口，快速滚动 / 程序化跳转时首帧不空白。
     function onScroll() {
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null
+      const now = Date.now()
+      const elapsed = now - lastScrollTime
+      if (elapsed >= SCROLL_THROTTLE_MS) {
+        // leading：立即更新
+        lastScrollTime = now
         updateViewport()
-      }, SCROLL_DEBOUNCE_MS)
+      }
+      // trailing：安排一次延迟更新（如果在 throttle 窗口内还有滚动事件）
+      if (throttleTimer) clearTimeout(throttleTimer)
+      throttleTimer = setTimeout(() => {
+        throttleTimer = null
+        lastScrollTime = Date.now()
+        updateViewport()
+      }, SCROLL_THROTTLE_MS)
     }
 
     // 找到滚动容器并挂 scroll listener
@@ -215,9 +230,9 @@ export const viewportPlugin = new Plugin<ViewportRange | null>({
 
     return {
       destroy() {
-        if (debounceTimer) {
-          clearTimeout(debounceTimer)
-          debounceTimer = null
+        if (throttleTimer) {
+          clearTimeout(throttleTimer)
+          throttleTimer = null
         }
         if (scrollContainer) {
           scrollContainer.removeEventListener('scroll', onScroll)

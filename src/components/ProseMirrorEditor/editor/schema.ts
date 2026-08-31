@@ -243,7 +243,11 @@ const nodes: Record<string, NodeSpec> = {
     }],
     toDOM: (node) => {
       const language = node.attrs.language as string
-      const preAttrs = language ? { 'data-language': language } : {}
+      // velo-code-block class:CSS 懒加载高度预留的锚点(_editor-code.scss)。
+      // 只标 schema 渲染的 code_block pre,不波及 frontmatter / html_block
+      // NodeView 内部的 pre(它们没有 code header widget,预留会加错)。
+      const preAttrs: Record<string, string> = { class: 'velo-code-block' }
+      if (language) preAttrs['data-language'] = language
       return ['pre', preAttrs, ['code', {}, 0]]
     },
   },

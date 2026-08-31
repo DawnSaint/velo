@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, onUnmounted, onDeactivated, ref, watch, type CSSProperties } from 'vue'
-import { ChevronRight, List } from '@lucide/vue'
+import { ChevronRight, ChevronsDownUp, List } from '@lucide/vue'
 import { useOutlineStore } from '@/stores/outline'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { revealHeadingInDom } from '@/utils/revealHeading'
@@ -46,6 +46,20 @@ function toggleExpand(key: string) {
   collapsedKeys.value = next
   // 同步到 store → 触发 App.vue 的 debounce 落盘
   outlineStore.setKeysFor(props.filePath, next)
+}
+
+/** 全部折叠:把所有有子项的标题 key 都加入折叠集合 */
+function collapseAll() {
+  const all = new Set<string>()
+  function walk(items: HeadingItem[]) {
+    for (const it of items) {
+      if (it.children.length > 0) all.add(it.key)
+      walk(it.children)
+    }
+  }
+  walk(tree.value)
+  collapsedKeys.value = all
+  outlineStore.setKeysFor(props.filePath, all)
 }
 
 watch(() => props.modelValue, (v) => {
@@ -289,7 +303,23 @@ onUnmounted(detachScrollListener)
       <span class="text-xs">暂无标题</span>
     </div>
 
-    <div v-else v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
+    <template v-else>
+      <!-- 头部 -->
+      <div class="flex shrink-0 items-center justify-between border-b border-[var(--surface-border)] px-4 py-2.5">
+        <div class="flex items-center gap-1.5">
+          <List class="h-4 w-4 text-[var(--text-secondary)]" />
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-200">大纲</span>
+        </div>
+        <button
+          class="flex size-5.5 items-center justify-center rounded text-gray-500 hover:bg-[var(--surface-pressed)] hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          title="全部折叠"
+          @click.stop="collapseAll"
+        >
+          <ChevronsDownUp class="size-3.5 pointer-events-none" :stroke-width="2" />
+        </button>
+      </div>
+
+      <div v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <div
         v-for="item in flatList"
         :key="item.key"
@@ -328,7 +358,8 @@ onUnmounted(detachScrollListener)
           {{ item.displayText }}
         </span>
       </div>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 

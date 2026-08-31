@@ -33,6 +33,7 @@ import { keymap } from 'prosemirror-keymap'
 import { open } from '@tauri-apps/plugin-shell'
 import { fromMarkdown, toMarkdown } from '../editor/markdownIO'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
+import { refreshViewport } from '../nodes/viewportPlugin'
 
 export const linkClickPluginKey = new PluginKey('linkClick')
 
@@ -414,6 +415,8 @@ function scrollToAnchor(view: EditorView, rawId: string): void {
   }
   if (target) {
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 程序化跳转:同步刷新 viewport,decoration 在下一帧前完成构建
+    refreshViewport(view)
   }
 }
 

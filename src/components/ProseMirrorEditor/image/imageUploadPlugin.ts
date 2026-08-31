@@ -19,6 +19,7 @@ import { Plugin } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model'
 import { schema as veloSchema } from '../editor/schema'
+import { fromMarkdown } from '../editor/markdownIO'
 import { saveImageAsset } from '@/utils/imageStorage'
 import { useDocumentStore } from '@/stores/document'
 import { handleTreePathDrop, pickImageFile, parseAssetImageMime } from './treeDrop'
@@ -185,8 +186,50 @@ export const imageUploadPlugin = new Plugin({
       // <tbody> 导致 parseSlice 断裂成两个 table 节点(第一个空)。详见 parseTableFromHTML。
       //
       // 纯图片粘贴(截图 / 浏览器复制图)无 text/html → 不受影响,走下方图片分支。
+      //
+      // **坑**:从编辑器 / 浏览器复制含表格的完整 markdown 文档时,剪贴板同样有
+      // text/html(含 <table>) + text/plain(完整 markdown)。如果无条件只提取表格,
+      // 其余内容全部丢失。必须先检查 text/plain 是否包含 markdown 语法特征 ——
+      // 是 markdown 文档则用 fromMarkdown 解析完整文档插入(含表格);仅当
+      // text/plain 是 TSV(Excel / Sheets)时才走表格提取路径。
+      // 不能 return false 让 ProseMirror 默认处理:有 text/html 时 doPaste 走
+      // DOMParser.fromSchema HTML 路径,不调用 clipboardTextParser(那是纯文本路径)。
       const html = cb?.getData('text/html')
       if (html && /<table[\s>]/i.test(html)) {
+        const plain = cb?.getData('text/plain') ?? ''
+
+        // 判断 text/plain 是否是 markdown 文档(而非 Excel TSV)。
+        // Excel TSV:tab 分隔,无 markdown 语法;
+        // Markdown 文档:含 # / | / ``` / - / > 等 markdown 标记。
+        // 检测到任一 markdown block 语法特征即判定为 markdown 文档。
+        const isMarkdown = /^#{1,6}\s/m.test(plain)       // heading
+          || /^```/m.test(plain)                           // fenced code
+          || /^\|.*\|/m.test(plain)                        // GFM table
+          || /^>\s/m.test(plain)                           // blockquote
+          || /^[-*+]\s/m.test(plain)                       // bullet list
+          || /^\d+\.\s/m.test(plain)                       // ordered list
+          || /^---+$/m.test(plain)                        // hr
+
+        if (isMarkdown) {
+          // Markdown 文档粘贴 → 直接用 fromMarkdown 解析完整文档插入。
+          // 不能 return false:ProseMirror doPaste 在有 text/html 时走
+          // DOMParser.fromSchema HTML 路径(不调 clipboardTextParser),
+          // markdownPastePlugin 的 clipboardTextParser 只在纯文本路径被调用。
+          event.preventDefault()
+          try {
+            const doc = fromMarkdown(plain, veloSchema)
+            if (doc.childCount > 0) {
+              const slice = new Slice(doc.content, 0, 0)
+              view.dispatch(view.state.tr.replaceSelection(slice))
+              return true
+            }
+          }
+          catch {
+            // 解析失败 → fall through 走默认路径
+          }
+          return false
+        }
+
         const table = parseTableFromHTML(html)
         if (table) {
           event.preventDefault()

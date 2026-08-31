@@ -73,6 +73,12 @@ interface CodeHighlightState {
   lightTheme: string
   /** 当前深色主题名(双主题代码块的 dark 变体)。 */
   darkTheme: string
+  /** 已装饰过的块(code_block / frontmatter 的 content-start pos):粘性
+   *  decoration —— 滚出视口后 decoration 保留,滚回零重建零闪烁(修"滑回来
+   *  重新加载 header + 高度再跳变")。docChanged 时随 tr.mapping 平移,
+   *  块删除自然失效。Set 在 build 时原地 add(装饰到哪记到哪,plugin state
+   *  不参与 PM 比较,原地变更无害)。 */
+  seenSet: Set<number>
   /** 缓存的 DecorationSet;null 表示需要全量重建。
    *  增量更新策略:apply 里 map 旧 set → 只重建 dirty range 内的 code_block
    *  decoration → 存回 state。decorations() 直接返回缓存,不再每次全量重建。 */
@@ -96,6 +102,7 @@ function makeInitialState(): CodeHighlightState {
     highlighter: getHighlighterSync(), // PM mount 时 App.vue codeBlockReady 守门后必然 ready
     lightTheme: light,
     darkTheme: dark,
+    seenSet: new Set<number>(),
     decoSet: null, // 首次 decorations() 调用时全量构建
   }
 }
@@ -612,6 +619,11 @@ function buildDecosForCodeBlock(
   const isWrapped = isCodeBlockWrapped(pos)
   if (isCodeBlockAncestorFolded(pos)) return []
   if (renderHeader) {
+    // pre 标记"header 已就位":CSS 据此关闭懒加载高度预留(::before 占位条
+    // → 真实 header,两态外框高度相等,见 _editor-code.scss)。与 header widget
+    // 同一门控(同视口/同 seen),PM 会把多个 node decoration 的 class 合并
+    // (velo-folded / data-velo-wrap / 此处共存的既有路径)。
+    decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'velo-code-has-header' }))
     const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
     decos.push(
       Decoration.widget(pos, (view, _getPos) => {
@@ -642,6 +654,10 @@ function buildDecosForCodeBlock(
     )
   }
   if (!lang || blockStart >= blockEnd) return decos
+
+  // 折叠态:pre 被 velo-folded display:none 隐藏,token 装饰白建
+  // (展开走 foldKey meta → 全量重建,token 届时恢复)。
+  if (isFolded) return decos
 
   if (lang === 'mermaid') {
     const colors = getMermaidColors(hl, lightTheme, darkTheme)
@@ -696,12 +712,17 @@ function tokensToDecos(
 }
 
 /** 全量构建:遍历 code_block + frontmatter,生成 DecorationSet。
- *  B1 viewport 感知:只为视口内(及 buffer)节点构建 decoration,视口外跳过。 */
+ *  B1 viewport 感知 + 粘性:为视口内(及 buffer)**或已装饰过(seenSet)**的
+ *  节点构建 decoration —— 滚出视口的已访问块保留装饰,滚回不再重建。
+ *  折叠块免视口过滤:pre 被 velo-folded 隐藏,块高度全靠 header 撑着,
+ *  无 header 的折叠块是 0 高度,进视口补 header 会跳变。
+ *  副作用:seenSet 原地 add(见 state 注释)。 */
 function buildDecorations(
   state: EditorState,
   hl: Highlighter | null,
   lightTheme: string,
   darkTheme: string,
+  seenSet: Set<number>,
 ): DecorationSet {
   const decos: Decoration[] = []
   const foldState = foldKey.getState(state)
@@ -709,13 +730,16 @@ function buildDecorations(
   const scan = scanDoc(state.doc)
   const viewport = getViewport(state)
   for (const { node, pos } of scan.frontmatters) {
-    if (!isInViewport(pos, node.nodeSize, viewport)) continue
+    const blockStart = pos + 1
+    if (!seenSet.has(blockStart) && !isInViewport(pos, node.nodeSize, viewport)) continue
+    seenSet.add(blockStart)
     decos.push(...buildDecosForFrontmatter(state.doc, node, pos, hl, lightTheme, darkTheme))
   }
   for (const { node, pos } of scan.codeBlocks) {
-    if (!isInViewport(pos, node.nodeSize, viewport)) continue
     const blockStart = pos + 1
     const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
+    if (!isFolded && !seenSet.has(blockStart) && !isInViewport(pos, node.nodeSize, viewport)) continue
+    seenSet.add(blockStart)
     const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
     decos.push(...buildDecosForCodeBlock(
       state.doc, node, pos, isFolded, mermaidExpanded, hl, lightTheme, darkTheme,
@@ -727,6 +751,60 @@ function buildDecorations(
 // ============================================================
 //  Plugin
 // ============================================================
+
+/** docChanged 时把 seenSet 的 content-start pos 平移到新 doc 坐标。
+ *  assoc=-1:同 mermaid editNodeSet 的坑 —— 块起点在块内插入文本时保持
+ *  不动(assoc=+1 会把它推到插入末尾,下次 descendants 扫描对不上号);
+ *  块被删除时 map 出的 pos 落在删除点,最多造成一次无害的"误 seen"。 */
+function mapSeenSet(set: Set<number>, tr: Transaction): Set<number> {
+  if (!tr.docChanged || set.size === 0) return set
+  const mapped = new Set<number>()
+  for (const pos of set) {
+    mapped.add(tr.mapping.map(pos, -1))
+  }
+  return mapped
+}
+
+/** viewport meta 到达时的粘性增量更新:只**追加**新进视口且从未装饰过的块的
+ *  decoration(set.add),已装饰块(含滚出视口的)原样保留 —— 滚回已访问
+ *  区域零重建、零 widget DOM 重挂。返回 prev.decoSet 为 null 时保持 null,
+ *  由调用方决定是否落盘全量构建。 */
+function applyViewportSticky(
+  prev: CodeHighlightState,
+  seenSet: Set<number>,
+  newState: EditorState,
+): CodeHighlightState {
+  if (!prev.decoSet) return { ...prev, seenSet, decoSet: null }
+
+  const scan = scanDoc(newState.doc)
+  const viewport = getViewport(newState)
+  const foldState = foldKey.getState(newState)
+  const mermaidState = mermaidDecoKey.getState(newState)
+  const newDecos: Decoration[] = []
+  for (const { node, pos } of scan.codeBlocks) {
+    const blockStart = pos + 1
+    if (seenSet.has(blockStart)) continue
+    const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
+    if (!isFolded && !isInViewport(pos, node.nodeSize, viewport)) continue
+    const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
+    newDecos.push(...buildDecosForCodeBlock(
+      newState.doc, node, pos, isFolded, mermaidExpanded,
+      prev.highlighter, prev.lightTheme, prev.darkTheme,
+    ))
+    seenSet.add(blockStart)
+  }
+  for (const { node, pos } of scan.frontmatters) {
+    const blockStart = pos + 1
+    if (seenSet.has(blockStart)) continue
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
+    newDecos.push(...buildDecosForFrontmatter(
+      newState.doc, node, pos, prev.highlighter, prev.lightTheme, prev.darkTheme,
+    ))
+    seenSet.add(blockStart)
+  }
+  if (newDecos.length === 0) return { ...prev, seenSet }
+  return { ...prev, seenSet, decoSet: prev.decoSet.add(newState.doc, newDecos) }
+}
 
 export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
   key: codeHighlightKey,
@@ -743,31 +821,48 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       const meta = tr.getMeta(codeHighlightKey) as
         | { highlighter?: Highlighter, lightTheme?: string, darkTheme?: string }
         | undefined
+      // docChanged:seenSet 平移到新 doc 坐标(块删除自然失效)
+      const seenSet = mapSeenSet(prev.seenSet, tr)
       // 主题/highlighter 变化或语言加载完成 → 全量重建
       if (meta) {
         return {
           highlighter: meta.highlighter ?? prev.highlighter,
           lightTheme: meta.lightTheme ?? prev.lightTheme,
           darkTheme: meta.darkTheme ?? prev.darkTheme,
+          seenSet,
           decoSet: null,
         }
       }
       // fold / mermaid / codeWrap 状态变化 → header 渲染变化 → 全量重建
       if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey) || tr.getMeta(codeWrapKey)) {
-        return { ...prev, decoSet: null }
+        return { ...prev, seenSet, decoSet: null }
       }
-      // viewport 变化(滚动)→ 全量重建,buildDecorations 会按新 viewport 过滤
+      // viewport 变化(滚动)→ 粘性增量:只**追加**新进视口块的 decoration,
+      // 已装饰块(含滚出视口的)原样保留,滚回已访问区域零重建零闪烁。
+      // decoSet 为 null(尚无缓存,如刚全量重建过)→ 全量构建并落盘,
+      // 之后的滚动全走增量(每 100ms 滚动脉冲只 add 新块,成本随滚动距离
+      // 而非文档大小增长)。
       if (tr.getMeta(viewportKey)) {
-        return { ...prev, decoSet: null }
+        if (!prev.decoSet) {
+          const built = buildDecorations(
+            newState, prev.highlighter, prev.lightTheme, prev.darkTheme, seenSet,
+          )
+          return { ...prev, seenSet, decoSet: built }
+        }
+        return applyViewportSticky(prev, seenSet, newState)
       }
       // selection-only 交易(光标移动 / 选区变化):decorations 不变,返回同一引用
       // → PM 跳过 decoration diff,不重建 DOM。
       if (!tr.docChanged) {
         return prev
       }
-      // prev.decoSet 为 null:上一帧标记了全量重建,这里保持 null 让 decorations() 处理
+      // prev.decoSet 为 null:全量构建并落盘(原实现只保持 null,导致 decoSet
+      // 永远为 null、decorations() 每次 update 都全量重建 —— 增量路径是死代码)
       if (!prev.decoSet) {
-        return prev
+        const built = buildDecorations(
+          newState, prev.highlighter, prev.lightTheme, prev.darkTheme, seenSet,
+        )
+        return { ...prev, seenSet, decoSet: built }
       }
 
       // 增量更新:map 旧 set → 只重建 dirty range 内 code_block/frontmatter 的 decoration
@@ -781,7 +876,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
         })
       }
       if (dirtyRanges.length === 0) {
-        return { ...prev, decoSet: newSet }
+        return { ...prev, seenSet, decoSet: newSet }
       }
 
       // 找到与 dirty ranges 有交集的 code_block / frontmatter
@@ -809,7 +904,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       }
 
       if (affectedCodeBlocks.length === 0 && affectedFrontmatters.length === 0) {
-        return { ...prev, decoSet: newSet }
+        return { ...prev, seenSet, decoSet: newSet }
       }
 
       // 移除受影响节点的旧 decoration,再重建添加
@@ -825,14 +920,18 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       const newDecos: Decoration[] = []
       const viewport = getViewport(newState)
       for (const { node, pos } of affectedFrontmatters) {
-        if (!isInViewport(pos, node.nodeSize, viewport)) continue
+        const blockStart = pos + 1
+        if (!seenSet.has(blockStart) && !isInViewport(pos, node.nodeSize, viewport)) continue
+        seenSet.add(blockStart)
         newDecos.push(...buildDecosForFrontmatter(
           tr.doc, node, pos, prev.highlighter, prev.lightTheme, prev.darkTheme,
         ))
       }
       for (const { node, pos } of affectedCodeBlocks) {
-        if (!isInViewport(pos, node.nodeSize, viewport)) continue
         const blockStart = pos + 1
+        // 粘性:已装饰过的块即使此刻在视口外也重建(seen 优先于 viewport)
+        if (!seenSet.has(blockStart) && !isInViewport(pos, node.nodeSize, viewport)) continue
+        seenSet.add(blockStart)
         const isFolded = foldState ? foldState.collapsedSet.has(blockStart) : false
         const mermaidExpanded = Boolean(mermaidState?.editNodeSet.has(blockStart))
         newDecos.push(...buildDecosForCodeBlock(
@@ -844,7 +943,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
         newSet = newSet.add(tr.doc, newDecos)
       }
 
-      return { ...prev, decoSet: newSet }
+      return { ...prev, seenSet, decoSet: newSet }
     },
   },
   props: {
@@ -853,7 +952,7 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
       if (!s) return null
       // decoSet 为 null:全量重建(首次加载 / 主题切换 / fold/mermaid 变化)
       if (!s.decoSet) {
-        return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme)
+        return buildDecorations(state, s.highlighter, s.lightTheme, s.darkTheme, s.seenSet)
       }
       return s.decoSet
     },

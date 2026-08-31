@@ -217,6 +217,9 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     if (!view) return
     const target = findScrollAncestor(view.dom)
     if (target) target.scrollTop = 0
+    // 程序化跳转同步刷新 viewport:decoration 在下一帧前完成构建,
+    // 避免跳转目标区域首帧是未装饰的 bare pre。
+    refreshViewport(view)
   }
 
   function restoreScrollTop(px: number): void {
@@ -224,6 +227,8 @@ export function useProseMirror(opts: UseProseMirrorOptions): UseProseMirrorRetur
     if (!view) return
     const target = findScrollAncestor(view.dom)
     if (target) target.scrollTop = px
+    // 切标签恢复滚动位置:同步刷新 viewport 让装饰跟进
+    refreshViewport(view)
   }
 
   return { containerRef, viewRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }

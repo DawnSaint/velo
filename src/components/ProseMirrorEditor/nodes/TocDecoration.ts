@@ -16,6 +16,7 @@ import type { EditorView } from 'prosemirror-view'
 import { trashSvg } from '@/components/icons/widgetIcons'
 import { isTocFolded } from './FoldDecoration'
 import { scanDoc } from './docScanCache'
+import { refreshViewport } from './viewportPlugin'
 
 // ============================================================
 //  Plugin state
@@ -155,6 +156,8 @@ function scrollToHeading(level: number, text: string): void {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       el.classList.add('velo-toc-highlight')
       setTimeout(() => el.classList.remove('velo-toc-highlight'), 1500)
+      // 程序化跳转:同步刷新 viewport,decoration 在下一帧前完成构建
+      if (currentView && !currentView.isDestroyed) refreshViewport(currentView)
       return
     }
   }

@@ -125,8 +125,16 @@ async function renderMermaid(code: string, id: string, theme: 'default' | 'dark'
 
 // ========== Plugin state ==========
 
+/** svgCache 值:渲染产物 + 实测高度(px)。height 在 SVG 渲染完成后由 rAF
+ *  量 svgArea 实际高度回写,用于任何 widget 重建(主题切换 / fold / 全量
+ *  rebuild)时垫 min-height —— loader→SVG 不再塌缩弹开(修高度闪烁)。 */
+interface CachedSvg {
+  svg: string
+  height: number
+}
+
 interface MermaidDecoState {
-svgCache: Map<string, string>
+svgCache: Map<string, CachedSvg>
 errorCache: Map<string, string>
 pending: Map<string, Promise<RenderOutcome>>
 /**
@@ -141,6 +149,12 @@ editNodeSet: Set<number>
 * (用户连续点多个 toggle)。
 */
 pendingFocusSet: Set<number>
+/**
+* 已装饰过的 mermaid 块(absolutePos)粘性集合:滚出视口后 decoration
+* 保留(SVG widget 不销毁),滚回零重建零闪烁。docChanged 时随 tr.mapping
+* 平移。build 时原地 add。
+*/
+seenSet: Set<number>
 /** 缓存的 DecorationSet;null 表示需要全量重建。 */
 decoSet: DecorationSet | null
 }
@@ -152,6 +166,7 @@ errorCache: new Map(),
 pending: new Map(),
 editNodeSet: new Set(),
 pendingFocusSet: new Set(),
+seenSet: new Set(),
 decoSet: null,
 }
 }
@@ -249,10 +264,35 @@ function buildDecorations(state: EditorState, deco: MermaidDecoState): Decoratio
   const viewport = getViewport(state)
   for (const { node, pos } of scanDoc(state.doc).codeBlocks) {
     if ((node.attrs.language as string) !== 'mermaid') continue
-    if (!isInViewport(pos, node.nodeSize, viewport)) continue
+    // 粘性:视口内 **或已装饰过**(seenSet)都构建 —— 滚出视口的 mermaid
+    // 保留 SVG widget,滚回不再 code→SVG 重来一遍。
+    const absolutePos = pos + 1
+    if (!deco.seenSet.has(absolutePos) && !isInViewport(pos, node.nodeSize, viewport)) continue
+    deco.seenSet.add(absolutePos)
     decos.push(...buildDecosForMermaidBlock(node, pos, deco))
   }
   return DecorationSet.create(state.doc, decos)
+}
+
+/** viewport meta 到达时的粘性增量:只**追加**新进视口且未见过的 mermaid 块的
+ *  decoration,已装饰块(含滚出视口的)原样保留。decoSet 为 null 时全量
+ *  构建并落盘(与 CodeHighlightWidget.applyViewportSticky 同范式)。 */
+function applyViewportSticky(prev: MermaidDecoState, newState: EditorState): MermaidDecoState {
+  if (!prev.decoSet) {
+    return { ...prev, decoSet: buildDecorations(newState, prev) }
+  }
+  const viewport = getViewport(newState)
+  const newDecos: Decoration[] = []
+  for (const { node, pos } of scanDoc(newState.doc).codeBlocks) {
+    if ((node.attrs.language as string) !== 'mermaid') continue
+    const absolutePos = pos + 1
+    if (prev.seenSet.has(absolutePos)) continue
+    if (!isInViewport(pos, node.nodeSize, viewport)) continue
+    prev.seenSet.add(absolutePos)
+    newDecos.push(...buildDecosForMermaidBlock(node, pos, prev))
+  }
+  if (newDecos.length === 0) return prev
+  return { ...prev, decoSet: prev.decoSet.add(newState.doc, newDecos) }
 }
 
 // ========== Widget factory ==========
@@ -308,15 +348,33 @@ function makeMermaidWidget(
         renderError(svgArea, outcome.error)
       }
       else {
-        deco.svgCache.set(source, outcome.svg)
+        deco.svgCache.set(source, { svg: outcome.svg, height: 0 })
         svgArea.innerHTML = outcome.svg
         const newSvg = svgArea.querySelector('svg')
         if (newSvg) newSvg.style.height = 'auto'
+        measureAndCacheHeight(svgArea, source, deco)
       }
     }).catch(() => deco.pending.delete(source))
   }
   widgetListeners.set(dom, onThemeChange)
   window.addEventListener('velo:theme-change', onThemeChange)
+
+  // 高度衔接(修 code→loader→SVG 三段跳变):创建时垫住 min-height ——
+  //  1. svgCache 命中:用上次渲染实测高度(精确,任何重建都不跳)
+  //  2. 首次进入视口:用当前 pre(未装饰态,显示源码)的实测高度,让
+  //     pre 隐藏 + loader 出现这一步高度中性
+  // 之后 loader→SVG 首次仍有一次过渡(最终高度无法预知),渲染完由
+  // measureAndCacheHeight 回写,后续所有重建走 1。
+  const cached = deco.svgCache.get(source)
+  if (cached && cached.height > 0) {
+    svgArea.style.minHeight = `${cached.height}px`
+  }
+  else if (currentView && !currentView.isDestroyed) {
+    const preEl = currentView.nodeDOM(pos - 1)
+    if (preEl instanceof HTMLElement && preEl.offsetHeight > 0) {
+      svgArea.style.minHeight = `${preEl.offsetHeight}px`
+    }
+  }
 
   fillWidget(svgArea, source, theme, deco)
 
@@ -402,8 +460,9 @@ function fillWidget(
     renderPlaceholder(dom)
     return
   }
-  if (deco.svgCache.has(source)) {
-    renderSvg(dom, deco.svgCache.get(source)!)
+  const cached = deco.svgCache.get(source)
+  if (cached) {
+    renderSvg(dom, cached.svg)
     return
   }
   if (deco.errorCache.has(source)) {
@@ -427,7 +486,7 @@ function fillWidget(
       renderError(dom, outcome.error)
     }
     else {
-      deco.svgCache.set(source, outcome.svg)
+      deco.svgCache.set(source, { svg: outcome.svg, height: 0 })
       deco.errorCache.delete(source)
       const svgEl = dom.querySelector('svg')
       if (svgEl) {
@@ -438,8 +497,26 @@ function fillWidget(
       }
       const newSvg = dom.querySelector('svg')
       if (newSvg) newSvg.style.height = 'auto'
+      measureAndCacheHeight(dom, source, deco)
     }
   }).catch(() => deco.pending.delete(source))
+}
+
+/** SVG 渲染完成后量 svgArea 实际高度回写 svgCache + 对齐 min-height。
+ *  rAF 等 PM 把 widget 挂进文档(工厂/build 阶段尚未 attach,offsetHeight
+ *  恒 0)。jsdom 下量出 0 → 跳过(高度缓存保持 0,重建时不垫)。 */
+function measureAndCacheHeight(
+  svgArea: HTMLElement,
+  source: string,
+  deco: MermaidDecoState,
+): void {
+  requestAnimationFrame(() => {
+    const h = svgArea.offsetHeight
+    if (h <= 0) return
+    const entry = deco.svgCache.get(source)
+    if (entry) entry.height = h
+    svgArea.style.minHeight = `${h}px`
+  })
 }
 
 function renderPlaceholder(dom: HTMLElement): void {
@@ -472,7 +549,6 @@ function renderSvg(dom: HTMLElement, svg: string): void {
   const svgEl = dom.querySelector('svg')
   if (svgEl) svgEl.style.height = 'auto'
 }
-
 // ========== Plugin ==========
 
 const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
@@ -483,7 +559,9 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
       const meta = tr.getMeta(mermaidDecoKey)
       // selection-only:返回同一引用,PM 跳过 decoration diff
       if (!meta && !tr.docChanged) {
-        if (tr.getMeta(viewportKey)) return { ...prev, decoSet: null }
+        // viewport 变化(滚动)→ 粘性增量:只追加新进视口块的 decoration,
+        // 已装饰块(含滚出视口的)原样保留(同 CodeHighlightWidget 范式)
+        if (tr.getMeta(viewportKey)) return applyViewportSticky(prev, newState)
         return prev
       }
 
@@ -491,6 +569,14 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
       const { svgCache, errorCache, pending } = prev
       let editNodeSet = new Set(prev.editNodeSet)
       let pendingFocusSet = new Set(prev.pendingFocusSet)
+      // docChanged:seenSet 平移到新 doc 坐标(同 editNodeSet 的 assoc=-1 语义,
+      // 块删除自然失效)
+      let seenSet = prev.seenSet
+      if (tr.docChanged && seenSet.size > 0) {
+        const mappedSeen = new Set<number>()
+        for (const pos of seenSet) mappedSeen.add(tr.mapping.map(pos, -1))
+        seenSet = mappedSeen
+      }
 
       if (meta) {
         // toggle:同 pos 再次点击 → 退出;否则进入(add 到 set)。
@@ -551,15 +637,15 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
       }
 
       // meta(toggleEditAt / consumeFocus)或 fold 状态变化 → 全量重建
-      // (isMermaidFolded 依赖 fold 插件的 module-level set,fold meta 变化时需重建)
-      // viewport 变化 → 全量重建
+      // (isMermaidFolded 依赖 fold 插件的 module-level set,fold meta 变化时需重建;
+      //  全量重建带 seenSet,已访问块的装饰不回退)
       if (meta || tr.getMeta(foldKey) || tr.getMeta(viewportKey)) {
-        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null }
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, seenSet, decoSet: null }
       }
 
       // docChanged only → 增量更新
       if (!prev.decoSet) {
-        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null }
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, seenSet, decoSet: null }
       }
 
       // map 旧 set 平移 pos
@@ -579,12 +665,12 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
         })
       }
       if (affected.length === 0) {
-        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: newSet }
+        return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, seenSet, decoSet: newSet }
       }
 
       // 移除受影响 mermaid code_block 的旧 decoration,重建
       const mermaidState: MermaidDecoState = {
-        svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: null,
+        svgCache, errorCache, pending, editNodeSet, pendingFocusSet, seenSet, decoSet: null,
       }
       for (const { pos, node } of affected) {
         const found = newSet.find(pos, pos + node.nodeSize)
@@ -593,14 +679,17 @@ const mermaidDecoPlugin = new Plugin<MermaidDecoState>({
       const newDecos: Decoration[] = []
       const viewport = getViewport(newState)
       for (const { node, pos } of affected) {
-        if (!isInViewport(pos, node.nodeSize, viewport)) continue
+        // 粘性:已装饰过的块即使此刻在视口外也重建(seen 优先于 viewport)
+        const absolutePos = pos + 1
+        if (!seenSet.has(absolutePos) && !isInViewport(pos, node.nodeSize, viewport)) continue
+        seenSet.add(absolutePos)
         newDecos.push(...buildDecosForMermaidBlock(node, pos, mermaidState))
       }
       if (newDecos.length > 0) {
         newSet = newSet.add(tr.doc, newDecos)
       }
 
-      return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, decoSet: newSet }
+      return { svgCache, errorCache, pending, editNodeSet, pendingFocusSet, seenSet, decoSet: newSet }
     },
   },
   props: {
