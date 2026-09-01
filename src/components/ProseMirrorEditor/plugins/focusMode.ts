@@ -4,7 +4,7 @@
 // code_block / math_block ...)保持全不透明,其余顶层块由 CSS 降透明度
 // (`.velo-editor.focus-mode .ProseMirror > *` → opacity,`.velo-focus-active`
 // 覆盖回 1)。插件只负责给当前块挂 `Decoration.node` class,CSS 层接管
-// 视觉 —— 与 codeLineNumberPlugin 同范式(setMeta 翻 enabled,decorations
+// 视觉 —— 与 codeLineNumberPlugin 同范式(setMeta 翻 per-block toggle,decorations
 // 读 state 决定是否产出)。
 //
 // "顶层块"取 depth-1 祖先:光标在 blockquote 内段落时,整个 blockquote
@@ -13,7 +13,7 @@
 // **初始化与文件切换**: focusMode 是 App.vue 的运行时 ref(不持久化),
 // 不进 store。模块级 `currentEnabled` 由 EditorInner.vue watch 同步,
 // `state.init` 读它 —— 切文件时 `view.updateState(EditorState.create(...))`
-// 会重跑 init,正确恢复当前开关态(与 codeLineNumberPlugin 读 store 同理)。
+// 会重跑 init,正确恢复当前开关态。
 
 import { Plugin, PluginKey } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'

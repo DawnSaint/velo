@@ -101,10 +101,6 @@ export const useEditorStore = defineStore('editor', () => {
   const codeDarkTheme = ref(DEFAULT_DARK_THEME)
   /** 启动时打开内容的选择。默认 'last-file'。 */
   const startupMode = ref<StartupMode>('last-file')
-  /** WYSIWYG 代码块行号(可选开关,默认关闭)。
-   * 行号是纯视觉装饰,plugin `lineNumberPlugin` 读这个字段决定是否挂 widget,
-   * 不进 schema / 不进 markdown 序列化。 */
-  const showCodeLineNumbers = ref(false)
   /** 编辑器顶部面包屑(可选开关,默认开启)。
    * 纯 UI 偏好,不进 documentStore / 不持久化到 per-workspace。 */
   const showBreadcrumbs = ref(true)
@@ -221,7 +217,6 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.codeLightTheme === 'string') codeLightTheme.value = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') codeDarkTheme.value = e.codeDarkTheme
     if (e.startupMode === 'last-file' || e.startupMode === 'new-doc') startupMode.value = e.startupMode
-    if (typeof e.showCodeLineNumbers === 'boolean') showCodeLineNumbers.value = e.showCodeLineNumbers
     if (typeof e.showBreadcrumbs === 'boolean') showBreadcrumbs.value = e.showBreadcrumbs
     if (typeof e.themeColorAffectsDoc === 'boolean') themeColorAffectsDoc.value = e.themeColorAffectsDoc
     if (typeof e.cjkLetterSpacing === 'boolean') cjkLetterSpacing.value = e.cjkLetterSpacing
@@ -271,7 +266,6 @@ export const useEditorStore = defineStore('editor', () => {
       codeLightTheme: codeLightTheme.value,
       codeDarkTheme: codeDarkTheme.value,
       startupMode: startupMode.value,
-      showCodeLineNumbers: showCodeLineNumbers.value,
       showBreadcrumbs: showBreadcrumbs.value,
       themeColorAffectsDoc: themeColorAffectsDoc.value,
       cjkLetterSpacing: cjkLetterSpacing.value,
@@ -298,7 +292,6 @@ export const useEditorStore = defineStore('editor', () => {
     codeLightTheme,
     codeDarkTheme,
     startupMode,
-    showCodeLineNumbers,
     showBreadcrumbs,
     themeColorAffectsDoc,
     cjkLetterSpacing,

@@ -237,12 +237,12 @@ html.dark .velo-editor :not(pre) > code {
 
   // wrap toggle:active 态高亮(主色 + 全不透明),与 fold/copy 的 hover-gated
   // opacity 区分,让用户一眼看出当前是否开启换行。margin-left: auto 推到右侧
-  // (copy 按钮紧随其后)。
+  // (line + copy 按钮紧随其后)。
   > .velo-code-wrap-btn {
     margin-left: auto;
   }
 
-  // copy button:紧随 wrap 按钮(wrap 按钮 margin-left:auto 已推到右侧)
+  // copy button:紧随 line 按钮
 
   // 折叠态行数摘要:展开时隐藏
   > .velo-code-fold-info {
@@ -362,6 +362,14 @@ html.dark .velo-code-header-widget:has(+ pre.velo-folded),
   user-select: none;
   pointer-events: none;
   z-index: 1;
+}
+
+// 有行号(code_block 有 data-velo-gutter 属性)时,pre 去掉 padding-left,
+// 由行号 widget 自身的宽度占据左侧空间。否则 sticky left:0 只固定在
+// content-box 左缘(即 padding 内侧),横向滚动时代码从 padding 缝隙中
+// 露出,出现"代码→行号→代码"错位。
+.velo-editor pre[data-velo-gutter="true"] {
+  padding-left: 0;
 }
 
 html.dark .velo-editor .velo-code-lineno,

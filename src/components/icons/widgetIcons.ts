@@ -36,6 +36,18 @@ const NOWRAP_INNER
   + '<line x1="3" y1="12" x2="18" y2="12" />'
   + '<polyline points="15 9 18 12 15 15" />'
   + '<line x1="3" y1="18" x2="21" y2="18" />'
+// list-ordered:lucide 标准 path(带序号的列表,表示行号开启态)
+const LIST_ORDERED_INNER
+  = '<line x1="10" y1="6" x2="21" y2="6" />'
+  + '<line x1="10" y1="12" x2="21" y2="12" />'
+  + '<line x1="10" y1="18" x2="21" y2="18" />'
+  + '<path d="M4 6h1v4" /><path d="M4 10h2" /><path d="M6 18H4c0-1 2-2 2-3l-1-1c-.5 0-1 .5-1 1" />'
+// align-justify:lucide 标准 path(等宽填充行,表示行号关闭态)
+const ALIGN_JUSTIFY_INNER
+  = '<line x1="3" y1="6" x2="21" y2="6" />'
+  + '<line x1="3" y1="12" x2="21" y2="12" />'
+  + '<line x1="3" y1="18" x2="21" y2="18" />'
+
 // Trash2:lucide 标准 path(lid + body 合并,line 表中间两条竖线)
 const TRASH_INNER
   = '<polyline points="3 6 5 6 21 6" />'
@@ -65,3 +77,9 @@ export const wrapTextSvg = (size: number): string => makeSvg(WRAP_TEXT_INNER, si
 
 /** 不换行图标(代码块 wrap toggle 按钮,wrap 关闭态:横线 + 右箭头表示溢出)。 */
 export const nowrapSvg = (size: number): string => makeSvg(NOWRAP_INNER, size)
+
+/** 行号开启图标(带序号的列表,表示行号已开启)。 */
+export const listOrderedSvg = (size: number): string => makeSvg(LIST_ORDERED_INNER, size)
+
+/** 行号关闭图标(等宽填充行,表示行号已关闭)。 */
+export const alignJustifySvg = (size: number): string => makeSvg(ALIGN_JUSTIFY_INNER, size)

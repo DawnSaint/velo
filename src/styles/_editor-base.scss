@@ -142,7 +142,7 @@
 // 专注模式(focusMode → .velo-editor.focus-mode):
 // 当前段落(focusModePlugin 用 Decoration.node 挂 .velo-focus-active)保持全不透明,
 // 其余顶层块降透明度。CSS 层接管视觉,plugin 只管标记当前块 —— 与
-// codeLineNumberPlugin 同范式(setMeta 翻 enabled,decorations 读 state)。
+// codeLineNumberPlugin 同范式(setMeta 翻 per-block toggle,decorations 读 state)。
 .velo-editor.focus-mode .ProseMirror > * {
   opacity: 0.25;
   transition: opacity 200ms ease;

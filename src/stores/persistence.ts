@@ -36,8 +36,6 @@ export interface PersistedSettings {
     codeDarkTheme?: string
     /** 启动时打开内容的选择。'last-file' | 'new-doc'。 */
     startupMode?: 'last-file' | 'new-doc'
-    /** WYSIWYG 代码块行号(可选,默认 false)。v0.5.11 加。 */
-    showCodeLineNumbers?: boolean
     /** 编辑器顶部面包屑(可选,默认 true)。v0.6.5 加。 */
     showBreadcrumbs?: boolean
     /** 主题色是否影响文档内容颜色(可选,默认 false)。 */

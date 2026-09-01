@@ -20,7 +20,6 @@ import {
 } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 import { extractLangsFromDoc } from '@/components/ProseMirrorEditor/editor/markdownIO'
 import { codeHighlightKey } from '@/components/ProseMirrorEditor/nodes/CodeHighlightWidget'
-import { lineNumbersKey } from '@/components/ProseMirrorEditor/nodes/CodeLineNumberWidget'
 import { cjkSpacingKey } from '@/components/ProseMirrorEditor/plugins/cjkLetterSpacing'
 import { autoPairKey } from '@/components/ProseMirrorEditor/plugins/autoPair'
 import { cjkAutoFormatKey } from '@/components/ProseMirrorEditor/plugins/cjkAutoFormat'
@@ -876,7 +875,9 @@ const { autoCheck: autoCheckUpdate } = useUpdater()
 // ========== 编辑器缩放(v0.7.12) ==========
 // watch editorStore.zoomLevel 变化时调 Tauri setWebviewZoom。
 // 快捷键(zoomCommands)和设置面板(EditorGroup)只改 store,IPC 出口收敛于此。
-useZoom()
+// 传入 settingsReady:在 settings hydrate 完成前不 applyZoom,避免启动时
+// 先用默认 100% 渲染再跳到用户持久化的 zoom 值(视觉跳变)。
+useZoom(settingsReady)
 
 // ========== composable: 工作区搜索编排 ==========
 const {
@@ -1216,21 +1217,6 @@ onMounted(async () => {
         lightTheme: light,
         darkTheme: dark,
       }))
-    },
-  )
-
-  // 4.5.x) WYSIWYG 代码块行号(v0.5.11):用户改 store.showCodeLineNumbers →
-  // dispatch setMeta(lineNumbersKey, { enabled }) → plugin.decorations()
-  // 重跑(enabled=true 挂 widget / false 返回 DecorationSet.empty)。
-  // 不开 immediate:plugin state.init 已从 store 同步读初值(见
-  // CodeLineNumberWidget.ts 的 makeInitialState),首挂时开关状态已就位。
-  // 本 watch 只管"用户后续改"。
-  watch(
-    () => store.showCodeLineNumbers,
-    (enabled) => {
-      const view = editorRef.value?.getEditorView()
-      if (!view || view.isDestroyed) return
-      view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled }))
     },
   )
 

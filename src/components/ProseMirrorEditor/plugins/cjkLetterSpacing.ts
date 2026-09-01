@@ -7,8 +7,7 @@
 // 代码块 / 行内代码内不添加装饰(schema.name === 'code_block' 的 node
 // 直接跳过;inline code 不在 text node 父链里,由 schema 结构天然隔离)。
 //
-// **初始化与文件切换**:与 codeLineNumberPlugin 同范式——
-// `state.init` 从 store 同步读初值;切文件时 `view.updateState
+// **初始化与文件切换**:`state.init` 从 store 同步读初值;切文件时 `view.updateState
 // (EditorState.create(...))` 会重跑 init,正确恢复开关态。
 //
 // **增量更新**:docChanged 时用 `tr.mapping` map 旧 DecorationSet,

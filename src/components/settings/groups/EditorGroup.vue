@@ -315,14 +315,6 @@ const formatRuleValue = computed<string[]>({
       >
     </SettingsItem>
 
-    <SettingsItem label="代码块行号" :keywords="['line-number', '行号']" clickable>
-      <input
-        v-model="store.showCodeLineNumbers"
-        type="checkbox"
-        role="switch"
-        class="velo-switch"
-      >
-    </SettingsItem>
     <SettingsItem label="面包屑" :keywords="['breadcrumb', '面包屑']" clickable>
       <input
         v-model="store.showBreadcrumbs"

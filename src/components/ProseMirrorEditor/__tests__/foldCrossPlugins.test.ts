@@ -72,7 +72,16 @@ describe('codeLineNumber × fold', () => {
       '',
     ].join('\n')
     const view = makeView(md, [foldDecoration, codeLineNumberPlugin])
-    view.dispatch(view.state.tr.setMeta(lineNumbersKey, { enabled: true }))
+    // 找到 code_block 的 pos,toggle 开启该块的行号
+    let codeBlockPos = -1
+    view.state.doc.descendants((node, p) => {
+      if (node.type.name === 'code_block' && codeBlockPos < 0) {
+        codeBlockPos = p
+        return false
+      }
+      return true
+    })
+    view.dispatch(view.state.tr.setMeta(lineNumbersKey, { toggle: codeBlockPos }))
     expect(view.dom.querySelector('.velo-code-lineno')).not.toBeNull()
 
     const contentStart = findHeadingContentStart(view, 'Section')

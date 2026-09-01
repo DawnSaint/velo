@@ -54,9 +54,10 @@ import {
 } from './CodeBlockLangs'
 import { tokenizeMermaid } from './mermaidTokenizer'
 import { writeClipboardText } from '@/utils/clipboard'
-import { checkSvg, chevronDownSvg, copySvg, wrapTextSvg, nowrapSvg } from '@/components/icons/widgetIcons'
+import { checkSvg, chevronDownSvg, copySvg, wrapTextSvg, nowrapSvg, listOrderedSvg, alignJustifySvg } from '@/components/icons/widgetIcons'
 import { langIconSvg } from './langIcons'
 import { foldKey, isCodeBlockAncestorFolded } from './FoldDecoration'
+import { lineNumbersKey, isCodeBlockLineNumbersEnabled } from './CodeLineNumberWidget'
 import { codeWrapKey, isCodeBlockWrapped } from './CodeWrapPlugin'
 import { mermaidDecoKey } from './MermaidDecoration'
 import { scanDoc } from './docScanCache'
@@ -142,6 +143,8 @@ function makeHeaderDom(
   toggleFold: () => void,
   isWrapped: boolean,
   toggleWrap: () => void,
+  hasLineNumbers: boolean,
+  toggleLineNumbers: () => void,
   setLang: (lang: string) => void,
   focusCode: () => void,
   hideFoldBtn: boolean = false,
@@ -427,6 +430,25 @@ function makeHeaderDom(
   })
   wrap.appendChild(wrapBtn)
 
+  // 行号 toggle 按钮:点击切换本 code_block 的行号显隐(per-block 粒度)。
+  // 与 wrap 按钮同范式:active 态高亮(主色 + 全不透明)。
+  const lineBtn = document.createElement('button')
+  lineBtn.type = 'button'
+  lineBtn.className = 'velo-icon-btn velo-code-line-btn'
+  lineBtn.title = hasLineNumbers ? '隐藏行号' : '显示行号'
+  lineBtn.contentEditable = 'false'
+  lineBtn.innerHTML = hasLineNumbers ? listOrderedSvg(14) : alignJustifySvg(14)
+  lineBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  lineBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    toggleLineNumbers()
+  })
+  wrap.appendChild(lineBtn)
+
   // 复制按钮 —— widget 内部直接 await,避免跨组件 async 时序问题
   const copyBtn = document.createElement('button')
   copyBtn.type = 'button'
@@ -617,6 +639,7 @@ function buildDecosForCodeBlock(
     ? doc.textBetween(blockStart, blockEnd, '\n', '\n')
     : ''
   const isWrapped = isCodeBlockWrapped(pos)
+  const hasLineNumbers = isCodeBlockLineNumbersEnabled(pos)
   if (isCodeBlockAncestorFolded(pos)) return []
   if (renderHeader) {
     // pre 标记"header 已就位":CSS 据此关闭懒加载高度预留(::before 占位条
@@ -624,7 +647,7 @@ function buildDecosForCodeBlock(
     // 同一门控(同视口/同 seen),PM 会把多个 node decoration 的 class 合并
     // (velo-folded / data-velo-wrap / 此处共存的既有路径)。
     decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'velo-code-has-header' }))
-    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}`
+    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}:${hasLineNumbers}`
     decos.push(
       Decoration.widget(pos, (view, _getPos) => {
         return makeHeaderDom(
@@ -637,6 +660,11 @@ function buildDecosForCodeBlock(
           () => {
             if (!view || view.isDestroyed) return
             view.dispatch(view.state.tr.setMeta(codeWrapKey, { toggle: pos }))
+          },
+          hasLineNumbers,
+          () => {
+            if (!view || view.isDestroyed) return
+            view.dispatch(view.state.tr.setMeta(lineNumbersKey, { toggle: pos }))
           },
           (newLang: string) => {
             if (!view || view.isDestroyed) return
@@ -833,8 +861,8 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
           decoSet: null,
         }
       }
-      // fold / mermaid / codeWrap 状态变化 → header 渲染变化 → 全量重建
-      if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey) || tr.getMeta(codeWrapKey)) {
+      // fold / mermaid / codeWrap / lineNumbers 状态变化 → header 渲染变化 → 全量重建
+      if (tr.getMeta(foldKey) || tr.getMeta(mermaidDecoKey) || tr.getMeta(codeWrapKey) || tr.getMeta(lineNumbersKey)) {
         return { ...prev, seenSet, decoSet: null }
       }
       // viewport 变化(滚动)→ 粘性增量:只**追加**新进视口块的 decoration,

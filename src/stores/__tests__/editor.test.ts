@@ -91,11 +91,6 @@ describe('editor store 默认值', () => {
     expect(store.darkMode).toBe(true)
   })
 
-  it('showCodeLineNumbers 默认 false(v0.5.11 可选行号,默认关闭)', () => {
-    const store = useEditorStore()
-    expect(store.showCodeLineNumbers).toBe(false)
-  })
-
   it('zoomLevel 默认 1.0(v0.7.12)', () => {
     const store = useEditorStore()
     expect(store.zoomLevel).toBe(1.0)
@@ -114,9 +109,6 @@ describe('editor store 默认值', () => {
 
     store.primaryColor = '#FF0000'
     expect(store.primaryColor).toBe('#FF0000')
-
-    store.showCodeLineNumbers = true
-    expect(store.showCodeLineNumbers).toBe(true)
   })
 })
 

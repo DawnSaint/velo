@@ -11,7 +11,7 @@
 //   zoomCommands 调 showZoomIndicator() 显示;ZoomIndicator 组件读此 ref
 //   决定显隐,用户拖动浮层滑块直接改 store.zoomLevel。
 
-import { ref, watch } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri } from '@tauri-apps/api/core'
 import { useEditorStore } from '@/stores/editor'
@@ -40,20 +40,33 @@ export function showZoomIndicator(): void {
 
 /**
  * 初始化 zoom 同步:watch editorStore.zoomLevel,变化时调 setWebviewZoom。
- * App.vue onMounted 调一次即可,多次调用安全(idempotent guard)。
+ * App.vue setup 顶层调一次即可,多次调用安全(idempotent guard)。
+ *
+ * **启动零跳变**:传入 settingsReady ref,在 settings hydrate 完成前不 applyZoom,
+ * 避免先用默认 100% 渲染再跳到用户值。settingsReady 翻 true 后首次 applyZoom
+ * 拿到的已经是用户持久化的 zoomLevel,webview 只被设置一次。
  *
  * dev web 端(无 Tauri runtime)不调 IPC,仅 store 状态变化,不报错。
+ *
+ * @param settingsReady App.vue 中 initSettings 完成后翻 true 的 ref
  */
-export function useZoom(): void {
+export function useZoom(settingsReady: Ref<boolean>): void {
   if (initialized) return
   initialized = true
 
   const store = useEditorStore()
 
-  // 立即应用一次:启动 / hydrate 后把磁盘里读到的 zoomLevel 同步到 webview。
-  applyZoom(store.zoomLevel)
+  // settings hydrate 完成后首次 applyZoom(此时 store.zoomLevel 已是用户持久化值)。
+  // 之后 watch zoomLevel 变化实时同步。
+  watch(settingsReady, (ready) => {
+    if (!ready) return
+    applyZoom(store.zoomLevel)
+  }, { immediate: true })
 
   watch(() => store.zoomLevel, (level) => {
+    // settingsReady 未翻时跳过 —— 首次 applyZoom 由上方 settingsReady watcher 负责,
+    // 避免 hydrate 把默认值改写为用户值时触发多余的 100% → 用户值跳变。
+    if (!settingsReady.value) return
     applyZoom(level)
   })
 }
