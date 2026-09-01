@@ -1,4 +1,4 @@
-// 应用自动更新(v0.8.x #updater)
+// 应用自动更新
 //
 // 封装 Tauri Updater plugin 的 check / download / install / relaunch 全流程,
 // 提供 reactive 状态供设置页 UI 消费。

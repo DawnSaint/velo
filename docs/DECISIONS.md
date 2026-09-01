@@ -140,11 +140,11 @@
 
 ## v0.5.5 — 侧栏
 
-### ADR-20260626-001: 侧栏宽度 per-workspace 持久化（READ 语义）
+### ADR-20260626-001: 侧栏宽度持久化粒度（已被 v0.7.13 全局粒度覆盖）
 
-- **Context**: A 全局单一宽度 vs B per-workspace vs C per-document。不同工作区应有不同的宽度偏好。
-- **Decision**: 选 B。`WorkspaceState` 加 `sidebarWidth`。`setActiveRoot` 走 **READ** 语义（切出时**读**目标工作区的宽度），与 `sidebarTab` 的 WRITE 语义相反——因为 per-workspace 持久化要求"切回 /a 后宽度还是 /a 的"。
-- **Consequences**: 旧 JSON 缺字段回退 256 无需手动迁移。后续若想"新工作区继承当前宽度"，改 READ→WRITE 即可。
+- **Context**: A 全局单一宽度 vs B per-workspace vs C per-document。
+- **Decision**: v0.5.5 选 B（per-workspace，READ 语义）。改为 A（全局粒度，走 `PersistedSettings.editor.sidebarWidth`），所有工作区/窗口共享一个值。
+- **Consequences**: 旧 v1-v4 JSON 的 `WorkspaceState.sidebarWidth` 由启动期 `migrateWorkspacesIfNeeded` 迁移到 `velo-settings.json`（全局值优先，settings 已有 `sidebarWidth` 时不覆盖），迁移后从 workspaces JSON 中删除该字段。`WORKSPACES_VERSION` bump 到 5，`WorkspaceState.sidebarWidth` 字段从接口删除。`loadWorkspaces` / `loadFrom` 不再内联兼容逻辑，只处理当前版本格式。
 
 ### ADR-20260626-002: 侧栏双阈值 + 死区 snap
 
@@ -335,4 +335,12 @@
 - **Context**: 编辑器异常退出后用户未保存内容丢失。候选:A per-doc 草稿（每文档独立草稿文件，恢复时逐文档匹配）；B per-workspace 草稿（按工作区目录隔离，启动恢复在该工作区的标签集内静默完成）；C Dialog 提示恢复（用户选择是否恢复）。
 - **Decision**: 选 B。脏盘每 30s 写草稿到 `appDataDir/drafts/{workspaceKey}/{id}.json`，workspaceKey = `encodePathAsId(workspaceRoot)`。启动时 `loadContentIntoTabs` 并发查草稿，有草稿则用草稿内容装载 + 设磁盘基线让 `dirty=true`，并删除已消费草稿。无 Dialog，无中断（同 VSCode Hot Exit 语义）。无 workspace 时用 `_no_workspace` fallback key 覆盖"只打开文件没开工作区"的场景。`pagehide` 同步落盘防 debounce 未触发。
 - **Consequences**: 用户异常退出后重启自动恢复未保存内容，零交互成本。草稿按工作区隔离，A 工作区的草稿不在 B 工作区恢复。草稿 ID 简化为 `file-{encodePathAsId(path)}` / `untitled-{docId}`，无 window scope——多窗口隔离由 per-workspace 目录天然保证。草稿与版本快照分工明确：草稿是 dirty 期间定时落盘的崩溃恢复手段（写盘成功后清除），版本快照是保存点的只读归档。
+
+## v0.7.13 — 持久化迁移
+
+### ADR-20260901-001: 启动期一次性迁移替代内联兼容代码
+
+- **Context**: 随着版本迭代，`loadWorkspaces` / `loadSettings` / `loadFrom` / `hydrateSettings` 中堆积了越来越多的旧版本兼容逻辑（接受 v1-v4 JSON、`darkMode` → `themeMode` 迁移、`'system'` 字体值转换、`fontFamily` 废弃字段处理等）。每次新增字段或迁移时都在 load/hydrate 路径加 `if/else`，代码膨胀且难以维护。候选:A 继续在 load 函数中内联兼容（现状，兼容逻辑只增不减）；B 启动期一次性迁移旧配置文件到当前版本并写回磁盘，之后 load 函数只认当前版本；C 安装新版本时跑迁移脚本（不适用于 Tauri 免安装更新）。
+- **Decision**: 选 B。App.vue `initSettings()` 在 `loadSettings()` / `loadWorkspaces()` 之前调 `migrateSettingsIfNeeded()` + `migrateWorkspacesIfNeeded()`，逐级迁移链（v1→v2→…→vN）把旧版本配置文件升级到当前版本并写回磁盘。之后 `loadSettings` / `loadWorkspaces` / `loadDraft` 只认当前版本号，不兼容旧版本。`hydrateSettings` 删除 `darkMode` / `fontFamily` / `'system'` 字体值的内联迁移逻辑。`migrateWorkspacesIfNeeded` 的 v4→v5 迁移做跨文件操作：从 active workspace 提取 `sidebarWidth` 写入 `velo-settings.json`（全局值优先），然后从 workspaces JSON 中删除该字段。
+- **Consequences**: load / hydrate 路径干净，只处理当前格式；旧版本兼容逻辑集中在一处（migration 函数），后续新增版本只需加一级迁移步骤；用户无感知（启动时静默完成）。迁移失败不阻塞，load 走默认值继续。代价:每次启动多一次文件读 + 可能一次写（已迁移后 no-op，只读一次确认版本号）。
 

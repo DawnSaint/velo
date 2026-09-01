@@ -4,9 +4,13 @@ import {
   useEditorStore,
   normalizeActivityBarConfig,
   clampZoomLevel,
+  clampSidebarWidth,
   ZOOM_LEVEL_MIN,
   ZOOM_LEVEL_MAX,
   ZOOM_LEVEL_DEFAULT,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_DEFAULT,
 } from '../editor'
 
 describe('editor store 默认值', () => {
@@ -330,6 +334,85 @@ describe('editor store 字体选配 hydrate / snapshot', () => {
     expect(snap.latinFont).toBe('georgia')
     expect(snap.cjkFont).toBe('yahei')
     expect(snap.monoFont).toBe('consolas')
+  })
+})
+
+describe('editor store sidebarWidth (v0.7.13 全局粒度)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('默认值 256', () => {
+    const store = useEditorStore()
+    expect(store.sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT)
+  })
+
+  it('setSidebarWidth clamp 到 [MIN, MAX]', () => {
+    const store = useEditorStore()
+    store.setSidebarWidth(800)
+    expect(store.sidebarWidth).toBe(SIDEBAR_WIDTH_MAX)
+    store.setSidebarWidth(100)
+    expect(store.sidebarWidth).toBe(SIDEBAR_WIDTH_MIN)
+    store.setSidebarWidth(350)
+    expect(store.sidebarWidth).toBe(350)
+  })
+
+  it('hydrate 合法 sidebarWidth 写入 store', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      sidebarWidth: 400,
+    })
+    expect(store.sidebarWidth).toBe(400)
+  })
+
+  it('hydrate 超出范围 clamp', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+      sidebarWidth: 800,
+    })
+    expect(store.sidebarWidth).toBe(SIDEBAR_WIDTH_MAX)
+  })
+
+  it('hydrate 缺失 sidebarWidth 不改默认值', () => {
+    const store = useEditorStore()
+    store.hydrateSettings({
+      fontSize: '16px',
+      primaryColor: '#1F71D9',
+    })
+    expect(store.sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT)
+  })
+
+  it('snapshot 包含 sidebarWidth', () => {
+    const store = useEditorStore()
+    store.setSidebarWidth(420)
+    const snap = store.snapshotSettings()
+    expect(snap.sidebarWidth).toBe(420)
+  })
+})
+
+describe('clampSidebarWidth', () => {
+  it('合法值原样返回', () => {
+    expect(clampSidebarWidth(256)).toBe(256)
+    expect(clampSidebarWidth(200)).toBe(SIDEBAR_WIDTH_MIN)
+    expect(clampSidebarWidth(600)).toBe(SIDEBAR_WIDTH_MAX)
+  })
+
+  it('低于 MIN clamp 到 MIN', () => {
+    expect(clampSidebarWidth(100)).toBe(SIDEBAR_WIDTH_MIN)
+    expect(clampSidebarWidth(0)).toBe(SIDEBAR_WIDTH_MIN)
+  })
+
+  it('高于 MAX clamp 到 MAX', () => {
+    expect(clampSidebarWidth(800)).toBe(SIDEBAR_WIDTH_MAX)
+    expect(clampSidebarWidth(9999)).toBe(SIDEBAR_WIDTH_MAX)
+  })
+
+  it('NaN 回退默认', () => {
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_WIDTH_DEFAULT)
   })
 })
 

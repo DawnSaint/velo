@@ -17,25 +17,21 @@ import type { ActivityBarItem } from './editor'
 // ========== 用户设置 ==========
 
 const SETTINGS_FILE = 'velo-settings.json'
-const SETTINGS_VERSION = 1
+export const SETTINGS_VERSION = 1
 
 export interface PersistedSettings {
   version: number
   editor: {
     fontSize: string
     primaryColor: string
-    /** @deprecated 已被 latinFont / cjkFont / monoFont 三字段取代，仅保留用于读取旧版本设置文件。 */
-    fontFamily?: string
     /** 西文字体 key（fontStacks.latin 的键），默认按平台：macOS 'charter' / Windows 'cambria'。 */
     latinFont?: string
     /** 中日韩字体 key（fontStacks.cjk 的键），默认按平台：macOS 'pingfang' / Windows 'yahei'。 */
     cjkFont?: string
     /** 等宽字体 key（fontStacks.mono 的键），默认按平台：macOS 'sfmono' / Windows 'cascadiacode'。 */
     monoFont?: string
-    /** 主题模式：跟随系统 / 始终浅色 / 始终暗色。取代旧版 darkMode: boolean。 */
+    /** 主题模式：跟随系统 / 始终浅色 / 始终暗色。 */
     themeMode?: 'system' | 'light' | 'dark'
-    /** @deprecated 已被 themeMode 取代，仅保留用于读取旧版本设置文件。 */
-    darkMode?: boolean
     codeLightTheme?: string
     codeDarkTheme?: string
     /** 启动时打开内容的选择。'last-file' | 'new-doc'。 */
@@ -60,15 +56,81 @@ export interface PersistedSettings {
     /** 编辑器缩放级别(可选,v0.7.12)。默认 1.0,范围 0.5–2.0,步长 0.1。
      *  走 Tauri set_webview_zoom,对整个编辑器区域做全局视觉缩放。 */
     zoomLevel?: number
+    /** 侧栏宽度(可选)。全局 UI 偏好,所有工作区/窗口共享一个值(px,200-600,默认 256)。 */
+    sidebarWidth?: number
   }
   document: {
     autoSaveEnabled: boolean
     autoSaveOnBlur: boolean
   }
-  /** 系统级设置(v0.8.x #updater)。旧版本设置文件无此节,hydrate 时保持 store 默认值。 */
+
   system?: {
     /** 自动更新开关(可选,默认 true)。开启时启动自动检查+后台下载新版本。 */
     autoUpdateEnabled?: boolean
+  }
+}
+
+/**
+ * 迁移 velo-settings.json 中的废弃字段到当前格式并写回磁盘。
+ *
+ * SETTINGS_VERSION 仍为 1,但字段内部有历史变更：
+ * - darkMode(boolean) → themeMode('system'|'light'|'dark')
+ * - fontFamily(string) → 删除(已被 latinFont/cjkFont/monoFont 三字段取代)
+ * - latinFont/cjkFont/monoFont = 'system' → 平台默认 key
+ *
+ * 启动时调用一次，迁移后写回磁盘，之后 loadSettings 只认干净格式。
+ * 已迁移 / 文件不存在 / 损坏 → 静默跳过。
+ */
+export async function migrateSettingsIfNeeded(): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    const path = await join(dir, SETTINGS_FILE)
+    if (!(await exists(path))) return
+    const json = await readTextFile(path)
+    let parsed: any
+    try { parsed = JSON.parse(json) }
+    catch { return }
+    if (typeof parsed !== 'object' || parsed === null) return
+    if (parsed.version !== SETTINGS_VERSION) return
+
+    const e = parsed.editor
+    if (!e || typeof e !== 'object') return
+
+    let changed = false
+
+    // darkMode → themeMode（仅当 themeMode 缺失时从 darkMode 派生）
+    if (e.themeMode === undefined && typeof e.darkMode === 'boolean') {
+      e.themeMode = e.darkMode ? 'dark' : 'light'
+      changed = true
+    }
+    // darkMode 字段始终清理（不论 themeMode 是否已有）
+    if (e.darkMode !== undefined) {
+      delete e.darkMode
+      changed = true
+    }
+
+    // fontFamily 删除(已被三字段取代)
+    if (e.fontFamily !== undefined) {
+      delete e.fontFamily
+      changed = true
+    }
+
+    // 'system' 字体值 → 平台默认 key
+    const isMac = /Mac/.test(navigator.userAgent)
+    const defaultLatin = isMac ? 'charter' : 'cambria'
+    const defaultCjk = isMac ? 'pingfang' : 'yahei'
+    const defaultMono = isMac ? 'sfmono' : 'cascadiacode'
+    if (e.latinFont === 'system') { e.latinFont = defaultLatin; changed = true }
+    if (e.cjkFont === 'system') { e.cjkFont = defaultCjk; changed = true }
+    if (e.monoFont === 'system') { e.monoFont = defaultMono; changed = true }
+
+    if (changed) {
+      await writeTextFile(path, JSON.stringify(parsed, null, 2))
+    }
+  }
+  catch (e) {
+    console.warn('迁移设置文件失败', e)
   }
 }
 
@@ -77,6 +139,8 @@ export interface PersistedSettings {
  * 文件不存在 / 解析失败 / 任何 IO 异常 → 返回 null,
  * 调用方继续用 store 默认值 —— 第一次启动 / 配置损坏都不能阻塞 UI。
  * dev web 端(无 Tauri 运行时)→ 返回 null,store 走默认值,不要抛错。
+ *
+ * **只认当前版本**：旧版本文件应在启动时被 migrateSettingsIfNeeded 迁移到当前版本。
  */
 export async function loadSettings(): Promise<PersistedSettings | null> {
   if (!tauriOnly()) return null
@@ -318,7 +382,7 @@ export async function loadDraft(workspaceRoot: string, id: string): Promise<Draf
     const json = await readTextFile(path)
     const parsed = JSON.parse(json)
     if (typeof parsed !== 'object' || parsed === null) return null
-    if (parsed.version !== DRAFT_VERSION && parsed.version !== 1) return null
+    if (parsed.version !== DRAFT_VERSION) return null
     if (typeof parsed.id !== 'string' || typeof parsed.content !== 'string') return null
     return parsed as Draft
   }
@@ -526,7 +590,9 @@ const WORKSPACES_FILE = 'velo-workspaces.json'
 // v2(v0.5.5):WorkspaceState 新增 sidebarWidth 字段(侧栏宽度 px,200-600)。
 // v3(v0.5.6):active 降级为 main 冷启动 hint;多窗口保存走 patch merge。
 // v4(v0.6.x):WorkspaceState 新增 openTabs + activeTab(标签持久化,恢复工作区时重开上次的标签集)。
-export const WORKSPACES_VERSION = 4
+// v5(v0.7.13):sidebarWidth 从 per-workspace 迁到全局 PersistedSettings.editor;
+//   WorkspaceState.sidebarWidth 字段从 JSON 中删除,迁移到 velo-settings.json。
+export const WORKSPACES_VERSION = 5
 
 export type SidebarTab = 'outline' | 'files' | 'search' | 'assets' | 'history'
 
@@ -539,8 +605,6 @@ export interface WorkspaceState {
   sidebarTab?: SidebarTab
   /** 该工作区下最近打开的文件路径,头部 = 最新;cap 10。Ctrl+P 双分区用(v0.5.2). */
   recentFiles?: string[]
-  /** 该工作区下用户拖拽过的侧栏宽度(px,200-600);缺失回退默认 256(v0.5.5). */
-  sidebarWidth?: number
   /** 该工作区上次打开的标签文件绝对路径列表(顺序 = 标签条从左到右)。
    *  允许同一 path 出现多次(VSCode 同款 each-instance 独立 undo / 滚动 / 光标)。
    *  写盘由 workspaceStore.setOpenTabsForActiveWorkspace 推;无标签时回退空数组。
@@ -569,6 +633,128 @@ export interface WorkspacePatch {
   workspaces: Record<string, WorkspaceState>
 }
 
+/**
+ * 迁移 velo-workspaces.json 到当前版本并写回磁盘。
+ *
+ * 迁移链：
+ * - v1→v2: 补 recentFiles: []（v0.5.2 新增字段）
+ * - v2→v3: active 语义降级（无数据变换，仅版本号 +1）
+ * - v3→v4: 补 openTabs: [] / activeTab: null（v0.6.x 标签持久化）
+ * - v4→v5: 提取 per-workspace sidebarWidth 迁到 velo-settings.json，
+ *           从 WorkspaceState 中删除 sidebarWidth 字段
+ *
+ * **v4→v5 跨文件迁移**：per-workspace sidebarWidth 需写入 velo-settings.json
+ * 的 editor.sidebarWidth。全局值优先：settings 文件已有 sidebarWidth 时不覆盖。
+ * 迁移后 workspaces JSON 中的 sidebarWidth 字段被删除。
+ *
+ * 启动时调用一次，之后 loadWorkspaces 只认当前版本。
+ * 已迁移 / 文件不存在 / 损坏 → 静默跳过。
+ */
+export async function migrateWorkspacesIfNeeded(): Promise<void> {
+  if (!tauriOnly()) return
+  try {
+    const dir = await appDataDir()
+    const path = await join(dir, WORKSPACES_FILE)
+    if (!(await exists(path))) return
+    const json = await readTextFile(path)
+    let parsed: any
+    try { parsed = JSON.parse(json) }
+    catch { return }
+    if (typeof parsed !== 'object' || parsed === null) return
+    if (typeof parsed.version !== 'number') return
+    if (parsed.version === WORKSPACES_VERSION) return
+    if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return
+
+    let changed = false
+
+    // v1→v2: 补 recentFiles
+    if (parsed.version < 2) {
+      for (const ws of Object.values(parsed.workspaces) as any[]) {
+        if (ws && !Array.isArray(ws.recentFiles)) ws.recentFiles = []
+      }
+      parsed.version = 2
+      changed = true
+    }
+
+    // v2→v3: active 语义降级，无数据变换
+    if (parsed.version < 3) {
+      parsed.version = 3
+      changed = true
+    }
+
+    // v3→v4: 补 openTabs / activeTab
+    if (parsed.version < 4) {
+      for (const ws of Object.values(parsed.workspaces) as any[]) {
+        if (ws) {
+          if (!Array.isArray(ws.openTabs)) ws.openTabs = []
+          if (typeof ws.activeTab !== 'string') ws.activeTab = null
+        }
+      }
+      parsed.version = 4
+      changed = true
+    }
+
+    // v4→v5: sidebarWidth 跨文件迁移
+    if (parsed.version < 5) {
+      // 从 active workspace 提取 sidebarWidth 迁到 velo-settings.json
+      const activeRoot: string | null = typeof parsed.active === 'string' ? parsed.active : null
+      const activeWs = activeRoot ? parsed.workspaces[activeRoot] : null
+      if (activeWs && typeof activeWs.sidebarWidth === 'number') {
+        // 全局值优先：settings 文件已有 sidebarWidth 时不覆盖
+        await migrateSidebarWidthToSettings(dir, activeWs.sidebarWidth)
+      }
+      // 从所有 workspace 中删除 sidebarWidth 字段
+      for (const ws of Object.values(parsed.workspaces) as any[]) {
+        if (ws && typeof ws.sidebarWidth !== 'undefined') {
+          delete ws.sidebarWidth
+        }
+      }
+      parsed.version = 5
+      changed = true
+    }
+
+    if (changed) {
+      await writeTextFile(path, JSON.stringify(parsed, null, 2))
+    }
+  }
+  catch (e) {
+    console.warn('迁移工作区文件失败', e)
+  }
+}
+
+/**
+ * 把旧 per-workspace sidebarWidth 值写入 velo-settings.json 的 editor.sidebarWidth。
+ * 全局值优先：settings 文件已有 sidebarWidth 时不覆盖。
+ */
+async function migrateSidebarWidthToSettings(dir: string, width: number): Promise<void> {
+  try {
+    const settingsPath = await join(dir, SETTINGS_FILE)
+    if (!(await exists(settingsPath))) return
+    const json = await readTextFile(settingsPath)
+    let parsed: any
+    try { parsed = JSON.parse(json) }
+    catch { return }
+    if (typeof parsed !== 'object' || parsed === null) return
+    if (parsed.version !== SETTINGS_VERSION) return
+    const e = parsed.editor
+    if (!e || typeof e !== 'object') return
+    // 全局值优先：已有 sidebarWidth 时不覆盖
+    if (typeof e.sidebarWidth === 'number') return
+    e.sidebarWidth = width
+    await writeTextFile(settingsPath, JSON.stringify(parsed, null, 2))
+  }
+  catch {
+    // 迁移失败不阻塞，settings 保留默认值
+  }
+}
+
+/**
+ * 读 appDataDir/velo-workspaces.json。
+ * 文件不存在 / 解析失败 / 任何 IO 异常 → 返回 null。
+ * dev web 端(无 Tauri 运行时)→ 返回 null。
+ *
+ * **只认当前版本**：旧版本文件应在启动时被 migrateWorkspacesIfNeeded 迁移。
+ */
 export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
   if (!tauriOnly()) return null
   try {
@@ -578,8 +764,7 @@ export async function loadWorkspaces(): Promise<PersistedWorkspaces | null> {
     const json = await readTextFile(path)
     const parsed = JSON.parse(json)
     if (typeof parsed !== 'object' || parsed === null) return null
-    // v1/v2/v3/v4 都接受:v3 是 active 语义降级;v4 仅增字段,无需迁移。
-    if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== WORKSPACES_VERSION) return null
+    if (parsed.version !== WORKSPACES_VERSION) return null
     if (typeof parsed.workspaces !== 'object' || parsed.workspaces === null) return null
     return parsed as PersistedWorkspaces
   }

@@ -10,7 +10,7 @@ import type { SidebarTab } from '@/stores/persistence'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useVersionHistoryStore } from '@/stores/versionHistory'
 import { useFoldStore } from '@/stores/folding'
-import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, type PersistedSettings } from '@/stores/persistence'
+import { loadSettings, saveSettings, loadOutlineState, saveOutlineState, loadFoldState, saveFoldState, loadWorkspaces, saveWorkspacePatch, migrateSettingsIfNeeded, migrateWorkspacesIfNeeded, type PersistedSettings } from '@/stores/persistence'
 import {
   getHighlighter,
   ensureTheme,
@@ -166,7 +166,7 @@ const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // ========== 侧栏可拖拽 + 自动收起(v0.5.5)==========
 // sidebarWidthRef 是 UI 层镜像,composable 在拖拽中写入此 ref(rAF 节流);
-// commit 时再调 workspaceStore.setSidebarWidth 写回 store(per-workspace 持久化)。
+// commit 时再调 workspaceStore.setSidebarWidth 写回 store(全局持久化,委托 editorStore → velo-settings.json)。
 //
 // **双阈值 + 死区 snap(v0.5.5 后期调整)**:A = DRAG_COLLAPSE_BELOW(80),B = SIDEBAR_WIDTH_MIN(200)。
 //   - [0, A)        : drag-collapse 区,侧栏隐藏;onCommit 不写 store(瞬时值)。
@@ -233,7 +233,8 @@ const sidebarSplitter = useResizeSplitter({
     if (dragCollapseRestoreView.value) leftPanelView.value = dragCollapseRestoreView.value
   },
 })
-// 切换 workspace 时,store 的 sidebarWidth 变了 → 同步到 UI ref
+// sidebarWidth 变化(editorStore 全局值变化)→ 同步到 UI ref
+// v0.7.13 起全局粒度,切 workspace 不再改变 sidebarWidth;但程序设置 / hydrate 路径仍可能改它。
 watch(() => workspaceStore.sidebarWidth, (n) => {
   sidebarWidthRef.value = n
 })
@@ -396,6 +397,10 @@ watch(
 // hydrate / snapshot 逻辑下沉到各自 store(editorStore / documentStore),
 // App.vue 只做泛化分发 —— 新增设置字段时改 store + persistence.ts 类型即可,不需要改这里。
 async function initSettings() {
+  // 启动时先迁移旧格式配置文件,确保 load* 只认当前版本。
+  // 迁移失败不阻塞,loadSettings 会用默认值继续。
+  await migrateSettingsIfNeeded()
+  await migrateWorkspacesIfNeeded()
   const loaded = await loadSettings()
   if (!loaded) return
   store.hydrateSettings(loaded.editor)

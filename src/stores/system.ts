@@ -2,7 +2,6 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { PersistedSettings } from './persistence'
 
-// 系统级设置 store(v0.8.x #updater)。
 // 与 editor(编辑器偏好)/document(文档保存偏好)平级的第三类设置:
 // 应用层面的系统行为(自动更新等)。SystemGroup 中走 Rust 端的设置
 // (右键菜单/GPU 加速)不在此处 —— 它们存注册表/WebView args,不走 velo-settings.json。

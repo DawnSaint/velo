@@ -6,34 +6,21 @@
 //   - 历史工作区列表(用于"切换工作区"下拉)
 //   - 每个工作区的局部状态(展开的目录、上次打开的文件、上次的 sidebar tab)
 //   - 当前侧边栏 tab('outline' | 'files')
-//   - 当前侧栏宽度(v0.5.5;按 workspace 持久化,跟 sidebarTab 同语义)
 //
 // 持久化走 `persistence.ts:loadWorkspaces/saveWorkspaces`,本 store 内
 // 落盘交给 App.vue 的 debounce watch(与 settings / outline 同款)。
+// sidebarWidth 走 `editorStore` → velo-settings.json(全局粒度)。
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { open as openDialog } from '@/tauri/dialog'
+import { useEditorStore } from './editor'
 import { WORKSPACES_VERSION } from './persistence'
 import type { PersistedWorkspaces, SidebarTab, WorkspaceState, WorkspacePatch } from './persistence'
 
-/** 侧栏宽度常量(v0.5.5)。在 store clamp 与 composable clamp 双处用到,
- *  与 plan「关键复用」一节对应;暴露为 named export 供 App.vue 直接 import,
- *  不在 UI 层重写一遍数字。
- *
- *  **双阈值(v0.5.5 后期调整)**:A = DRAG_COLLAPSE_BELOW(80,左阈值,拖到此处及以下收起),
- *  B = SIDEBAR_WIDTH_MIN(200,右阈值,稳定下限)。[A, B] 是死区 —— 拖到这个范围时
- *  视觉宽度 snap 到 B,不会显示 80-200 之间的瞬时值(避免用户报告的"线从中间位置
- *  开始动"的视觉错位)。这两个数字由 App.vue 通过 DRAG_COLLAPSE_BELOW / SIDEBAR_WIDTH_MIN
- *  各自引用。 */
-export const SIDEBAR_WIDTH_MIN = 200
-export const SIDEBAR_WIDTH_MAX = 600
-const SIDEBAR_WIDTH_DEFAULT = 256
-
-function clampSidebarWidth(n: number): number {
-  if (Number.isNaN(n)) return SIDEBAR_WIDTH_DEFAULT
-  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
-}
+// re-export 侧栏宽度常量 + clamp,保持 App.vue / composable 的 import 路径不变。
+// canonical home 在 editorStore(全局 UI 偏好)。
+export { SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT, clampSidebarWidth } from './editor'
 
 function isPathInRoot(path: string, root: string): boolean {
   return path === root || path.startsWith(root + '/') || path.startsWith(root + '\\')
@@ -42,7 +29,8 @@ function isPathInRoot(path: string, root: string): boolean {
 function emptyWorkspaceState(): WorkspaceState {
   // openTabs 不给默认:不持久化"未开任何标签"和"开过标签已全部关闭"是两种状态,
   // 让 normalize 时回退到 [] 已足够,这里不显式写入,保持 mock 数据紧凑。
-  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [], sidebarWidth: SIDEBAR_WIDTH_DEFAULT }
+  // sidebarWidth 走全局 editorStore(velo-settings.json),不 per-workspace 持久化。
+  return { expandedDirs: [], lastFile: null, sidebarTab: 'outline', recentFiles: [] }
 }
 
 /** 最近打开文件列表上限。VSCode 同款体量,够 Ctrl+P 面板用又不至于把"其他"区挤掉。 */
@@ -58,9 +46,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 当前侧边栏看的 tab。无工作区时强制 'outline'。 */
   const sidebarTab = ref<SidebarTab>('outline')
 
-  /** 当前激活 workspace 的侧栏宽度(px,v0.5.5)。切换 workspace 时由 setActiveRoot 同步。
-   *  暴露给 UI/App.vue 直接渲染 aside 宽度;持久化由 activeWorkspace.sidebarWidth 承担。 */
-  const sidebarWidth = ref<number>(SIDEBAR_WIDTH_DEFAULT)
+  /** editorStore 引用:sidebarWidth 现在是全局 UI 偏好,委托 editorStore。 */
+  const editorStore = useEditorStore()
+
+  /** 当前侧栏宽度(px)。全局 UI 偏好,委托 editorStore(velo-settings.json)。 */
+  const sidebarWidth = computed(() => editorStore.sidebarWidth)
 
   /** 用户是否显式关闭了工作区(closeWorkspace)。
    *  用于区分 activeRoot=null 的两种场景:
@@ -92,18 +82,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 同步写到新 workspace —— 用户在哪个 tab 是他当下的偏好,新工作区继承。
    * 启动期持久化 tab 由 `loadFrom` 应用,见下方。
    *
-   * **sidebarWidth 行为(v0.5.5,READ 语义)**:从新 workspace 读它的 width
-   * 到 top-level,而不是把当前 top-level 写过去。两点取舍:
-   *   - per-workspace 持久化要求每个工作区保留自己的宽度;
-   *     切到新 workspace 不应被其他 workspace 的 UI 状态覆盖
-   *     (round-trip 测试明确依赖此行为)。
-   *   - 新 workspace 走 default 256,符合"无偏好就用默认"。
-   * 如果未来要让新 workspace 继承当前 UI 宽度,改此处即可,但要和
-   * 文档「文档同步」一节同步说明。
+   * **sidebarWidth 行为**:全局粒度,不再随工作区切换变化。切换 root
+   * 时 sidebarWidth 保持当前值(所有工作区/窗口共享一个值)。
    *
    * root=null(关闭工作区)时:'files' / 'search' tab 需要 workspace,回退到
    * 'outline';'outline' / 'assets' 基于当前文档,无需 workspace,保留不变。
-   * sidebarWidth 保留(下次切回任何 workspace 时不会闪)。
    */
   function setActiveRoot(root: string | null) {
     activeRoot.value = root
@@ -111,7 +94,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       activeExplicitlyCleared = false
       const ws = ensureWorkspace(root)
       ws.sidebarTab = sidebarTab.value
-      sidebarWidth.value = ws.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT
     }
     else {
       if (sidebarTab.value === 'files' || sidebarTab.value === 'search') {
@@ -300,45 +282,34 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 侧栏宽度变更(v0.5.5):clamp 到 [SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX],
-   *  写 top-level ref 驱动 UI,同时持久化到当前 workspace。无活跃工作区时
-   *  top-level ref 仍更新(下次切回该 workspace 时 hydrate),但不写持久化
-   *  —— 与 setDirExpanded 同款"无工作区 no-op"语义。 */
+  /** 侧栏宽度变更:clamp 后委托 editorStore.setSidebarWidth(全局粒度)。 */
   function setSidebarWidth(width: number) {
     // 单一阈值语义:[SIDEBAR_WIDTH_MIN, MAX] 都是合法稳定值;
     // App.vue 的 onCommit 已经先判了 `n >= SIDEBAR_WIDTH_MIN` 才调本函数,
     // 这里 clamp 是双层防御(防止其它调用点 / 旧 JSON 直接传 < MIN 的值)。
-    const clamped = clampSidebarWidth(width)
-    sidebarWidth.value = clamped
-    if (activeRoot.value) {
-      const ws = ensureWorkspace(activeRoot.value)
-      ws.sidebarWidth = clamped
-    }
+    editorStore.setSidebarWidth(width)
   }
 
   function normalizeWorkspaceState(v: WorkspaceState): WorkspaceState {
     return {
-      expandedDirs: [...(v.expandedDirs ?? [])],
+      expandedDirs: Array.isArray(v.expandedDirs) ? [...v.expandedDirs] : [],
       lastFile: v.lastFile ?? null,
       sidebarTab: v.sidebarTab ?? 'outline',
-      recentFiles: [...(v.recentFiles ?? [])],
-      sidebarWidth: v.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
-      // v3 JSON 无 openTabs 时给空数组;无 activeTab 时给 null。openTabs 与
-      // expandedDirs / recentFiles 同款"以数组形式持久化"。
-      // 启动恢复阶段也走 dedupe + cap(via setOpenTabsForActiveWorkspace 的兜底):
-      // 历史 v4 JSON 已被污染(同 path 出现 N 次)时,normalize 直接清洗,避免
-      // openPathsInTabs 拿到脏数据后批量 createTab 把主线程拖死。
+      recentFiles: Array.isArray(v.recentFiles) ? [...v.recentFiles] : [],
+      // openTabs dedupe + cap:历史 v4 JSON 可能被污染(同 path 出现 N 次),
+      // normalize 直接清洗,避免 openPathsInTabs 拿到脏数据后批量 createTab 把主线程拖死。
       openTabs: Array.isArray(v.openTabs) ? dedupePreserveOrder(v.openTabs).slice(0, OPEN_TABS_PERSIST_CAP) : [],
       activeTab: typeof v.activeTab === 'string' ? v.activeTab : null,
     }
   }
 
   /** 启动时从磁盘灌入(覆盖现有)。**只有 restoreActive=true 的路径**会把持久化的
-   *  sidebarTab / sidebarWidth 应用到当前 UI;动态窗口只加载 known roots 和 per-root state。 */
+   *  sidebarTab 应用到当前 UI;动态窗口只加载 known roots 和 per-root state。
+   *
+   *  数据迁移已由 migrateWorkspacesIfNeeded 在启动时完成,loadFrom 只处理当前版本 JSON。 */
   function loadFrom(data: PersistedWorkspaces, options: { restoreActive?: boolean } = {}) {
     const restoreActive = options.restoreActive ?? true
     activeExplicitlyCleared = false // 启动恢复重置标记,避免上一会话残留
-    // 旧 JSON 可能没有 recentFiles / sidebarWidth 字段,统一兜底,免得调用方需要判 undefined
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(data.workspaces)) {
       ws[k] = normalizeWorkspaceState(v)
@@ -348,7 +319,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       activeRoot.value = data.active
       const w = workspaces.value[data.active]
       if (w.sidebarTab) sidebarTab.value = w.sidebarTab
-      if (typeof w.sidebarWidth === 'number') sidebarWidth.value = w.sidebarWidth
     }
     else if (restoreActive) {
       setActiveRoot(null)
@@ -356,7 +326,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     else {
       activeRoot.value = null
       sidebarTab.value = 'outline'
-      sidebarWidth.value = SIDEBAR_WIDTH_DEFAULT
     }
   }
 

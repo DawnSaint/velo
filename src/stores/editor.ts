@@ -7,6 +7,28 @@ import { createDefaultFormatting, RULE_DEFS } from '@/lib/cjkFormatter'
 import { buildFontStack } from '@/utils/fontStacks'
 import { isMacOS } from '@/utils/platform'
 
+// ========== 侧栏宽度常量(v0.5.5) ==========
+// canonical home 在 editorStore(全局 UI 偏好);workspace.ts re-export 保持
+// App.vue / composable 的 import 路径不变。
+//
+// **双阈值(v0.5.5 后期调整)**:A = DRAG_COLLAPSE_BELOW(80,左阈值,拖到此处及以下收起),
+// B = SIDEBAR_WIDTH_MIN(200,右阈值,稳定下限)。[A, B] 是死区 —— 拖到这个范围时
+// 视觉宽度 snap 到 B,不会显示 80-200 之间的瞬时值(避免用户报告的"线从中间位置
+// 开始动"的视觉错位)。这两个数字由 App.vue 通过 DRAG_COLLAPSE_BELOW / SIDEBAR_WIDTH_MIN
+// 各自引用。
+/** 侧栏宽度稳定下限(px)。 */
+export const SIDEBAR_WIDTH_MIN = 200
+/** 侧栏宽度上限(px)。 */
+export const SIDEBAR_WIDTH_MAX = 600
+/** 侧栏宽度默认值(px)。 */
+export const SIDEBAR_WIDTH_DEFAULT = 256
+
+/** clamp 侧栏宽度到 [MIN, MAX],NaN / 非法值回退默认。 */
+export function clampSidebarWidth(n: number): number {
+  if (Number.isNaN(n)) return SIDEBAR_WIDTH_DEFAULT
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
+}
+
 /** 启动时打开内容的选择。'last-file' = 打开上次打开的文件; 'new-doc' = 新建空白文档。 */
 export type StartupMode = 'last-file' | 'new-doc'
 
@@ -56,7 +78,8 @@ export const useEditorStore = defineStore('editor', () => {
   // 字体选配：三类独立选择，持久化存 key（非 CSS stack 字符串）。
   // fontFamily / fontMono 为 computed，由 buildFontStack 从 key 派生出完整 CSS font-family stack。
   // 默认值按平台：macOS → charter/pingfang/sfmono，Windows → cambria/yahei/cascadiacode。
-  // 旧设置文件存 'system' 的值在 hydrate 时迁移为当前平台的默认 key。
+  // 旧设置文件的废弃字段(darkMode / fontFamily / 'system' 字体值)已在启动时被
+  // migrateSettingsIfNeeded 迁移清洗,hydrate 只处理当前格式。
   const latinFont = ref(isMacOS ? 'charter' : 'cambria')
   const cjkFont = ref(isMacOS ? 'pingfang' : 'yahei')
   const monoFont = ref(isMacOS ? 'sfmono' : 'cascadiacode')
@@ -107,7 +130,7 @@ export const useEditorStore = defineStore('editor', () => {
   // ========== ActivityBar 自定义(v0.6.1) ==========
   //
   // 持久化是**全局 UI 偏好**(走 velo-settings.json),不是 per-workspace ——
-  // 与 sidebarWidth / sidebarTab 的 per-workspace 语义对照:功能栏布局是用户
+  // 与 sidebarTab 的 per-workspace 语义对照:功能栏布局是用户
   // 跨工作区一致的偏好,不应每个工作区各存一份。详见 docs/architecture/file-tree.md。
   //
   // `activityBarOrder` 只含 4 个可重排视图入口;'settings' 固定底部 —— 既不在
@@ -115,6 +138,20 @@ export const useEditorStore = defineStore('editor', () => {
   // (不 in-place mutate),保证 App.vue 浅 watch 能感知变化触发落盘。
   const activityBarOrder = ref<ActivityBarItem[]>([...DEFAULT_ACTIVITY_BAR_ORDER])
   const activityBarHidden = ref<ActivityBarItem[]>([])
+
+  // ========== 侧栏宽度(v0.5.5,全局 UI 偏好) ==========
+  //
+  // 持久化走 velo-settings.json(全局),不随工作区 / 窗口各存一份 ——
+  // 与 ActivityBar 排序 / 隐藏同款语义,与 per-workspace 的 sidebarTab / openTabs 对照。
+  // workspaceStore.sidebarWidth 是 computed 读 editorStore.sidebarWidth;workspaceStore.setSidebarWidth
+  // 委托 editorStore.setSidebarWidth。旧 velo-workspaces.json 的 per-workspace sidebarWidth 在
+  // 启动时由 migrateWorkspacesIfNeeded 迁移到此处(写回 velo-settings.json)。
+  const sidebarWidth = ref<number>(SIDEBAR_WIDTH_DEFAULT)
+
+  /** 设侧栏宽度(px):clamp 到 [MIN, MAX] 后写 ref,驱动 UI + 落盘。 */
+  function setSidebarWidth(width: number) {
+    sidebarWidth.value = clampSidebarWidth(width)
+  }
 
   /** 实际渲染的顶部视图入口 = order 过滤掉 hidden。ActivityBar.vue v-for 直接读它。 */
   const visibleActivityBarItems = computed<ActivityBarItem[]>(() =>
@@ -171,18 +208,15 @@ export const useEditorStore = defineStore('editor', () => {
 
   /** 从磁盘 JSON 灌入编辑器设置。每字段独立 typeof 守门,非法值静默跳过。 */
   function hydrateSettings(e: PersistedSettings['editor']) {
+    // sidebarWidth 全局偏好 hydrate(从 velo-settings.json)
     if (!e) return
     if (typeof e.fontSize === 'string') fontSize.value = e.fontSize
     if (typeof e.primaryColor === 'string') primaryColor.value = e.primaryColor
-    // 旧版存 'system' 的值迁移为当前平台的默认 key（system 已从下拉移除）
-    if (typeof e.latinFont === 'string') latinFont.value = e.latinFont === 'system' ? (isMacOS ? 'charter' : 'cambria') : e.latinFont
-    if (typeof e.cjkFont === 'string') cjkFont.value = e.cjkFont === 'system' ? (isMacOS ? 'pingfang' : 'yahei') : e.cjkFont
-    if (typeof e.monoFont === 'string') monoFont.value = e.monoFont === 'system' ? (isMacOS ? 'sfmono' : 'cascadiacode') : e.monoFont
-    // themeMode 优先；旧版本设置文件没有 themeMode，从废弃的 darkMode 字段迁移
+    if (typeof e.latinFont === 'string') latinFont.value = e.latinFont
+    if (typeof e.cjkFont === 'string') cjkFont.value = e.cjkFont
+    if (typeof e.monoFont === 'string') monoFont.value = e.monoFont
     if (e.themeMode === 'system' || e.themeMode === 'light' || e.themeMode === 'dark') {
       themeMode.value = e.themeMode
-    } else if (typeof e.darkMode === 'boolean') {
-      themeMode.value = e.darkMode ? 'dark' : 'light'
     }
     if (typeof e.codeLightTheme === 'string') codeLightTheme.value = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') codeDarkTheme.value = e.codeDarkTheme
@@ -194,6 +228,9 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.autoPairEnabled === 'boolean') autoPairEnabled.value = e.autoPairEnabled
     if (typeof e.zoomLevel === 'number' && Number.isFinite(e.zoomLevel)) {
       zoomLevel.value = clampZoomLevel(e.zoomLevel)
+    }
+    if (typeof e.sidebarWidth === 'number' && Number.isFinite(e.sidebarWidth)) {
+      sidebarWidth.value = clampSidebarWidth(e.sidebarWidth)
     }
     // 排版格式化设置: RuleScopes 字段向后兼容旧版 boolean，非规则字段逐字段守门
     if (e.cjkFormatting && typeof e.cjkFormatting === 'object') {
@@ -230,7 +267,6 @@ export const useEditorStore = defineStore('editor', () => {
       latinFont: latinFont.value,
       cjkFont: cjkFont.value,
       monoFont: monoFont.value,
-      fontFamily: fontFamily.value,
       themeMode: themeMode.value,
       codeLightTheme: codeLightTheme.value,
       codeDarkTheme: codeDarkTheme.value,
@@ -241,6 +277,7 @@ export const useEditorStore = defineStore('editor', () => {
       cjkLetterSpacing: cjkLetterSpacing.value,
       autoPairEnabled: autoPairEnabled.value,
       zoomLevel: zoomLevel.value,
+      sidebarWidth: sidebarWidth.value,
       cjkFormatting: { ...cjkFormatting.value },
       activityBarOrder: activityBarOrder.value,
       activityBarHidden: activityBarHidden.value,
@@ -267,6 +304,8 @@ export const useEditorStore = defineStore('editor', () => {
     cjkLetterSpacing,
     autoPairEnabled,
     zoomLevel,
+    sidebarWidth,
+    setSidebarWidth,
     cjkFormatting,
     activityBarOrder,
     activityBarHidden,

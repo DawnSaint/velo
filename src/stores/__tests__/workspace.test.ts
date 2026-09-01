@@ -111,7 +111,7 @@ describe('workspace store', () => {
   it('loadFrom 中 active 指向不存在的 workspace → fallback 到无工作区', () => {
     const store = useWorkspaceStore()
     store.loadFrom({
-      version: 1,
+      version: 5,
       active: '/ghost',
       workspaces: { '/real': { expandedDirs: [], lastFile: null, sidebarTab: 'outline' } },
     })
@@ -121,10 +121,10 @@ describe('workspace store', () => {
   it('loadFrom restoreActive=false 只加载 known roots,不恢复 activeRoot', () => {
     const store = useWorkspaceStore()
     store.loadFrom({
-      version: 3,
+      version: 5,
       active: '/saved',
       workspaces: {
-        '/saved': { expandedDirs: ['/saved/sub'], lastFile: '/saved/a.md', sidebarTab: 'files', recentFiles: ['/saved/a.md'], sidebarWidth: 360 },
+        '/saved': { expandedDirs: ['/saved/sub'], lastFile: '/saved/a.md', sidebarTab: 'files', recentFiles: ['/saved/a.md'] },
       },
     }, { restoreActive: false })
     expect(store.activeRoot).toBeNull()
@@ -132,7 +132,6 @@ describe('workspace store', () => {
     expect(store.sidebarTab).toBe('outline')
     store.setActiveRoot('/saved')
     expect(store.activeWorkspace.lastFile).toBe('/saved/a.md')
-    expect(store.sidebarWidth).toBe(360)
   })
 
   it('snapshotActiveForPersistence 只包含当前窗口 active workspace', () => {
@@ -151,10 +150,10 @@ describe('workspace store', () => {
   it('saveWorkspacePatch merge 保存时保留磁盘上的其它 workspace roots', async () => {
     vi.mocked(exists).mockResolvedValue(true)
     vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({
-      version: 3,
+      version: 5,
       active: '/old',
       workspaces: {
-        '/old': { expandedDirs: ['/old/sub'], lastFile: '/old/a.md', sidebarTab: 'files', recentFiles: ['/old/a.md'], sidebarWidth: 300 },
+        '/old': { expandedDirs: ['/old/sub'], lastFile: '/old/a.md', sidebarTab: 'files', recentFiles: ['/old/a.md'] },
       },
     }))
     vi.mocked(writeTextFile).mockResolvedValue()
@@ -162,7 +161,7 @@ describe('workspace store', () => {
     await saveWorkspacePatch({
       active: '/new',
       workspaces: {
-        '/new': { expandedDirs: [], lastFile: '/new/b.md', sidebarTab: 'outline', recentFiles: ['/new/b.md'], sidebarWidth: 256 },
+        '/new': { expandedDirs: [], lastFile: '/new/b.md', sidebarTab: 'outline', recentFiles: ['/new/b.md'] },
       },
     })
 
@@ -170,11 +169,11 @@ describe('workspace store', () => {
     const saved = JSON.parse(String(body))
     expect(Object.keys(saved.workspaces).sort()).toEqual(['/new', '/old'])
     expect(saved.active).toBe('/new')
-    expect(saved.version).toBe(4)
+    expect(saved.version).toBe(5)
   })
 
   it('saveWorkspacePatch 连续保存不同 root 不互删', async () => {
-    let disk = JSON.stringify({ version: 3, active: null, workspaces: {} })
+    let disk = JSON.stringify({ version: 5, active: null, workspaces: {} })
     vi.mocked(exists).mockResolvedValue(true)
     vi.mocked(readTextFile).mockImplementation(async () => disk)
     vi.mocked(writeTextFile).mockImplementation(async (_path: any, body: any) => {
@@ -183,11 +182,11 @@ describe('workspace store', () => {
 
     await saveWorkspacePatch({
       active: '/a',
-      workspaces: { '/a': { expandedDirs: [], lastFile: '/a/a.md', sidebarTab: 'outline', recentFiles: [], sidebarWidth: 256 } },
+      workspaces: { '/a': { expandedDirs: [], lastFile: '/a/a.md', sidebarTab: 'outline', recentFiles: [] } },
     })
     await saveWorkspacePatch({
       active: '/b',
-      workspaces: { '/b': { expandedDirs: [], lastFile: '/b/b.md', sidebarTab: 'files', recentFiles: [], sidebarWidth: 320 } },
+      workspaces: { '/b': { expandedDirs: [], lastFile: '/b/b.md', sidebarTab: 'files', recentFiles: [] } },
     })
 
     const saved = JSON.parse(disk)
@@ -258,10 +257,10 @@ describe('workspace store', () => {
     expect(next.activeWorkspace.recentFiles).toEqual(['/x/b.md', '/x/a.md'])
   })
 
-  it('loadFrom 兼容旧 JSON(无 recentFiles 字段)→ 兜底空数组', () => {
+  it('loadFrom 兼容 JSON(无 recentFiles 字段)→ 兜底空数组', () => {
     const store = useWorkspaceStore()
     store.loadFrom({
-      version: 1,
+      version: 5,
       active: '/old',
       workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
     })
@@ -290,9 +289,12 @@ describe('workspace store', () => {
     expect(store.activeWorkspace.expandedDirs).toEqual([])
   })
 
-  // ========== sidebarWidth(v0.5.5,可拖拽宽度) ==========
+  // ========== sidebarWidth(全局粒度) ==========
+  //
+  // sidebarWidth 走全局 editorStore(velo-settings.json),workspaceStore 是 computed 委托。
+  // 旧 per-workspace sidebarWidth 由 migrateWorkspacesIfNeeded 在启动时迁移到 velo-settings.json。
 
-  it('setSidebarWidth clamp 到 [200, 600],并写入当前 workspace', () => {
+  it('setSidebarWidth clamp 到 [200, 600](委托 editorStore)', () => {
     const store = useWorkspaceStore()
     store.setActiveRoot('/r')
     store.setSidebarWidth(800) // 超出 max
@@ -303,56 +305,25 @@ describe('workspace store', () => {
     expect(store.sidebarWidth).toBe(200) // 死区 snap 由 App.vue onCommit 负责
     store.setSidebarWidth(350)
     expect(store.sidebarWidth).toBe(350)
-    expect(store.activeWorkspace.sidebarWidth).toBe(350)
   })
 
-  it('setSidebarWidth 在无工作区时只更新 top-level ref,不写持久化', () => {
+  it('setSidebarWidth 在无工作区时仍然生效(全局粒度,不依赖 workspace)', () => {
     const store = useWorkspaceStore()
     store.setSidebarWidth(400)
     expect(store.sidebarWidth).toBe(400)
-    // activeWorkspace 在无 activeRoot 时是 fresh empty state,不挂持久化路径
-    expect(store.activeWorkspace.sidebarWidth).toBe(256) // 默认
   })
 
-  it('sidebarWidth 走 snapshot/loadFrom round-trip,跨 workspace 各自保留', () => {
+  it('sidebarWidth 全局粒度:切 workspace 不变', () => {
     const store = useWorkspaceStore()
     store.setActiveRoot('/a')
     store.setSidebarWidth(320)
     store.setActiveRoot('/b')
+    // 全局粒度:切到 b 后 sidebarWidth 仍是 320,不回退默认
+    expect(store.sidebarWidth).toBe(320)
     store.setSidebarWidth(480)
-    const snap = store.snapshot()
-    setActivePinia(createPinia())
-    const next = useWorkspaceStore()
-    next.loadFrom(snap)
-    expect(next.activeRoot).toBe('/b')
-    expect(next.sidebarWidth).toBe(480)
-    next.setActiveRoot('/a')
-    expect(next.sidebarWidth).toBe(320)
-    expect(next.activeWorkspace.sidebarWidth).toBe(320)
-  })
-
-  it('loadFrom 兼容旧 v1 JSON(无 sidebarWidth)→ 兜底 256', () => {
-    const store = useWorkspaceStore()
-    store.loadFrom({
-      version: 1,
-      active: '/old',
-      workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
-    })
-    expect(store.activeWorkspace.sidebarWidth).toBe(256)
-    expect(store.sidebarWidth).toBe(256)
-  })
-
-  it('切换 workspace 时 sidebarWidth 同步到 top-level ref', () => {
-    const store = useWorkspaceStore()
+    // 切回 a,sidebarWidth 是全局的,仍是 480
     store.setActiveRoot('/a')
-    store.setSidebarWidth(300)
-    store.setActiveRoot('/b')
-    // b 还没设过 → 走 setActiveRoot 的 ensureWorkspace → 取 ws.sidebarWidth ?? 256
-    expect(store.sidebarWidth).toBe(256)
-    store.setSidebarWidth(420)
-    // 切回 a 应恢复 300
-    store.setActiveRoot('/a')
-    expect(store.sidebarWidth).toBe(300)
+    expect(store.sidebarWidth).toBe(480)
   })
 
   // ========== openTabs + activeTab(v0.6.x 标签持久化)==========
@@ -425,10 +396,10 @@ describe('workspace store', () => {
     expect(store.activeWorkspace.activeTab).toBeNull()
   })
 
-  it('loadFrom 兼容 v3 JSON(无 openTabs 字段)→ 兜底空数组', () => {
+  it('loadFrom 兼容 JSON(无 openTabs 字段)→ 兜底空数组', () => {
     const store = useWorkspaceStore()
     store.loadFrom({
-      version: 3,
+      version: 5,
       active: '/old',
       workspaces: { '/old': { expandedDirs: [], lastFile: '/old/x.md', sidebarTab: 'outline' } },
     })
@@ -478,7 +449,7 @@ describe('workspace store', () => {
     const dirty: string[] = []
     for (let i = 0; i < 80; i++) dirty.push('/old/x.md')  // 同 path 重复 80 次
     store.loadFrom({
-      version: 4,
+      version: 5,
       active: '/old',
       workspaces: { '/old': { expandedDirs: [], sidebarTab: 'outline', openTabs: dirty, activeTab: '/old/x.md' } },
     })
