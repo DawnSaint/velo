@@ -85,8 +85,3 @@ export async function renderMermaidSvg(
 export function mermaidErrorHtml(code: string, error: string): string {
   return `<pre class="mermaid-error" title="${escapeHtml(error)}">${escapeHtml(code)}</pre>`
 }
-
-/** 给测试用,每次测试前重置 id counter。 */
-export function __resetMermaidExportIdForTest(): void {
-  nextExportId = 1
-}

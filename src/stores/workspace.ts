@@ -18,9 +18,9 @@ import { useEditorStore } from './editor'
 import { WORKSPACES_VERSION } from './persistence'
 import type { PersistedWorkspaces, SidebarTab, WorkspaceState, WorkspacePatch } from './persistence'
 
-// re-export 侧栏宽度常量 + clamp,保持 App.vue / composable 的 import 路径不变。
+// re-export 侧栏宽度边界常量,保持 App.vue 的 import 路径不变。
 // canonical home 在 editorStore(全局 UI 偏好)。
-export { SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT, clampSidebarWidth } from './editor'
+export { SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } from './editor'
 
 function isPathInRoot(path: string, root: string): boolean {
   return path === root || path.startsWith(root + '/') || path.startsWith(root + '\\')

@@ -158,13 +158,3 @@ export function buildFontStack(
   }
 }
 
-/**
- * 单独解析等宽字体栈。供需要单独读取 mono 字体的场景使用
- *（如导出 HTML 只需 mono 栈时）。
- */
-export function resolveMonoFontStack(monoKey: string): string {
-  return (
-    fontStacks.mono[monoKey as keyof typeof fontStacks.mono] ??
-    fontStacks.mono.system
-  ).stack
-}

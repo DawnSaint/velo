@@ -25,6 +25,7 @@ on:
         default: windows-x64
         options:
           - linux-x64
+          - linux-x64-portable
           - macos-arm64
           - macos-x64
           - windows-x64
@@ -122,7 +123,7 @@ jobs:
   # 因此改用 `tauri build` 直接构建，而不是 tauri-action。
   build-platform:
     if: github.event_name == 'workflow_dispatch' && !inputs.run-e2e
-    runs-on: ${{ inputs.platform == 'linux-x64' && 'ubuntu-22.04' || inputs.platform == 'macos-arm64' && 'macos-latest' || inputs.platform == 'macos-x64' && 'macos-15-intel' || 'windows-latest' }}
+    runs-on: ${{ (inputs.platform == 'linux-x64' || inputs.platform == 'linux-x64-portable') && 'ubuntu-22.04' || inputs.platform == 'macos-arm64' && 'macos-latest' || inputs.platform == 'macos-x64' && 'macos-15-intel' || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -146,16 +147,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
+      # ── 自包含 AppImage（linux-x64-portable）在下方「Build portable AppImage」步骤里
+      #    用 archlinux 容器 + pkgforge sharun 构建，本机不需要装 webkit，也不需要
+      #    自托管任何运行时 tarball。 ──
+
       - name: Install frontend dependencies
+        if: inputs.platform != 'linux-x64-portable'
         run: npm ci
 
       # 手动构建：直接用 tauri build，不经过 tauri-action，因此不会创建 Release。
       # 同样注入签名密钥，以便测试更新包签名是否正常。
       - name: Build with Tauri
+        if: inputs.platform != 'linux-x64-portable'
         run: npm run tauri:build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # 自包含 AppImage（UOS V20 / 老 glibc / 缺 libwebkit2gtk-4.1 的系统）：
+      # 在 archlinux 容器里用 pkgforge sharun + uruntime 打包。
+      # - sharun 自动探测并打包 webkit2gtk-4.1 + glibc + opengl 等全部依赖
+      # - uruntime 让终端用户侧无需 libfuse2 / 无需开发者模式（FUSE→namespace→extract 回退）
+      # - 注意 UOS 4.19 内核 + Arch mesa 25 不兼容：脚本内 get-debloated-pkgs.sh 精简 mesa（非致命）
+      - name: Build portable AppImage (Arch + sharun)
+        if: inputs.platform == 'linux-x64-portable'
+        run: |
+          set -e
+          docker run --rm -v "$PWD":/ws -w /ws archlinux:latest bash -c '
+            set -e
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm --needed base-devel git nodejs npm rustup \
+              webkit2gtk-4.1 libayatana-appindicator librsvg openssl patchelf wget curl
+            rustup default stable
+            . "$HOME/.cargo/env"
+            npm ci
+            npm run tauri:build:appimage
+          '
 
       - name: Verify deb (Linux)
         if: inputs.platform == 'linux-x64'
@@ -165,6 +192,15 @@ jobs:
           dpkg-deb -I "$deb"
           dpkg-deb -c "$deb" | head -20
           echo "deb 校验通过"
+
+      - name: Verify AppImage (portable)
+        if: inputs.platform == 'linux-x64-portable'
+        run: |
+          ai=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -1)
+          echo "=== AppImage: $ai ==="
+          file "$ai"
+          ls -la "$ai"
+          echo "AppImage 校验通过"
 
       - name: Verify dmg (macOS)
         if: startsWith(inputs.platform, 'macos-')

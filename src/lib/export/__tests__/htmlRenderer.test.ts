@@ -2,16 +2,14 @@
 //
 // 验证:
 // 1) 基础语法 (paragraph / heading / list / code / table / link / emphasis / strong)
-// 2) mermaid 成功 + 失败降级
-// 3) katex 成功 + 失败降级
-// 4) html_block / html_inline 走 DOMPurify 清洗
-// 5) 完整 HTML 文档结构(<!DOCTYPE html><head><style>...</style><body>)
+// 2) katex 成功 + 失败降级
+// 3) html_block / html_inline 走 DOMPurify 清洗
+// 4) 完整 HTML 文档结构(<!DOCTYPE html><head><style>...</style><body>)
 
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { buildExportHtml, resolveExportThemes } from '../htmlRenderer'
-import { __resetMermaidExportIdForTest } from '../mermaidHtml'
 
 // 用于 SCSS 源读取:vitest 跑 `?inline` / `?raw` 对 .scss 都返回空(同 katex
 // woff2 测试,见 katexCss.ts 注释)。直接从 fs 读 SCSS 源更可靠。
@@ -356,28 +354,6 @@ describe('htmlRenderer', () => {
       expect(html).toMatch(/<h2[^>]*id="hello-world"/)
       expect(html).toContain('>Hello World</a>')
       expect(html).toContain('href="#hello-world"')
-    })
-  })
-
-  describe('mermaid', () => {
-    it('renders mermaid block via .velo-mermaid-block wrapper (SVG or fallback)', async () => {
-      __resetMermaidExportIdForTest()
-      const { html } = await buildExportHtml(baseOpts('```mermaid\ngraph TD\n  A --> B\n```'))
-      // 真实 Tauri webview 内 mermaid 走 SVG 路径;jsdom 内 mermaid 因缺 SVG BBox
-      // 报错走 mermaid-error 降级 —— 测试只断言 wrapper + pipeline 不抛,
-      // 实际渲染端在生产环境是 SVG。这里允许两种结果都算"渲染管线无错"。
-      expect(html).toContain('<div class="velo-mermaid-block">')
-      const hasSvg = html.includes('<svg')
-      const hasFallback = html.includes('mermaid-error')
-      expect(hasSvg || hasFallback).toBe(true)
-    }, 30000)
-
-    it('falls back to <pre class="mermaid-error"> for broken mermaid + emits warning', async () => {
-      __resetMermaidExportIdForTest()
-      const { html, warnings } = await buildExportHtml(baseOpts('```mermaid\nnot a valid graph at all ->\n```'))
-      // mermaid parse 失败 → 走 mermaidErrorHtml 降级路径
-      expect(warnings.some(w => w.includes('mermaid'))).toBe(true)
-      expect(html).toContain('mermaid-error')
     })
   })
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { exists, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
-import { appDataDir, join } from '@tauri-apps/api/path'
 import {
   migrateSettingsIfNeeded,
   migrateWorkspacesIfNeeded,
@@ -12,17 +11,6 @@ import {
 
 // 测试环境的 isTauri() 在 setup.ts 里被 mock 为 true,
 // tauriOnly() 返回 true,migration 函数会走到 plugin-fs mock。
-
-// 辅助:mock appDataDir / join 返回可预测路径
-async function settingsPath() {
-  const dir = await appDataDir()
-  return join(dir, 'velo-settings.json')
-}
-
-async function workspacesPath() {
-  const dir = await appDataDir()
-  return join(dir, 'velo-workspaces.json')
-}
 
 describe('migrateSettingsIfNeeded', () => {
   beforeEach(() => {

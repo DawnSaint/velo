@@ -1305,10 +1305,10 @@ function wrapWithMarks(
       node = { type: 'delete', children: [node] }
     }
     if (name === 'emphasis') {
-      node = { type: 'emphasis', children: [node], _marker: mark.attrs.marker as string }
+      node = { type: 'emphasis', children: [node], _marker: mark.attrs.marker as string } as PhrasingContent & { _marker: string }
     }
     else if (name === 'strong') {
-      node = { type: 'strong', children: [node], _marker: mark.attrs.marker as string }
+      node = { type: 'strong', children: [node], _marker: mark.attrs.marker as string } as PhrasingContent & { _marker: string }
     }
     else if (name === 'link') {
       node = {

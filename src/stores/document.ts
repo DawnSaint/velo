@@ -880,7 +880,7 @@ export const useDocumentStore = defineStore('document', () => {
         useVersionHistoryStore().upsertSnapshot(path, versionSnapshot, mergedOldId)
       } else {
         // 回到合并起点:只从缓存中删除被合并的旧快照,不写新快照
-        useVersionHistoryStore().removeSnapshot(path, mergedOldId)
+        if (mergedOldId) useVersionHistoryStore().removeSnapshot(path, mergedOldId)
         await pruneVersionSnapshots(path, VERSION_SNAPSHOT_CAP)
       }
       void syncTitle()

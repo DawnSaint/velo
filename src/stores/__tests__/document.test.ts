@@ -5,7 +5,7 @@ import { useRecentFilesStore } from '../recentFiles'
 import { useNotifyStore } from '../notify'
 import { useWorkspaceStore } from '../workspace'
 import { useVersionHistoryStore } from '../versionHistory'
-import { readTextFile, writeTextFile, watch, exists, readDir, remove, mkdir, rename } from '@tauri-apps/plugin-fs'
+import { readTextFile, writeTextFile, watch, exists, readDir, remove, mkdir } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
 /**
