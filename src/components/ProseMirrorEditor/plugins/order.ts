@@ -84,6 +84,7 @@ export const CANONICAL_PLUGIN_ORDER: readonly string[] = [
   'findHighlight',
 
   // ── Mode ────────────────────────────────────────────────────────────
+  'customCaret', // view-only plugin, no state; order irrelevant for apply
   'focusMode',
   'typewriterMode',
 

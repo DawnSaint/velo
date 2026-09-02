@@ -390,8 +390,18 @@ html.dark .velo-code-header-widget:has(+ pre.velo-folded),
   width: 0;
 }
 
+// 末行空行场景:PM 在末尾不可编辑 anchor 后补 separator + trailingBreak 作为
+// 光标落点(机制见 _editor-image.scss 同名注释)。本项目未引入 prosemirror.css,
+// preflight 的 img{display:block} 会让 separator 独占一行 → 光标掉到行号下一行;
+// 改 inline 系后 Chromium 把光标矩形锚定到这个零宽零高的 img 上,塌缩成 1px 点
+// → 光标隐身(Chromium 实测:宽 0 → 1px 点,宽 1px → 满行高光标)。故给
+// separator 1px 宽 + 1em 高 + visibility:hidden:不画任何东西,但光标有附着盒,
+// 满行高显示在末行行首。vertical-align:bottom 防止它把末行行盒撑高(基线对齐
+// 会让盒子超出线盒顶部,整块增高 ~0.8px)。
 .velo-editor .velo-code-lineno-anchor + .ProseMirror-separator {
   display: inline-block;
+  width: 1px;
+  visibility: hidden;
 }
 
 .velo-editor .velo-code-lineno {

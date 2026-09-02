@@ -134,9 +134,11 @@ jobs:
           cache: 'npm'
 
       - name: Setup Rust
+        if: inputs.platform != 'linux-x64-portable'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build
+        if: inputs.platform != 'linux-x64-portable'
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
@@ -176,10 +178,11 @@ jobs:
           docker run --rm -v "$PWD":/ws -w /ws archlinux:latest bash -c '
             set -e
             pacman -Syu --noconfirm
-            pacman -S --noconfirm --needed base-devel git nodejs npm rustup \
-              webkit2gtk-4.1 libayatana-appindicator librsvg openssl patchelf wget curl
-            rustup default stable
-            . "$HOME/.cargo/env"
+            # 用 rust 包直接提供 cargo/rustc(/usr/bin),不要 rustup —— Arch 上
+            # rustup 的 $HOME/.cargo/env 不一定生成,source 会失败。
+            # libxdo 是 Tauri 链接阶段的必需依赖(全局快捷键/窗口定位)。
+            pacman -S --noconfirm --needed base-devel git nodejs npm rust \
+              webkit2gtk-4.1 libayatana-appindicator libxdo librsvg openssl patchelf wget curl
             npm ci
             npm run tauri:build:appimage
           '

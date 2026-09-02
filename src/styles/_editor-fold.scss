@@ -155,6 +155,20 @@ html.dark .velo-fold-toggle:hover {
   transition: color 0.12s ease, background 0.12s ease;
 }
 
+// 折叠占位 `...` 是行末 inline atom,PM `addTextblockHacks` 在其后补
+// `ProseMirror-separator`(零宽 img,仅 Chrome/Safari/WebView2 因末子
+// contentEditable=false 才加) + `ProseMirror-trailingBreak`(<br>)。该 <br>
+// 在 `...` 下方撑出一条空行,且使"紧贴 ... 之后"的光标落点跑到空行上。
+// 对齐 image 手法(scoped 兄弟选择器)隐藏紧随 `...` 的 separator + trailingBreak,
+// 空行消失、光标落点回到 `...` 同行的右端。separator 零宽不撑行,隐藏无害;
+// trailingBreak 仅视觉隐藏,PM 仍按 matchesHack 复用它(光标/选区位置不变)。
+// 注意:全局 `.ProseMirror-separator { display:none }` 已移除(会破坏 code_block
+// 末行 caret 的 separator 盒子),故此处必须 scoped 到 fold_placeholder。
+.velo-fold-placeholder + .ProseMirror-separator,
+.velo-fold-placeholder + .ProseMirror-separator + .ProseMirror-trailingBreak {
+  display: none;
+}
+
 .velo-fold-placeholder:hover {
   color: var(--md-doc-primary-color, #3b82f6);
 }

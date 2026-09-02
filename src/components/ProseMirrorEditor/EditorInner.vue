@@ -176,6 +176,7 @@ import { foldDecoration, foldKey, foldDeleteCommand } from './nodes/FoldDecorati
 import { viewportPlugin, setInitialViewportHint, refreshViewport } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
+import { customCaretPlugin } from './plugins/customCaret'
 import { cjkLetterSpacingPlugin } from './plugins/cjkLetterSpacing'
 import { cjkAutoFormatPlugin } from './plugins/cjkAutoFormat'
 import { autoPairPlugin } from './plugins/autoPair'
@@ -762,6 +763,7 @@ const pluginEntries: PluginEntry[] = [
   { id: 'findHighlight', plugin: findHighlight },
 
   // ── Mode ──────────────────────────────────────────────────────────
+  { id: 'customCaret', plugin: customCaretPlugin },
   { id: 'focusMode', plugin: focusModePlugin },
   { id: 'typewriterMode', plugin: typewriterModePlugin },
 

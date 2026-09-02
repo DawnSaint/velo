@@ -90,6 +90,23 @@
   .ProseMirror.ProseMirror-hideselection {
     caret-color: transparent;
   }
+
+  // 自绘 caret(plugins/customCaret.ts):在非文本位置接管,关掉原生 caret 后用
+  // overlay 画 1px 红条(消除 code_block 末行 / fold_placeholder 处 "明显更高" 的
+  // line box caret,见 editor.md「坑续」+ docs/research/custom-caret.md)。
+  // 接管由 JS 切 .velo-native-caret-off;未接管时 native caret-color 不变。
+  .velo-native-caret-off {
+    caret-color: transparent;
+  }
+  .velo-fake-caret {
+    position: absolute;
+    width: 1px;
+    background: currentColor;
+    pointer-events: none;
+    display: none;
+    animation: velo-caret-blink 1.06s step-end infinite;
+  }
+  @keyframes velo-caret-blink { 50% { opacity: 0; } }
 }
 
 // 查找替换高亮(PM findHighlightPlugin / CM6 cmFindHighlightField 加的 Decoration)。
