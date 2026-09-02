@@ -175,6 +175,18 @@ function getCharBefore(state: EditorState, pos: number): string {
   } catch { return '' }
 }
 
+/**
+ * 行首连续反引号(代码围栏)场景:光标前整段文本都是反引号时返回 true。
+ * 此时再键入 ` 不应自动补全一对,以便直接键出 ``` / ```` 等任意长度围栏,
+ * 而非在 `` 基础上又补一对得到 ````。
+ */
+function isBacktickFenceRun(state: EditorState, pos: number): boolean {
+  if (isInCodeBlock(state) || isInInlineCode(state)) return false
+  const $pos = state.doc.resolve(pos)
+  const before = $pos.parent.textBetween(0, $pos.parentOffset, '')
+  return before.length > 0 && /^`+$/.test(before)
+}
+
 // ============================================================
 //  Core handlers
 // ============================================================
@@ -225,6 +237,9 @@ function handleTextInput(
   if (!closing) return false
 
   if (!shouldAutoPair(state, from, text)) return false
+
+  // 代码围栏:行首连续反引号时不再自动配对,允许直接键出 ``` / ```` 等任意长度
+  if (text === '`' && isBacktickFenceRun(state, from)) return false
 
   // Check if next char is already the closing char (avoid double-pairing)
   const nextChar = getCharAt(state, to)

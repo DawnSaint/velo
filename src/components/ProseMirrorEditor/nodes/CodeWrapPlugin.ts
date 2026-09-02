@@ -19,10 +19,10 @@
 //   - toggle 按钮在 CodeHighlightWidget 的 header 内(复制按钮左侧),与 fold
 //     chevron 同一 header 但独立按钮;wrap 开启 / 关闭时图标切换。
 //
-// 行号交互:wrap 开启后单条逻辑行可能跨多条视觉行,gutter widget 需动态
-//   测量每行实际高度并同步行号 div 高度(见 CodeLineNumberWidget.ts 的
-//   syncLineHeights)。gutter widget key 含 wrap 状态 → toggle 时 PM 重建
-//   widget → 新 widget 的 syncPosition 测量正确高度。
+// 行号交互:wrap 开启后单条逻辑行跨多条视觉行,行号内层用
+//   padding-block bleed + 等量 margin-block 抵消盒高与 line box 高的差,
+//   让 gutter 底色与分割线纵向连续,无需 JS 测高。gutter widget key 不含
+//   wrap 状态(只含 pos:lineNum),wrap 切换不重建 widget。
 //
 // 不持久化:wrap 状态只在当前编辑会话有效,切文件 / 重开 = 重置(全部恢复
 //   默认开启)。后续可选走 stable key + store(同 fold)。

@@ -842,11 +842,12 @@ export function toMarkdown(doc: PMNode): string {
     if (c.type.name === 'paragraph' && c.childCount === 0) k++
     else break
   }
-  // 整个文档都是空段落(无 frontmatter、无内容)→ 空文档。此时唯一的 paragraph 是
-  // schema 'block+' 强制的占位段,不是用户有意留的空行;canonical 应为 '' 而非补成
-  // '\n\n\n'——后者在源码模式下被 CM6 原样渲染成 4 行空行,与 WYSIWYG 的 1 行
-  // 不一致。'' 经 fromMarkdown 仍还原为单空段,round-trip 闭合。
-  if (k === doc.childCount) {
+  // 只有 doc 里"唯一"的那个空段是 schema 'block+' 强制的占位段 —— 那种才是
+  // 真空文档,canonical 为 ''(补成 '\n\n\n' 会让源码模式显示 4 行空行,与
+  // WYSIWYG 的 1 行对不上)。空文档里按 Enter 造出的**多个**空段是用户有意留的
+  // 空行,必须走下面的 2K+1 补偿:否则整篇空行塌缩成 '' → content 永远等于
+  // lastSavedContent → 不 dirty、Ctrl+S 存盘后重开还是空白(空行静默丢失)。
+  if (k === doc.childCount && k <= 1) {
     return ''
   }
   if (k > 0) {

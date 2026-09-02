@@ -355,26 +355,30 @@ describe('codeHighlightPlugin', () => {
     view.destroy()
   })
 
-  it('11. header 始终可见(非 hover-gated),含 fold + lang input + wrap + copy', async () => {
+  it('11. header 始终可见(非 hover-gated),含 fold + lang input + wrap + 行号 + copy', async () => {
     // header 取代旧 hover-gated toolbar,始终可见。
-    // 验证结构正确:fold chevron + lang input wrap + fold-info + wrap + copy。
+    // 验证结构正确:fold chevron + lang input wrap + fold-info + wrap + 行号 + copy。
+    // 行号 toggle 是 b15dcac 把行号从全局设置改成 per-block 开关时加进来的第 6 个子节点。
     const view = makeView('```js\nx\n```')
     await flushHighlighter()
     const header = view.dom.querySelector('.velo-code-header-widget') as HTMLElement | null
     const foldBtn = view.dom.querySelector('.velo-code-fold-btn') as HTMLElement | null
     const langInputWrap = view.dom.querySelector('.velo-code-lang-input-wrap') as HTMLElement | null
     const wrapBtn = view.dom.querySelector('.velo-code-wrap-btn') as HTMLElement | null
+    const lineBtn = view.dom.querySelector('.velo-code-line-btn') as HTMLElement | null
     const copyBtn = view.dom.querySelector('[data-testid="code-copy-btn"]') as HTMLElement | null
     expect(header).not.toBeNull()
     expect(foldBtn).not.toBeNull()
     expect(langInputWrap).not.toBeNull()
     expect(wrapBtn).not.toBeNull()
+    expect(lineBtn).not.toBeNull()
     expect(copyBtn).not.toBeNull()
-    // header 内有 fold + lang-input-wrap + fold-info + wrap + copy 五个子节点
-    expect(header!.children.length).toBe(5)
+    // header 内有 fold + lang-input-wrap + fold-info + wrap + 行号 + copy 六个子节点
+    expect(header!.children.length).toBe(6)
     // 按钮有 type='button'(防止 ProseMirror 把它当 form submit 截走)
     expect((foldBtn as HTMLButtonElement).type).toBe('button')
     expect((copyBtn as HTMLButtonElement).type).toBe('button')
+    expect((lineBtn as HTMLButtonElement).type).toBe('button')
     // lang input wrap 内含 icon span + input
     const langInput = langInputWrap!.querySelector('.velo-code-lang-input') as HTMLInputElement | null
     expect(langInput).not.toBeNull()

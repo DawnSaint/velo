@@ -63,6 +63,22 @@
 // 自身与下方"懒加载预留区"共用,保证有/无 header 两态外框高度相等。
 .velo-editor {
   --velo-code-header-h: 2.75em;
+  // 行号 gutter 宽度。pre 的 padding-left 与行号的 width / 负 margin 三处
+  // 必须一致,否则行号与代码列错位。em 在两个上下文里都解析成 pre 的字号
+  // ——行号自身 font-size: calc(1em / 0.9) 正好把 code 的 0.9em 还原回来。
+  --velo-code-gutter-w: 4em;
+  // 分割线与代码列之间的呼吸间距(分割线画在 gutter 内部、距右缘 gap 处,
+  // 不贴在代码列左缘,否则代码会贴线显得拥挤)。
+  --velo-code-gutter-gap: 0.75em;
+  // 分割线颜色:pre 背景渐变与行号 ::after 共用,切 dark 只需翻这一个变量。
+  --velo-code-divider: var(--shiki-light-border);
+}
+
+// dark 三路命中:只翻变量,pre 背景渐变与行号 ::after 自动跟随
+html.dark .velo-editor,
+.dark .velo-editor,
+.velo-editor.dark {
+  --velo-code-divider: var(--shiki-dark-border);
 }
 
 .velo-editor pre {
@@ -343,16 +359,51 @@ html.dark .velo-code-header-widget:has(+ pre.velo-folded),
 }
 
 // ============================================================
-//  代码块行号
+//  代码块行号(gutter)
+//
+// 开启行号时 code_block 从单栏变"左右结构":左侧固定宽 gutter(行号列)+
+// 一条纵向分割线 + 右侧代码列。三件事必须同时成立:
+//   1. pre 用 padding-left 让出 gutter 宽度 → 代码列与 soft wrap 的续行都
+//      从 gutter 右缘起排,不会钻到行号底下;
+//   2. 行号本体用等量负 margin-left 画进 padding 区,advance 归零 → 不挤占
+//      代码列首行;
+//   3. sticky 挂外层零宽锚点,不挂行号本身 —— 给行号同时上负 margin 和
+//      sticky,Chrome 会按 containing block(pre 的 content box)把它夹回
+//      代码列里,行号就跑到分割线右侧了。
+//
+// 分割线画两遍,缺一不可:
+//   A. 行号 ::after(sticky、不透明、z-index 1):只覆盖"每条逻辑行的首个
+//      视觉行"。横向滚动时它压在代码之上 —— 代码不会越到分割线左侧。
+//   B. pre 背景渐变(纵向贯穿整个 padding box):wrap 模式下一条逻辑行会
+//      折成多条视觉行,续行没有行号盒子 → 只有 B 能补上续行的线。背景
+//      attachment 默认 scroll,不随横向滚动移动;而 wrap 模式本就
+//      overflow-x: hidden,两者天然对齐。
+// A/B 都落在同一个 x(距 gutter 右缘 gap),视觉上连成一条。
 // ============================================================
 
-.velo-editor .velo-code-lineno {
+// sticky 锚点:零宽 → 永远落在 content box 内,越界由内层负 margin 承担
+.velo-editor .velo-code-lineno-anchor {
   position: sticky;
   left: 0;
+  z-index: 1;
   display: inline-block;
-  width: 3em;
+  width: 0;
+}
+
+.velo-editor .velo-code-lineno-anchor + .ProseMirror-separator {
+  display: inline-block;
+}
+
+.velo-editor .velo-code-lineno {
+  position: relative;
+  display: inline-block;
+  width: var(--velo-code-gutter-w);
+  margin-left: calc(-1 * var(--velo-code-gutter-w));
   box-sizing: border-box;
-  padding-right: 0.5em;
+  padding-left: 0.5em;
+  // 数字与分割线之间也留 0.5em:分割线在距右缘 gap 处,数字右缘必须再往
+  // 左让出 0.5em,否则数字会贴到线上。
+  padding-right: calc(var(--velo-code-gutter-gap) + 0.5em);
   text-align: right;
   font-family: var(--font-mono, 'JetBrains Mono', Menlo, Consolas, monospace);
   font-size: calc(1em / 0.9);
@@ -361,15 +412,43 @@ html.dark .velo-code-header-widget:has(+ pre.velo-folded),
   background-color: var(--shiki-light-bg);
   user-select: none;
   pointer-events: none;
-  z-index: 1;
+
+  // 分割线(A):画在行号盒内部、距右缘 gap 处 —— 不贴在代码列左缘
+  // (advance 归零让行号右缘 == 代码列左缘,直接上 border-right 会零间距)。
+  // 随行号一起 sticky 且 z-index 高于代码 → 横向滚动时压在代码之上,代码
+  // 不会越到它左侧。top/bottom 撑满 padding box(含 bleed)保证行间连续。
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: var(--velo-code-gutter-gap);
+    width: 1px;
+    background-color: var(--velo-code-divider);
+  }
 }
 
-// 有行号(code_block 有 data-velo-gutter 属性)时,pre 去掉 padding-left,
-// 由行号 widget 自身的宽度占据左侧空间。否则 sticky left:0 只固定在
-// content-box 左缘(即 padding 内侧),横向滚动时代码从 padding 缝隙中
-// 露出,出现"代码→行号→代码"错位。
+// 有行号(code_block 有 data-velo-gutter 属性)时,pre 的左侧内边距换成
+// gutter 宽度:代码列(含续行)整体右移到 gutter 右缘,行号由负 margin 画回
+// 左侧 padding 区。原先这里写 padding-left: 0 让行号贴 content-box 左缘,
+// 代价是换行后的续行会顶到行号底下。
 .velo-editor pre[data-velo-gutter="true"] {
-  padding-left: 0;
+  padding-left: var(--velo-code-gutter-w);
+
+  // 分割线(B):纵向贯穿整个 padding box 的 1px 竖线,补上 wrap 续行
+  // ——续行没有行号盒子,只有这条背景线能画出来。background-attachment 默认
+  // scroll:背景不随内容横向滚动,恰好与 sticky 的行号线重合在同一 x。
+  // 非 wrap 模式下每行都有行号,这条线被行号不透明底色盖住,只在上/下
+  // padding 段露出,与 A 段首尾相接。
+  background-image: linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(var(--velo-code-gutter-w) - var(--velo-code-gutter-gap) - 1px),
+    var(--velo-code-divider) calc(var(--velo-code-gutter-w) - var(--velo-code-gutter-gap) - 1px),
+    var(--velo-code-divider) calc(var(--velo-code-gutter-w) - var(--velo-code-gutter-gap)),
+    transparent calc(var(--velo-code-gutter-w) - var(--velo-code-gutter-gap))
+  );
+  background-repeat: no-repeat;
 }
 
 html.dark .velo-editor .velo-code-lineno,

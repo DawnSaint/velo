@@ -3,8 +3,12 @@
 // 暗色部分保持 flat——原代码注释明确"只用 .dark 祖先,保持原行为不动"。
 
 .velo-editor {
-  // 通用图片
-  img {
+  // 仅作用于真正的图片节点(.velo-image-inline 内的 img)。
+  // 不能写成 .velo-editor img 覆盖全部 <img> —— ProseMirror 会在末尾非可编辑节点后
+  // 注入 <img class="ProseMirror-separator" alt=""> 作为光标落点锚点,若被 display:block
+  // + margin:0 auto 命中会变成块级居中,光标被挤到块中间(_editor-base 已用 inline
+  // !important 兜底,这里再收窄选择器做双保险)。
+  .velo-image-inline img {
     max-width: 100%;
     max-height: 400px;
     height: auto;
@@ -165,7 +169,7 @@
 // "span 直连 br" 与 "span 经 separator 连 br" 两条路径(Firefox 不加 separator)。
 // 仅隐藏紧随图片之后的那条 trailing break;空段自己的 trailing break(段落高度 /
 // 光标来源)不动。separator 零宽不撑行,无需处理。
-.velo-image-inline + .ProseMirror-trailingBreak,
+.velo-image-inline + .ProseMirror-separator,
 .velo-image-inline + .ProseMirror-separator + .ProseMirror-trailingBreak {
   display: none;
 }

@@ -267,4 +267,39 @@ describe('autoPairPlugin', () => {
     expect(view.state.doc.textContent).not.toContain('()')
     view.destroy()
   })
+
+  it('13. 反引号围栏:行首 `` 后输入第三个 ` 不自动补全', () => {
+    const view = makeView('')
+    setCursor(view, 1)
+    typeChar(view, '`') // 自动配对 → `` 光标在中间
+    expect(paraText(view)).toBe('``')
+    // 第二个 `:触发闭括号跳越,光标移到 `` 末尾(模拟真实键入)
+    pressKey(view, '`')
+    expect(paraText(view)).toBe('``')
+    expect(view.state.selection.from).toBe(3) // 在 `` 之后
+    // 第三个 `:不应再自动配对,只插入单个 → ```
+    typeChar(view, '`')
+    expect(paraText(view)).toBe('```')
+    view.destroy()
+  })
+
+  it('14. 反引号围栏:行首 ``` 后输入第四个 ` 仍为单个(得 ```` 而非 `````)', () => {
+    const view = makeView('')
+    setCursor(view, 1)
+    typeChar(view, '`'); pressKey(view, '`'); typeChar(view, '`') // → ```
+    expect(paraText(view)).toBe('```')
+    // 第四个 `:只插入单个 → ````
+    typeChar(view, '`')
+    expect(paraText(view)).toBe('````')
+    view.destroy()
+  })
+
+  it('15. 反引号围栏:非行首(行内代码)仍正常配对', () => {
+    const view = makeView('abc')
+    setCursor(view, 4) // 在 "abc" 之后
+    typeChar(view, '`') // 普通行内代码开符号 → 自动配对
+    expect(paraText(view)).toBe('abc``')
+    expect(view.state.selection.from).toBe(5) // 光标在配对中间
+    view.destroy()
+  })
 })

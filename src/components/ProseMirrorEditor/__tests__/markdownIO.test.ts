@@ -568,6 +568,41 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
     }
   })
 
+  it('真空文档(仅 schema 占位空段)canonical 仍是空串', () => {
+    // 唯一空段是 schema 'block+' 强制的占位,不是用户留的空行 —— 保持 '' 语义,
+    // 否则源码模式会显示 4 行空行、与 WYSIWYG 的 1 行对不上。
+    const doc = fromMarkdown('', schema)
+    expect(doc.childCount).toBe(1)
+    expect(toMarkdown(doc)).toBe('')
+  })
+
+  it('空文档里敲出的多个空段不再塌缩成空串(旧行为:永不 dirty / 存盘后空白)', () => {
+    // 修复前 `k === doc.childCount → return ''` 把用户按 Enter 造出的空段一并吞掉,
+    // content 恒为 '' → 与 lastSavedContent 相等 → 不 dirty,Ctrl+S 后重开仍空白。
+    const paras = Array.from({ length: 5 }, () => schema.node('paragraph'))
+    const doc = schema.node('doc', null, paras)
+    const out = toMarkdown(doc)
+    expect(out).not.toBe('')
+    // 走既有的尾部补偿约定:K 个空段 → 2K+1 个 \n
+    expect(out).toBe('\n'.repeat(2 * 5 + 1))
+    // round-trip 闭合:空段数不丢
+    const back = fromMarkdown(out, schema)
+    expect(back.childCount).toBe(5)
+    expect(toMarkdown(back)).toBe(out)
+  })
+
+  it('代码块内的多空行不被注入 <br /> 占位(round-trip 字节相等)', () => {
+    // 修复前:preprocessBlankLines 无差别替换全文档的 \n\n\n+,把 <br /> 注入
+    // 代码块内容,toMarkdown 又当代码写回 → 源码被永久污染。
+    const md = '# t\n\n```js\nlet a = 1\n\n\n\n\nlet b = 2\n```\n'
+    const doc = fromMarkdown(md, schema)
+    const code = doc.child(1)!
+    expect(code.type.name).toBe('code_block')
+    expect(code.textContent).toBe('let a = 1\n\n\n\n\nlet b = 2')
+    expect(code.textContent).not.toContain('<br />')
+    expect(toMarkdown(doc)).toBe(md)
+  })
+
   it('emoji 节点在 PM doc 中 attrs.shortcode 保留', () => {
     // 验证 fromMarkdown 把 :smile: 解析为 emoji 节点,shortcode 在 attrs
     const doc = fromMarkdown(':smile:', schema)

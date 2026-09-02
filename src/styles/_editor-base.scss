@@ -16,8 +16,6 @@
     -moz-tab-size: 8;
   }
 
-  .ProseMirror-separator { display: none }
-
   // 大文档性能优化:content-visibility: auto 让浏览器跳过不可见区域
   // 的布局和绘制(DOM 仍存在,不影响 PM selection / decoration / scroll)。
   // contain-intrinsic-size 提供预估高度,避免滚动条抖动。

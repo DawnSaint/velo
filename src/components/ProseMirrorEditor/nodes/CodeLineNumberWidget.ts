@@ -85,11 +85,16 @@ function buildLineDecosForBlock(
     const lineNum = i + 1
     decos.push(
       Decoration.widget(lineStart, () => {
+        // 外层零宽锚点承载 sticky,行号本体靠负 margin 画进 pre 的 padding 区
+        // ——sticky 不能直接挂行号,会被 Chrome 按 containing block 夹回代码列
+        // (见 _editor-code.scss 行号段注释)。
+        const anchor = document.createElement('span')
+        anchor.className = 'velo-code-lineno-anchor'
         const span = document.createElement('span')
         span.className = 'velo-code-lineno'
-        span.contentEditable = 'false'
         span.textContent = String(lineNum)
-        return span
+        anchor.appendChild(span)
+        return anchor
       }, {
         side: -1,
         key: `code-ln:${pos}:${lineNum}`,

@@ -84,3 +84,70 @@ describe('preprocessBlankLines', () => {
     expect(preprocessBlankLines('para1\r\n\r\npara2')).toBe('para1\n\npara2')
   })
 })
+
+// 逐字区里的空行是内容不是分隔符 —— 注入 <br /> 会把占位当成代码写回源码,
+// round-trip 后永久污染磁盘文件(见 v0.7.13 代码块空行 bug)。
+describe('preprocessBlankLines: 逐字区保护', () => {
+  it('围栏代码块内的多空行不动', () => {
+    expect(preprocessBlankLines('# t\n\n```\na\n\n\n\nb\n```\n'))
+      .toBe('# t\n\n```\na\n\n\n\nb\n```\n')
+  })
+
+  it('带语言 + 波浪号围栏同样保护', () => {
+    expect(preprocessBlankLines('```js\nlet a = 1\n\n\n\n\nlet b = 2\n```\n'))
+      .toBe('```js\nlet a = 1\n\n\n\n\nlet b = 2\n```\n')
+    expect(preprocessBlankLines('~~~\na\n\n\n\nb\n~~~\n'))
+      .toBe('~~~\na\n\n\n\nb\n~~~\n')
+  })
+
+  it('未闭合围栏保护到文档末尾', () => {
+    expect(preprocessBlankLines('```\na\n\n\n\nb\n')).toBe('```\na\n\n\n\nb\n')
+  })
+
+  it('围栏块前后的多空行仍注入占位', () => {
+    expect(preprocessBlankLines('before\n\n\n\n```\nx\n```\n\n\n\nafter\n'))
+      .toBe('before\n\n<br />\n\n```\nx\n```\n\n<br />\n\nafter\n')
+  })
+
+  it('数学块内的多空行不动', () => {
+    expect(preprocessBlankLines('$$\nx = 1\n\n\n\ny = 2\n$$\n'))
+      .toBe('$$\nx = 1\n\n\n\ny = 2\n$$\n')
+  })
+
+  it('frontmatter 内的多空行不动(否则污染 YAML)', () => {
+    expect(preprocessBlankLines('---\ntitle: a\n\n\n\ntags: b\n---\n\nbody\n'))
+      .toBe('---\ntitle: a\n\n\n\ntags: b\n---\n\nbody\n')
+  })
+
+  it('缩进代码块内的多空行不动,块外照常注入', () => {
+    expect(preprocessBlankLines('para\n\n    a\n\n\n\n    b\n\npara2\n'))
+      .toBe('para\n\n    a\n\n\n\n    b\n\npara2\n')
+    expect(preprocessBlankLines('para\n\n    a\n\n\n\n    b\n\n\n\npara2\n'))
+      .toBe('para\n\n    a\n\n\n\n    b\n\n<br />\n\npara2\n')
+  })
+
+  it('缩进代码不能打断段落:lazy continuation 行后的多空行仍注入', () => {
+    expect(preprocessBlankLines('para\n    lazy\n\n\n\n    more\n'))
+      .toBe('para\n    lazy\n\n<br />\n\n    more\n')
+  })
+
+  it('标题 / 分割线是块边界:紧随其后的缩进代码内多空行不动', () => {
+    // heading / hr 同样终结段落,后面的 4 空格行是缩进代码块而非 lazy continuation
+    expect(preprocessBlankLines('# Title\n    a\n\n\n\n    b\n'))
+      .toBe('# Title\n    a\n\n\n\n    b\n')
+    expect(preprocessBlankLines('---\n    a\n\n\n\n    b\n'))
+      .toBe('---\n    a\n\n\n\n    b\n')
+  })
+
+  it('列表项内 4 空格缩进的围栏代码块内多空行不动', () => {
+    expect(preprocessBlankLines('- item\n\n  ```\n  a\n\n\n  b\n  ```\n'))
+      .toBe('- item\n\n  ```\n  a\n\n\n  b\n  ```\n')
+  })
+
+  it('原始 HTML 块(pre / 注释)内的多空行不动', () => {
+    expect(preprocessBlankLines('<pre>\na\n\n\n\nb\n</pre>\n'))
+      .toBe('<pre>\na\n\n\n\nb\n</pre>\n')
+    expect(preprocessBlankLines('<!--\na\n\n\n\nb\n-->\n'))
+      .toBe('<!--\na\n\n\n\nb\n-->\n')
+  })
+})
