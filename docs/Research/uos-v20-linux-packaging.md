@@ -102,7 +102,7 @@ invoke('plugin:__TAURI_CHANNEL__|fetch', null, { headers: { <CHANNEL_ID>: ... } 
 | 产物 | `.AppImage` ~150 MB | `.uab` / `.layer` | 正常 `.deb` ~15 MB | 无需改动 |
 | 解 webkit | 内置 | runtime 提供 | 用系统 2.38.6 | 系统自带 4.1 |
 | 解 glibc | 内置动态链接器 | base 提供 | 在 UOS 内编译 | 无需 |
-| 社区验证 | ✅ 已在 UOS V20 跑通 | ✅ Tauri 应用实测跑通 | ⚠️ 未见公开先例 | ✅ |
+| 社区验证 | ✅ 已在 UOS V20 跑通 | ✅ Tauri 应用实测跑通 | 未见公开先例 | ✅ |
 | 上手成本 | 中 | 中高（学 ll-builder） | 高（fork 5 个 crate） | 零 |
 | 长期维护 | 低 | 低 | **高**（每次升 Tauri 重打 patch） | 零 |
 | 商店上架 | ❌ 商店不收内置依赖包 | ✅ 官方通道 | ✅ | — |
@@ -143,7 +143,7 @@ echo "deb [trusted=yes] https://ci.deepin.com/repo/obs/linglong:/CI:/release/uos
 
 作者用它打包 Tauri 应用（Biliup-app）**原生跑通，不内置任何运行库**。
 
-⚠️ 该 runtime 目前在**社区自建测试源**，非官方源；已知问题：应用主题不跟随宿主。
+该 runtime 目前在**社区自建测试源**，非官方源；已知问题：应用主题不跟随宿主。
 
 ### 路线 B 细化：UOS V20 上到底要做什么（2026-09-01 补）
 

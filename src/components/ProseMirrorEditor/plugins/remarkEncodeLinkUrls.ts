@@ -12,6 +12,9 @@
 //
 // 思路沿用 remarkPreserveEmptyLine —— wrap parser,在调原 parser 前预处理
 // 文本。这种"纯文本替换"比写一个完整的自定义 remark inline token 简单得多。
+//
+// 改写源文本会改变 mdast position.offset 的基准 —— 新增 / 修改本 wrapper 时
+// 必须同步 `parseProcessor.preprocessSource`,否则 offset 回查原文时错位。
 
 export const remarkEncodeLinkUrls = function(this: any) {
   const self = this as any
@@ -33,7 +36,7 @@ export const remarkEncodeLinkUrls = function(this: any) {
  *  - 只 encode 内部空格;前导/尾部空格不处理(原样交给 remark-parse,
  *    通常意味着 URL 非法,降级为普通文本)。
  */
-function encodeLinkUrlSpaces(doc: string): string {
+export function encodeLinkUrlSpaces(doc: string): string {
   return doc.replace(
     /\[([^\]\n]+)\]\(([^()]*)\)/g,
     (match, text: string, url: string) => {

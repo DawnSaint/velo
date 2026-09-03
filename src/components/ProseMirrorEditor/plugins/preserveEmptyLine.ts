@@ -18,6 +18,9 @@
  *
  * 这是一个 unified 插件 —— `markdownIO.ts` 里 `.use(remarkPreserveEmptyLine)`。
  * 必须挂在 `remarkParse` **之后**,这样它拦得到 `this.parser`。
+ *
+ * 改写源文本会改变 mdast position.offset 的基准 —— 新增 / 修改本 wrapper 时
+ * 必须同步 `parseProcessor.preprocessSource`,否则 offset 回查原文时错位。
  */
 export const remarkPreserveEmptyLine = function(this: any) {
   const self = this as any

@@ -10,9 +10,9 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { remarkPreserveEmptyLine } from '../plugins/preserveEmptyLine'
+import { remarkPreserveEmptyLine, preprocessBlankLines } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
-import { remarkEncodeLinkUrls } from '../plugins/remarkEncodeLinkUrls'
+import { remarkEncodeLinkUrls, encodeLinkUrlSpaces } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
@@ -20,6 +20,25 @@ import { remarkSupSub } from '../plugins/remarkSupSub'
 import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { remarkEmoji } from '../plugins/remarkEmoji'
 import remarkFrontmatter from 'remark-frontmatter'
+
+/**
+ * md → remark-parse 实际看到的字符串。
+ *
+ * 链上有两个 parser wrapper 会在调 remark-parse 前改写源文本：
+ * remarkEncodeLinkUrls(URL 空格 → %20)和 remarkPreserveEmptyLine(多空行 →
+ * `<br />` 块)。mdast 的 position.offset 是相对**改写后**字符串的，
+ * markdownIO 的 annotateEmphasisMarker / annotateMathDelimiterCount 要用
+ * offset 回查源文本，必须喂这份字符串 —— 否则 offset 与源文本错位，
+ * emphasis/strong 的 `*`/`_` marker 与数学分隔符数量会识别错。
+ *
+ * 顺序按 wrapper 的嵌套：encodeLinkUrlSpaces 挂在外层，先跑。
+ * 两个改写都不动换行，彼此顺序不影响结果。
+ *
+ * 新增 / 修改任何改写源文本的 parser wrapper，必须同步此函数。
+ */
+export function preprocessSource(md: string): string {
+  return preprocessBlankLines(encodeLinkUrlSpaces(md))
+}
 
 /**
  * 创建 parse-only unified processor（不含 remarkStringify）。

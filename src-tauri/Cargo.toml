@@ -24,7 +24,7 @@ tauri-plugin-shell = "2"
 # plugin-shell.open 只能"用默认应用打开",不能在文件管理器高亮;plugin-opener 专门补这条。
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-updater = "2.11"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 # serde_json:tauri::generate_context!() 宏展开需要 serde_json 在 crate root 可用,

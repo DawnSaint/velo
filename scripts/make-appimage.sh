@@ -25,7 +25,7 @@ chmod +x "$SHARUN"
 # 可选的 mesa 精简：针对 UOS 4.19 内核 + Arch mesa 25 不兼容；失败不阻断
 curl -fSL https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/main/useful-tools/get-debloated-pkgs.sh -o /tmp/get-debloated-pkgs.sh 2>/dev/null || true
 chmod +x /tmp/get-debloated-pkgs.sh 2>/dev/null || true
-/tmp/get-debloated-pkgs.sh --add-mesa --prefer-nano 2>/dev/null || echo "⚠️ mesa debloat 跳过（非致命）"
+/tmp/get-debloated-pkgs.sh --add-mesa --prefer-nano 2>/dev/null || echo "mesa debloat 跳过（非致命）"
 
 # 2) sharun 要求先把应用装到 /usr
 $SUDO install -Dm755 "$BIN" /usr/bin/velo

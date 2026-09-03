@@ -6,7 +6,7 @@
 // 这里,保证用户写的 <details> / <abbr> / <kbd> 等合法 HTML 透传,但 script /
 // iframe / onerror 等危险内容被洗掉。
 //
-// ⚠️ 与 HtmlNodeView.ts 的 PURIFY_CONFIG 同步约束:这份配置必须在两者之间
+// 与 HtmlNodeView.ts 的 PURIFY_CONFIG 同步约束:这份配置必须在两者之间
 // 保持一致;若任一处变更,另一处也要同步改。后续 v0.5+ 若重构可抽到
 // src/lib/sanitizeConfig.ts(留 TODO)。
 

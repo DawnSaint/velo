@@ -689,6 +689,44 @@ describe('markdownIO - 多空行保留(preserveEmptyLine 链路)', () => {
       expect(canon3).toBe(canon)
     }
   })
+
+  it('回归:多空行之后的 _斜体_ / **粗体** marker 仍正确(mdast offset 不串)', () => {
+    // 修复前:preprocessBlankLines 在空行处注入 <br />\n\n,使 remark-parse 产出的
+    // mdast position.offset 相对"改写后"字符串;annotateEmphasisMarker 若拿原始 md
+    // 回查,offset 错位 → marker 识别失败(多为文档深层、多空行之后的节点)。
+    // 现 mdastToPMDoc 统一用 preprocessSource(md) 回查,marker 保真。
+    // 行尾的 *斜体* / _斜体_ 用行内代码包裹,只有首个 _斜体_ 是真正的 emphasis。
+    const md = 'intro\n\n\n- _斜体_ 用一个下划线包裹文字，如 `*斜体*` 或 `_斜体_`。\n'
+    const doc = fromMarkdown(md, schema)
+    const markers: string[] = []
+    doc.descendants(node => {
+      if (node.isText) {
+        const m = node.marks.find(mk => mk.type.name === 'emphasis')
+        if (m) markers.push(m.attrs.marker as string)
+      }
+      return true
+    })
+    // 段落里仅首个 _斜体_ 是真正的 emphasis,其余在行内代码内
+    expect(markers).toEqual(['_'])
+  })
+
+  it('回归:含空格的链接 URL 之后的 __粗体__ marker 仍正确(offset 不串)', () => {
+    // 修复前:remarkEncodeLinkUrls 把 `# Markdown 语法` 改写成 `#%20Markdown%20语法`
+    // (+4 字符),mdast position.offset 是相对这份改写字符串的;回查时只补偿了空行
+    // 预处理,该链接之后所有节点的 offset 都错位 → marker 识别失败、`__块级公式__`
+    // 被显示成 `**块级公式**`。现统一走 preprocessSource 回查。
+    const md = '- [回到开头](# Markdown 语法)\n\n- __块级公式__：`$$` 独占一行。\n'
+    const doc = fromMarkdown(md, schema)
+    const markers: string[] = []
+    doc.descendants(node => {
+      if (node.isText) {
+        const m = node.marks.find(mk => mk.type.name === 'strong')
+        if (m) markers.push(m.attrs.marker as string)
+      }
+      return true
+    })
+    expect(markers).toEqual(['_'])
+  })
 })
 
 // emphasis/strong marker attr (`*` vs `_`) 在 fromMarkdown → toMarkdown round-trip 中保留。

@@ -49,6 +49,7 @@ export const fontStacks = {
     charter: { stack: 'Charter, Georgia, serif', platforms: ['macos'] },
     cambria: { stack: 'Cambria, Georgia, serif', platforms: ['windows'] },
     constantia: { stack: 'Constantia, Georgia, serif', platforms: ['windows'] },
+    segoe: { stack: '"Segoe UI", "Segoe UI Variable", Arial, sans-serif', platforms: ['windows'] },
   },
   cjk: {
     system: { stack: '"PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif', platforms: 'all' },

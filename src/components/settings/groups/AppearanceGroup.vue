@@ -63,6 +63,7 @@ const latinFontOptions = buildFontOptions('latin', {
   charter: 'Charter',
   cambria: 'Cambria',
   constantia: 'Constantia',
+  segoe: 'Segoe UI',
 })
 
 const cjkFontOptions = buildFontOptions('cjk', {

@@ -17,7 +17,12 @@ import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingConten
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
 import type { FrontmatterLang } from '../syntax/block/frontmatter'
-import { createParseProcessor } from './parseProcessor'
+import { createParseProcessor, preprocessSource } from './parseProcessor'
+// remark-parse 实际解析的是 preprocessSource(md)（空行 → `<br />`、URL 空格 →
+// %20 两次改写之后），mdast 的 position.offset 也是相对这份字符串；
+// annotateEmphasisMarker / annotateMathDelimiterCount 用 offset 回查源文本，
+// 必须喂同一份，否则 offset 错位 → marker / 分隔符数量识别失败。
+// 见 parseProcessor.preprocessSource。
 
 // ============================================================
 //  unified processor
@@ -238,7 +243,8 @@ function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
 
 export function fromMarkdown(md: string, schema: Schema): PMNode {
   const tree = processor.runSync(processor.parse(md) as Root) as Root
-  return mdastToPMDoc(tree, md, schema)
+  // 用 remark-parse 实际解析的预处理字符串回查 offset（见文件顶部 import 注释）
+  return mdastToPMDoc(tree, preprocessSource(md), schema)
 }
 
 // ============================================================
@@ -325,7 +331,7 @@ export async function fromMarkdownAsync(
         resolve(fromMarkdown(md, schema))
         return
       }
-      resolve(mdastToPMDoc(tree as Root, md, schema))
+      resolve(mdastToPMDoc(tree as Root, preprocessSource(md), schema))
     }
 
     const onError = () => fallback()

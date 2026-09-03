@@ -167,7 +167,7 @@ src/stores/knowledgeGraph.ts
 | [`mdast-util-wiki-link`](https://github.com/landakram/mdast-util-wiki-link) | `0.1.2` | MIT | 29.5 KB | 2023-10-09 |
 | [`micromark-extension-wiki-link`](https://github.com/landakram/micromark-extension-wiki-link) | `0.0.4` | MIT | — | 2023-09-18 |
 
-⚠️ 维护现状：
+维护现状：
 
 - 这三个包自 **2023-10** 后无新版本发布。功能稳定，但活跃度低。
 - `remark-wiki-link@2.0.1` 依赖 `mdast-util-wiki-link@^0.1.2` + `micromark-extension-wiki-link@^0.0.4`，且 devDeps 锁的是老版本 `unified@9`、`mdast-util-from-markdown@2`、`remark-parse@9`。Velo 当前依赖 `unified@^11.0.5` + `mdast-util-from-markdown@^2.0.3` + `remark-parse@^11.0.0`，理论上 `mdast-util-*` / `micromark-*` v0.x 包仍兼容 v2/v3 `unified` 生态，但需要实际跑一遍 round-trip 才能确认。
