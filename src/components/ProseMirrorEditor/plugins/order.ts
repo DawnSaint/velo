@@ -61,6 +61,14 @@ export const CANONICAL_PLUGIN_ORDER: readonly string[] = [
   'viewport',
 
   // ── Code Decorations (read viewport state) ──────────────────────────
+  // foldDecoration 必须排在所有"读取 ancestor-folded 集合"的装饰 plugin 之前
+  // (codeHighlight / codeLineNumber / mermaidDecoration / tocDecoration):
+  // 这些 plugin 的 apply 阶段会读 FoldDecoration 维护的 module-level
+  // set,若 foldDecoPlugin.apply 晚于它们运行,会读到 stale 旧 pos 集合而误
+  // 渲染 code block / mermaid / toc 的 header —— 祖先折叠时整段应隐,
+  // header 不能孤悬在外。recomputeFoldedCodeBlockPos 在 foldDecoPlugin.apply
+  // 内同步刷新集合,故 foldDecoration 前置即可保证消费者读到最新集合。
+  'foldDecoration',
   'codeHighlight',
   'codeWrap',
   'codeLineNumber',
@@ -80,7 +88,6 @@ export const CANONICAL_PLUGIN_ORDER: readonly string[] = [
   'taskList',
   'footnoteEdit',
   'tocDecoration',
-  'foldDecoration',
   'findHighlight',
 
   // ── Mode ────────────────────────────────────────────────────────────

@@ -180,9 +180,10 @@ jobs:
             pacman -Syu --noconfirm
             # 用 rust 包直接提供 cargo/rustc(/usr/bin),不要 rustup —— Arch 上
             # rustup 的 $HOME/.cargo/env 不一定生成,source 会失败。
-            # libxdo 是 Tauri 链接阶段的必需依赖(全局快捷键/窗口定位)。
+            # xdotool 提供 libxdo.so(tauri 的 muda/global-shortcut 链接所需);
+            # Arch 包名是 xdotool,不是 Debian 的 libxdo。
             pacman -S --noconfirm --needed base-devel git nodejs npm rust \
-              webkit2gtk-4.1 libayatana-appindicator libxdo librsvg openssl patchelf wget curl
+              webkit2gtk-4.1 libayatana-appindicator xdotool librsvg openssl patchelf wget curl
             npm ci
             npm run tauri:build:appimage
           '

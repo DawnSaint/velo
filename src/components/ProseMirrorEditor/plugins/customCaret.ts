@@ -150,6 +150,7 @@ class CaretView {
       this.ro = new ResizeObserver(() => this.schedule())
       this.ro.observe(view.dom)
     }
+    caretViews.set(view, this)
     this.schedule()
   }
 
@@ -161,7 +162,17 @@ class CaretView {
     })
   }
 
-  private sync() {
+  sync() {
+    try {
+      this.syncInner()
+    } catch {
+      // 任何几何异常(越界 pos / display:none 节点 / 不可测位置)都回落到隐藏,
+      // 绝不能让上一帧画在旧位置的 overlay 残留 → 光标"卡"在标题后等 stale 位置。
+      this.hide()
+    }
+  }
+
+  private syncInner() {
     const view = this.view
     if (view.isDestroyed) return
     const sel = view.state.selection
@@ -184,21 +195,29 @@ class CaretView {
       return
     }
 
-    const c = view.coordsAtPos(sel.head)
-    const host = node.nodeType === 3 ? (node.parentElement as HTMLElement) : (node as HTMLElement)
-    if (!host) {
-      this.hide()
-      return
+    const candidates: Array<{ c: { top: number; bottom: number; left: number }, host: HTMLElement }> = []
+    const pushCand = (p: number) => {
+      if (p < 0 || p > view.state.doc.content.size) return
     }
-    let left = c.left
-    let r = resolveCaret(host, c)
+    pushCand(sel.head)
+    pushCand(sel.head - 1)
+    pushCand(sel.head + 1)
 
-    // 退化兜底:coordsAtPos 在下流节点 display:none(如被 scoped 规则隐藏的
-    // fold_placeholder 后 trailingBreak)时返回零高 rect(top=0,h=0)。此时用
-    // 下游紧邻 inline 盒(atom / 文本)的右端构造 caret:高度取 em-square F,
-    // 纵向按行盒居中 —— 让自绘 caret 仍落在 ... 同行的右端,而不是退化给原生
-    // (原生在非文本位置会画成 line-box 高度,即老的"高 caret"bug)。
-    if (!r) {
+    let chosen: { c: { top: number; bottom: number; left: number }, host: HTMLElement, r: ResolvedCaret } | null = null
+    for (const cand of candidates) {
+      const r = resolveCaret(cand.host, cand.c)
+      if (!r) continue
+      // as-is(em-square)优先:caret 直接落在文本边上,纵向与文本对齐
+      if (r.mode === 'as-is') {
+        chosen = { ...cand, r }
+        break
+      }
+      if (!chosen) chosen = { ...cand, r }
+    }
+
+    // 无 as-is 候选(典型:折叠区段 display:none,coordsAtPos 返回零高矩形)→
+    // 退回原 near 元素构造兜底
+    if (!chosen) {
       const near = view.domAtPos(Math.max(sel.head - 1, 0))
       // 原子 inline(如 fold_placeholder)的「start 位置」domAtPos 返回的是外层
       // block 元素 + offset=原子在子节点中的序号,而非原子自身。要拿到紧贴光标
@@ -219,12 +238,16 @@ class CaretView {
         )
         const strutH = parseFloat(nearCs.lineHeight)
         if (F > 0 && isFinite(strutH)) {
-          left = box.right
-          r = { top: box.top + (box.height - F) / 2, height: F, mode: 'fallback', F, strutH }
+          chosen = {
+            c: { top: box.top, bottom: box.bottom, left: box.right },
+            host: nearEl!,
+            r: { top: box.top + (box.height - F) / 2, height: F, mode: 'fallback', F, strutH },
+          }
         }
       }
     }
-    if (!r) {
+
+    if (!chosen) {
       this.hide()
       return
     }
@@ -234,9 +257,9 @@ class CaretView {
     const mount = this.el.parentNode as HTMLElement
     const mr = mount.getBoundingClientRect()
     this.el.style.display = 'block'
-    this.el.style.left = `${left - mr.left - mount.clientLeft}px`
-    this.el.style.top = `${r.top - mr.top - mount.clientTop}px`
-    this.el.style.height = `${r.height}px`
+    this.el.style.left = `${chosen.c.left - mr.left - mount.clientLeft}px`
+    this.el.style.top = `${chosen.r.top - mr.top - mount.clientTop}px`
+    this.el.style.height = `${chosen.r.height}px`
   }
 
   private hide() {
@@ -255,7 +278,20 @@ class CaretView {
     this.ro = null
     this.hide()
     this.el.remove()
+    caretViews.delete(this.view)
   }
+}
+
+/** view → caret view 映射(支持多编辑器)。供 fold 等插件在"程序化重定向光标"后
+ *  立刻让自绘 caret 重算/隐藏,避免 overlay 停在上一个位置(见
+ *  FoldDecoration.handleTextInput / handleKeyDown)。 */
+const caretViews = new WeakMap<EditorView, CaretView>()
+
+/** 立即重算自绘 caret(同步,不经 rAF)。程序化改完 selection 后调用,确保 overlay
+ *  立刻跟随到新位置 / 或在新位置是文本位置时隐藏,不依赖下一帧 rAF 时序。 */
+export function resetCustomCaret(view: EditorView) {
+  if (view.isDestroyed) return
+  caretViews.get(view)?.sync()
 }
 
 export const customCaretPlugin = new Plugin({

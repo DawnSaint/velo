@@ -21,16 +21,21 @@
 //  3. **稳定 key 持久化**。doc pos 关闭文件后失效,store 存的是由 block
 //     类型 + 内容指纹派生的字符串(见 makeStableKey)。换文件 / 重开 →
 //     EditorInner 把 store keys → 当前位置,walk doc 翻译回 Set<number>。
-//  4. **toggle 按钮永远渲染**(heading / list_item)。collapsed / expanded 共用
-//     同一个 widget,切到 expanded 时变 chevron-down,collapsed 时变
-//     chevron-right。code_block 的 toggle 在 CodeHighlightWidget 的 header 内。
+//  4. **toggle 按钮仅在"有可折叠内容"时渲染**(heading / list_item)。
+//     collapsed / expanded 共用同一个 widget,切到 expanded 时变 chevron-down,
+//     collapsed 时变 chevron-right。heading 的可见性由 computeFoldRange
+//     是否返回非空区间决定:标题下方无内容 / 直接紧跟同级或更高级标题 →
+//     不显示按钮(没有内容可折,显示是误导)。list_item 由 `childCount > 1`
+//     守卫(无 block 子项不挂)。code_block 的 toggle 在 CodeHighlightWidget
+//     的 header 内。
 //  5. **placeholder 是真实 inline atom 节点**(fold_placeholder),不是
 //     Decoration.widget。v0.7.2 改为真实节点:光标可自然停在 `...` 两侧、
 //     可被 TextSelection 覆盖划选。折叠/展开时由 appendTransaction 插入/
 //     删除节点(addToHistory:false,不进 undo)。toMarkdown 跳过(不污染
 //     markdown round-trip)。点击 `...` → handleClickOn 展开(与 chevron 等效)。
 //     划选覆盖 `...` → Decoration.node 挂 is-selected 高亮;foldDeleteCommand
-//     (排在 keymap 链首)把删除范围扩展到折叠节点起点 ~ range[1](整块删除)+
+//     (排在 keymap 链首)按选区意图扩展删除:仅覆盖 `...` 时只删占位符 +
+//     折叠内容(保留 header),覆盖 header + `...` 时整块(含 header)删除+
 //     从 collapsedSet 移除该折叠点。
 //  6. **list_item 仅在含 block 子项时折叠**(`content: 'paragraph block*'`,
 //     折叠 = 首段之后的 block 子项)。无子项 → 不挂 toggle,避免对纯叶子
@@ -44,6 +49,13 @@
 //  8. **auto-expand on search hit**:`ensureFoldExpandedAt(view, pos)` 与
 //     mermaid 的 `ensureMermaidSourceVisibleAt` 同形态,findreplace 命中
 //     隐藏区段时幂等展开。
+//  9. **auto-expand on type-after-placeholder**(v0.7.3):光标正紧贴折叠态
+//     `...` 时输入字符 / Enter → 先展开折叠,再把光标 / 新内容重定向到折叠
+//     区段**末尾**最后一个 textblock 的末尾(语义:在 `...` 后输入 = 在折叠
+//     内容末尾追加;若想插到折叠内容开头,应把光标放到 标题和 `...` 之间)。
+//     由 plugin props 的 `handleTextInput` / `handleKeyDown` 拦截:仅当选区
+//     为空 + 前一节点是折叠态 fold_placeholder + 其祖先处于 collapsedSet 时
+//     触发;展开后 placeholder 被 appendTransaction 删除,普通输入路径不再命中。
 //
 // 维护者注意点:
 //  - `selectable: false` 不阻挡 PM 键盘 navigation。ArrowRight / End 等
@@ -64,11 +76,13 @@
 //    当前文件的折叠 pos(由 store 里的 stable key 经 doc walk 翻译得)。
 
 import { Plugin, PluginKey } from 'prosemirror-state'
+import { TextSelection } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState, Transaction } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
+import { resetCustomCaret } from '../plugins/customCaret'
 import { chevronDownSvg } from '@/components/icons/widgetIcons'
 import { useFoldStore } from '@/stores/folding'
 import { useDocumentStore } from '@/stores/document'
@@ -521,15 +535,20 @@ function addHeadingDecos(
   deco: FoldState,
   decos: Decoration[],
 ) {
-  // heading 折叠要求"有可折叠的后续内容" —— 简单判定:不空 + 有 siblings
+  // heading 折叠要求"有可折叠的后续内容" —— 不空 + 有 siblings
   if (node.content.size === 0) return
   const contentStart = pos + 1
-  // heading 是顶级 block(在 doc 直下或 blockquote 内),不过我们折叠只看
-  // 它的直接后续 sibling。computeFoldRange 自己会走到下一个同/高 level heading
-  // 或 doc 末尾。
-  const isCollapsed = deco.collapsedSet.has(contentStart)
   const stableKey = makeStableKey(node)
   if (!stableKey) return
+
+  // **关键**:只有在 heading 确实有可折叠内容(折叠区段非空)时才挂 fold
+  // toggle。以下情形不显示按钮,避免误导用户点击一个没有内容可折的标题:
+  //  - 标题下方没有其他内容(末尾标题 / 折叠区段为空)
+  //  - 直接紧跟同级或更高级标题(computeFoldRange 返回空区间)
+  const range = computeFoldRange(node, contentStart, doc)
+  if (!range || range[1] <= range[0]) return
+
+  const isCollapsed = deco.collapsedSet.has(contentStart)
 
   // toggle 按钮:必须用 inline 位置(pos+1) + side:-1 才能成为 heading 的
   // inline child(side:1 / 0 在 block 边界会被 PM 渲染为 block 级兄弟元素,
@@ -547,8 +566,6 @@ function addHeadingDecos(
 
   if (!isCollapsed) return
 
-  const range = computeFoldRange(node, contentStart, doc)
-  if (!range) return
   // 折叠区段首部 placeholder + 区段内每个 block 挂 hidden class
   applyFoldRange(doc, range, contentStart, decos)
 }
@@ -659,6 +676,64 @@ function applyFoldRange(
   // 节点,由 appendTransaction 在折叠时插入到 range[0]-1 位置。
   // 真实节点光标可停两侧、可被 TextSelection 划选,彻底解决 widget 的
   // side 限制(光标只能停一侧)和选区覆盖问题。
+}
+
+// ============================================================
+//  Auto-expand on type-after-placeholder (v0.7.3)
+// ============================================================
+//
+// 设计:光标紧贴在折叠态 `...` 之后时,用户"在 `...` 后面输入"语义上 =
+// 在折叠内容的**末尾**追加。旧实现把字符直接打进 display:none 的隐藏块
+// (PM 不知道 CSS,光标数学上能落在 hidden 文本后),表现为"输入看不见 /
+// 折叠内容乱跳"。这里在 plugin props 拦截 handleTextInput / handleKeyDown
+// (Enter),展开折叠并把光标 / 新内容重定向到折叠区段最后一个 textblock 的
+// 末尾,再交给 PM 默认行为。
+//
+// 该拦截只在"选区为空 + 光标正紧贴折叠态 placeholder + 其祖先 heading /
+// list_item 处于 collapsedSet"时触发;展开后 placeholder 被 appendTransaction
+// 删除,普通输入路径不再命中(不会干扰正常编辑)。
+
+/** 折叠区段最后一个 textblock 的末尾 inline 位置。光标落此处 = 输入即
+ * "追加"到折叠部分最后(而非顶到 header 之后)。position 取区间内所有
+ * textblock 中最大的 end(= 文档序最后的 textblock),保证嵌套结构也能落到
+ * 最深的叶子段落末尾;极端无 textblock 的情形回退到 range[1]-1。 */
+function endOfRangeInsertPos(doc: PMNode, range: [number, number]): number {
+  let best = -1
+  doc.nodesBetween(range[0], range[1], (node, p) => {
+    if (node.isTextblock) {
+      const end = p + node.nodeSize - 1
+      if (end > best) best = end
+    }
+  })
+  return best > range[0] ? best : range[1] - 1
+}
+
+/**
+ * 检测"光标紧贴折叠态 `...` 之后"场景。命中返回折叠点 contentStart 与
+ * 折叠区段 range,否则 null。仅当:选区为空 + 光标前一节点是 fold_placeholder
+ * + 该 placeholder 的 foldable 祖先处于 collapsedSet。
+ */
+function placeholderAfterCursor(
+  state: EditorState,
+): { contentStart: number, range: [number, number] } | null {
+  const sel = state.selection
+  if (!sel.empty) return null
+  const $from = state.doc.resolve(sel.from)
+  const before = $from.nodeBefore
+  if (!before || before.type.name !== 'fold_placeholder') return null
+  const $ph = state.doc.resolve(sel.from - 1)
+  for (let depth = $ph.depth; depth > 0; depth--) {
+    const ancestor = $ph.node(depth)
+    if (isFoldable(ancestor)) {
+      const contentStart = $ph.start(depth)
+      const s = foldKey.getState(state)
+      if (!s || !s.collapsedSet.has(contentStart)) return null
+      const range = computeFoldRange(ancestor, contentStart, state.doc)
+      if (!range || range[1] <= range[0]) return null
+      return { contentStart, range }
+    }
+  }
+  return null
 }
 
 // ============================================================
@@ -880,6 +955,46 @@ const foldDecoPlugin = new Plugin<FoldState>({
           return true
         }
       }
+      return false
+    },
+    // v0.7.3:光标正紧贴折叠态 `...` 后输入字符 → 先展开折叠,再把新字符
+    // 重定向到折叠区段末尾(语义:在 `...` 后输入 = 在折叠内容末尾追加)。
+    // insertText 与 toggle 同 tr 一起 dispatch;appendTransaction 随后删除
+    // placeholder 节点,tr.mapping 自动把插入位置同步到正确偏移。
+    handleTextInput(view, from, to, text) {
+      if (from !== to) return false
+      const info = placeholderAfterCursor(view.state)
+      if (!info) return false
+      const endPos = endOfRangeInsertPos(view.state.doc, info.range)
+      const tr = view.state.tr
+      tr.setMeta(foldKey, { toggle: info.contentStart })
+      tr.insertText(text, endPos, endPos)
+      // 关键:insertText 仅当"插入点 == 当前选区"时才会把选区移到插入点之后
+      // (见 prosemirror-state insertText:只有 !selection.empty && selection.to ==
+      // from+text.length 才 setSelection)。这里当前选区在折叠态 `...`(placeholder),
+      // 并非插入点 endPos,所以 insertText 不会移动选区 —— 选区会停在 `...` 原位置
+      // (标题之后),表现为"光标卡在标题后"。必须显式把光标重定向到折叠内容末尾
+      // (插入点之后);appendTransaction 随后删除 placeholder 会把该位置 map 到
+      // 插入文本之内,最终落在折叠内容末尾。
+      tr.setSelection(TextSelection.create(tr.doc, endPos + text.length))
+      view.dispatch(tr)
+      // 程序化重定向光标后立即让自绘 caret 重算/隐藏,避免 overlay 停在旧的 `...`
+      // 位置闪一帧(下一帧 rAF 也会重算,这里只是消除首帧残影)。
+      resetCustomCaret(view)
+      return true
+    },
+    // v0.7.3:光标正紧贴折叠态 `...` 后按 Enter → 展开折叠并把光标移到折叠
+    // 区段末尾,return false 让 baseKeymap 的 Enter 在新位置生效(末尾新建块)。
+    handleKeyDown(view, event) {
+      if (event.key !== 'Enter') return false
+      const info = placeholderAfterCursor(view.state)
+      if (!info) return false
+      const endPos = endOfRangeInsertPos(view.state.doc, info.range)
+      const tr = view.state.tr
+      tr.setMeta(foldKey, { toggle: info.contentStart })
+      tr.setSelection(TextSelection.create(view.state.doc, endPos))
+      view.dispatch(tr)
+      resetCustomCaret(view)
       return false
     },
   },
@@ -1117,15 +1232,20 @@ function keysToContentStarts(doc: PMNode, keys: string[]): Set<number> {
 // ============================================================
 
 /**
- * v0.7.2:选区覆盖 fold_placeholder 节点时,把删除范围扩展到折叠节点起点 ~
- * range[1](整块删除),并从 collapsedSet 移除该折叠点。
+ * v0.7.2:选区覆盖 fold_placeholder 节点时,把删除范围扩展到折叠内容末
+ * 尾 range[1],并从 collapsedSet 移除该折叠点。
  *
  * 排在 Backspace/Delete keymap 链首,先于 baseKeymap['Backspace'] 执行。
  * 不覆盖任何 fold_placeholder → return false,走正常删除链。
  *
- * deleteFrom 扩展到 contentStart-1(折叠节点起点):若从 sel.from 删会留
- * heading open token 碎片,PM replace 会把它和下一个 heading 合并,吞掉
- * 下一个 heading —— 用户报"下一行被删"。
+ * 删除意图区分(关键,v0.7.3 修复):
+ *  - 选区仅覆盖 `...`(sel.from >= placeholderPos)→ 只删占位符 + 折叠内容,
+ *    **保留 header**;deleteFrom 停在 placeholder 位置,不越过 header 起点。
+ *  - 选区从 header 文本开始(覆盖 header,sel.from < placeholderPos)→ 连同
+ *    header 一起删,deleteFrom 推到 contentStart-1(header 起点)~
+ *    range[1](整块删除)。
+ * 旧实现把 deleteFrom 无条件推到 header 起点,导致"只选中 `...` 也删掉
+ * 前面标题"的 bug。
  */
 export function foldDeleteCommand(
   state: EditorState,
@@ -1141,18 +1261,25 @@ export function foldDeleteCommand(
   let deleteEnd = sel.to
   const toRemove: number[] = []
 
-  doc.nodesBetween(sel.from, sel.to, (node, pos) => {
+  doc.nodesBetween(sel.from, sel.to, (node, nodePos) => {
     if (node.type.name !== 'fold_placeholder') return
     // 找到 fold_placeholder 的父 foldable 节点
-    const $pos = doc.resolve(pos)
+    const $pos = doc.resolve(nodePos)
     for (let depth = $pos.depth; depth > 0; depth--) {
       const ancestor = $pos.node(depth)
       if (isFoldable(ancestor)) {
         const contentStart = $pos.start(depth)
         const range = computeFoldRange(ancestor, contentStart, doc)
         if (range) {
-          const nodeStart = contentStart - 1
-          if (nodeStart < deleteFrom) deleteFrom = nodeStart
+          const headerStart = contentStart - 1
+          // placeholder 紧贴 header 末尾(nodePos = range[0]-1)。区分两种删除意图:
+          //  - sel.from < nodePos:选区从 header 文本就开始(覆盖 header)
+          //    → 连同 header 一起删,deleteFrom 推到 header 起点。
+          //  - sel.from >= nodePos:选区仅覆盖 `...`(或其后隐藏内容)
+          //    → 只删占位符 + 折叠内容,**保留 header**(deleteFrom 不越过 nodePos)。
+          if (sel.from < nodePos) {
+            if (headerStart < deleteFrom) deleteFrom = headerStart
+          }
           if (range[1] > deleteEnd) deleteEnd = range[1]
           if (!toRemove.includes(contentStart)) toRemove.push(contentStart)
         }

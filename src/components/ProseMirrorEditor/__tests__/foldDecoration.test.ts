@@ -758,4 +758,232 @@ describe('placeholder 交互 (v0.7.2)', () => {
     expect(view.state.doc.textContent).toContain('Y')
     view.destroy()
   })
+
+  it('仅选中 `...`(不覆盖 header)→ Backspace → 只删折叠内容, header 保留', () => {
+    const md = ['# A', '', 'p1', '', 'p2', '', '# B', '', 'p3'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    // 仅划选 fold_placeholder 节点本身(不覆盖 header 文本)
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, ph.pos, ph.pos + 1),
+    ))
+
+    const result = foldDeleteCommand(view.state, view.dispatch.bind(view))
+    expect(result).toBe(true)
+
+    // header A 保留,折叠内容 p1/p2 被删,`# B` / p3 不受影响
+    expect(view.state.doc.textContent).toContain('A')
+    expect(view.state.doc.textContent).not.toContain('p1')
+    expect(view.state.doc.textContent).not.toContain('p2')
+    expect(view.state.doc.textContent).toContain('B')
+    expect(view.state.doc.textContent).toContain('p3')
+    // 折叠点清除 + 无残留折叠 / 占位符
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    expect(view.dom.querySelectorAll('.velo-folded').length).toBe(0)
+    expect(findFoldPlaceholder(view)).toBeNull()
+    view.destroy()
+  })
+
+  it('list_item:仅选中 `...` → Delete → 只删子项, 首段保留', () => {
+    const md = ['- top', '  - nested1', '  - nested2'].join('\n')
+    const view = makeView(md)
+    const li = findListItemByText(view, 'top')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: li.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    // 仅划选 fold_placeholder 节点本身
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, ph.pos, ph.pos + 1),
+    ))
+
+    const result = foldDeleteCommand(view.state, view.dispatch.bind(view))
+    expect(result).toBe(true)
+
+    // 首段 top 保留,嵌套子项被删
+    expect(view.state.doc.textContent).toContain('top')
+    expect(view.state.doc.textContent).not.toContain('nested1')
+    expect(view.state.doc.textContent).not.toContain('nested2')
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    view.destroy()
+  })
+})
+
+describe('fold toggle 可见性', () => {
+  it('末尾 heading(下方无内容)不显示 fold toggle', () => {
+    const view = makeView('# Only')
+    expect(view.dom.querySelectorAll('.velo-fold-toggle').length).toBe(0)
+    view.destroy()
+  })
+
+  it('heading 直接紧跟同级标题不显示 fold toggle', () => {
+    const view = makeView(['# A', '# B'].join('\n'))
+    expect(view.dom.querySelectorAll('.velo-fold-toggle').length).toBe(0)
+    view.destroy()
+  })
+
+  it('heading 直接紧跟更高级标题(h2 后 h1)不显示 fold toggle', () => {
+    const view = makeView(['## A', '# B'].join('\n'))
+    expect(view.dom.querySelectorAll('.velo-fold-toggle').length).toBe(0)
+    view.destroy()
+  })
+
+  it('heading 有后续内容(展开态)显示 fold toggle', () => {
+    const view = makeView(['# A', '', 'p1'].join('\n'))
+    expect(view.dom.querySelectorAll('.velo-fold-toggle').length).toBe(1)
+    view.destroy()
+  })
+
+  it('heading 有后续内容(折叠态)也显示 fold toggle', () => {
+    const view = makeView(['# A', '', 'p1'].join('\n'))
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    expect(view.dom.querySelectorAll('.velo-fold-toggle').length).toBe(1)
+    view.destroy()
+  })
+
+  it('删掉 `...` 后原 header 不再显示 fold toggle(回归:删除不残留按钮)', () => {
+    const md = ['# A', '', 'p1', '', 'p2', '', '# B', '', 'p3'].join('\n')
+    const view = makeView(md)
+    const hA = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: hA.contentStart }))
+    // 折叠前 A 有 toggle
+    expect(view.dom.querySelector(`.velo-fold-toggle[data-fold-cs="${hA.contentStart}"]`)).not.toBeNull()
+
+    const ph = findFoldPlaceholder(view)!
+    // 仅划选 `...` 节点
+    view.dispatch(view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, ph.pos, ph.pos + 1),
+    ))
+    foldDeleteCommand(view.state, view.dispatch.bind(view))
+
+    // 删除折叠内容后 A 下方无内容 → A 的 toggle 消失
+    expect(view.dom.querySelector(`.velo-fold-toggle[data-fold-cs="${hA.contentStart}"]`)).toBeNull()
+    // B 仍有内容(p3)→ B 的 toggle 仍在
+    const hB = findHeadingByText(view, 'B')!
+    expect(view.dom.querySelector(`.velo-fold-toggle[data-fold-cs="${hB.contentStart}"]`)).not.toBeNull()
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  auto-expand on type-after-placeholder (v0.7.3)
+//
+//  光标正紧贴折叠态 `...` 之后输入字符 / Enter → 展开折叠,并把光标 / 新内容
+//  重定向到折叠区段末尾(语义:在 `...` 后输入 = 在折叠内容末尾追加)。
+//  仅当 选区为空 + 前一节点是折叠态 fold_placeholder 时命中;否则不拦截。
+// ============================================================
+
+describe('auto-expand on type-after-placeholder (v0.7.3)', () => {
+  it('heading:光标在 `...` 后输入字符 → 展开 + 字符追加到折叠内容末尾', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    // 光标移到 `...` 之后(紧贴)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, ph.pos + 1)))
+
+    const handled = view.someProp('handleTextInput', (handler) => {
+      if (handler) return handler(view, ph.pos + 1, ph.pos + 1, 'xyz', () => view.state.tr)
+      return false
+    })
+    expect(handled).toBe(true)
+
+    // 折叠展开:placeholder 消失、collapsedSet 清空
+    expect(findFoldPlaceholder(view)).toBeNull()
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    // `xyz` 追加到折叠内容末尾(p2 之后),而非顶到 header 之后
+    expect(view.state.doc.textContent).toContain('p2xyz')
+    expect(view.state.doc.textContent.endsWith('xyz')).toBe(true)
+    expect(view.state.selection.empty).toBe(true)
+    // Bug 1 回归:展开后在 `...` 后输入,光标必须落到折叠内容末尾(p2 内),
+    // 不能停在 `...` 原位置(标题之后)。insertText 仅在"插入点==当前选区"时
+    // 才移动选区,这里当前选区在 placeholder,handleTextInput 必须显式
+    // setSelection 到插入点之后,否则光标卡在标题后。
+    const $cur = view.state.doc.resolve(view.state.selection.from)
+    expect($cur.parent.type.name).toBe('paragraph')
+    expect(view.state.doc.textContent.indexOf('xyz')).toBeGreaterThan(view.state.doc.textContent.indexOf('p2'))
+    view.destroy()
+  })
+
+  it('heading:光标在 `...` 后按 Enter → 展开 + 光标移到折叠内容末尾(return false)', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, ph.pos + 1)))
+
+    const handled = view.someProp('handleKeyDown', (handler) => {
+      if (handler) return handler(view, { key: 'Enter' } as KeyboardEvent)
+      return false
+    })
+    expect(handled).toBeFalsy()
+
+    expect(findFoldPlaceholder(view)).toBeNull()
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    // 光标落在折叠内容末尾(某个 paragraph 内,而非 heading)
+    const $cur = view.state.doc.resolve(view.state.selection.from)
+    expect($cur.parent.type.name).toBe('paragraph')
+    expect(view.state.selection.empty).toBe(true)
+    view.destroy()
+  })
+
+  it('list_item:光标在 `...` 后输入字符 → 展开 + 字符追加到折叠内容末尾', () => {
+    const md = ['- top', '  - nested1', '  - nested2'].join('\n')
+    const view = makeView(md)
+    const li = findListItemByText(view, 'top')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: li.contentStart }))
+
+    const ph = findFoldPlaceholder(view)!
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, ph.pos + 1)))
+
+    const handled = view.someProp('handleTextInput', (handler) => {
+      if (handler) return handler(view, ph.pos + 1, ph.pos + 1, 'tail', () => view.state.tr)
+      return false
+    })
+    expect(handled).toBe(true)
+
+    expect(findFoldPlaceholder(view)).toBeNull()
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
+    // `tail` 追加到最后一个嵌套子项(nested2)末尾
+    expect(view.state.doc.textContent).toContain('nested2tail')
+    view.destroy()
+  })
+
+  it('折叠态但光标不在 `...` 后 → 不拦截(handleTextInput 返回 false)', () => {
+    const md = ['# A', '', 'p1', '', 'p2'].join('\n')
+    const view = makeView(md)
+    const h = findHeadingByText(view, 'A')!
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
+    // 光标放在 heading 文本起点(pos 1),不在 placeholder 后
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+
+    const handled = view.someProp('handleTextInput', (handler) => {
+      if (handler) return handler(view, 1, 1, 'x', () => view.state.tr)
+      return false
+    })
+    expect(handled).toBeFalsy()
+    // 折叠态保持不变(未被误展开 / 误删)
+    expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
+    view.destroy()
+  })
+
+  it('未折叠(无 placeholder)时正常输入不受影响(handleTextInput 返回 false)', () => {
+    const md = ['# A', '', 'p1'].join('\n')
+    const view = makeView(md)
+    // 不折叠 → 无 placeholder,heading 末尾没有可拦截的节点
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+    const handled = view.someProp('handleTextInput', (handler) => {
+      if (handler) return handler(view, 1, 1, 'x', () => view.state.tr)
+      return false
+    })
+    expect(handled).toBeFalsy()
+    view.destroy()
+  })
 })

@@ -20,12 +20,14 @@ import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
-import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
+import { foldDecoration, foldKey, isCodeBlockAncestorFolded } from '../nodes/FoldDecoration'
 import { mermaidDecoration } from '../nodes/MermaidDecoration'
 import { codeLineNumberPlugin, lineNumbersKey } from '../nodes/CodeLineNumberWidget'
 import { tocDecoration } from '../nodes/TocDecoration'
+import { codeHighlightPlugin } from '../nodes/CodeHighlightWidget'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { history, undo } from 'prosemirror-history'
+import { CANONICAL_PLUGIN_ORDER } from '../plugins/order'
 
 function makeView(initialMd: string, plugins: any[]): EditorView {
   const container = document.createElement('div')
@@ -48,6 +50,45 @@ function findHeadingContentStart(view: EditorView, text: string): number {
     return true
   })
   return contentStart
+}
+
+function findCodeBlockPos(view: EditorView): number {
+  let pos = -1
+  view.state.doc.descendants((node, p) => {
+    if (node.type.name === 'code_block' && pos < 0) { pos = p; return false }
+    return true
+  })
+  return pos
+}
+
+function findPlaceholderPos(view: EditorView): number {
+  let pos = -1
+  view.state.doc.descendants((node, p) => {
+    if (node.type.name === 'fold_placeholder' && pos < 0) { pos = p; return false }
+    return true
+  })
+  return pos
+}
+
+/** 统计当前 DOM 里 code block header widget 数量(`.velo-code-header-widget`)。
+ *  与 codeHighlight.test.ts 的断言口径一致(jsdom 下 header widget 正常挂载)。 */
+function countCodeHeaderWidgets(view: EditorView): number {
+  return view.dom.querySelectorAll('.velo-code-header-widget').length
+}
+
+/** 按 CANONICAL_PLUGIN_ORDER 的真实顺序返回给定 plugin(用于忠实复现
+ *  生产路径的 apply 顺序)。revert order.ts(把 codeHighlight 排到
+ *  foldDecoration 之前)会让这里返回 [codeHighlightPlugin, foldDecoration],
+ *  从而让"祖先折叠时 code block header 抑制"用例失败 —— 这正是本文件要锁的
+ *  不变量。plugin 的 spec.key.name 与 canonical id 一致
+ *  (foldKey=PluginKey('foldDecoration') / codeHighlightKey=PluginKey('codeHighlight'))。 */
+function canonicalOrderOf(...plugins: any[]): any[] {
+  const order = CANONICAL_PLUGIN_ORDER as readonly string[]
+  return plugins.slice().sort((a, b) => {
+    const ia = order.indexOf((a.spec.key as { name: string }).name)
+    const ib = order.indexOf((b.spec.key as { name: string }).name)
+    return ia - ib
+  })
 }
 
 beforeEach(() => {
@@ -218,6 +259,71 @@ describe('toc × fold', () => {
     // 光标不应跳到文档开头(位置 0 或 1)
     expect(view.state.selection.head).toBeGreaterThan(1)
 
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  codeHighlight × fold —— 祖先折叠时 code block header 抑制
+//
+//  回归:heading 折叠区段内含 code_block,在其 `...`(fold_placeholder)前输入
+//  内容时,下方不得孤悬出一个 code block header。
+//
+//  抑制真正门控是 `isCodeBlockAncestorFolded(pos)`(读 module-level
+//  `ancestorFoldedCodeBlockPosSet`,在 `foldDecoPlugin.apply` 内由
+//  `recomputeFoldedCodeBlockPos` 刷新),与 plugin apply 顺序无直接因果 ——
+//  PM 先跑完全部 apply 再统一调 `decorations(state)`,consumer 读到的永远是
+//  本帧最新集合。下方用例验证「折叠态 header 抑制」这一不变量本身,以及
+//  「在 `...` 前输入后抑制仍成立」;另用 plugin-order 不变量用例锁定
+//  `foldDecoration` 必须排在所有读取该集合的 consumer 之前(消除
+//  consumer 在自身 apply 增量重建时读集合的窄路径时序风险)。
+// ============================================================
+
+describe('codeHighlight × fold:祖先折叠时 code block header 抑制', () => {
+  it('plugin 顺序:foldDecoration 必须排在所有读取 ancestor-folded 集合的装饰 plugin 之前', () => {
+    const order = CANONICAL_PLUGIN_ORDER as readonly string[]
+    const foldIdx = order.indexOf('foldDecoration')
+    expect(foldIdx).toBeGreaterThanOrEqual(0)
+    for (const consumer of ['codeHighlight', 'codeLineNumber', 'mermaidDecoration', 'tocDecoration']) {
+      const cIdx = order.indexOf(consumer)
+      expect(cIdx).toBeGreaterThanOrEqual(0)
+      expect(foldIdx).toBeLessThan(cIdx)
+    }
+  })
+
+  it('展开态 header 渲染、折叠态 header 抑制(基本机制)', () => {
+    const md = ['# A', '', '```js', 'const x = 1', '```', ''].join('\n')
+    const view = makeView(md, canonicalOrderOf(foldDecoration, codeHighlightPlugin))
+    // 展开态:code block header 应渲染
+    expect(countCodeHeaderWidgets(view)).toBe(1)
+
+    const h = findHeadingContentStart(view, 'A')
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h }))
+    // 折叠态:祖先折叠 → header 必须被抑制
+    expect(countCodeHeaderWidgets(view)).toBe(0)
+    const cbPos = findCodeBlockPos(view)
+    expect(isCodeBlockAncestorFolded(cbPos)).toBe(true)
+    view.destroy()
+  })
+
+  it('折叠后在 `...` 前输入内容 → code block header 始终被抑制(下方不孤悬 header)', () => {
+    const md = ['# A', '', '```js', 'const x = 1', '```', '', 'p'].join('\n')
+    const view = makeView(md, canonicalOrderOf(foldDecoration, codeHighlightPlugin))
+
+    const h = findHeadingContentStart(view, 'A')
+    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h }))
+    // 折叠态初始:header 抑制
+    expect(countCodeHeaderWidgets(view)).toBe(0)
+
+    // 在 `...` 前输入一个字符(heading 内,placeholder 之前)
+    const phPos = findPlaceholderPos(view)
+    expect(phPos).toBeGreaterThanOrEqual(0)
+    view.dispatch(view.state.tr.insertText('X', phPos, phPos))
+
+    // 输入后 code block pos 平移,但祖先折叠判定必须仍为真,header 仍被抑制
+    const cbPos = findCodeBlockPos(view)
+    expect(isCodeBlockAncestorFolded(cbPos)).toBe(true)
+    expect(countCodeHeaderWidgets(view)).toBe(0)
     view.destroy()
   })
 })
