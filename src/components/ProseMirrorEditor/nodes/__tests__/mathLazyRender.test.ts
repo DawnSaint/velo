@@ -64,9 +64,17 @@ function waitForKatex(el: HTMLElement, timeout = 1500): Promise<void> {
 function makeViewWithMathBlock(value: string): EditorView {
   const container = document.createElement('div')
   document.body.appendChild(container)
+  // B2:math_block 不再是 atom,content 含首尾 `$$`(独占行)。
+  // doc 后跟空 paragraph 并显式设光标到 paragraph(节点外)→ display 态。
+  const content = value ? `$$\n${value}\n$$` : '$$\n\n$$'
+  const doc = schema.node('doc', null, [
+    schema.node('math_block', null, schema.text(content)),
+    schema.node('paragraph'),
+  ])
   const state = EditorState.create({
     schema,
-    doc: schema.node('doc', null, [schema.node('math_block', { value })]),
+    doc,
+    selection: TextSelection.create(doc, doc.child(0).nodeSize + 1),
     plugins: [mathEditPlugin],
   })
   return new EditorView(container, { state })

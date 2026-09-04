@@ -109,9 +109,18 @@ describe('preprocessBlankLines: 逐字区保护', () => {
       .toBe('before\n\n<br />\n\n```\nx\n```\n\n<br />\n\nafter\n')
   })
 
-  it('数学块内的多空行不动', () => {
+  // strictMath 的 A2 规则:围栏内遇到空行 → 围栏失败,退化成普通段落。
+  // 因此 $$ 后面有空行的内容不再是数学块,逐字区保护不应覆盖它。
+  // 空行照常注入 <br />,与普通段落行为一致。
+  it('strictMath:围栏内含空行 → 围栏失败,空行照常注入', () => {
     expect(preprocessBlankLines('$$\nx = 1\n\n\n\ny = 2\n$$\n'))
-      .toBe('$$\nx = 1\n\n\n\ny = 2\n$$\n')
+      .toBe('$$\nx = 1\n\n<br />\n\ny = 2\n$$\n')
+  })
+
+  it('合法数学块(无空行)内的多空行不动', () => {
+    // $$\nx = 1\ny = 2\n$$ 是合法数学块(无空行),内容受逐字区保护
+    expect(preprocessBlankLines('$$\nx = 1\ny = 2\n$$\n'))
+      .toBe('$$\nx = 1\ny = 2\n$$\n')
   })
 
   it('frontmatter 内的多空行不动(否则污染 YAML)', () => {
@@ -149,5 +158,42 @@ describe('preprocessBlankLines: 逐字区保护', () => {
       .toBe('<pre>\na\n\n\n\nb\n</pre>\n')
     expect(preprocessBlankLines('<!--\na\n\n\n\nb\n-->\n'))
       .toBe('<!--\na\n\n\n\nb\n-->\n')
+  })
+})
+
+// strictMath 改变了 $$ 围栏的逐字区保护行为。
+// strictMath 的 A2 规则:围栏内遇到空行 → 围栏失败,退化成普通段落。
+// findVerbatimRanges 必须与之保持一致,否则 $$ 后面的空行不会被注入 <br />,
+// 导致空段在 toMarkdown → fromMarkdown round-trip 中丢失。
+describe('preprocessBlankLines: strictMath 一致性', () => {
+  it('未闭合 $$ (空行终止): 空行照常注入 <br />', () => {
+    // strictMath: $$ 后紧跟空行 → 围栏失败 → 退化成普通段落
+    // findVerbatimRanges 不应把 $$ 后的内容标记为逐字区
+    expect(preprocessBlankLines('$$\n\n\n\nxxx\n'))
+      .toBe('$$\n\n<br />\n\nxxx\n')
+  })
+
+  it('未闭合 $$ (EOF 终止): 不保护到 EOF', () => {
+    // strictMath A1: $$ 到 EOF 未闭合 → 围栏失败
+    // $$ 行本身是普通文本,后面的空行照常注入
+    expect(preprocessBlankLines('$$\nxxx\n\n\n\nyyy\n'))
+      .toBe('$$\nxxx\n\n<br />\n\nyyy\n')
+  })
+
+  it('合法数学块(无空行)仍受逐字区保护', () => {
+    // $$\nx\ny\n$$ 是合法数学块,内容受保护
+    expect(preprocessBlankLines('$$\nx = 1\ny = 2\n$$\n'))
+      .toBe('$$\nx = 1\ny = 2\n$$\n')
+  })
+
+  it('$$ 段落间多空行:空段在 round-trip 中保留', () => {
+    // 用户场景:PM doc 有 $$ 段落 + 空段 + 内容段 + 空段 + $ 段落
+    // toMarkdown 产出 3+ 连续 \n,preprocessBlankLines 必须注入 <br />
+    // 否则 fromMarkdown 解析时空段丢失
+    const md = '$$\n\n\n\nxxx\n\n\n\n$\n'
+    const processed = preprocessBlankLines(md)
+    expect(processed).toContain('<br />')
+    // $$ 行不在逐字区内,空行被正确注入
+    expect(processed).toBe('$$\n\n<br />\n\nxxx\n\n<br />\n\n$\n')
   })
 })

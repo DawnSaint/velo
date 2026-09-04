@@ -38,7 +38,6 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { Root, RootContent, PhrasingContent, Table } from 'mdast'
 
@@ -46,7 +45,7 @@ import { remarkPreserveEmptyLine } from '@/components/ProseMirrorEditor/plugins/
 import { remarkAlert } from '@/components/ProseMirrorEditor/plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '@/components/ProseMirrorEditor/plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '@/components/ProseMirrorEditor/plugins/remarkHighlight'
-import { remarkMathFenceGuard } from '@/components/ProseMirrorEditor/plugins/remarkMathFenceGuard'
+import { remarkStrictMath } from '@/components/ProseMirrorEditor/plugins/strictMath'
 import { remarkEmoji } from '@/components/ProseMirrorEditor/plugins/remarkEmoji'
 import remarkFrontmatter from 'remark-frontmatter'
 import {
@@ -122,8 +121,8 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     .use(remarkPreserveEmptyLine)
     .use(remarkEncodeLinkUrls)
     .use(remarkGfm)
-    .use(remarkMathFenceGuard)
-    .use(remarkMath)
+    // 自写严格 math 扩展,取代 remark-math + remarkMathFenceGuard,与编辑器解析链一致。
+    .use(remarkStrictMath)
     .use(remarkAlert)
     .use(remarkHighlight)
 .use(remarkEmoji)

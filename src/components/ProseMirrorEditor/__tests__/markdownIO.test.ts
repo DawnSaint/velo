@@ -184,6 +184,12 @@ describe('markdownIO round-trip', () => {
     const md = '```js\nconst a = 1\nconst b = 2\n```'
     expect(normalize(toMarkdown(fromMarkdown(md, schema)))).toEqual(normalize(md))
   })
+
+  // B2:math_block content 含 `$$\n...\n$$`(独占行),round-trip 必须严格 idempotent。
+  it('块级公式 $$ round-trip', () => {
+    const md = '$$\nx^2 + y^2 = z^2\n$$'
+    expect(normalize(toMarkdown(fromMarkdown(md, schema)))).toEqual(normalize(md))
+  })
 })
 
 describe('markdownIO - math fence guard', () => {

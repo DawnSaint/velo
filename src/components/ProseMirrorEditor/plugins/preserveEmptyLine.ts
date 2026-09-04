@@ -154,7 +154,14 @@ function findVerbatimRanges(text: string): VerbatimRange[] {
         closedBlock = true
       }
     } else if (mode === 'math') {
-      if (MATH_FENCE_RE.test(line)) {
+      // 与 strictMath 一致:空行 → 围栏失败(strictMath 的 A2)。
+      // 不把空行后的内容标记为逐字区,否则空行不会被注入 <br />,
+      // 导致空段在 round-trip 中丢失。
+      if (blank) {
+        blockStart = -1
+        mode = 'none'
+        // 空行是 block 分隔符,不保护
+      } else if (MATH_FENCE_RE.test(line)) {
         push(blockStart, lineEnd)
         blockStart = -1
         mode = 'none'
@@ -202,7 +209,10 @@ function findVerbatimRanges(text: string): VerbatimRange[] {
   }
 
   const lastLineEnd = starts[lines.length - 1] + lines[lines.length - 1].length
-  if (blockStart >= 0) push(blockStart, lastLineEnd)
+  // A1:math 模式到 EOF 仍未闭合 → 围栏失败,不标记为逐字区(与 strictMath 一致)。
+  // 之前的代码会在 EOF 时 push(blockStart, lastLineEnd),把从 $$ 到 EOF 的所有内容
+  // 标记为逐字区,导致 $$ 后面的空行不被注入 <br />,空段丢失。
+  if (blockStart >= 0 && mode !== 'math') push(blockStart, lastLineEnd)
   if (indentedStart >= 0) push(indentedStart, indentedEnd)
 
   return ranges

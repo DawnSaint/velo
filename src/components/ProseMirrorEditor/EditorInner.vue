@@ -448,10 +448,25 @@ function dollarEnterCmd(state: any, dispatch?: any): boolean {
   if (before !== '$$') return false
   const mathBlockType = state.schema.nodes.math_block
   if (!mathBlockType) return false
-  const newMathBlock = mathBlockType.create({ value: '' })
+  // B2:math_block 不再是 atom,content 含首尾 `$$` 且独占行。
+  // content = `$$\n\n$$`(3 行:首行 `$$`、空行 source、尾行 `$$`),光标放空行开头。
+  // triggerNextMathBlockAutoEdit 标记节点,NodeView 初始化时消费 → dispatch
+  // TextSelection 到节点内部,syncMode 检测光标在节点内 → 切 edit 态。
+  const newMathBlock = mathBlockType.create(null, state.schema.text('$$\n\n$$'))
   triggerNextMathBlockAutoEdit(newMathBlock)
   const tr = state.tr
-  tr.replaceWith(lineStart, $from.pos, newMathBlock)
+  // $$ 后的内容(如 $$hello / $$\nhello 中的 hello)需要保留。
+  // 无后续内容:替换整个段落为 math_block。
+  // 有后续内容:删除 $$ 文本后在段落前插入 math_block,段落保留原结构(含 hardbreak 等)。
+  // 用 delete + insert 而非 replaceWith 重建段落,是为了保留 hardbreak 等子节点。
+  const afterContent = state.doc.textBetween($from.pos, $from.after(), '\n', '\n')
+  if (afterContent.length === 0) {
+    tr.replaceWith($from.before(), $from.after(), newMathBlock)
+  } else {
+    tr.delete(lineStart, $from.pos)
+    tr.insert($from.before(), newMathBlock)
+  }
+  tr.setSelection(TextSelection.create(tr.doc, $from.before() + 4))
   if (dispatch) dispatch(tr)
   return true
 }

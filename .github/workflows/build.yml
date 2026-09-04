@@ -182,8 +182,12 @@ jobs:
             # rustup 的 $HOME/.cargo/env 不一定生成,source 会失败。
             # xdotool 提供 libxdo.so(tauri 的 muda/global-shortcut 链接所需);
             # Arch 包名是 xdotool,不是 Debian 的 libxdo。
+            # xorg-server-xvfb 提供 xvfb-run:sharun 的 strace 模式需要 display 才能
+            # 实跑 GUI 应用,从而抓到 webkit 运行时 dlopen 的库。没有它 GUI 起不来,
+            # 抓不到这些库,产出的 AppImage 会在 UOS 上缺库起不来。strace 同理。
             pacman -S --noconfirm --needed base-devel git nodejs npm rust \
-              webkit2gtk-4.1 libayatana-appindicator xdotool librsvg openssl patchelf wget curl
+              webkit2gtk-4.1 libayatana-appindicator xdotool librsvg openssl patchelf wget curl \
+              xorg-server-xvfb strace
             npm ci
             npm run tauri:build:appimage
           '

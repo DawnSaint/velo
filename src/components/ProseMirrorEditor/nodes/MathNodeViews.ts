@@ -1,10 +1,5 @@
 import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type Katex from 'katex'
-import {
-  createTextareaEditor,
-  stopMousedownPropagation,
-} from './TextareaEditor'
-import { createSelectionSync } from './selectionSync'
 import { observeLazy, unobserveLazy } from './lazyRender'
 
 // ========== katex 懒加载 ==========
@@ -35,46 +30,13 @@ function getKatex(): Promise<typeof Katex> {
   return katexPromise
 }
 
-// 编辑态下 NodeView 需要从 PM 事件链里摘出来的输入事件类型:
-//   eventBelongsToView 从 event.target 沿祖先链走到 view.dom,对每个有
-//   pmViewDesc 的节点问 stopEvent;返回 true → PM 整条链路忽略。
-//   isolateInputFromProseMirror 在 textarea / input 上 stopPropagation 是
-//   inner 一侧兜底,stopEvent 在 NodeView 外侧兜底,两道闸互不依赖。
-// (math_block 编辑态仍依赖这套机制,math_inline 去 atom 后不再需要)
-const INPUT_EVENT_TYPES = new Set([
-  'beforeinput',
-  'input',
-  'keydown',
-  'keyup',
-  'keypress',
-  'paste',
-  'copy',
-  'cut',
-  'compositionstart',
-  'compositionupdate',
-  'compositionend',
-  'drop',
-  'dragover',
-  'dragenter',
-  'dragleave',
-])
-
 async function renderKatex(source: string, el: HTMLElement, displayMode: boolean): Promise<void> {
-  // 节点可能已切到编辑态 / 被 PM 销毁(典型的 `$$`+Enter 场景):
-  //   showDisplay 同步排队 renderKatex → 微任务边界 → startEdit 同步挂上
-  //   editor(进入 is-editing)→ katex 包异步加载完才 resolve → 这时再
-  //   katex.render 到 el 会**覆盖刚挂好的 editor**,textarea 直接消失。
-  //
-  // **入口闸不判 isConnected**:NodeView 工厂同步跑 showDisplay 时,PM 还没把 dom
-  // 挂到 view.dom(此时 isConnected === false),太早 return → 整个 NodeView 寿命里
-  // katex 都不再 render。await 之后 PM 已挂好,走第二道闸就够。
-  //
-  // math_inline 去 atom 后 is-editing 路径已删除(不再有显式编辑态),但 math_block
-  // 仍走 autoEditMathBlocks 这条路径 → 入口的 is-editing 检查对 math_block 仍有意义。
-  if (el.classList.contains('is-editing')) return
+  // B2:math_block 去 atom 后不再有 is-editing class,renderKatex 写入的 target
+  // 始终是 display 渲染层(contenteditable=false),不会覆盖 contentDOM。
+  // await 后检查 isConnected 即可——节点被 PM 销毁时不再写入。
   el.innerHTML = ''
   const katex = await getKatex()
-  if (el.classList.contains('is-editing') || !el.isConnected) return
+  if (!el.isConnected) return
   try {
     katex.render(source || ' ', el, { throwOnError: true, displayMode })
   }
@@ -304,48 +266,110 @@ function createMathInlineView(node: any, view: any, getPos: () => number) {
 
 // ========== 块级公式 NodeView ==========
 //
-// 块级保持原行为:整块占一个段落位置,点击进 textarea 编辑态,blur 写回。
-// 用户主诉是"行内公式"的显式输入框,块级语义不同(整段选中、Enter 行为复杂),
-// 暂不改成 Obsidian/Typora 块级风格。后续若需要再统一改造。
+// PM 直接管理源码文本(含 `$$` 分隔符),NodeView 维护两态:
+//   - display (光标在节点外):隐藏 source,仅显示 katex 预览 → 阅读纯净
+//   - edit    (光标在节点内):显示 source(含 `$$`)+ katex 预览 → 源码与预览并列
+// 预览框保持现状(katex 渲染层 + B3 视口懒加载)。
+//
+// 与 math_inline 的差异:block 节点用 div 容器,contentDOM 是 block 级;
+// `$$` 分隔符在 source 内(用户可编辑),stripDelimiters 剥离首尾 $ 得纯 source。
 
 function createMathBlockView(node: any, view: any, getPos: () => number) {
   const dom = document.createElement('div')
   dom.className = 'math-node math-block-node'
-  let editing = false
-  let editor: ReturnType<typeof createTextareaEditor> | null = null
-  // B3: 视口外不调 katex.render,进入视口才渲染;滚出后缓存 innerHTML 并销毁,
-  // 重新进入从缓存恢复(同步,免 katex.render)。editing 期间不销毁(光标在节点
-  // = 节点在视口,且 textarea 有焦点)。
+  dom.dataset.mode = 'display'
+
+  // contentDOM:PM 直接管理,含完整 `$$x^2$$`(含分隔符,用户可编辑 $)。
+  const contentDOM = document.createElement('div')
+  contentDOM.className = 'math-block-source'
+  dom.appendChild(contentDOM)
+
+  // 渲染层(katex 预览)—— 从 textContent 剥离首尾 $ 后给 katex。
+  // contenteditable=false:防止光标意外漂到渲染层里。
+  const display = document.createElement('div')
+  display.className = 'math-block-display'
+  display.setAttribute('contenteditable', 'false')
+  dom.appendChild(display)
+
+  // B3: 视口外不调 katex.render,进入视口才渲染;滚出后缓存 innerHTML 并销毁。
+  // edit 态(光标在节点内 = 节点在视口)始终渲染,不参与销毁。
   let rendered = false
   let cachedHtml: string | null = null
   let inViewport = false
 
-  stopMousedownPropagation(dom)
-
-  function showDisplay() {
-    if (editing) return
-    dom.innerHTML = ''
-    dom.classList.remove('is-editing')
-    cachedHtml = null
-    // 空 value 渲染可见占位(同上 inline 注释)
-    if (!node.attrs.value) {
-      renderEmptyPlaceholder(dom, true)
-      rendered = true
-      return
-    }
-    rendered = true
-    void renderKatex(node.attrs.value, dom, true)
+  // 剥离首尾连续 `$` 得纯 source 给 katex。`$$x^2$$` → `x^2`。
+  // 与 markdownIO.stripMathDelimiters 同源逻辑(各自本地副本,避免循环依赖)。
+  function stripDelimiters(s: string): string {
+    return s.replace(/^\$+/, '').replace(/\$+$/, '')
   }
 
-  // B3: 进入视口 → 渲染(有缓存则同步恢复);滚出 → 缓存 innerHTML + 销毁。
+  function readValue(n: any = node): string {
+    return n.textContent || ''
+  }
+
+  function isCursorInNode(): boolean {
+    const pos = getPos()
+    if (pos < 0) return false
+    if (node.nodeSize === 0) return true
+    // 优先读 DOM selection(同 math_inline 注释)
+    const sel = view.dom.ownerDocument.getSelection()
+    if (sel && sel.rangeCount > 0 && sel.anchorNode && view.dom.contains(sel.anchorNode)) {
+      let n: Node | null = sel.anchorNode
+      while (n) {
+        if (n === contentDOM) return true
+        if (n === dom) return false
+        n = n.parentNode
+      }
+      return false
+    }
+    const head = view.state.selection.$head
+    return head.pos > pos && head.pos < pos + node.nodeSize
+  }
+
+  function syncMode() {
+    if (!view.editable) {
+      if (dom.dataset.mode !== 'display') {
+        dom.dataset.mode = 'display'
+        maybeRender()
+      }
+      return
+    }
+    const target = isCursorInNode() ? 'edit' : 'display'
+    if (dom.dataset.mode !== target) {
+      dom.dataset.mode = target
+      if (target === 'edit') {
+        inViewport = true
+        showDisplay()
+      }
+      else {
+        maybeRender()
+      }
+    }
+  }
+
+  function showDisplay() {
+    const value = readValue() // 含 `$$` 分隔符,如 `$$\nx^2\n$$`
+    // 结构破坏(删掉一个 $ 导致 `$$…$$` 不成对)由 appendTransaction 把整块
+    // 降级成普通 paragraph 处理,这里只需负责"合法时渲染预览",无需特殊分支。
+    // 不降级的根因已通过解析层自写的 strictMath 解决(未闭合围栏当普通文本,
+    // 段落里的 `$` 也不再被 remark-stringify 转义),所以降级路径是安全的。
+    display.style.display = ''
+    const source = stripDelimiters(value).trim() // 剥离 $$ 并 trim 首尾换行得纯 source
+    cachedHtml = null
+    rendered = true
+    if (!source) renderEmptyPlaceholder(display)
+    else void renderKatex(source, display, true)
+  }
+
+  // B3: 进入视口 → 渲染(有缓存则同步恢复);滚出 → 缓存 + 销毁。edit 态不销毁。
   function maybeRender() {
-    if (editing || rendered) return
+    if (rendered) return
     if (cachedHtml) {
-      dom.innerHTML = cachedHtml
+      display.innerHTML = cachedHtml
       rendered = true
       return
     }
-    showDisplay()
+    if (inViewport || dom.dataset.mode === 'edit') showDisplay()
   }
 
   function onLazy(intersecting: boolean) {
@@ -353,140 +377,86 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     if (intersecting) {
       maybeRender()
     }
-    else if (rendered && !editing && node.attrs.value) {
-      cachedHtml = dom.innerHTML
-      renderLazyPlaceholder(dom, true)
+    else if (rendered && dom.dataset.mode !== 'edit') {
+      cachedHtml = display.innerHTML
+      renderLazyPlaceholder(display, true)
       rendered = false
     }
   }
 
-  function startEdit() {
-    if (editing) return
-    // 阅读模式:不进编辑态(兜底,click / autoEdit 已守卫)
-    if (!view.editable) return
-    editing = true
-    inViewport = true
-    dom.classList.add('is-editing')
-
-    editor = createTextareaEditor({
-      initialValue: node.attrs.value || '',
-      placeholder: 'LaTeX 源码',
-      onCommit: (value) => {
-        if (!editing) return
-        editing = false
-        if (value !== node.attrs.value) {
-          const pos = getPos()
-          if (pos >= 0) {
-            view.dispatch(view.state.tr.setNodeAttribute(pos, 'value', value))
-          }
-          else { showDisplay() }
-        }
-        else { showDisplay() }
-      },
-      onCancel: () => {
-        if (!editing) return
-        editing = false
-        showDisplay()
-      },
-    })
-    // B3:预览优先复用缓存 innerHTML,其次已渲染的 dom,最后现场 render 进 preview。
-    // 空 value 不渲染预览(同旧逻辑 — 空节点的 dom 是占位,不该塞进 preview)。
-    if (node.attrs.value) {
-      if (cachedHtml) editor.setPreviewHtml(cachedHtml)
-      else if (rendered) editor.setPreviewHtml(dom.innerHTML)
-      else void renderKatex(node.attrs.value, editor.preview, true)
-    }
-    cachedHtml = null
-    dom.innerHTML = ''
-    dom.appendChild(editor.container)
-    editor.textarea.addEventListener('input', () => {
-      void renderKatex(editor!.textarea.value, editor!.preview, true)
-    })
-    editor.focus()
+  function renderEmptyPlaceholder(target: HTMLElement) {
+    target.innerHTML = ''
+    const ph = document.createElement('div')
+    ph.className = 'math-empty-placeholder'
+    ph.textContent = '公式'
+    target.appendChild(ph)
   }
 
-  dom.addEventListener('click', (e) => {
-    // 阅读模式:不进编辑态,不 stopPropagation(让 PM 默认处理)
-    if (!view.editable) return
-    e.stopPropagation()
-    if (!editing) startEdit()
-  })
+  const onSelectionChange = () => { syncMode() }
+  view.dom.ownerDocument.addEventListener('selectionchange', onSelectionChange)
 
-  // B3: 注册视口观察(无 IO 环境如 jsdom 同步按"在视口内"渲染,行为同旧实现)。
-  // 先挂 lazy 占位:视口外首帧就有 min-height,避免进入视口时高度跳变;
-  // 进入视口 maybeRender → showDisplay 会清掉占位换上 katex。
-  renderLazyPlaceholder(dom, true)
+  syncMode()
   observeLazy(dom, onLazy)
-
-  // 选中态同步:与 image / hr 同范式,抽取到 selectionSync.ts 共用。
-  // math_block 是 block atom,编辑态下跳过选中框(textarea UI 视觉冲突)。
-  const selectionSync = createSelectionSync({
-    dom,
-    view,
-    getPos,
-    getNode: () => node,
-    skipSelected: () => editing,
-  })
 
   // 弱引用 set 里的"待自动进 edit"标记。
   // 外部(dollarEnterToMathBlock keymap)在创建节点前 trigger(node),NodeView
-  // 初始化时 has() + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit(),
-  // 确保 textarea focus 不被外层 ProseMirror 的 transaction 重入抢掉。
+  // 初始化时 has() + delete 消费,setTimeout(0) 等 DOM 挂好后再 dispatch
+  // TextSelection 到节点内部,syncMode 检测光标在节点内 → 切 edit 态。
   if (autoEditMathBlocks.has(node)) {
     autoEditMathBlocks.delete(node)
-    // 阅读模式:不自动进编辑态(`$$`+Enter 在 editable=false 时不触发,WeakSet 标记
-    // 可能残留,这里消费并跳过)
-    if (view.editable) setTimeout(() => { if (!editing) startEdit() }, 0)
+    if (view.editable) setTimeout(() => {
+      const pos = getPos()
+      if (pos < 0) return
+      // 光标放首行 `$$` 之后的空行开头(pos+1 = 节点内开头)
+      // content = `$$\n\n$$`,pos+1 是文本开头,pos+4 是空行开头(跳过 `$$\n`)
+      const cursor = pos + 4
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)))
+    }, 0)
   }
+
+  // display 态点击展开(同 math_inline 范式):
+  // contentDOM 此时 display:none,PM 无法把 DOM selection 放进隐藏元素 →
+  // 先切 edit 让 contentDOM 可见,再 dispatch TextSelection 到节点内。
+  dom.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    if (dom.dataset.mode !== 'display') return
+    if (!view.editable) return
+    e.preventDefault()
+    e.stopPropagation()
+    const pos = getPos()
+    if (pos < 0) return
+    dom.dataset.mode = 'edit'
+    const start = pos + 1
+    const end = Math.max(start, pos + node.nodeSize - 1)
+    const rect = display.getBoundingClientRect()
+    const target = e.clientX > rect.left + rect.width / 2 ? end : start
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, target)))
+    view.focus()
+  })
 
   return {
     dom,
+    contentDOM,
     update(newNode: any) {
-      // 同 inline：只在 value 真的变了才重渲染
-      const valueChanged = node.attrs.value !== newNode.attrs.value
+      const valueChanged = readValue() !== readValue(newNode)
       node = newNode
       if (valueChanged) {
         cachedHtml = null
-        if (inViewport || editing) showDisplay()
+        if (inViewport || dom.dataset.mode === 'edit') showDisplay()
         else rendered = false
       }
+      syncMode()
       return true
     },
-    selectNode() { selectionSync.syncSelected() },
-    deselectNode() { selectionSync.syncSelected() },
     destroy() {
       unobserveLazy(dom)
-      editor?.dispose()
-      selectionSync.destroy()
+      view.dom.ownerDocument.removeEventListener('selectionchange', onSelectionChange)
     },
     ignoreMutation() { return true },
-    // 编辑态下,editor(内部 textarea + preview)的所有输入事件不能让 PM 看到。
-    // 典型场景:`$$`+Enter 进入自动 edit → 用户敲字符 → PM 默认 handleTextInput
-    // 走 tr.insertText,把 math_block 当 NodeSelection 选中并替换成输入字符 →
-    // math 节点消失、textarea 随 nodeView 销毁一起消失。
-    // stopEvent 在 PM 的 eventBelongsToView 里被检查,返回 true → 整条事件
-    // 链路被 PM 忽略。isolateInputFromProseMirror 的 stopPropagation 是 textarea
-    // 端的兜底,这里是从 NodeView 端兜底,两道闸互不依赖。
-    stopEvent(event: Event) {
-      if (!editing) return false
-      return INPUT_EVENT_TYPES.has(event.type)
-    },
   }
 }
 
 // ========== 导出 ==========
-
-/**
- * 空 value 的 math 节点渲染占位 DOM(虚线框 + 提示文字)。
- * pointer-events:none 让点击透传到父 .math-node 的 click listener,
- * 由 listener 调 startEdit() 重新进入编辑态。
- */
-function renderEmptyPlaceholder(dom: HTMLElement, block: boolean): void {
-  const placeholder = document.createElement(block ? 'div' : 'span')
-  placeholder.className = 'math-empty-placeholder'
-  placeholder.textContent = block ? '点击编辑公式' : '公式'
-  dom.appendChild(placeholder)
-}
 
 /**
  * B3: 视口外的 math 节点渲染轻量占位 —— 不调 katex.render，进入视口后才渲染。
@@ -504,7 +474,7 @@ function renderLazyPlaceholder(target: HTMLElement, block: boolean): void {
 /**
  * 标记"某个具体的 math_block 节点应该自动进入编辑态"。
  * keymap (dollarEnterToMathBlock) 在创建节点前 add(node),NodeView 工厂
- * 初始化时 has() 检查 + delete 消费,setTimeout(0) 等 DOM 挂好再 startEdit。
+ * 初始化时 has() 检查 + delete 消费,setTimeout(0) 等 DOM 挂好再自动聚焦光标。
  *
  * 用 WeakSet 而不是 module-level bool 槽 —— 之前 bool 槽在用户极快连按两次
  * Enter(连敲两行 `$$`)时第二个 math_block 不会进 edit,WeakSet 按节点引用
@@ -514,6 +484,9 @@ const autoEditMathBlocks = new WeakSet<object>()
 export function triggerNextMathBlockAutoEdit(node: object) {
   autoEditMathBlocks.add(node)
 }
+
+// Valid math_block content: at least two $ on first and last line, any content between.
+const MATH_BLOCK_RE = /^\${2,}\n[\s\S]*\n\${2,}$/
 
 export const mathEditPlugin = new Plugin({
   key: new PluginKey('mathEdit'),
@@ -549,15 +522,30 @@ export const mathEditPlugin = new Plugin({
   },
   // B1 降级:math_inline content 必须匹配 `$...$`(首尾各至少一个 $,中间非空)。
   // 用户删掉一个 $ 后 content 变成 `$x^2` 或 `x^2$` → 不匹配 → unwrap 成普通 text,
-  // 用户可重新打 $ 触发 inlineMathSyntax 再成公式。
-  // `$$x^2$$` 首尾都有 $ 仍合法(行内双 $);块级只认两行独立 `$$`,不在此处处理。
+  // 用户可重新打 $ 触发 inlineMathSyntax 再成公式。`$$x^2$$` 首尾都有 $ 仍合法(行内双 $)。
+  //
+  // B2 降级:math_block content 必须匹配 `$$\n...\n$$`(首尾各至少两个 $ 独占行)。
+  // 用户删掉一个 $ 后 content 变成 `$\n...\n$$` → 不匹配 → 降级为普通段落,
+  // 用户可重新打 $ 触发 dollarEnterCmd 再成公式。
+  //
+  // 为什么现在敢降级了:解析层已换成自写的 strictMath(见 plugins/strictMath)。
+  //   - 未闭合的 `$$` 围栏当普通文本,不会再吞掉后续段落;
+  //   - 段落里的 `$` 也不再被 remark-stringify 转义成 `\$`。
+  // 于是"退回普通文本段落"和"不产生额外转义"不再冲突 —— 这正是用户要的效果。
   appendTransaction(trs, _oldState, newState) {
     if (!trs.some(tr => tr.docChanged)) return null
-    const matches: Array<{ pos: number; size: number; text: string }> = []
+    const matches: Array<{ pos: number; size: number; text: string; isBlock: boolean }> = []
     newState.doc.descendants((node, pos) => {
       if (node.type.name === 'math_inline') {
         const text = node.textContent
-        if (!/^\$.+\$$/.test(text)) matches.push({ pos, size: node.nodeSize, text })
+        if (!/^\$.+\$$/.test(text)) matches.push({ pos, size: node.nodeSize, text, isBlock: false })
+      }
+      else if (node.type.name === 'math_block') {
+        const text = node.textContent
+        // 合法格式:$$ \n ... \n $$ (首尾各至少两个 $,中间可有任意内容含空)
+        if (!MATH_BLOCK_RE.test(text)) {
+          matches.push({ pos, size: node.nodeSize, text, isBlock: true })
+        }
       }
       return true
     })
@@ -565,8 +553,15 @@ export const mathEditPlugin = new Plugin({
     const tr = newState.tr
     // 从后往前替换,避免前面替换导致后面 pos 偏移
     for (let i = matches.length - 1; i >= 0; i--) {
-      const { pos, size, text } = matches[i]
-      tr.replaceWith(pos, pos + size, text ? newState.schema.text(text) : [])
+      const { pos, size, text, isBlock } = matches[i]
+      if (isBlock) {
+        // math_block 降级为 paragraph(含原始文本,逐字拷贝、不加任何转义)
+        const para = newState.schema.nodes.paragraph.create(null, text ? newState.schema.text(text) : [])
+        tr.replaceWith(pos, pos + size, para)
+      }
+      else {
+        tr.replaceWith(pos, pos + size, text ? newState.schema.text(text) : [])
+      }
     }
     return tr
   },

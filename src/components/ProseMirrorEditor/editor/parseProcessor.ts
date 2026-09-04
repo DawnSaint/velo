@@ -9,7 +9,7 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
+import { remarkStrictMath } from '../plugins/strictMath'
 import { remarkPreserveEmptyLine, preprocessBlankLines } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
 import { remarkEncodeLinkUrls, encodeLinkUrlSpaces } from '../plugins/remarkEncodeLinkUrls'
@@ -17,7 +17,6 @@ import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
 import { remarkSupSub } from '../plugins/remarkSupSub'
-import { remarkMathFenceGuard } from '../plugins/remarkMathFenceGuard'
 import { remarkEmoji } from '../plugins/remarkEmoji'
 import remarkFrontmatter from 'remark-frontmatter'
 
@@ -54,8 +53,10 @@ export function createParseProcessor() {
     // remarkGfm 配 singleTilde:false —— gfm 删除线只匹配双 `~~`,单 `~` 留作下标。
     .use(remarkSupSub)
     .use(remarkGfm, { singleTilde: false })
-    .use(remarkMathFenceGuard)
-    .use(remarkMath)
+    // 严格版要求块级围栏必须有独占一行的闭合 `$$`,否则开围栏当普通文本。
+    // 同时它不再注册 `$` 的 unsafe 规则,段落里的 `$` 不会被转义成 `\$`
+    // (因为严格解析下裸 `$` 已经不会造成吞并,转义不再是必需的安全措施)。
+    .use(remarkStrictMath)
     .use(remarkAlert)
     .use(remarkHighlight)
     .use(remarkUnderline)

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Velo
+GenericName=Markdown Editor
+Comment=本地 markdown 编辑器
+Exec=velo
+Icon=velo
+Terminal=false
+Categories=Utility;TextEditor;Office;
+Keywords=markdown;editor;note;
+StartupWMClass=velo

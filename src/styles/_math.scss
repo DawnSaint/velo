@@ -113,48 +113,47 @@
   color: var(--editor-text-muted);
 }
 
-/* ========== 块级公式(保留旧行为) ========== */
+/* ========== 块级公式 ========== */
+/* DOM: [contentDIV `$$x^2$$`][katex 渲染层]
+ * - display 态(光标在节点外):隐藏 source,仅显示渲染层 → 阅读纯净
+ * - edit    态(光标在节点内):显示 source(含 $$)+ 渲染层 → 源码与预览并列 */
 .velo-editor .math-block-node {
-  cursor: pointer;
   border-radius: 3px;
   transition: background 0.15s;
   padding: 8px 0;
 }
-.velo-editor .math-block-node:not(.is-editing):hover {
+.velo-editor .math-block-node[data-mode="display"] {
+  cursor: pointer;
+}
+.velo-editor .math-block-node[data-mode="display"]:hover {
   background: rgba(128, 128, 128, 0.1);
 }
-/* 选中态(NodeSelection 直接选中 + 鼠标拖蓝跨越),与 image / hr 同范式 */
-.velo-editor .math-block-node.selected:not(.is-editing) {
-  outline: 0.1em solid var(--md-doc-primary-color, #1F71D9);
-  outline-offset: 2px;
+
+.math-block-source {
+  display: none;
 }
-/* 选中 math_block 时隐藏文本光标(同 image / hr) */
-.velo-editor:has(.math-block-node.selected) {
-  caret-color: transparent;
+.math-block-node[data-mode="edit"] .math-block-source {
+  display: block;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.math-block-node .math-block-display {
+  display: block;
 }
 
-/* 块级公式编辑壳:在 MathNodeViews.ts 的 createMathBlockView 里走 createTextareaEditor */
-.edit-textarea {
-  display: block;
-  width: 100%;
-  min-width: 320px;
-  padding: 8px 12px;
-  border: 1px solid var(--md-doc-primary-color, #1F71D9);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: 1.75;
-  resize: none;
-  overflow: hidden;
-  outline: none;
-  background: var(--surface-2);
-  color: #333;
-}
-.edit-preview {
+/* edit 态下:源码与渲染层之间留间距,渲染层稍微 dim 提示"这是跟随预览" */
+.math-block-node[data-mode="edit"] .math-block-display {
+  margin-top: 8px;
   opacity: 0.6;
   pointer-events: none;
   user-select: none;
-  margin-top: 8px;
+}
+
+
+.dark .math-block-source,
+.velo-editor.dark .math-block-source {
+  background: var(--surface-2);
 }
 
 .math-block-node .math-empty-placeholder {
@@ -165,11 +164,4 @@
 .math-inline-node .math-empty-placeholder {
   display: inline-block;
   padding: 2px 8px;
-}
-
-.dark .edit-textarea,
-.velo-editor.dark .edit-textarea {
-  background: var(--surface-2);
-  color: #d4d4d4;
-  border-color: var(--md-doc-primary-color, #1F71D9);
 }

@@ -32,7 +32,11 @@ $SUDO install -Dm755 "$BIN" /usr/bin/velo
 [ -f src-tauri/icons/icon.png ] && $SUDO install -Dm644 src-tauri/icons/icon.png /usr/share/pixmaps/velo.png || true
 
 # 3) 打包 AppImage（OUTPUT_APPIMAGE=1 → 产出 .AppImage）
-OUTPUT_APPIMAGE=1 DEPLOY_WEBKIT2GTK=1 "$SHARUN" /usr/bin/velo
+# sharun 要求 AppDir 顶层有且仅有一个 .desktop,否则报
+# "No top level .desktop file found" 并中止。我们用 tauri build --no-bundle,
+# Tauri 不会生成 .desktop,这里显式通过 DESKTOP / ICON 提供。
+DESKTOP=scripts/velo.desktop ICON=src-tauri/icons/icon.png \
+  OUTPUT_APPIMAGE=1 DEPLOY_WEBKIT2GTK=1 "$SHARUN" /usr/bin/velo
 
 # 4) 把产物挪到 Tauri 的 bundle 目录，便于统一上传 artifact
 mkdir -p src-tauri/target/release/bundle/appimage

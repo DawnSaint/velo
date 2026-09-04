@@ -10,16 +10,16 @@
 //   返回的是当前 leaf 节点的 cut(0, dOff) 切片,这个切片是 atom 化的
 //   (isLeaf && isAtom = true)。如果用 isAtom 判,会把"在 text 节点
 //   中间"误判成"光标紧贴 atom" → 错把选区设成 NodeSelection / 选中整段。
-//   修复:比对 type.name,只对 image / math_block / hr 这些真 atom 节点触发保护。
+//   修复:比对 type.name,只对 image / hr 这些真 atom 节点触发保护。
 //
-// 适用 node type:image / math_block / hr。
+// 适用 node type:image / hr。(math_block B2 改为 content:'text*' 非 atom,不再在此列)
 // 已知折中:range 选区把 atom 圈在内 + Backspace → 仍然删(默认行为)。
 
 import { keymap } from 'prosemirror-keymap'
 import { NodeSelection } from 'prosemirror-state'
 import type { EditorState, Transaction } from 'prosemirror-state'
 
-const ATOM_TYPES = new Set(['image', 'math_block', 'hr'])
+const ATOM_TYPES = new Set(['image', 'hr'])
 
 export const imageKeymapPlugin = keymap({
   Backspace: (state: EditorState, dispatch?: (tr: Transaction) => void) => {

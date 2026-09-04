@@ -275,6 +275,9 @@ const nodes: Record<string, NodeSpec> = {
     selectable: false,
     attrs: {
       isInline: { default: false },
+      // hard=true: 来自 mdast break(`\\\n` / `  \n`),序列化为 mdast break
+      // hard=false: 来自 text `\n`(soft break),序列化为裸 `\n`
+      hard: { default: false },
     },
     parseDOM: [
       { tag: 'br' },
@@ -440,24 +443,25 @@ const nodes: Record<string, NodeSpec> = {
     toDOM: () => ['span', { 'data-type': 'math_inline' }, 0],
   },
 
+  // PM 直接管理源码文本(含 `$$` 分隔符),与 math_inline / footnote_reference
+  // 同范式。NodeView 渲染两态:display(光标在外)只显示 katex 预览,edit(光标在内)
+  // 显示 source + 预览。不再需要 textarea 编辑壳。
+  //
+  // content 含首尾 `$$`(如 `$$x^2$$`),序列化时剥离首尾 $ 得纯 source 给 mdast math.value;
+  // 反序列化时在 source 前后补 `$$` 包裹回 content。
+  // marks:'' + code:true 隔离语义(选区不跨节点、mark 不继承),与 math_inline 一致。
   math_block: {
     group: 'block',
-    atom: true,
-    isolating: true,
-    defining: true,
+    content: 'text*',
     marks: '',
-    attrs: {
-      value: { default: '' },
-    },
+    code: true,
+    defining: true,
+    isolating: true,
     parseDOM: [{
       tag: 'div[data-type="math_block"]',
       preserveWhitespace: 'full',
-      getAttrs: (dom: HTMLElement) => ({ value: dom.dataset.value ?? '' }),
     }],
-    toDOM: (node) => [
-      'div',
-      { 'data-type': 'math_block', 'data-value': node.attrs.value as string },
-    ],
+    toDOM: () => ['div', { 'data-type': 'math_block' }, 0],
   },
 
   // mermaid 节点已废弃(v0.4.6+ 走 code_block { language: 'mermaid' },与其他 fenced

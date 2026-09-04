@@ -353,8 +353,8 @@ export async function fromMarkdownAsync(
  * 丢失了分隔符数量信息。这里用 node.position.start.offset(指向分隔符首个 `$`)
  * 从该位置向后数连续 `$` 的数量(上限 2,因为 micromark 只支持 1 或 2 个 $)。
  *
- * position.offset 基于 remarkMathFenceGuard 处理后的字符串,但该 guard 只改
- * 行首未闭合的 `$$`,合法的行内 `$$x$$` 不受影响,offset 仍对齐原始 md。
+ * position.offset 来自 strictMath 解析树,直接对齐 preprocessSource(md) 的结果
+ * (见 parseProcessor.preprocessSource),与旧 remarkMathFenceGuard 无关。
  */
 function annotateMathDelimiterCount(tree: Root, md: string): void {
   const visit = (node: any): void => {
@@ -489,7 +489,10 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
     }
 
     case 'math':
-      return [schema.node('math_block', { value: node.value })]
+      // B2:math_block content 含首尾 `$$`,source 前后补 `$$\n` 包裹,使 `$$` 独占一行。
+      // `$$\n${value}\n$$` → 编辑态 source 3 行,阅读态 stripDelimiters 得 ${value} 给 katex。
+      // 空 value 仍需 `$$` 占位,否则节点 content 为空文本(合法但 NodeView 占位态)。
+      return [schema.node('math_block', null, schema.text(`$$\n${node.value}\n$$`))]
 
     case 'list': {
       const isOrdered = node.ordered === true
@@ -712,8 +715,23 @@ function inlineNodeToPM(
   const n = node as any
 
   switch (n.type) {
-    case 'text':
-      return n.value ? [schema.text(n.value, marks)] : []
+    case 'text': {
+      if (!n.value) return []
+      // CommonMark soft break(\n)在 mdast text 里是字面 \n,但 PM text 节点不应
+      // 含 \n —— CSS pre-wrap 会渲染它,但 PM 的 DOM ↔ doc 同步在编辑时可能
+      // 把 \n 拆成 <br>,导致结构突变(toMarkdown 输出变化 → 触发 reload)。
+      // 拆成 text + hardbreak(soft) + text + ... 保证 PM doc 结构正确。
+      // hardbreak 不带 attrs → toMarkdown 序列化为 \n(soft break);
+      // mdast break(hard)→ hardbreak 带 {hard:true} → 序列化为 \\\n。
+      const parts = n.value.split('\n')
+      if (parts.length === 1) return [schema.text(n.value, marks)]
+      const out: PMNode[] = []
+      for (let k = 0; k < parts.length; k++) {
+        if (parts[k]) out.push(schema.text(parts[k], marks))
+        if (k < parts.length - 1) out.push(schema.node('hardbreak'))
+      }
+      return out
+    }
 
     case 'inlineCode':
       return [schema.text(n.value, marks.concat(schema.marks.code.create()))]
@@ -789,7 +807,8 @@ function inlineNodeToPM(
       })]
 
     case 'break':
-      return [schema.node('hardbreak')]
+      // hard: true 区分"来自 mdast break(hard break)"和"来自 text \n(soft break)"
+      return [schema.node('hardbreak', { hard: true })]
 
     case 'inlineMath':
       // B1:content 含 `$` 分隔符 —— `$` + value + `$`。NodeView 渲染时剥离 $ 给 katex
@@ -833,6 +852,9 @@ export function toMarkdown(doc: PMNode): string {
     children: pmBlocksToMdast(doc),
   }
   let out = processor.stringify(tree).toString()
+  // 把 text 值中的 \u0001 占位符替换回 \\（markdown 转义反斜杠）。
+  // 见 wrapWithMarks 注释：绕过 escapeBackslashes 的 round-trip bug。
+  out = out.replace(/\u0001/g, '\\\\')
   // 尾部空行补偿。mdast-util-to-markdown 按 CommonMark 规范强制文档以单个
   // \n 收尾并吃掉尾部空段 —— 但 PM doc 里这些空段是活的(preprocessBlankLines
   // 注入的 <br /> 占位转成了空 paragraph)。这里按 doc 尾部连续空段数把 \n 补
@@ -939,8 +961,10 @@ function pmBlockToMdast(node: PMNode): RootContent | null {
         value: node.textContent,
       }
 
-    case 'math_block':
-      return { type: 'math', value: node.attrs.value as string } as RootContent
+case 'math_block':
+// B2:content 含首尾 `$$`(独占行),剥离 $$ 并 trim 首尾换行后得纯 source。
+// `$$\nx^2\n$$` → strip `$$` → `\nx^2\n` → trim → `x^2` 给 mdast math.value。
+return { type: 'math', value: stripMathDelimiters(node.textContent).replace(/^\n+|\n+$/g, '') } as RootContent
 
     case 'html_block':
       // 原样写出 attrs.value;remark-stringify 对 mdast html 节点不做 escape
@@ -1057,7 +1081,7 @@ function stripMathDelimiters(s: string): string {
 type InlineSpan =
   | { kind: 'text'; marks: ReadonlyArray<{ name: string; attrs: Record<string, unknown> }>; value: string }
   | { kind: 'image'; marks: never[]; src: string; alt: string; title: string }
-  | { kind: 'break'; marks: never[] }
+  | { kind: 'break'; marks: never[]; hard: boolean }
   | { kind: 'inlineMath'; marks: never[]; value: string; delimiterCount: number }
   | { kind: 'footnoteRef'; marks: never[]; label: string }
   | { kind: 'htmlInline'; marks: never[]; value: string }
@@ -1095,7 +1119,9 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
       }
     }
     else if (name === 'hardbreak') {
-      spans.push({ kind: 'break', marks: [] })
+      // hard=true(来自 mdast break,即 `  \n` / `\\\n`)→ 序列化为 mdast break
+      // hard=false(来自 text \n soft break)→ 序列化为 text \n
+      spans.push({ kind: 'break', marks: [], hard: !!child.attrs.hard })
     }
     else if (name === 'math_inline') {
       // B1:content 含 `$`,序列化时剥离首尾 $ 得纯 source 给 mdast inlineMath.value
@@ -1253,7 +1279,13 @@ function processSpans(spans: InlineSpan[]): PhrasingContent[] {
       })
     }
     else if (span.kind === 'break') {
-      out.push({ type: 'break' })
+      if (span.hard) {
+        // hard break(来自 mdast break / `\\\n` / `  \n`)→ mdast break → `\\\n`
+        out.push({ type: 'break' })
+      } else {
+        // soft break(来自 text `\n`)→ text `\n` → 裸 `\n`
+        out.push({ type: 'text', value: '\n' })
+      }
     }
     else if (span.kind === 'inlineMath') {
       // delimiterCount 透传到 mdast 节点,由 processor.stringify 的 inlineMath
@@ -1300,7 +1332,11 @@ function wrapWithMarks(
     return { type: 'inlineCode', value: text }
   }
 
-  let node: PhrasingContent = { type: 'text', value: text }
+  // 把 \ 替换为占位符 \u0001,让 state.safe 不处理 \ 的转义(上游 escapeBackslashes
+  // 对连续 \\ 的转义规则 N→(N+1) 与 remark-parse 的 N→ceil(N/2) 不对称,导致 round-trip
+  // 不 idempotent)。占位符 \u0001 不被任何 unsafe 规则匹配,toMarkdown 输出后替换回 \\
+  // (markdown 转义反斜杠),确保每个 \ → \\,round-trip idempotent。
+  let node: PhrasingContent = { type: 'text', value: text.replace(/\\/g, '\u0001') }
 
   // 内层 → 外层
   const order = ['strike_through', 'emphasis', 'strong', 'link']
