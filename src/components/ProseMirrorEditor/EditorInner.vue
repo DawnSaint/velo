@@ -372,6 +372,28 @@ function codeBlockEnter(state: any, dispatch?: any): boolean {
   return true
 }
 
+// math_block 内 Enter:与 code_block 同范式(code:true, Enter 只插 \n 保持一个块)。
+// 但 math_block 有围栏格式约束(MATH_BLOCK_RE: 首尾 $$ 独占行),光标在末尾 $$ 之后
+// 插 \n 会让 content 变成 `...$$\n`,不再匹配合法格式 → 被 appendTransaction 降级
+// 为 paragraph。因此:光标在末尾 $$ 之后时,跳出 math_block(在后面插入空段落);
+// 否则只插 \n(用户在公式内容中间换行,合法)。
+function mathBlockEnter(state: any, dispatch?: any): boolean {
+  const { $head } = state.selection
+  if ($head.parent.type.name !== 'math_block') return false
+  // 光标在末尾 $$ 之后(parentOffset === content.size,即 close tag 之前)
+  if ($head.parentOffset === $head.parent.content.size) {
+    const end = $head.after()
+    const paragraphType = state.schema.nodes.paragraph
+    const tr = state.tr.replaceWith(end, end, paragraphType.create())
+    tr.setSelection(TextSelection.near(tr.doc.resolve(end), 1))
+    if (dispatch) dispatch(tr.scrollIntoView())
+    return true
+  }
+  // 光标在公式内容中间:只插 \n
+  if (dispatch) dispatch(state.tr.insertText('\n'))
+  return true
+}
+
 // 代码块内 Shift-Enter:在 code_block 后插入空段落并将光标移入,
 // 用户感知"跳出代码块"。与 Typora 的 Ctrl+Enter 退出语义一致,
 // 但用 Shift-Enter(与 table cell 的 Shift-Enter 插 <br> 同键位族,
@@ -609,28 +631,29 @@ const pluginEntries: PluginEntry[] = [
   { id: 'keymap.undoRedo', plugin: keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }) },
   // Enter 链:
   //   1. codeBlockEnter:code_block 内只插 \n(保持一个 block)
-  //   2. cmdTableCellEnter:table cell 内 Enter → 跳下一行同列(末行追加行)
+  //   2. mathBlockEnter:math_block 内末尾 $$ 后 Enter 跳出,中间只插 \n
+  //   3. cmdTableCellEnter:table cell 内 Enter → 跳下一行同列(末行追加行)
   //      放在 dollarEnterCmd / frontmatterEnterCommand / hrEnterCommand 之前 ——
   //      这些命令会在 cell 内尝试创建 block 节点(math_block / frontmatter / hr),
   //      但 cell schema 只允许 paragraph,会导致无效文档。
-  //   3. dollarEnterCmd:`$$` + Enter → math_block 编辑态
-  //   4. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
-  //   5. splitInListItemNestedBlock:list_item 内嵌套 block(blockquote / alert)
+  //   4. dollarEnterCmd:`$$` + Enter → math_block 编辑态
+  //   5. splitListItem:有内容的 list_item 内 Enter 产生新 list_item
+  //   6. splitInListItemNestedBlock:list_item 内嵌套 block(blockquote / alert)
   //      的 paragraph 中 Enter → 走 splitBlock 在嵌套 block 内分裂段落。
   //      必须排在 liftListItem 之前 —— 否则 liftListItem 的 blockRange 谓词
   //      会匹配到 bullet_list(首子是 list_item),把整个 list_item 提升出
   //      list,用户感知 "list 降了一级"。
-  //   6. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
+  //   7. liftListItem:空 list_item 内 Enter 把当前项提升为普通 paragraph
   //      (splitListItem 在空 list_item 里 return false,不能 fall back 到
   //      splitBlock —— 否则 list_item 里又开一段 paragraph,跟之前有内容
   //      时的行为割裂)
-  //   7. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
-  //   8. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
-  //   9. liftEmptyBlock:空段落(含 blockquote / alert / list_item 内的空段落)
+  //   8. frontmatterEnterCommand:文档首段 `---`/`+++`+Enter → frontmatter 节点
+  //   9. hrEnterCommand:任意位置 `---`/`***`/`___`+Enter → hr 节点
+  //   10. liftEmptyBlock:空段落(含 blockquote / alert / list_item 内的空段落)
   //      按 Enter → 提升出父节点(用户感知"退出引用/警告框")。
   //      必须排在 splitBlock 之前 —— splitBlock 在空段落里也会成功(分裂出
   //      另一个空段落),导致用户被困在 blockquote 内永远出不来。
-  //   10. splitBlock:兜底,普通段落里换行
+  //   11. splitBlock:兜底,普通段落里换行
   // Shift-Enter 多场景命令链:
   //   1. codeBlockExit:code_block 内 → 在 block 后插入段落(跳出代码块)
   //   2. cmdTableCellHardBreak:table cell 内 → 插 <br>(格内换行)
@@ -643,6 +666,7 @@ const pluginEntries: PluginEntry[] = [
     plugin: keymap({
       Enter: chainCommands(
         codeBlockEnter,
+        mathBlockEnter,
         cmdTableCellEnter(),
         dollarEnterCmd,
         codeBlockEnterCommand,

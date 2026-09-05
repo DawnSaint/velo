@@ -21,6 +21,7 @@ import { hrSyntax } from './block/hr'
 import { frontmatterSyntax } from './block/frontmatter'
 import { tocSyntax } from './block/toc'
 import { alertSyntax } from './block/alert'
+import { mathBlockSyntax } from './block/mathBlock'
 
 import { emphasisUnderscoreSyntax } from './inline/emphasis'
 import { emphasisStarSyntax } from './inline/emphasisStar'
@@ -49,6 +50,9 @@ registerBlockSyntax(hrSyntax)
 registerBlockSyntax(tocSyntax)
 // alert 必须在 blockquote 之后:它依赖 blockquote 已成形,不抢同级触发
 registerBlockSyntax(alertSyntax)
+// mathBlock:段内 `$$\n...\n$$` 围栏 → math_block。pattern 以 `$$` 开头,
+// 与其他 block syntax(### / ``` / > / - / 1. / --- / [TOC])无交集,放最后。
+registerBlockSyntax(mathBlockSyntax)
 
 registerInlineSyntax(linkSyntax)         // 优先 link,避免 [^id] 误抓 link 模式中的 ]
 registerInlineSyntax(footnoteRefSyntax)

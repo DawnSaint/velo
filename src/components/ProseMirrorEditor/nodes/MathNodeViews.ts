@@ -417,6 +417,8 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
   // display 态点击展开(同 math_inline 范式):
   // contentDOM 此时 display:none,PM 无法把 DOM selection 放进隐藏元素 →
   // 先切 edit 让 contentDOM 可见,再 dispatch TextSelection 到节点内。
+  // 与 math_inline 不同:block 是块级,点击左/右半没有意义,光标统一放内容末尾
+  // (跳过尾部 `$$`,放到实际公式内容末尾),让用户直接接着内容继续输入。
   dom.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return
     if (dom.dataset.mode !== 'display') return
@@ -426,11 +428,12 @@ function createMathBlockView(node: any, view: any, getPos: () => number) {
     const pos = getPos()
     if (pos < 0) return
     dom.dataset.mode = 'edit'
-    const start = pos + 1
-    const end = Math.max(start, pos + node.nodeSize - 1)
-    const rect = display.getBoundingClientRect()
-    const target = e.clientX > rect.left + rect.width / 2 ? end : start
-    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, target)))
+    // end: 跳过尾部 `$$` 放到公式内容末尾。content 如 `$$\nx^2\n$$`,
+    // textContent.length - trailingDollars.length = `\n` 的位置(尾 $$ 前)。
+    const text = node.textContent || ''
+    const trailing = (text.match(/\$+$/) || [''])[0].length
+    const end = Math.max(pos + 1, pos + text.length - trailing)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end)))
     view.focus()
   })
 
@@ -551,6 +554,7 @@ export const mathEditPlugin = new Plugin({
     })
     if (matches.length === 0) return null
     const tr = newState.tr
+    const sel = newState.selection
     // 从后往前替换,避免前面替换导致后面 pos 偏移
     for (let i = matches.length - 1; i >= 0; i--) {
       const { pos, size, text, isBlock } = matches[i]
@@ -558,6 +562,17 @@ export const mathEditPlugin = new Plugin({
         // math_block 降级为 paragraph(含原始文本,逐字拷贝、不加任何转义)
         const para = newState.schema.nodes.paragraph.create(null, text ? newState.schema.text(text) : [])
         tr.replaceWith(pos, pos + size, para)
+        // 降级后 selection 会因 replaceWith 落到替换范围之外(如下方空段落)。
+        // math_block 和 paragraph 的 open/close tag 各 1 字符,nodeSize 相同,
+        // content 范围一致 [pos+1, pos+1+text.length]。光标可能在 content 内部,
+        // 也可能在 close tag 处(删除末尾 $ 后光标落在 close tag 位置)。
+        // 两种情况都 clamp 到 content 范围内,保持光标在降级后 paragraph 中。
+        const contentStart = pos + 1
+        const contentEnd = pos + 1 + text.length
+        if (sel.from >= pos && sel.from <= pos + size) {
+          const clamped = Math.max(contentStart, Math.min(sel.from, contentEnd))
+          tr.setSelection(TextSelection.create(tr.doc, clamped))
+        }
       }
       else {
         tr.replaceWith(pos, pos + size, text ? newState.schema.text(text) : [])

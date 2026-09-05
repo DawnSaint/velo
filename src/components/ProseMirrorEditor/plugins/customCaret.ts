@@ -195,29 +195,21 @@ class CaretView {
       return
     }
 
-    const candidates: Array<{ c: { top: number; bottom: number; left: number }, host: HTMLElement }> = []
-    const pushCand = (p: number) => {
-      if (p < 0 || p > view.state.doc.content.size) return
+    const c = view.coordsAtPos(sel.head)
+    const host = node.nodeType === 3 ? (node.parentElement as HTMLElement) : (node as HTMLElement)
+    if (!host) {
+      this.hide()
+      return
     }
-    pushCand(sel.head)
-    pushCand(sel.head - 1)
-    pushCand(sel.head + 1)
+    let left = c.left
+    let r = resolveCaret(host, c)
 
-    let chosen: { c: { top: number; bottom: number; left: number }, host: HTMLElement, r: ResolvedCaret } | null = null
-    for (const cand of candidates) {
-      const r = resolveCaret(cand.host, cand.c)
-      if (!r) continue
-      // as-is(em-square)优先:caret 直接落在文本边上,纵向与文本对齐
-      if (r.mode === 'as-is') {
-        chosen = { ...cand, r }
-        break
-      }
-      if (!chosen) chosen = { ...cand, r }
-    }
-
-    // 无 as-is 候选(典型:折叠区段 display:none,coordsAtPos 返回零高矩形)→
-    // 退回原 near 元素构造兜底
-    if (!chosen) {
+    // 退化兜底:coordsAtPos 在下流节点 display:none(如被 scoped 规则隐藏的
+    // fold_placeholder 后 trailingBreak)时返回零高 rect(top=0,h=0)。此时用
+    // 下游紧邻 inline 盒(atom / 文本)的右端构造 caret:高度取 em-square F,
+    // 纵向按行盒居中 —— 让自绘 caret 仍落在 ... 同行的右端,而不是退化给原生
+    // (原生在非文本位置会画成 line-box 高度,即老的"高 caret"bug)。
+    if (!r) {
       const near = view.domAtPos(Math.max(sel.head - 1, 0))
       // 原子 inline(如 fold_placeholder)的「start 位置」domAtPos 返回的是外层
       // block 元素 + offset=原子在子节点中的序号,而非原子自身。要拿到紧贴光标
@@ -238,16 +230,13 @@ class CaretView {
         )
         const strutH = parseFloat(nearCs.lineHeight)
         if (F > 0 && isFinite(strutH)) {
-          chosen = {
-            c: { top: box.top, bottom: box.bottom, left: box.right },
-            host: nearEl!,
-            r: { top: box.top + (box.height - F) / 2, height: F, mode: 'fallback', F, strutH },
-          }
+          left = box.right
+          r = { top: box.top + (box.height - F) / 2, height: F, mode: 'fallback', F, strutH }
         }
       }
     }
 
-    if (!chosen) {
+    if (!r) {
       this.hide()
       return
     }
@@ -257,9 +246,9 @@ class CaretView {
     const mount = this.el.parentNode as HTMLElement
     const mr = mount.getBoundingClientRect()
     this.el.style.display = 'block'
-    this.el.style.left = `${chosen.c.left - mr.left - mount.clientLeft}px`
-    this.el.style.top = `${chosen.r.top - mr.top - mount.clientTop}px`
-    this.el.style.height = `${chosen.r.height}px`
+    this.el.style.left = `${left - mr.left - mount.clientLeft}px`
+    this.el.style.top = `${r.top - mr.top - mount.clientTop}px`
+    this.el.style.height = `${r.height}px`
   }
 
   private hide() {

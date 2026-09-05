@@ -64,24 +64,19 @@ afterEach(() => {
 })
 
 describe('customCaret (v0.7.3)', () => {
-  it('紧贴 fold_placeholder 的非文本位置:取文本边矩形,不漂到行上方(bug 2)', () => {
+  it('紧贴 fold_placeholder 的非文本位置:shrink 到 em-square,不漂到行上方(bug 2)', () => {
     const view = makeView()
     view.hasFocus = () => true
     // 光标放到 placeholder 前(pos 2)
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)))
 
-    // mock 几何:
-    //  pos 2(占位符前)= atom 大盒(line box 高度 44.8, top=100)→ 旧逻辑会 shrink 到 top=105.4
-    //  pos 1(文本 "A" 末尾)= em-square 34, top=110 → 期望的 as-is 候选
-    view.coordsAtPos = ((p: number) => {
-      if (p === 2) return { left: 50, right: 56, top: 100, bottom: 144.8 }
-      if (p === 1) return { left: 20, right: 30, top: 110, bottom: 144 }
-      return { left: 0, right: 0, top: 0, bottom: 0 }
-    }) as any
-    view.domAtPos = ((p: number) => {
+    // mock 几何:pos 2(占位符前)= atom 大盒(line box 高度 44.8, top=100)
+    // → shrink 到 em-square(34),纵向居中:top = 100 + (44.8 - 34) / 2 = 105.4
+    view.coordsAtPos = (() => ({ left: 50, right: 56, top: 100, bottom: 144.8 })) as any
+    view.domAtPos = (() => {
       const heading = view.dom.querySelector('h2')!
       // offset=1 → childNodes[1] = placeholder 元素(非文本)→ 走非文本接管分支
-      return { node: heading, offset: p === 2 ? 1 : 0 } as any
+      return { node: heading, offset: 1 } as any
     }) as any
 
     resetCustomCaret(view) // 同步重算
@@ -89,9 +84,10 @@ describe('customCaret (v0.7.3)', () => {
     const caret = view.dom.parentNode!.querySelector('.velo-fake-caret') as HTMLElement
     expect(caret).not.toBeNull()
     expect(caret.style.display).toBe('block')
-    // 关键:height = em-square(34),top = 文本边(110),而非 atom 盒 shrink 的 105.4
+    // 关键:height = em-square(34),而非 line-box(44.8)→ caret 不再"明显更高"
     expect(caret.style.height).toBe('34px')
-    expect(caret.style.top).toBe('110px')
+    // shrink 居中:top = 100 + (44.8 - 34) / 2 = 105.4
+    expect(caret.style.top).toBe('105.4px')
     view.destroy()
   })
 

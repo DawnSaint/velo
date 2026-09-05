@@ -43,19 +43,23 @@
 }
 
 
-/* 空 math_inline 占位 —— display 态显示在渲染层,editing 态显示在 source 内 */
+/* 空 math 节点占位 —— display 态显示在渲染层,editing 态显示在 source 内 */
 .math-empty-placeholder {
   pointer-events: none;
   user-select: none;
   color: var(--editor-text-muted);
   font-style: italic;
   font-size: 0.85em;
-  opacity: 0; // 默认不可见
+  opacity: 0; // inline 默认不可见
   transition: opacity 0.15s;
 }
-// hover display 态节点时淡入占位,提示"这里有公式但为空,点一下可编辑"
+// inline: hover display 态节点时淡入占位,提示"这里有公式但为空,点一下可编辑"
 .velo-editor .math-inline-node[data-mode="display"]:hover .math-empty-placeholder {
   opacity: 1;
+}
+// block: display 态始终可见 —— 空块级公式整行消失很突兀,需持续占位提示
+.velo-editor .math-block-node[data-mode="display"] .math-empty-placeholder {
+  opacity: 0.6;
 }
 
 /* B3: 视口外未渲染的公式占位 —— 进入视口后才调 katex.render，滚出后销毁 DOM
@@ -135,6 +139,7 @@
 .math-block-node[data-mode="edit"] .math-block-source {
   display: block;
   line-height: 1.75;
+  font-family: var(--font-mono, 'JetBrains Mono', Menlo, Consolas, monospace);
   white-space: pre-wrap;
   word-break: break-all;
 }

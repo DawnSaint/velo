@@ -40,7 +40,7 @@ import { strictMathFlow } from './mathFlow'
 import { strictMathText } from './mathText'
 
 /** micromark 层:flow 用严格版,text 用与上游一致的行内实现。 */
-export function strictMathSyntax(options?: { singleDollarTextMath?: boolean | null }): any {
+function strictMathSyntax(options?: { singleDollarTextMath?: boolean | null }): any {
   return {
     flow: { [codes.dollarSign]: strictMathFlow },
     text: { [codes.dollarSign]: strictMathText(options) },
@@ -52,7 +52,7 @@ export function strictMathSyntax(options?: { singleDollarTextMath?: boolean | nu
  *
  * 只过滤 `character === '$'` 的条目,`\r` / `\n` 在 mathFlowMeta 里的规则保留。
  */
-export function strictMathToMarkdown(options?: { singleDollarTextMath?: boolean | null }): any {
+function strictMathToMarkdown(options?: { singleDollarTextMath?: boolean | null }): any {
   const base: any = mathToMarkdown(options || {})
   const unsafe: any[] = Array.isArray(base.unsafe) ? base.unsafe : []
   return {

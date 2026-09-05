@@ -29,7 +29,6 @@ export function strictMathText(options?: { singleDollarTextMath?: boolean | null
   }
 
   function tokenizeMathText(this: any, effects: any, ok: any, nok: any) {
-    const self = this
     let sizeOpen = 0
     let size = 0
     let token: any
@@ -120,8 +119,6 @@ export function strictMathText(options?: { singleDollarTextMath?: boolean | null
       return data(code)
     }
 
-    // `self` 保留:与上游一致,tokenizer 内保留 context 引用。
-    void self
   }
 }
 

@@ -1447,11 +1447,10 @@ describe('document store', () => {
       store.init('')
       // 模拟 startupMode='last-file' 段已经先调 openPathInTab('面试.md'):
       // active 此时是装着 面试.md 的 tab(不是空白)
+      vi.mocked(readTextFile).mockResolvedValue('content')
       await store.openPathInTab('/interview.md')
       expect(store.tabs.length).toBe(1)
       expect(store.openFilePaths).toEqual(['/interview.md'])
-
-      vi.mocked(readTextFile).mockResolvedValue('content')
       // 紧接着 openPathsInTabs 恢复持久化的 openTabs,包含同样的 /interview.md
       const restored = await store.openPathsInTabs(['/interview.md', '/other.md'])
 

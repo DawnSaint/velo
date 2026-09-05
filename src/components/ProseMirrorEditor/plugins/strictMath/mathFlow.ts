@@ -98,6 +98,7 @@ function createStrictContinuation(self: any): any {
 }
 
 function tokenizeMathFenced(this: any, effects: any, ok: any, nok: any) {
+  // eslint-disable-next-line @typescript-eslint/no-this-alias -- micromark tokenizer 惯例:self 在嵌套函数中引用 tokenizer context
   const self = this
   const tail = self.events[self.events.length - 1]
   const initialSize =
