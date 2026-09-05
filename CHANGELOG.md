@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.13](https://github.com/DawnSaint/velo/compare/v0.7.12...v0.7.13) (2026-09-05)
+
+
+### Features
+
+* **build:** add portable AppImage for UOS V20 and fix CI type-check/knip ([5c991fa](https://github.com/DawnSaint/velo/commit/5c991faa7f4f89bf6adfab4a4f8c561caef098dd))
+* **editor:** add mathBlockSyntax real-time conversion, mathBlockEnter command, and downgrade cursor clamping ([79828fc](https://github.com/DawnSaint/velo/commit/79828fc434992ae42469634537ddf844b7326894))
+* **editor:** add per-category font selection with embedded fonts ([64858f8](https://github.com/DawnSaint/velo/commit/64858f89df9c378b2f23bc0347bfa7095944d948))
+* **editor:** draw self-drawn caret at non-text positions ([4659e88](https://github.com/DawnSaint/velo/commit/4659e882ff819261fd8901a2e27f3f572de33420))
+* **editor:** replace textarea math editing with pure PM nodes + strictMath plugin ([57187b9](https://github.com/DawnSaint/velo/commit/57187b983694f4014c11b2544b629a3332455a5b))
+* **editor:** rework enter/shift-enter keymap chain and fix inline syntax word-adjacent matching ([481145d](https://github.com/DawnSaint/velo/commit/481145dced72a17edf211f9634e8f2ebeea163ce))
+* **updater:** add auto update with background download and settings toggle ([258f8a6](https://github.com/DawnSaint/velo/commit/258f8a63b67293c62ebbdca50c9f0cc5d0436652))
+
+
+### Bug Fixes
+
+* **editor:** eliminate lazy-load decoration flicker and improve paste/outline UX ([29d9fd7](https://github.com/DawnSaint/velo/commit/29d9fd771be344f165df85918fa0663400549941))
+* **editor:** optimize autosave version history and dirty state UX ([fe0f39e](https://github.com/DawnSaint/velo/commit/fe0f39e143eadf41482b77fe2c64ca6a738b77b4))
+* **editor:** preserve blank lines in verbatim blocks and refine code-block rendering ([8c56173](https://github.com/DawnSaint/velo/commit/8c56173f1e797b1218de1b1919cf98f6d9d08140))
+* **editor:** take over caret at fold placeholder and suppress ancestor-folded headers ([ccbf0cb](https://github.com/DawnSaint/velo/commit/ccbf0cb58f681eb45a730f0d73c26e6c6eb85e6e))
+* **editor:** unify preprocessSource for mdast offset lookup ([82a8cef](https://github.com/DawnSaint/velo/commit/82a8cef9a0e0f9a348ff211a6f8f77a0ed0fcf22))
+
 ## [0.7.12](https://github.com/DawnSaint/velo/compare/v0.7.11...v0.7.12) (2026-08-23)
 
 
