@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.14](https://github.com/DawnSaint/velo/compare/v0.7.13...v0.7.14) (2026-09-06)
+
+
+### Bug Fixes
+
+* **editor:** fix fold placeholder caret flash on click and enter behavior ([c487931](https://github.com/DawnSaint/velo/commit/c487931bb8d09de925abb007a5fa95ab388f7115))
+
 ## [0.7.13](https://github.com/DawnSaint/velo/compare/v0.7.12...v0.7.13) (2026-09-05)
 
 
