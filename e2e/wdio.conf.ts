@@ -33,6 +33,21 @@ function findTauriDriverBin(): string {
   return 'tauri-driver.exe'
 }
 
+/** 查找 msedgedriver.exe 路径。
+ *  优先级: VELO_E2E_MSEDGEDRIVER 环境变量 > ~/.cargo/bin > C:\edgedriver (CI) > undefined。
+ *  tauri-driver 的 --native-driver 参数需要确切路径,不依赖 PATH 查找(在 CI 中
+ *  GITHUB_PATH 更新时机不稳定,PATH 查找可能找到错误版本或找不到)。 */
+function findMsEdgeDriverBin(): string | undefined {
+  const envPath = process.env.VELO_E2E_MSEDGEDRIVER
+  if (envPath && existsSync(envPath)) return envPath
+  const cargoBin = path.join(os.homedir(), '.cargo', 'bin', 'msedgedriver.exe')
+  if (existsSync(cargoBin)) return cargoBin
+  // CI 下载到 C:\edgedriver\msedgedriver.exe
+  const ciBin = path.join('C:', 'edgedriver', 'msedgedriver.exe')
+  if (existsSync(ciBin)) return ciBin
+  return undefined
+}
+
 export const config: WebdriverIO.Config = {
   runner: 'local',
   framework: 'mocha',
@@ -91,8 +106,15 @@ export const config: WebdriverIO.Config = {
 
   beforeSession() {
     const driverBin = findTauriDriverBin()
-    console.log(`[velo-e2e] spawning tauri-driver from ${driverBin}`)
-    tauriDriver = spawn(driverBin, [], { stdio: ['ignore', 'inherit', 'inherit'] })
+    const nativeDriver = findMsEdgeDriverBin()
+    const args: string[] = []
+    if (nativeDriver) {
+      args.push('--native-driver', nativeDriver)
+      console.log(`[velo-e2e] spawning tauri-driver from ${driverBin} (native: ${nativeDriver})`)
+    } else {
+      console.log(`[velo-e2e] spawning tauri-driver from ${driverBin} (native: PATH lookup)`)
+    }
+    tauriDriver = spawn(driverBin, args, { stdio: ['ignore', 'inherit', 'inherit'] })
     tauriDriver.on('error', err => {
       console.error('[velo-e2e] tauri-driver failed to start. Did you `cargo install tauri-driver`?', err)
     })

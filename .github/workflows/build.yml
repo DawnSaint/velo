@@ -290,3 +290,4 @@ jobs:
         run: npm run test:e2e
         env:
           VELO_E2E_BINARY: ${{ github.workspace }}\src-tauri\target\release\velo.exe
+          VELO_E2E_MSEDGEDRIVER: C:\edgedriver\msedgedriver.exe

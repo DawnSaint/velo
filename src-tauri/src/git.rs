@@ -10,24 +10,63 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// 构造子进程 Command。
+///
+/// Windows release 下 Velo 是 windows subsystem(`main.rs` 的 `windows_subsystem` attr),
+/// 进程自身没有控制台。此时 spawn 控制台子系统的程序(`git.exe` / `where.exe`)会被系统
+/// 分配一个**新的**控制台窗口 —— 打开版本历史时刷出一串闪烁即消失的 CMD 窗口。
+/// `tauri dev` 是 debug build,父进程自带控制台,子进程直接继承,所以该现象只在 build 后出现。
+/// `CREATE_NO_WINDOW` 显式禁止为子进程创建控制台;stdout/stderr 管道照常工作,不影响读取输出。
+#[cfg(windows)]
+fn spawn(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(windows))]
+fn spawn(program: &str) -> Command {
+    Command::new(program)
+}
+
+/// `where git` / `which git` 的探测结果。
+///
+/// **只缓存"git 可用"这一种结果**:git 可用时才是重路径(开一次面板要跑 20+ 次
+/// `git show`,每次都得先探一次 `where git`),缓存它能把进程数从约 45 降到约 24;
+/// git 未安装时每个 command 只多 1 次 spawn,保持重试让用户装上 git 后无需重启 Velo。
+static GIT_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 /// 检测 git 是否可用（which / where 查找）。
 fn git_available() -> bool {
+    if let Some(true) = GIT_AVAILABLE.get().copied() {
+        return true;
+    }
+
     let cmd = if cfg!(target_os = "windows") {
-        Command::new("where").arg("git").output()
+        spawn("where").arg("git").output()
     } else {
-        Command::new("which").arg("git").output()
+        spawn("which").arg("git").output()
     };
-    match cmd {
+    let found = match cmd {
         Ok(o) => o.status.success(),
         Err(_) => false,
+    };
+
+    // 并发调用(20 条预加载的 git show 是 Promise.all)下 set 可能抢输,忽略即可。
+    if found {
+        let _ = GIT_AVAILABLE.set(true);
     }
+    found
 }
 
 /// 把 `git -C <dir> <args...>` 的 stdout 拿成 String。
 /// 返回 Err 表示 git 不存在 / 命令执行失败 / 非 0 退出码。
 fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = spawn("git")
         .arg("-C")
         .arg(dir)
         .args(args)

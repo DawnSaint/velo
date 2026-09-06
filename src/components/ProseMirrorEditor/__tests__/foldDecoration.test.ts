@@ -27,6 +27,7 @@ import {
   isCodeBlockFolded,
   isMermaidFolded,
   foldDeleteCommand,
+  foldEnterCommand,
 } from '../nodes/FoldDecoration'
 
 // ============================================================
@@ -910,7 +911,7 @@ describe('auto-expand on type-after-placeholder (v0.7.3)', () => {
     view.destroy()
   })
 
-  it('heading:光标在 `...` 后按 Enter → 展开 + 光标移到折叠内容末尾(return false)', () => {
+  it('heading:光标在 `...` 后按 Enter → 展开 + 在折叠内容末尾后插入空行(return true)', () => {
     const md = ['# A', '', 'p1', '', 'p2'].join('\n')
     const view = makeView(md)
     const h = findHeadingByText(view, 'A')!
@@ -919,17 +920,15 @@ describe('auto-expand on type-after-placeholder (v0.7.3)', () => {
     const ph = findFoldPlaceholder(view)!
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, ph.pos + 1)))
 
-    const handled = view.someProp('handleKeyDown', (handler) => {
-      if (handler) return handler(view, { key: 'Enter' } as KeyboardEvent)
-      return false
-    })
-    expect(handled).toBeFalsy()
+    const handled = foldEnterCommand(view.state, (tr) => view.dispatch(tr))
+    expect(handled).toBe(true)
 
     expect(findFoldPlaceholder(view)).toBeNull()
     expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(0)
-    // 光标落在折叠内容末尾(某个 paragraph 内,而非 heading)
+    // 光标落在折叠内容末尾后的新空段落内
     const $cur = view.state.doc.resolve(view.state.selection.from)
     expect($cur.parent.type.name).toBe('paragraph')
+    expect($cur.parent.textContent).toBe('')
     expect(view.state.selection.empty).toBe(true)
     view.destroy()
   })

@@ -172,7 +172,7 @@ import { markdownPastePlugin } from './plugins/markdownPastePlugin'
 import { codeHighlightPlugin } from './nodes/CodeHighlightWidget'
 import { codeLineNumberPlugin } from './nodes/CodeLineNumberWidget'
 import { codeWrapPlugin } from './nodes/CodeWrapPlugin'
-import { foldDecoration, foldKey, foldDeleteCommand } from './nodes/FoldDecoration'
+import { foldDecoration, foldKey, foldDeleteCommand, foldEnterCommand } from './nodes/FoldDecoration'
 import { viewportPlugin, setInitialViewportHint, refreshViewport } from './nodes/viewportPlugin'
 import { focusModePlugin, focusModeKey, setFocusModeEnabled } from './plugins/focusMode'
 import { typewriterModePlugin, typewriterModeKey, setTypewriterModeEnabled } from './plugins/typewriterMode'
@@ -630,6 +630,8 @@ const pluginEntries: PluginEntry[] = [
   },
   { id: 'keymap.undoRedo', plugin: keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }) },
   // Enter 链:
+  //   0. foldEnter:光标紧贴折叠态 `...` 后 → 展开折叠 + 在折叠内容
+  //      末尾后插入空段落(先于所有其他 Enter 处理)
   //   1. codeBlockEnter:code_block 内只插 \n(保持一个 block)
   //   2. mathBlockEnter:math_block 内末尾 $$ 后 Enter 跳出,中间只插 \n
   //   3. cmdTableCellEnter:table cell 内 Enter → 跳下一行同列(末行追加行)
@@ -665,6 +667,7 @@ const pluginEntries: PluginEntry[] = [
     id: 'keymap.enter',
     plugin: keymap({
       Enter: chainCommands(
+        foldEnterCommand,
         codeBlockEnter,
         mathBlockEnter,
         cmdTableCellEnter(),

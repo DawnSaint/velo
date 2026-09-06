@@ -941,6 +941,34 @@ const foldDecoPlugin = new Plugin<FoldState>({
       }
       return s.decoSet
     },
+    // 鼠标点击 `...` 后面时,浏览器在 mousedown 阶段先设原生 selection,
+    // caret 在非文本位置以 line-box 高度(大)渲染,直到 mouseup PM
+    // 修正 selection + customCaret 接管画 em-square(小)——用户看到
+    // "从大变小"的过程。方向键无此问题(PM keymap handler 同步设 selection
+    // + preventDefault,不经浏览器原生 selection)。
+    // 这里在 mousedown 时同步设 PM selection + preventDefault,阻止
+    // 浏览器先设原生 selection。PM 的 LeftMouseDown 仍正常创建
+    // (handleDOMEvents 返回 false 不阻止 PM handler),mouseup 时 PM
+    // 会再次 setSelection(幂等,无害)。
+    handleDOMEvents: {
+      mousedown(view, event: MouseEvent) {
+        if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false
+        if (!view.hasFocus() || !view.editable) return false
+        let pos
+        try { pos = view.posAtCoords({ left: event.clientX, top: event.clientY }) } catch { return false }
+        if (!pos) return false
+        const $pos = view.state.doc.resolve(pos.pos)
+        const before = $pos.nodeBefore
+        // 点击位置紧贴 fold_placeholder 后面
+        if (before && before.type.name === 'fold_placeholder') {
+          event.preventDefault()
+          const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, pos.pos))
+          view.dispatch(tr)
+          return false // 不阻止 PM handler,LeftMouseDown 正常创建
+        }
+        return false
+      },
+    },
     // v0.7.2:点击 fold_placeholder 节点 → 展开(与 chevron toggle 等效)
     handleClickOn(view, _pos, node, nodePos, _event, _direct) {
       if (node.type.name !== 'fold_placeholder') return false
@@ -982,20 +1010,6 @@ const foldDecoPlugin = new Plugin<FoldState>({
       // 位置闪一帧(下一帧 rAF 也会重算,这里只是消除首帧残影)。
       resetCustomCaret(view)
       return true
-    },
-    // v0.7.3:光标正紧贴折叠态 `...` 后按 Enter → 展开折叠并把光标移到折叠
-    // 区段末尾,return false 让 baseKeymap 的 Enter 在新位置生效(末尾新建块)。
-    handleKeyDown(view, event) {
-      if (event.key !== 'Enter') return false
-      const info = placeholderAfterCursor(view.state)
-      if (!info) return false
-      const endPos = endOfRangeInsertPos(view.state.doc, info.range)
-      const tr = view.state.tr
-      tr.setMeta(foldKey, { toggle: info.contentStart })
-      tr.setSelection(TextSelection.create(view.state.doc, endPos))
-      view.dispatch(tr)
-      resetCustomCaret(view)
-      return false
     },
   },
   // v0.7.2:appendTransaction 同步 fold_placeholder 真实节点与 collapsedSet。
@@ -1293,5 +1307,33 @@ export function foldDeleteCommand(
   if (dispatch) {
     dispatch(state.tr.delete(deleteFrom, deleteEnd).setMeta(foldKey, { remove: toRemove }))
   }
+  return true
+}
+
+/**
+ * v0.7.3:光标紧贴折叠态 `...` 后按 Enter → 展开折叠,在折叠内容
+ * 末尾后插入空段落,光标移进空段落。语义与在 `...` 后输入字符一致。
+ *
+ * 排在 Enter keymap 链首,先于 codeBlockEnter / splitBlock 等执行。
+ * 不命中 fold_placeholder → return false,走正常 Enter 链。
+ */
+export function foldEnterCommand(
+  state: EditorState,
+  dispatch?: (tr: Transaction) => void,
+): boolean {
+  const info = placeholderAfterCursor(state)
+  if (!info) return false
+  if (!dispatch) return true
+  const endPos = endOfRangeInsertPos(state.doc, info.range)
+  const tr = state.tr
+  tr.setMeta(foldKey, { toggle: info.contentStart })
+  // endPos 是折叠内容最后一个 textblock 的 content 末尾(close tag 前);
+  // +1 跨过 close tag 到达该 textblock 节点末尾,即父 content 区域的
+  // 下一个子节点插入点。在此插入空段落,光标落到新段落 content 起点。
+  const insertPos = endPos + 1
+  const para = schema.nodes.paragraph.create()
+  tr.insert(insertPos, para)
+  tr.setSelection(TextSelection.create(tr.doc, insertPos + 1))
+  dispatch(tr)
   return true
 }

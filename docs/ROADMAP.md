@@ -41,6 +41,9 @@
 ```
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
+P1  #diff-cm6 ──→ #diff-edit · #diff-hunk-revert · #diff-autoscroll · #diff-virtual · #diff-split
+    #diff-algo · #diff-merge（独立）
+                                                                │
 P2  #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
@@ -53,6 +56,62 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 ## 已知问题
 
 > 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
+
+
+
+## v0.7.14 — Diff 功能升级 `#diff-upgrade` `P1` `L`
+
+> 把版本历史 diff 从纯行级只读列表升级为基于 CodeMirror 6 的可编辑 diff 视图，对齐 VSCode Local History 的 diff 交互体验。
+>
+> 当前痛点：DiffView 是纯 `<div>` 渲染的只读行级列表，不可编辑、不可单块回退、无 hunk 级粒度操作；diff 算法为朴素 LCS（O(m×n) DP 表），大文档内存占用高且无字符级细化；选中条目后视口不自动跳转到第一个有差异的位置，用户需手动滚动查找。
+
+- [ ] **CM6 重写 diff 视图** `#diff-cm6` `P1` `M`
+  - 用 CodeMirror 6 作为 diff 渲染后端，替换当前纯 `<div>` 列表
+  - 复用项目已有 CM6 基建（shiki 高亮 / 暗色模式 / 滚动），与 `SourceModeEditor` 共享扩展机制
+  - diff 行以 CM6 Decoration（行背景色 + gutter 标记）呈现，保持 `+` / `-` 语义着色
+  - 保留异步加载 Git content 的 loading 态与竞态守卫逻辑
+
+- [ ] **支持在 diff 中直接编辑** `#diff-edit` `P1` `M` `← #diff-cm6`
+  - 在 diff 视图中允许用户直接编辑「新版本」侧文本
+  - 编辑后实时重算 diff（增量更新，不全量重算）
+  - 编辑结果可写回编辑器内容（emit 到 `documentStore`），形成"边看 diff 边修改"的工作流
+  - 只读条目（Git commit）禁用编辑，仅展示
+
+- [ ] **单块（hunk）回退** `#diff-hunk-revert` `P1` `M` `← #diff-cm6`
+  - 每个 diff hunk（连续的 added/removed 块）提供独立的「回退此块」操作
+  - 回退单块 = 把该 hunk 对应的新版本内容替换为旧版本内容，其余 hunk 不受影响
+  - 回退后实时重算 diff，已回退的 hunk 变为 unchanged
+  - 单块回退与整体恢复/回退共存：工具栏保留全局操作，hunk 级提供精细控制
+
+- [ ] **diff 算法升级** `#diff-algo` `P1` `M`
+  - 从朴素 LCS（O(m×n) DP 表）升级为 Myers diff 算法（线性空间 + 更优 hunk 边界）
+  - 支持 hunk 级语义：连续的 added/removed 行合并为一个 hunk 单元，便于单块回退
+  - 增加字符级（inline）diff 可选层：同一行内只标红/标绿变更的字符，而非整行着色
+  - 大文档（> 5000 行）diff 性能基线：计算 < 100ms，渲染虚拟滚动
+
+- [ ] **短时间 diff 条目合并展示** `#diff-merge` `P2` `S`
+  - 版本历史侧栏中，短时间内（如 2 分钟内）连续产生的快照条目合并为一个折叠组
+  - 合并组展示累计 +/- 行数；展开后显示子条目
+  - 与现有自动保存 5 分钟快照合并窗口区分：此处是 UI 层展示合并，不改变磁盘快照存储
+  - 手动保存 / 失焦保存的快照不参与合并，始终独立展示
+
+- [ ] **diff 视角自动跳转第一个 diff** `#diff-autoscroll` `P2` `S` `← #diff-cm6`
+  - 选中版本条目进入 diff 视图时，自动滚动到第一个有差异的 hunk 位置
+  - 后续可增加「上一个/下一个 diff」导航按钮（`Alt+↑` / `Alt+↓`），在 hunk 间跳转
+  - 无差异时停在文档顶部
+
+- [ ] **diff 虚拟滚动** `#diff-virtual` `P2` `S` `← #diff-cm6`
+  - 大文档 diff 时启用虚拟滚动，只渲染视口内的行
+  - CM6 自身支持虚拟滚动，此项随 #diff-cm6 自然落地，列出以确认验收
+
+- [ ] **diff 双栏模式（可选）** `#diff-split` `P3` `M` `← #diff-cm6`
+  - 提供「并排双栏」diff 视图（左旧右新），与当前「单栏混合」模式可切换
+  - 双栏模式下两侧同步滚动，行对齐
+  - 远期可选项，优先实现单栏体验完整后再评估
+
+- [ ] test：Myers diff 算法正确性单元测试（含移动 / 空行 / 纯新增 / 纯删除 / 大段重排）
+- [ ] test：单块回退后 diff 重算正确性测试（多 hunk 场景，回退中间块不影响两侧）
+- [ ] test：短时间条目合并展示逻辑测试（边界：恰好 2 分钟 / 手动保存不合并 / 跨文件不合并）
 
 
 
@@ -85,12 +144,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ## P2 — 体验增强
 
-### 编辑器增强
-
-- [ ] **功能更新弹窗** `#changelog-popup` `P2` `S`
-  - 版本升级后首启展示 CHANGELOG 摘要
-  - 读取 `docs/RELEASE_NOTES.md` 当前版本段落，渲染为 markdown
-
 ### 知识库 — 双链扩展
 
 - [ ] **`[[wikilink]]` 语法** `#wikilink` `P2` `XL` `← #workspace-index` `→ #go-to-def` `→ #find-refs`
@@ -118,17 +171,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）
   - 引用计数为 0 的本地资产标灰（孤儿候选）
 
-
-### 个性化
-
-- [x] **字体配置 UI** `#font-ui` `P2` `S`
-  - ~~editorStore.fontFamily 已有 store 字段，仅设置面板未暴露~~
-  - ~~补一个字体族选择器（系统字体 + 常用编程字体下拉）~~
-  - 参考 vmark，拆分为三类独立选择：西文字体（latin）/ 中文字体（cjk）/ 等宽字体（mono），各一个下拉
-  - `src/utils/fontStacks.ts` 纯函数映射表 + `buildFontStack()` 拼接 sans 栈（stripTrailingGenerics 让 CJK 字形能回退到 CJK 字体）
-  - editorStore 新增 `latinFont` / `cjkFont` / `monoFont` 三 ref + `fontFamily` / `fontMono` 两个 computed
-  - App.vue watch 注入 `--md-font-family` + `--font-mono` 到 `<html>`
-  - 导出 HTML 同步注入 `--font-mono`
 
 ### 通知与反馈
 
