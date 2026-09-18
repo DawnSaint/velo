@@ -41,8 +41,8 @@
 ```
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
-P1  #diff-cm6 ──→ #diff-edit · #diff-hunk-revert · #diff-autoscroll · #diff-virtual · #diff-split
-    #diff-algo · #diff-merge（独立）
+P1  #diff-wysiwyg ──→ #diff-block-tree ──→ #diff-semantic-render · #diff-incremental
+    #diff-algo · #diff-merge · #diff-autoscroll · #diff-unsaved-entry（独立）
                                                                 │
 P2  #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
@@ -61,33 +61,38 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ## v0.7.14 — Diff 功能升级 `#diff-upgrade` `P1` `L`
 
-> 把版本历史 diff 从纯行级只读列表升级为基于 CodeMirror 6 的可编辑 diff 视图，对齐 VSCode Local History 的 diff 交互体验。
+> 把版本历史 diff 从纯行级只读列表升级为双模式（源码 diff + WYSIWYG diff）可切换的富文本 diff 视图，对齐飞书文档版本对比体验。
 >
-> 当前痛点：DiffView 是纯 `<div>` 渲染的只读行级列表，不可编辑、不可单块回退、无 hunk 级粒度操作；diff 算法为朴素 LCS（O(m×n) DP 表），大文档内存占用高且无字符级细化；选中条目后视口不自动跳转到第一个有差异的位置，用户需手动滚动查找。
-
-- [ ] **CM6 重写 diff 视图** `#diff-cm6` `P1` `M`
-  - 用 CodeMirror 6 作为 diff 渲染后端，替换当前纯 `<div>` 列表
-  - 复用项目已有 CM6 基建（shiki 高亮 / 暗色模式 / 滚动），与 `SourceModeEditor` 共享扩展机制
-  - diff 行以 CM6 Decoration（行背景色 + gutter 标记）呈现，保持 `+` / `-` 语义着色
-  - 保留异步加载 Git content 的 loading 态与竞态守卫逻辑
-
-- [ ] **支持在 diff 中直接编辑** `#diff-edit` `P1` `M` `← #diff-cm6`
-  - 在 diff 视图中允许用户直接编辑「新版本」侧文本
-  - 编辑后实时重算 diff（增量更新，不全量重算）
-  - 编辑结果可写回编辑器内容（emit 到 `documentStore`），形成"边看 diff 边修改"的工作流
-  - 只读条目（Git commit）禁用编辑，仅展示
-
-- [ ] **单块（hunk）回退** `#diff-hunk-revert` `P1` `M` `← #diff-cm6`
-  - 每个 diff hunk（连续的 added/removed 块）提供独立的「回退此块」操作
-  - 回退单块 = 把该 hunk 对应的新版本内容替换为旧版本内容，其余 hunk 不受影响
-  - 回退后实时重算 diff，已回退的 hunk 变为 unchanged
-  - 单块回退与整体恢复/回退共存：工具栏保留全局操作，hunk 级提供精细控制
+> 当前痛点：DiffView 是纯 `<div>` 渲染的只读行级列表，只有一种形态；diff 算法为朴素 LCS（O(m×n) DP 表），大文档内存占用高且无字符级细化；选中条目后视口不自动跳转到第一个有差异的位置，用户需手动滚动查找；自动保存模式下无「未保存」条目，用户缺少快速查看「我改了什么」的入口。
+>
+> **双模式设计**：源码 diff 保留现有行级对比（升级算法 + 字符级高亮）；WYSIWYG diff 在 ProseMirror 只读渲染上叠加 Decoration 标记增删（绿色背景 = 新增，红色背景 = 删除），用户看到的是富文本渲染态的变更对比而非原始 markdown 源码。两种模式在 diff 视图工具栏一键切换，共用同一 diff 算法结果。
 
 - [ ] **diff 算法升级** `#diff-algo` `P1` `M`
   - 从朴素 LCS（O(m×n) DP 表）升级为 Myers diff 算法（线性空间 + 更优 hunk 边界）
-  - 支持 hunk 级语义：连续的 added/removed 行合并为一个 hunk 单元，便于单块回退
-  - 增加字符级（inline）diff 可选层：同一行内只标红/标绿变更的字符，而非整行着色
-  - 大文档（> 5000 行）diff 性能基线：计算 < 100ms，渲染虚拟滚动
+  - 支持 hunk 级语义：连续的 added/removed 行合并为一个 hunk 单元，便于导航
+  - 增加字符级（inline）diff 层：同一行内只标红/标绿变更的字符，而非整行着色
+  - 大文档（> 5000 行）diff 性能基线：计算 < 100ms
+  - 两种 diff 模式共用同一算法结果，切换模式不重算 diff
+
+- [x] **WYSIWYG diff 模式** `#diff-wysiwyg` `P1` `L`
+  - 在 ProseMirror 只读渲染上叠加 Decoration 标记增删：`Decoration.inline` 给新增文本挂绿色背景 class，给删除文本挂红色背景 class
+  - 用纯背景色区分增删，不叠删除线——避免与 markdown `~~删除线~~` 语法（strike mark）的视觉样式冲突
+  - 旧版本 markdown 经 `fromMarkdown` 解析为 PM Node，与新版本 PM Node 做结构级对齐
+  - 删除内容用 `Decoration.widget` 在对应位置插入红色背景文本片段（不占文档 pos，只视觉呈现）
+  - 复用项目已有 PM Decoration 基建范式（`findHighlight.ts` / `cjkLetterSpacing.ts` / `CodeHighlightWidget.ts`）
+  - ~~配合 `viewportPlugin` 做视口感知 decoration 构建，大文档只构建可见区域 diff 标记~~ → 未落地（实际为全量构建），并入 `#diff-incremental`
+  - 标题 / 表格 / 图片 / 代码块 / 公式等富文本元素正常渲染，只在其变更的文本片段上叠加高亮
+  - diff 视图只读（`editable: false`），不支持在 diff 中直接编辑（远期考虑）
+
+- [x] **源码 diff 模式升级** `#diff-source` `P1` `S`
+  - 保留并升级现有行级 diff 视图：Myers 算法 + 字符级 inline 高亮
+  - 等宽字体行列表，`+`/`-` 前缀，行背景色区分增删
+  - 与 WYSIWYG diff 共用同一 diff 算法结果，切换不重算
+  - 保留异步加载 Git content 的 loading 态与竞态守卫逻辑
+
+- [x] **双模式切换 UI** `#diff-switch` `P1` `S` `← #diff-wysiwyg` `← #diff-source`
+  - diff 视图工具栏新增「源码 / 预览」模式切换按钮（同 Word 修订模式切换语义）
+  - 切换即时生效，不重新加载 content、不重算 diff
 
 - [ ] **短时间 diff 条目合并展示** `#diff-merge` `P2` `S`
   - 版本历史侧栏中，短时间内（如 2 分钟内）连续产生的快照条目合并为一个折叠组
@@ -95,22 +100,45 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 与现有自动保存 5 分钟快照合并窗口区分：此处是 UI 层展示合并，不改变磁盘快照存储
   - 手动保存 / 失焦保存的快照不参与合并，始终独立展示
 
-- [ ] **diff 视角自动跳转第一个 diff** `#diff-autoscroll` `P2` `S` `← #diff-cm6`
-  - 选中版本条目进入 diff 视图时，自动滚动到第一个有差异的 hunk 位置
-  - 后续可增加「上一个/下一个 diff」导航按钮（`Alt+↑` / `Alt+↓`），在 hunk 间跳转
-  - 无差异时停在文档顶部
+- [ ] **diff 视角自动跳转第一个 diff + hunk 导航 + 折叠未变更区** `#diff-autoscroll` `P2` `S` `← #diff-block-tree`
+  - 选中版本条目进入 diff 视图时，自动滚动到第一处变更（源码 / 预览双模式）
+  - 「上一处 / 下一处」导航按钮 + `n/N` 计数（`Alt+↑` / `Alt+↓`）：源码模式用 `extractHunks(displayRows)` 定位行 DOM，预览模式用变更锚点（doc pos）经子组件跳转
+  - 折叠未变更区域（默认折叠，对齐飞书「默认折叠无关内容」）：
+    - 预览模式：未变更 block 连续段中段（两侧各留 1 个上下文 block）隐藏 + 可点击展开的「⋯ N 段未修改」折叠条；无变更时不折叠
+    - 源码模式：远离变更的连续 unchanged 行折叠为「⋯ N 行未修改」可展开行（保留 1 行上下文）
+  - **回退说明（当前状态：未完成）**：以上三项曾落地后主动回退，代码已全部移除——`DiffView.vue` 回到 `displayRows` 全量渲染（无导航按钮 / 无 `Alt+↑↓` 快捷键 / 无折叠行）；`diffDecoration.ts` 的 `DiffPlan` 只保留 `entries`（`folds` / `hunks` / `toggleFold` meta / `getDiffHunkAnchors` / `toggleDiffFold` 已删）；`WysiwygDiffView` 不再 `defineExpose(scrollToChange)`、不再 emit `change-count`；`_editor-diff.scss` 的 `velo-diff-folded` / `velo-diff-fold-widget` 已删。重做时按上述设计重新落地即可
 
-- [ ] **diff 虚拟滚动** `#diff-virtual` `P2` `S` `← #diff-cm6`
-  - 大文档 diff 时启用虚拟滚动，只渲染视口内的行
-  - CM6 自身支持虚拟滚动，此项随 #diff-cm6 自然落地，列出以确认验收
+- [x] **WYSIWYG diff 结构化升级（Block Tree Diff）** `#diff-block-tree` `P1` `L` `← #diff-wysiwyg`
+  - 原状：`buildDecorations` 把新旧 PM doc 拍平成纯文本做行级 diff，导致——格式变更（加粗/链接）不可见、节点类型变更（段落→标题）不可见、非文本节点（图片/分割线/公式）删除不可见、段落拆分误报为删行+加行、表格结构变更乱码
+  - ~~顶层 Block 级 diff：在 block 序列上跑 Myers，比对 key = 节点类型 + attrs + 文本 + inline marks 签名~~ → 已落地（`plugins/blockDiff.ts`：`collectBlocks` / `diffBlocks`）
+  - 语义化变更分类：文本修改 / 纯增删 / 同文异 key（格式·类型变更）/ split·merge 全部区分（渲染细节见 `#diff-semantic-render`）
+  - ~~非文本节点纳入比对：image / hr / math 等 leaf 节点用 attrs 做 key，删除时渲染类型占位 widget 而非裸文本~~ → 已落地（删除块改为 `DOMSerializer` 序列化旧 block 的带样式只读片段）
+  - 不采纳：OT/CRDT 操作日志 diff、按作者着色——本地快照模型无操作日志与 per-block 作者数据，只能事后反推，投入产出比极低
 
-- [ ] **diff 双栏模式（可选）** `#diff-split` `P3` `M` `← #diff-cm6`
-  - 提供「并排双栏」diff 视图（左旧右新），与当前「单栏混合」模式可切换
-  - 双栏模式下两侧同步滚动，行对齐
-  - 远期可选项，优先实现单栏体验完整后再评估
+- [x] **diff 语义化渲染** `#diff-semantic-render` `P1` `M` `← #diff-block-tree`
+  - 格式变更可视化：仅 marks 变化的区间加 Decoration.inline（区别于增删的第三种样式 + tooltip「格式变更」）——`diffInlineMarkRanges` 逐字符比对 marks 签名，区间精确到变化文本（`velo-diff-format-changed` amber 底 + 下划线）
+  - 删除内容保留结构：整 block 删除时 widget 渲染带样式的只读片段（标题保留字号、列表项保留缩进），而非裸文本 span——`DOMSerializer` 序列化旧 block（`velo-diff-deleted-block` 红底 + 左侧条），`blockSummary` 文本占位随之移除
+  - 段落拆分 / 合并的边界提示：block 边界处加「段落在此拆分」widget，替代删行+加行误报——`diffBlocks` 新增 split / merge op（去空白后文本相同判定），渲染 `velo-diff-boundary-hint` badge（「段落在此拆分」/「N 个段落已合并」）
+  - 节点类型变更标记：block 左侧条 + tooltip（如「段落 → 标题 2」）——`nodeTypeLabel` 含关键 attrs（标题级别 / 代码块语言），`velo-diff-type-changed` 左侧条 + decoration title tooltip
+
+- [x] **diff 视图增量渲染** `#diff-incremental` `P2` `M` `← #diff-block-tree`
+  - 选中条目变化时不销毁重建 EditorView：`newContent` 变 → `setInitialViewportHint` + `EditorState.create`（复用同一批插件实例）+ `view.updateState`；`oldContent` 变 → 只 `setMeta(diffDecorationKey, { oldDoc })`
+  - 大文档视口感知 decoration 构建（原 `#diff-wysiwyg` 的 viewportPlugin 设想并入此项）：`diffDecorationPlugin` 持 `DiffPlan`（`entries`）+ `built`（已建 entry），`decorations()` 只对「视口内 + 粘性已建」entry 建装饰，滚动时由 viewport meta 只追加新进视口 entry（同 `CodeHighlightWidget` seenSet 粘性范式）
+  - 注：折叠态不属此项——未变更区折叠归 `#diff-autoscroll`（已回退为未完成）
+
+- [x] test：Block Tree Diff 结构比对单元测试（格式变更可见 / 节点类型变更 / 图片等非文本节点删除 / 段落拆分合并 / 空块配对退化）
+- [x] test：语义化渲染单元测试（marks 变化区间精确标记 / 类型变更 tooltip / 删除片段保留结构 / split·merge 边界提示 / 拆分+改文本退化为 pair+insert）
+- [x] test：增量渲染单元测试（窄 viewport 只建可见 entry / 滚动后粘性追加）——原「折叠默认生效 + toggleFold 展开 / hunk 锚点与折叠区计数」随 `#diff-autoscroll` 回退一并移除
+
+- [ ] **状态栏「未保存」点击进入 diff** `#diff-unsaved-entry` `P2` `S`
+  - 底部状态栏「未保存」标记从纯展示 `<span>` 改为可点击 `<button>`
+  - 点击 → 打开版本历史侧栏 + 进入 diff 视图 + 选中最新条目（自动保存模式下也有效）
+  - 自动保存模式下「未保存」标记不显示（已有 `v-if` 守卫），此入口主要服务手动保存用户
+  - 复用 `openVersionHistory()` 已有逻辑，补一步 `showSidebarTab('history')`
 
 - [ ] test：Myers diff 算法正确性单元测试（含移动 / 空行 / 纯新增 / 纯删除 / 大段重排）
-- [ ] test：单块回退后 diff 重算正确性测试（多 hunk 场景，回退中间块不影响两侧）
+- [ ] test：WYSIWYG diff Decoration 构建正确性测试（PM Node 树对齐 + 增删标记位置）
+- [ ] test：双模式切换不重算 diff（切换前后 DecorationSet 引用不变）
 - [ ] test：短时间条目合并展示逻辑测试（边界：恰好 2 分钟 / 手动保存不合并 / 跨文件不合并）
 
 

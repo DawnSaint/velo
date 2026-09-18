@@ -1,0 +1,143 @@
+// WYSIWYG diff 装饰样式(#diff-wysiwyg / #diff-semantic-render)
+//
+// 在 ProseMirror 只读渲染上叠加的增删标记:
+// - .velo-diff-added: 整行新增 block 级背景(Decoration.node,覆盖整个段落)
+// - .velo-diff-added-inline: 字符级新增 inline 背景(Decoration.inline,只标记变化的字符)
+// - .velo-diff-removed: 字符级删除文本 widget,红色背景(原位显示)
+// - .velo-diff-deleted-block: 整 block 删除的只读片段 widget(序列化旧 block,保留结构)
+// - .velo-diff-changed: 整块变更(非文本 leaf 变更等,文本未变),amber 底色
+// - .velo-diff-type-changed: 节点类型变更,在 changed 基础上加左侧条(+ tooltip)
+// - .velo-diff-format-changed: 仅格式变更的 inline 区间标记,amber 底 + 下划线
+// - .velo-diff-boundary-hint: 段落拆分 / 合并的边界提示 badge
+//
+// 纯背景色区分增删,不叠删除线——避免与 markdown ~~删除线~~ 语法(strike mark)的
+// 视觉样式冲突。颜色与源码 diff 模式(Tailwind class)统一:
+// - 整行背景 = green-50 / red-50(亮色),green-950/30% / red-950/30%(暗色)
+// - 字符级背景 = green-200/60% / red-200/60%(亮色),green-800/40% / red-800/40%(暗色)
+// - 格式 / 类型变更 = amber 系(区别于增删的第三种语义)
+//
+// **段间距策略**:diff 编辑器内段落去掉 margin,用 padding 撑开段间距。
+// padding 属于 content box,Decoration.node 的 background-color 天然覆盖,
+// 无段间空隙。后续状态栏控制面板统一调 line-height/padding 时自动跟随。
+
+// ── 整行背景(与源码 diff 的 bg-green-50 / bg-red-50 一致)──
+
+// 整行新增:block 级背景(Decoration.node),覆盖整个 <p> 的 content box
+.velo-diff-added {
+  background-color: rgb(240 253 244); // green-50
+}
+
+// 整块变更(格式 / 节点类型变更,文本未变):amber-50 底色,区别于增删
+.velo-diff-changed {
+  background-color: rgb(255 251 235); // amber-50
+}
+
+// ── 字符级背景(与源码 diff 的 bg-green-200/60 / bg-red-200/60 一致)──
+
+// 字符级新增:inline 背景(Decoration.inline),只标记变化的字符
+.velo-diff-added-inline {
+  background-color: rgb(187 247 208 / 0.6); // green-200/60
+  border-radius: 2px;
+}
+
+// 删除文本 widget:inline 背景(只覆盖文本片段)
+.velo-diff-removed {
+  background-color: rgb(254 202 202 / 0.6); // red-200/60
+  border-radius: 2px;
+  display: inline;
+  color: rgb(127 29 29 / 0.8);
+}
+
+// ── 语义化渲染(#diff-semantic-render)──
+
+// 整 block 删除的只读片段:内部是旧 block 序列化 DOM(标题保留字号、
+// 列表保留缩进、图片 / 分割线保留原形),叠加删除语义的红底 + 左侧条。
+// 内部 p 继承 .velo-diff-editor 的 padding 段间距策略,排版与正文一致。
+.velo-diff-deleted-block {
+  background-color: rgb(254 242 242); // red-50
+  border-left: 3px solid rgb(239 68 68 / 0.6); // red-500/60
+  padding-left: 0.5em;
+  // 空段落删除也可见(序列化出的 <p></p> 无内容,给一个最小高度)
+  min-height: 1.4em;
+  opacity: 0.75;
+}
+
+// 节点类型变更:在 amber 底色(changed)上加左侧条,tooltip 由 decoration title 提供
+.velo-diff-type-changed {
+  border-left: 3px solid rgb(245 158 11); // amber-500
+  padding-left: 0.5em;
+}
+
+// 仅格式变更(加粗 / 链接等 marks 变化)的 inline 区间:amber 底 + 下划线,
+// 区别于增删;tooltip「格式变更」由 decoration title 提供
+.velo-diff-format-changed {
+  background-color: rgb(253 230 138 / 0.5); // amber-200/50
+  border-bottom: 2px solid rgb(245 158 11 / 0.7); // amber-500/70
+  border-radius: 2px;
+}
+
+// 段落拆分 / 合并的边界提示 badge
+.velo-diff-boundary-hint {
+  display: block;
+  width: fit-content;
+  font-size: 0.75em;
+  line-height: 1.6;
+  padding: 0 0.6em;
+  margin-block: 2px;
+  border-radius: 4px;
+  user-select: none;
+  color: rgb(146 64 14); // amber-800
+  background-color: rgb(254 243 199); // amber-100
+}
+
+// 暗色模式(与源码 diff 的 dark:bg-green-950/30 / dark:bg-red-950/30 一致)
+html.dark {
+  .velo-diff-added {
+    background-color: rgb(5 46 22 / 0.3); // green-950/30
+  }
+
+  .velo-diff-changed {
+    background-color: rgb(69 26 3 / 0.3); // amber-950/30
+  }
+
+  .velo-diff-added-inline {
+    background-color: rgb(22 101 52 / 0.4); // green-800/40
+  }
+
+  .velo-diff-removed {
+    background-color: rgb(153 27 27 / 0.4); // red-800/40
+    color: rgb(254 202 202 / 0.8);
+  }
+
+  .velo-diff-deleted-block {
+    background-color: rgb(69 10 10 / 0.3); // red-950/30
+    border-left-color: rgb(239 68 68 / 0.5);
+  }
+
+  .velo-diff-format-changed {
+    background-color: rgb(180 83 9 / 0.35); // amber-700/35
+    border-bottom-color: rgb(245 158 11 / 0.6);
+  }
+
+  .velo-diff-boundary-hint {
+    color: rgb(253 230 138); // amber-200
+    background-color: rgb(69 26 3 / 0.5); // amber-950/50
+  }
+}
+
+// diff 编辑器容器:复用编辑器基础样式但只读
+.velo-diff-editor {
+  .ProseMirror {
+    min-height: 100%;
+    padding: 2rem 4rem;
+    // 只读模式:隐藏 caret
+    caret-color: transparent;
+
+    // 段落:去掉 margin,用 padding 撑开段间距。
+    // padding 在 content box 内,Decoration.node 背景色天然覆盖,无段间空隙。
+    p {
+      margin: 0;
+      padding-block: 0.25em;
+    }
+  }
+}

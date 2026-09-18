@@ -15,6 +15,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useDocumentStore } from '@/stores/document'
 import { useExportStore } from '@/stores/export'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useVersionHistoryStore } from '@/stores/versionHistory'
 import { zoomIn, zoomOut, zoomReset } from '@/components/ProseMirrorEditor/editor/shortcuts/commands/zoomCommands'
 
 export function useGlobalKeybindings(opts: {
@@ -35,6 +36,7 @@ export function useGlobalKeybindings(opts: {
   const documentStore = useDocumentStore()
   const exportStore = useExportStore()
   const workspaceStore = useWorkspaceStore()
+  const versionHistoryStore = useVersionHistoryStore()
   const { tauri } = opts
 
   // 全局 Ctrl/Cmd+S / Ctrl/Cmd+F / Ctrl/Cmd+H
@@ -169,9 +171,12 @@ export function useGlobalKeybindings(opts: {
       // 阅读模式 toggle(Ctrl/Cmd+Shift+R):复用 Ctrl+Shift+R 这个本属浏览器硬刷新
       // 的快捷键 —— 应用层 capture 阶段 preventDefault 让 webview 永远拿不到刷新信号。
       // 与上方 Ctrl+R / F5 拦截配合,桌面 markdown editor 下不存在"误刷新丢未保存"的路径。
+      // diff 视图激活时为只读,不允许切换。
       e.preventDefault()
       e.stopPropagation()
-      documentStore.readOnly = !documentStore.readOnly
+      if (!versionHistoryStore.diffViewActive) {
+        documentStore.readOnly = !documentStore.readOnly
+      }
     }
     else if (k === 'r' && !e.shiftKey) {
       // Ctrl/Cmd+R: suppress browser reload (preventDefault 已在上方无条件调用,

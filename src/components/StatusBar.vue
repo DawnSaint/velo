@@ -22,6 +22,9 @@ const props = defineProps<{
   /** 设置页激活时隐藏文档相关区段(未保存 / 模式切换 / 字数 / 行列),
    *  这些数据属于上一个文档,在设置页显示会误导。工作区标签仍保留。 */
   settingsActive?: boolean
+  /** diff 视图激活时锁住阅读模式 toggle(只读不可切换),
+   *  sourceMode toggle 仍可用(切源码/预览 diff)。 */
+  diffViewActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -171,13 +174,15 @@ onBeforeUnmount(() => {
       class="statusbar-segment"
       :title="readOnlyLocked
         ? '示例文档为只读,请使用「另存为」保存到工作区后再编辑'
-        : readOnly
-          ? '切换到可编辑 (Ctrl+Shift+R)'
-          : '切换到阅读模式(只读) (Ctrl+Shift+R)'"
+        : diffViewActive
+          ? 'diff 视图期间为只读'
+          : readOnly
+            ? '切换到可编辑 (Ctrl+Shift+R)'
+            : '切换到阅读模式(只读) (Ctrl+Shift+R)'"
       :aria-label="readOnly ? '切换到可编辑' : '切换到阅读模式'"
-      :aria-disabled="readOnlyLocked"
+      :aria-disabled="readOnlyLocked || diffViewActive"
       :aria-pressed="readOnly"
-      :disabled="readOnlyLocked"
+      :disabled="readOnlyLocked || diffViewActive"
       @click="emit('toggle-read-only')"
     >
       <PenOff v-if="readOnly" :size="12" aria-hidden="true" />

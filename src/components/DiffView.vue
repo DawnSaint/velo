@@ -4,21 +4,32 @@
 // 展示该版本与其前一版本的行级 diff(同 VSCode Local History 语义)。
 // 顶部工具栏:
 //  - 左:版本时间 + diff 行数统计
-//  - 右:「恢复」(emit restore) / 「回退修改」(emit revert) +「关闭」(回到编辑器)
+//  - 右:「恢复」/「回退修改」+「关闭」(回到编辑器)
 //
 // 选中虚拟"未保存"条目(UNSAVED_ID)时显示「回退修改」按钮(回退到上一版本)。
 // 选中 Git 条目时不显示「恢复」按钮(Git commit 不可直接恢复为编辑器内容)。
 //
 // Git 条目的 content 和前一版本 content 都可能需要异步加载(git show),
 // 加载期间显示 loading spinner。
+//
+// 双模式(#diff-switch):
+// - 源码 diff(sourceMode=true):行级列表,+/- 前缀,行背景色区分增删(原有实现)
+// - 预览 diff(sourceMode=false):ProseMirror 只读渲染 + Decoration 增删标记(绿色背景=新增,红色背景=删除)
+// 两种模式共用同一 diff 算法结果(Myers),切换不重算 diff。
+// 模式切换复用底部状态栏的 sourceMode toggle(Eye/Code2 按钮)。
 
 import { computed, ref, watch } from 'vue'
 import { X, Loader2, Undo2 } from '@lucide/vue'
 import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
-import { diffLines, type DiffLine } from '@/utils/lineDiff'
+import { useDocumentStore } from '@/stores/document'
+import { useEditorStore } from '@/stores/editor'
+import { diffLines, isPureCharRemoval, type DiffLine } from '@/utils/lineDiff'
 import type { TimelineEntry } from '@/stores/versionHistory'
+import WysiwygDiffView from '@/components/ProseMirrorEditor/WysiwygDiffView.vue'
 
 const versionHistory = useVersionHistoryStore()
+const documentStore = useDocumentStore()
+const editorStore = useEditorStore()
 
 const emit = defineEmits<{
   'restore': [snapshot: TimelineEntry]
@@ -29,8 +40,18 @@ const selected = computed<TimelineEntry | null>(() => versionHistory.selectedEnt
 const isSelectedUnsaved = computed(() => versionHistory.selectedEntryId === UNSAVED_ID)
 const isSelectedGit = computed(() => selected.value?.source === 'git')
 
+// diff 模式复用 documentStore.sourceMode:
+// false = WYSIWYG 预览 diff; true = 源码行级 diff
+// 状态栏的 Eye/Code2 按钮控制切换,不在此组件内自建按钮
+const isSourceMode = computed(() => documentStore.sourceMode)
+
+// ========== diff 数据 ==========
+
 /** diff 结果(异步加载 Git content 时有 loading 态) */
 const diffResult = ref<DiffLine[]>([])
+/** 新版本和旧版本的原始 markdown(供 WYSIWYG diff 使用) */
+const newContent = ref('')
+const oldContent = ref('')
 const loading = ref(false)
 
 /** diff 行数统计 */
@@ -44,6 +65,48 @@ const diffStats = computed(() => {
   return { added, removed }
 })
 
+/** 源码模式展示行:「修改」配对(removed+added)合并为单行渲染,
+ * 跳过被合并的 removed 行(VSCode inline diff 风格:
+ * 整行浅绿 + 新增字符深绿 + 删除字符红色删除线) */
+const displayRows = computed(() => diffResult.value.filter(l => !l.mergedIntoNext))
+
+interface RowVisual {
+  bg: string
+  prefix: string
+  prefixClass: string
+  textClass: string
+  lineNo: string
+}
+
+/** 源码行视觉(收敛到函数,模板不再重复判断 isPureCharRemoval) */
+function rowVisual(line: DiffLine): RowVisual {
+  if (line.type === 'removed' || isPureCharRemoval(line)) {
+    return {
+      bg: 'bg-red-50 dark:bg-red-950/30',
+      prefix: '-',
+      prefixClass: 'text-red-600 dark:text-red-400',
+      textClass: 'text-red-700 dark:text-red-300',
+      lineNo: String(line.oldLineNumber || ''),
+    }
+  }
+  if (line.type === 'added') {
+    return {
+      bg: 'bg-green-50 dark:bg-green-950/30',
+      prefix: '+',
+      prefixClass: 'text-green-600 dark:text-green-400',
+      textClass: 'text-green-700 dark:text-green-300',
+      lineNo: String(line.newLineNumber ?? ''),
+    }
+  }
+  return {
+    bg: '',
+    prefix: ' ',
+    prefixClass: 'text-gray-300 dark:text-gray-600',
+    textClass: 'text-gray-600 dark:text-gray-300',
+    lineNo: String(line.oldLineNumber || ''),
+  }
+}
+
 /** 异步加载 diff:选中条目变化时触发
  *  - 本地快照:content 和前一版本 content 都在内存中,同步计算
  *  - Git 条目:content 可能需要 git show 懒加载,前一版本 content 也可能需要 */
@@ -51,31 +114,33 @@ async function loadDiff() {
   const entry = selected.value
   if (!entry) {
     diffResult.value = []
+    newContent.value = ''
+    oldContent.value = ''
     return
   }
 
   loading.value = true
   try {
-    // 获取选中条目的 content
-    // 注意:不能用 entry.content 判断是否已加载——entry 是 computed 返回的快照对象,
-    // 在 gitContentCache 写入后 displayEntries 会重算,但此时 loadDiff 里的 entry 是旧的。
-    // 应该始终通过 loadGitContent 获取(内部有缓存检查,命中则直接返回)。
-    let newContent: string
+    let newContentRaw: string
     if (entry.source === 'git') {
-      newContent = await versionHistory.loadGitContent(entry)
+      newContentRaw = await versionHistory.loadGitContent(entry)
     } else {
-      newContent = entry.content ?? ''
+      newContentRaw = entry.content ?? ''
     }
 
-    // 获取前一版本 content(异步)
     const oldResult = await versionHistory.diffOldContentAsync(entry.id)
-    const oldContent = oldResult.content ?? ''
+    const oldContentRaw = oldResult.content ?? ''
 
-    diffResult.value = diffLines(oldContent, newContent)
+    // 两种模式共用同一 diff 结果
+    diffResult.value = diffLines(oldContentRaw, newContentRaw)
+    newContent.value = newContentRaw
+    oldContent.value = oldContentRaw
   }
   catch (e) {
     console.error('loadDiff 失败', e)
     diffResult.value = []
+    newContent.value = ''
+    oldContent.value = ''
   }
   finally {
     loading.value = false
@@ -127,7 +192,12 @@ function onClose() {
 </script>
 
 <template>
-  <div class="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--surface-2)]">
+  <!-- 根节点注入 --md-font-size:源码 diff 列表与 WYSIWYG diff(.velo-editor)
+       都读这个变量,跟随设置面板的字号 -->
+  <div
+    class="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--surface-2)]"
+    :style="{ '--md-font-size': editorStore.fontSize }"
+  >
     <!-- 工具栏 -->
     <div class="flex shrink-0 items-center justify-between border-b border-[var(--surface-border)] px-4 py-2">
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -194,49 +264,62 @@ function onClose() {
       >
         <Loader2 class="h-5 w-5 animate-spin text-gray-300 dark:text-gray-600" />
       </div>
-      <!-- 空结果 -->
-      <div
-        v-else-if="diffResult.length === 0"
-        class="flex h-full items-center justify-center text-xs text-gray-400"
-      >
-        <span>无 diff 内容</span>
-      </div>
-      <!-- diff 结果 -->
-      <div v-else class="font-mono text-xs leading-relaxed">
+      <!-- WYSIWYG diff 模式(sourceMode=false) -->
+      <WysiwygDiffView
+        v-else-if="!isSourceMode && newContent"
+        :new-content="newContent"
+        :old-content="oldContent"
+      />
+      <!-- 源码 diff 模式(sourceMode=true) -->
+      <template v-else>
+        <!-- 空结果 -->
         <div
-          v-for="(line, idx) in diffResult"
-          :key="idx"
-          class="flex"
-          :class="{
-            'bg-green-50 dark:bg-green-950/30': line.type === 'added',
-            'bg-red-50 dark:bg-red-950/30': line.type === 'removed',
-          }"
+          v-if="diffResult.length === 0"
+          class="flex h-full items-center justify-center text-xs text-gray-400"
         >
-          <span class="w-10 shrink-0 select-none border-r border-[var(--surface-border)] px-2 text-right text-gray-300 dark:text-gray-600">
-            {{ line.type === 'added' ? line.newLineNumber : line.oldLineNumber || '' }}
-          </span>
-          <span
-            class="shrink-0 select-none px-2"
-            :class="{
-              'text-green-600 dark:text-green-400': line.type === 'added',
-              'text-red-600 dark:text-red-400': line.type === 'removed',
-              'text-gray-300 dark:text-gray-600': line.type === 'unchanged',
-            }"
-          >
-            {{ line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ' }}
-          </span>
-          <span
-            class="whitespace-pre-wrap px-1"
-            :class="{
-              'text-green-700 dark:text-green-300': line.type === 'added',
-              'text-red-700 dark:text-red-300': line.type === 'removed',
-              'text-gray-600 dark:text-gray-300': line.type === 'unchanged',
-            }"
-          >
-            {{ line.text || ' ' }}
-          </span>
+          <span>无 diff 内容</span>
         </div>
-      </div>
+        <!-- diff 结果:字号走 --md-font-size(跟随设置),不再是写死的 text-xs -->
+        <div
+          v-else
+          class="font-mono leading-relaxed"
+          style="font-size: var(--md-font-size, 14px)"
+        >
+          <div
+            v-for="(line, idx) in displayRows"
+            :key="idx"
+            class="flex"
+            :class="rowVisual(line).bg"
+          >
+            <span class="w-10 shrink-0 select-none border-r border-[var(--surface-border)] px-2 text-right text-gray-300 dark:text-gray-600">
+              {{ rowVisual(line).lineNo }}
+            </span>
+            <span
+              class="shrink-0 select-none px-2"
+              :class="rowVisual(line).prefixClass"
+            >
+              {{ rowVisual(line).prefix }}
+            </span>
+            <span
+              class="whitespace-pre-wrap px-1"
+              :class="rowVisual(line).textClass"
+            >
+              <!-- 配对修改行优先用 mergedInlineDiff 单行渲染 -->
+              <template v-if="line.mergedInlineDiff || line.inlineDiff">
+                <span
+                  v-for="(seg, si) in (line.mergedInlineDiff ?? line.inlineDiff)"
+                  :key="si"
+                  :class="{
+                    'bg-green-200/60 dark:bg-green-800/40': seg.type === 'added',
+                    'bg-red-200/60 text-red-700/80 dark:bg-red-800/40 dark:text-red-300/80': seg.type === 'removed',
+                  }"
+                >{{ seg.text }}</span>
+              </template>
+              <template v-else>{{ line.text || ' ' }}</template>
+            </span>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>

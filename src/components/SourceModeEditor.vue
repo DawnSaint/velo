@@ -39,6 +39,8 @@ import { attachVeloScroll, detachVeloScroll } from '@/directives/veloScroll'
 const props = withDefaults(defineProps<{
   modelValue?: string
   darkMode?: boolean
+  /** 字号(px 字符串,如 '16px')。注入 --md-font-size,跟随设置面板的字号。 */
+  fontSize?: string
   /** 查找面板开关。v-model:find-open 双绑,App.vue 持有(与 ProseMirrorEditor 对仗)。 */
   findOpen?: boolean
   /** 只读模式：禁用编辑器输入。 */
@@ -50,6 +52,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   modelValue: '',
   darkMode: false,
+  fontSize: '14px',
   findOpen: false,
   readOnly: false,
   focusMode: false,
@@ -588,7 +591,8 @@ defineExpose({
 <template>
   <div
     class="velo-cm-source relative flex-1 min-w-0 bg-[var(--surface-2)]"
-    :class="{ 'dark': props.darkMode, 'focus-mode': props.focusMode }">
+    :class="{ 'dark': props.darkMode, 'focus-mode': props.focusMode }"
+    :style="{ '--md-font-size': props.fontSize }">
 
     <div ref="hostRef" class="velo-cm-host" />
     <!-- 查找替换面板:与 ProseMirrorEditor 共用同一份 FindReplace.vue,
