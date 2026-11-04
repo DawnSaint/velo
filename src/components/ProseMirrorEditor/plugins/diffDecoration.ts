@@ -104,12 +104,14 @@ function offsetInBlock(offset: number, block: BlockEntry): number {
 
 /** 构建红色删除 widget Decoration(配对修改的字符级删除,原位显示) */
 function removedWidget(pos: number, text: string): Decoration {
+  // ignoreSelection: 不让 PM 把 widget 内的 DOM 选区同步回 PM state
+  // (widget 不占 doc pos,同步会得到无效选区并清除浏览器原生选区)
   return Decoration.widget(pos, () => {
     const span = document.createElement('span')
     span.className = 'velo-diff-removed'
     span.textContent = text
     return span
-  }, { side: -1 })
+  }, { side: -1, ignoreSelection: true })
 }
 
 /**
@@ -118,14 +120,14 @@ function removedWidget(pos: number, text: string): Decoration {
  * 而非裸文本摘要。结构 + marks 都由 schema 的 toDOM 自然保留。
  */
 function deletedBlockWidget(pos: number, node: PMNode): Decoration {
+  // ignoreSelection: 同 removedWidget,保留浏览器原生选区
   return Decoration.widget(pos, () => {
     const wrapper = document.createElement('div')
     wrapper.className = 'velo-diff-deleted-block'
-    wrapper.setAttribute('contenteditable', 'false')
     const frag = DOMSerializer.fromSchema(node.type.schema).serializeNode(node)
     wrapper.appendChild(frag)
     return wrapper
-  }, { side: -1 })
+  }, { side: -1, ignoreSelection: true })
 }
 
 /** 拆分 / 合并的边界提示 widget(「段落在此拆分」/「N 个段落已合并」) */
@@ -298,6 +300,9 @@ function buildPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decor
  * - viewport 为 null(无滚动容器 / 未就绪)→ 全量,退化为旧行为
  * - built 就地累积:只读 doc,已建过的 entry 不必重复构造(widget DOM 开销),
  *   后续滚动只追加新进视口的 entry
+ *
+ * 关键:只返回 **尚未构建** 的 entry 的装饰 —— 调用方会把返回值追加到
+ * 已有 DecorationSet(add),若把已建 entry 的装饰也返回会导致重复添加。
  */
 function collectVisibleDecos(
   plan: DiffPlan,
@@ -307,7 +312,9 @@ function collectVisibleDecos(
   const decos: Decoration[] = []
 
   plan.entries.forEach((entry, i) => {
-    if (!built.has(i) && !isInViewport(entry.from, entry.to - entry.from, viewport)) return
+    // 已建 → 跳过;未建但不在视口 → 跳过
+    if (built.has(i)) return
+    if (!isInViewport(entry.from, entry.to - entry.from, viewport)) return
     built.add(i)
     for (const d of entry.decos) decos.push(d)
   })

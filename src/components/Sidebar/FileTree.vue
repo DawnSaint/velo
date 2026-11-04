@@ -716,14 +716,6 @@ function displayName(node: TreeNode): string {
           </div>
         </template>
         <div :style="{ height: `${Math.max(0, flatItems.length - visibleRange.end) * ROW_HEIGHT}px` }"></div>
-        <!-- 根子项为空时显示占位(根 row 已先行渲染,这里只补"空目录"提示)。
-             根折叠时不渲染(占位也跟着收起,保持折叠纯粹)。 -->
-        <div
-          v-if="!rootCollapsed && rootNode && rootNode.children && rootNode.children.length === 0"
-          class="py-0.5 pl-6 text-xs text-gray-400"
-        >
-          空目录
-        </div>
       </div>
     </div>
 

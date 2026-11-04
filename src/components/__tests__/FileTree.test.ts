@@ -169,12 +169,12 @@ describe('FileTree', () => {
 
   // ── 空目录显示 ──
 
-  it('所有可见项都被过滤后显示"空目录"', async () => {
+  it('所有可见项都被过滤后不显示子项,也不渲染"空目录"占位', async () => {
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
 
     // readDir 返回一堆非 .md 文件 → sortEntries 全过滤 → 子项为空,
-    // 根 row 仍渲染(v0.5.1 根并入树),期望额外显示"空目录"占位
+    // 根 row 仍渲染(v0.5.1 根并入树);不再额外渲染"空目录"占位
     vi.mocked(readDir).mockResolvedValue([
       entry('.git', true),
       entry('build.js', false),
@@ -184,10 +184,11 @@ describe('FileTree', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.text()).toContain('空目录')
+    expect(nonRootRows(wrapper).length).toBe(0)
+    expect(wrapper.text()).not.toContain('空目录')
   })
 
-  it('空目录下(无子项)显示"空目录"', async () => {
+  it('空目录下(无子项)不渲染"空目录"占位', async () => {
     const workspace = useWorkspaceStore()
     workspace.activeRoot = '/test/root'
 
@@ -197,7 +198,10 @@ describe('FileTree', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.text()).toContain('空目录')
+    // 根 row 仍在,只是没有子项
+    expect(wrapper.findAll('.group').length).toBe(1)
+    expect(nonRootRows(wrapper).length).toBe(0)
+    expect(wrapper.text()).not.toContain('空目录')
   })
 
   // ── 错误态 ──
@@ -977,10 +981,8 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  it('根折叠态:箭头无 rotate-90 + 子项不渲染 + "空目录"占位也收起', async () => {
+  it('根折叠态:箭头无 rotate-90 + 子项不渲染', async () => {
     const wrapper = await mountWithEntries([])
-    // 默认展开,"空目录"占位渲染
-    expect(wrapper.text()).toContain('空目录')
 
     const rootRow = wrapper.findAll('.group')[0]
     await rootRow.trigger('click')
@@ -988,8 +990,8 @@ describe('FileTree', () => {
 
     const arrowSvg = rootRow.element.querySelector('span.size-4 > svg')!
     expect(arrowSvg.classList.contains('rotate-90')).toBe(false)
-    // 折叠态:"空目录"占位也跟着收起
-    expect(wrapper.text()).not.toContain('空目录')
+    // 折叠态:子项不渲染
+    expect(nonRootRows(wrapper).length).toBe(0)
     wrapper.unmount()
   })
 

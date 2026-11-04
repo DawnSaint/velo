@@ -16,6 +16,7 @@
 import { keymap } from 'prosemirror-keymap'
 import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { flushMarkSourceEdit } from '../../plugins/markSourceEdit'
 
 // Dispatch 类型 prosemirror-state 和 prosemirror-view 都导出,这里从 prosemirror-state 拿
 type Dispatch = (tr: import('prosemirror-state').Transaction) => void
@@ -107,7 +108,20 @@ export function formatShortcutKey(key: string): string {
 export function buildShortcutKeymap() {
   const map: Record<string, ShortcutCommand> = {}
   for (const s of _registry) {
-    map[s.key] = s.command
+    // 带 tableAction 的表格操作快捷键一律走"整表 replaceWith"。执行前必须先结束
+    // mark 源码编辑会话(光标在带 mark 的单元格里时它是开着的):否则那条 tr 会把
+    // 会话的 [editFrom, editTo] 整体替换掉,apply 的 ±1 bias 把两端映射到新区间
+    // 两侧之外 → 区间翻转 → commit 执行 delete(from > to),而 PM 的
+    // Fragment.replace 是 cut(0,from)+content+cut(to)、不校验先后 → 把 [to,from)
+    // 整段复制一遍(表现:表格下方多出一份同样的表格)。
+    // 键盘路径没有预计算锚点,flush 后直接重读 view.state 即可;
+    // 右键菜单 / insertHandle 各自有"flush + 锚点映射",不走这里。
+    map[s.key] = s.tableAction
+      ? (state, dispatch, view) => {
+          if (dispatch && view) flushMarkSourceEdit(view)
+          return s.command(dispatch && view ? view.state : state, dispatch, view)
+        }
+      : s.command
   }
   return keymap(map)
 }

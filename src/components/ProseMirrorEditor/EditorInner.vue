@@ -102,7 +102,16 @@ const tableMenuHideMoveColumn = ref(false)
 
 function onTableMenuAction(action: string) {
   if (!hasTableEditorView()) return
-  const anchor: number | undefined = tableMenuAnchorPos.value ?? undefined
+  // 表格命令一律走"整表 replaceWith"。若此刻还开着 mark 源码编辑会话(右键把光标
+  // 移进了带 mark 的单元格 → appendTransaction 换了源码文本),那张 tr 会把会话范围
+  // 整体替换掉 → 会话两端映射后区间翻转 → commit 反向 delete → 内容被复制一份
+  // (表现为表格下方多出一份同样的表格)。所以先 commit 会话,并把点击锚点映射过去。
+  const flushMap = (() => {
+    const v = getView()
+    return v ? flushMarkSourceEdit(v) : null
+  })()
+  let anchor: number | undefined = tableMenuAnchorPos.value ?? undefined
+  if (anchor != null && flushMap) anchor = flushMap.map(anchor)
   switch (action) {
     case 'add-row-after':
       runTableCommand(addRowAfter(anchor))
@@ -165,7 +174,7 @@ function computeTableMenuHideMoveColumn(anchorPos: number): boolean {
 
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
-import { markSourceEditPlugin, markSourceEditEscapeKeymap } from './plugins/markSourceEdit'
+import { markSourceEditPlugin, markSourceEditEscapeKeymap, flushMarkSourceEdit } from './plugins/markSourceEdit'
 import { htmlSourceEditPlugin, htmlSourceEditEscapeKeymap } from './plugins/htmlSourceEdit'
 import { emojiSourceEditPlugin, emojiSourceEditEscapeKeymap } from './plugins/emojiSourceEdit'
 import { markdownPastePlugin } from './plugins/markdownPastePlugin'
@@ -717,10 +726,15 @@ const pluginEntries: PluginEntry[] = [
     plugin: createTableInsertHandlePlugin({
       onInsert: (cellPos, type, dir) => {
         if (!hasTableEditorView()) return
+        // 同 onTableMenuAction:先把 mark 源码编辑会话 commit 掉,再把 hover 时算出的
+        // cellPos 映射到 commit 之后的文档坐标,避免整表 replaceWith 把会话区间压翻。
+        const v = getView()
+        const flushMap = v ? flushMarkSourceEdit(v) : null
+        const pos = flushMap ? flushMap.map(cellPos) : cellPos
         if (type === 'row') {
-          runTableCommand(dir === 'before' ? addRowBefore(cellPos) : addRowAfter(cellPos))
+          runTableCommand(dir === 'before' ? addRowBefore(pos) : addRowAfter(pos))
         } else {
-          runTableCommand(dir === 'before' ? addColumnBefore(cellPos) : addColumnAfter(cellPos))
+          runTableCommand(dir === 'before' ? addColumnBefore(pos) : addColumnAfter(pos))
         }
       },
     }),

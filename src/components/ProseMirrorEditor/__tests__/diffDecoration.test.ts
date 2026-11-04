@@ -259,4 +259,20 @@ describe('diffDecorationPlugin 增量构建', () => {
     const after = diffDecorationKey.getState(state)!.decoSet!.find().length
     expect(after).toBeGreaterThan(before)
   })
+
+  it('滚动扩展视口后,已建 entry 的装饰不会重复添加', () => {
+    // 3 段修改,窄视口只覆盖第 1 段;扩到全文后应恰好等于全量构建数量
+    let state = makeDiffState('a\n\nb\n\nc', 'A\n\nB\n\nc', { from: 0, to: 1 })
+    const before = diffDecorationKey.getState(state)!.decoSet!.find().length
+
+    state = state.apply(state.tr.setMeta(viewportKey, { from: 0, to: state.doc.content.size }))
+    const after = diffDecorationKey.getState(state)!.decoSet!.find().length
+
+    const full = makeDiffState('a\n\nb\n\nc', 'A\n\nB\n\nc', null)
+    const fullCount = diffDecorationKey.getState(full)!.decoSet!.find().length
+    // 不重复:增量最终数量 = 全量数量
+    expect(after).toBe(fullCount)
+    // 且大于初始(确实追加了新的)
+    expect(after).toBeGreaterThan(before)
+  })
 })

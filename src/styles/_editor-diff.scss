@@ -41,11 +41,15 @@
 }
 
 // 删除文本 widget:inline 背景(只覆盖文本片段)
+// ProseMirror 对 widget 自动设 contentEditable="false",Chrome UA 样式因此
+// 应用 -webkit-user-select:none 导致文字不可拖选。显式 user-select:text 覆盖。
 .velo-diff-removed {
   background-color: rgb(254 202 202 / 0.6); // red-200/60
   border-radius: 2px;
   display: inline;
   color: rgb(127 29 29 / 0.8);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 // ── 语义化渲染(#diff-semantic-render)──
@@ -53,13 +57,11 @@
 // 整 block 删除的只读片段:内部是旧 block 序列化 DOM(标题保留字号、
 // 列表保留缩进、图片 / 分割线保留原形),叠加删除语义的红底 + 左侧条。
 // 内部 p 继承 .velo-diff-editor 的 padding 段间距策略,排版与正文一致。
+// user-select:text 同 .velo-diff-removed,覆盖 widget 的 contentEditable=false。
 .velo-diff-deleted-block {
   background-color: rgb(254 242 242); // red-50
-  border-left: 3px solid rgb(239 68 68 / 0.6); // red-500/60
-  padding-left: 0.5em;
-  // 空段落删除也可见(序列化出的 <p></p> 无内容,给一个最小高度)
-  min-height: 1.4em;
-  opacity: 0.75;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 // 节点类型变更:在 amber 底色(changed)上加左侧条,tooltip 由 decoration title 提供

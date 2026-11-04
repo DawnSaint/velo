@@ -240,11 +240,11 @@ function applyMarkerWriteback(tr: Transaction, from: number, to: number, source:
   return tr
 }
 
-/** 把源码解析回 inline nodes 并替换 [editFrom, editTo]。返回是否成功重建
- *  (fromMarkdown 总能产出 nodes,即使是纯文本)。 */
-function commitMarkEdit(view: EditorView): void {
+/** 把源码解析回 inline nodes 并替换 [editFrom, editTo]。
+ *  没有 session 时返回 null(调用方据此跳过 dispatch)。 */
+function buildCommitTransaction(view: EditorView): Transaction | null {
   const pluginState = markSourceEditKey.getState(view.state)
-  if (!pluginState?.session) return
+  if (!pluginState?.session) return null
   const { editFrom, editTo } = pluginState.session
   const sourceText = view.state.doc.textBetween(editFrom, editTo, '\n', '\n')
 
@@ -275,7 +275,31 @@ function commitMarkEdit(view: EditorView): void {
   // 右离开:终点 = P - S + L >= editFrom + L + 1,严格过还原 mark 末尾 → 不重进。
   // 左离开:终点 = P <= editFrom - 1,严格在 mark 起点前(inclusive 左边界不含 mark)→ 不重进。
   // 双保险:commit tr 自身 docChanged → enter 守卫 (selectionChanged && !docChanged) 为假。
+  return tr
+}
+
+function commitMarkEdit(view: EditorView): void {
+  const tr = buildCommitTransaction(view)
+  if (tr) view.dispatch(tr)
+}
+
+/**
+ * 立刻结束当前 mark 源码编辑会话(源码文本 → marks),返回该事务的 mapping。
+ *
+ * 给"会整体替换一段范围的命令"用(典型:表格整表 `replaceWith`,删/加/移动行列、
+ * 设对齐都是这条路)。不先 flush 的话,那张 tr 会把 session 的 [editFrom, editTo]
+ * 整体覆盖掉;apply 里两端 bias 相反(+1 / -1)→ 映射后区间翻转(editFrom > editTo)
+ * → view.update 触发 commit → `tr.delete(from > to)`。ProseMirror 的
+ * `Fragment.replace` 不校验先后(cut(0,from) + content + cut(to)),会把
+ * [to, from) 这段内容**复制一遍** —— 表现为"表格下方多出一份同样的表格"。
+ *
+ * 返回 mapping,让调用方把预先算好的绝对锚点(右键命中的 cell pos 等)映射到新文档。
+ */
+export function flushMarkSourceEdit(view: EditorView): Transaction['mapping'] | null {
+  const tr = buildCommitTransaction(view)
+  if (!tr) return null
   view.dispatch(tr)
+  return tr.mapping
 }
 
 export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
@@ -304,6 +328,13 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
       const session = value.session
       const editFrom = tr.mapping.map(session.editFrom, 1)
       const editTo = tr.mapping.map(session.editTo, -1)
+      // 防线:当那次事务把会话范围**整体替换**掉时(整表 replaceWith / 大段粘贴覆盖),
+      // 两端落进同一段被删内容,bias 相反会把它们映射到新区间的两端之外 →
+      // map(editFrom, +1) 跑到新内容末尾、map(editTo, -1) 停在开头,区间翻转。
+      // 这时源码文本已随旧内容一起消失,继续 commit 只会把 from > to 交给 delete(),
+      // 而 ProseMirror 的 Fragment.replace 按 cut(0,from)+content+cut(to) 拼接、不校验
+      // 先后 → 复制出一段内容(表格下方多一份表格的根因)。直接丢弃会话。
+      if (editTo < editFrom) return emptyState()
       const updated: MarkSourceEditSession = { ...session, editFrom, editTo }
 
       const sel = newState.selection
