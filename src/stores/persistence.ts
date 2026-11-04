@@ -425,6 +425,17 @@ export const VERSION_SNAPSHOT_CAP = 50
 export const VERSION_SNAPSHOT_MAX_AGE_DAYS = 30
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+/**
+ * 自动保存快照合并窗口:连续两次 auto 保存间隔在此窗口内,新快照替换旧快照
+ * (删旧 + 写新),而非追加,避免版本历史被 +1/-1 碎片条目淹没。
+ * manual / blur 保存始终新建独立快照(用户明确的保存意图)。
+ *
+ * 判断在 persistence 层基于磁盘真实快照进行,**不依赖 versionHistoryStore 的
+ * 内存缓存** —— 该缓存只在用户打开版本历史面板时才填充,若判断依赖它,
+ * 面板未打开 / 重启 / 切换文件期间合并会静默失效,磁盘堆积碎片快照。
+ */
+const AUTO_SNAPSHOT_MERGE_WINDOW_MS = 5 * 60 * 1000
+
 export type SnapshotTrigger = 'manual' | 'auto' | 'blur'
 
 export interface VersionSnapshot {
@@ -439,6 +450,14 @@ export interface VersionSnapshot {
   savedAt: number
   /** 保存触发方式 */
   trigger: SnapshotTrigger
+}
+
+/** saveVersionSnapshot 的落盘结果,供 store 同步 versionHistoryStore 内存缓存。 */
+export interface VersionSnapshotCommitResult {
+  /** 实际写入的快照;回到合并起点 / 写盘失败时为 null */
+  snapshot: VersionSnapshot | null
+  /** 被合并删掉的旧快照 id(供 UI 缓存移除);未发生合并时为 null */
+  mergedOldId: string | null
 }
 
 /** 把文件绝对路径编码成合法目录名(同 document.ts 的 encodePathAsId 逻辑)。 */
@@ -476,23 +495,97 @@ async function ensureFileVersionsDir(filePath: string): Promise<string | null> {
   return fileDir
 }
 
-/**
- * 写一份版本快照。原子写:先写 .tmp,再 rename 到目标。
- * 失败仅记录日志不抛 —— 快照写盘失败不能让保存主流程炸。
- */
-export async function saveVersionSnapshot(snapshot: VersionSnapshot): Promise<void> {
+/** 原子写一份快照文件:先写 .tmp 再 rename。成功返回 true。
+ *  失败仅记录日志不抛 —— 快照写盘失败不能让保存主流程炸。 */
+async function writeSnapshotFile(snapshot: VersionSnapshot): Promise<boolean> {
   try {
     const fileDir = await ensureFileVersionsDir(snapshot.filePath)
-    if (!fileDir) return
+    if (!fileDir) return false
     const fileName = `${snapshot.id}.json`
     const finalPath = await join(fileDir, fileName)
     const tmpPath = await join(fileDir, `${fileName}.tmp`)
     await writeTextFile(tmpPath, JSON.stringify(snapshot, null, 2))
     await rename(tmpPath, finalPath)
+    return true
   }
   catch (e) {
     console.error('保存版本快照失败', e)
+    return false
   }
+}
+
+/**
+ * 保存一份版本快照,并在**同一次读盘**内完成 auto 合并判断 + 修剪。
+ *
+ * 流程:读磁盘全部快照 → 判断 auto 合并(含「回到合并起点」) → 删旧 → 写新
+ *      → 按 CAP / 过期天数修剪。合并判断与 prune 共用这一份 `existing`,
+ *      不再各自调 loadVersionSnapshots(旧实现每次保存读两次目录)。
+ *
+ * 判断以磁盘为准,与 UI 内存缓存无关,因此面板未打开 / 重启 / 切换文件时
+ * 合并同样生效。store 只需传 filePath / content / trigger,再用返回的
+ * `snapshot` + `mergedOldId` 同步版本历史面板缓存即可。
+ */
+export async function saveVersionSnapshot(
+  filePath: string,
+  content: string,
+  trigger: SnapshotTrigger,
+): Promise<VersionSnapshotCommitResult> {
+  const result: VersionSnapshotCommitResult = {
+    snapshot: null,
+    mergedOldId: null,
+  }
+  if (!tauriOnly()) return result
+
+  const savedAt = Date.now()
+  const snapshot: VersionSnapshot = {
+    version: VERSION_SNAPSHOT_VERSION,
+    id: String(savedAt),
+    filePath,
+    content,
+    savedAt,
+    trigger,
+  }
+
+  // 一次读盘:合并判断与 prune 共用这份磁盘真相
+  const existing = await loadVersionSnapshots(filePath)
+
+  let mergedOldId: string | null = null
+  let skipWrite = false
+  if (trigger === 'auto') {
+    const latest = existing[0]
+    if (latest && latest.trigger === 'auto'
+      && savedAt - latest.savedAt < AUTO_SNAPSHOT_MERGE_WINDOW_MS) {
+      mergedOldId = latest.id
+      // 旧 auto 快照的前一条(idx=1)是合并前的基线;新内容与之相同
+      // → 回到合并起点,只删旧不写新,避免历史里出现无变化条目
+      const prevBeforeMerged = existing[1]
+      if (prevBeforeMerged && content === prevBeforeMerged.content) skipWrite = true
+    }
+  }
+
+  // 删旧(合并)
+  if (mergedOldId) await deleteVersionSnapshot(filePath, mergedOldId)
+
+  // 写新
+  let written: VersionSnapshot | null = null
+  if (!skipWrite && await writeSnapshotFile(snapshot)) written = snapshot
+
+  // prune:基于同一次读盘结果计算,不再二次读目录
+  const remaining = existing.filter(s => s.id !== mergedOldId)
+  const all = written ? [written, ...remaining] : remaining
+  all.sort((a, b) => b.savedAt - a.savedAt)
+  const cutoff = savedAt - VERSION_SNAPSHOT_MAX_AGE_DAYS * MS_PER_DAY
+  const toDelete: string[] = []
+  for (let i = 0; i < all.length; i++) {
+    if (i >= VERSION_SNAPSHOT_CAP || all[i].savedAt < cutoff) toDelete.push(all[i].id)
+  }
+  for (const id of toDelete) {
+    if (id !== mergedOldId) await deleteVersionSnapshot(filePath, id)
+  }
+
+  result.snapshot = written
+  result.mergedOldId = mergedOldId
+  return result
 }
 
 /**
@@ -536,8 +629,9 @@ export async function loadVersionSnapshots(filePath: string): Promise<VersionSna
 
 /**
  * 删单个版本快照。失败仅记录日志。
+ * 仅由 saveVersionSnapshot 的合并 / 修剪路径调用,不再从 store 层暴露。
  */
-export async function deleteVersionSnapshot(filePath: string, id: string): Promise<void> {
+async function deleteVersionSnapshot(filePath: string, id: string): Promise<void> {
   if (!tauriOnly()) return
   try {
     const dir = await appDataDir()
@@ -554,25 +648,9 @@ export async function deleteVersionSnapshot(filePath: string, id: string): Promi
   }
 }
 
-/**
- * 修剪旧快照:按 savedAt 倒序保留前 keepN 个,且删除超过 maxAgeDays 天的。
- * 在 saveVersionSnapshot 之后调,保证每文件不超过 cap 个且不保留过旧快照。
- */
-export async function pruneVersionSnapshots(filePath: string, keepN: number): Promise<void> {
-  if (!tauriOnly()) return
-  try {
-    const snapshots = await loadVersionSnapshots(filePath)
-    const now = Date.now()
-    const cutoff = now - VERSION_SNAPSHOT_MAX_AGE_DAYS * MS_PER_DAY
-    const toDelete = snapshots.filter((s, i) => i >= keepN || s.savedAt < cutoff)
-    for (const s of toDelete) {
-      await deleteVersionSnapshot(filePath, s.id)
-    }
-  }
-  catch (e) {
-    console.error('修剪版本快照失败', e)
-  }
-}
+// 修剪已并入 saveVersionSnapshot:复用同一次 loadVersionSnapshots 的结果,
+// 按 savedAt 倒序保留 VERSION_SNAPSHOT_CAP 条并删除超过 30 天的快照,
+// 不再单独读一次目录。
 
 // ========== 工作区(v0.5.0) ==========
 //

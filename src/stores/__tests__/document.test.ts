@@ -5,7 +5,7 @@ import { useRecentFilesStore } from '../recentFiles'
 import { useNotifyStore } from '../notify'
 import { useWorkspaceStore } from '../workspace'
 import { useVersionHistoryStore } from '../versionHistory'
-import { readTextFile, writeTextFile, watch, exists, readDir, remove, mkdir } from '@tauri-apps/plugin-fs'
+import { readTextFile, writeTextFile, watch, exists, readDir, remove, rename } from '@tauri-apps/plugin-fs'
 import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
 
 /**
@@ -1101,47 +1101,86 @@ describe('document store', () => {
       expect(docWrites).toHaveLength(0)
     })
 
+    // 自动保存快照合并:判断已下沉到 persistence 层(读磁盘),不依赖 UI 缓存。
+    // 旧实现用 versionHistoryStore.snapshotsByFile 判断,而该缓存只在打开版本
+    // 历史面板时才填充 → 面板未打开 / 重启 / 换文件期间合并静默失效。
+    function mockDiskSnapshots(snaps: Array<{
+      id: string
+      content: string
+      savedAt: number
+      trigger: 'manual' | 'auto' | 'blur'
+    }>) {
+      const snapshots = snaps.map(s => ({ version: 1, filePath: '/p.md', ...s }))
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readDir).mockImplementation(async p => {
+        if (!String(p).startsWith('/appData/versions/')) return [] as any
+        return snapshots.map(s => ({ name: `${s.id}.json` })) as any
+      })
+      vi.mocked(readTextFile).mockImplementation(async p => {
+        const id = (String(p).split('/').pop() ?? '').replace(/\.json$/, '')
+        return JSON.stringify(snapshots.find(s => s.id === id) ?? {})
+      })
+      vi.mocked(remove).mockResolvedValue()
+      vi.mocked(rename).mockResolvedValue()
+      vi.mocked(writeTextFile).mockResolvedValue()
+      return snapshots
+    }
+
     it('auto 保存回到合并起点:只删旧快照不写新快照(无变化条目不进历史)', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       const vhStore = useVersionHistoryStore()
       const wsStore = useWorkspaceStore()
       wsStore.setActiveRoot('/test-ws')
 
-      // 1) 先做一次 manual save 生成基线快照(content='hello')
-      vi.mocked(writeTextFile).mockResolvedValue()
-      vi.mocked(exists).mockResolvedValue(false) // 无旧快照目录
-      vi.mocked(remove).mockResolvedValue()
-      vi.mocked(mkdir).mockResolvedValue()
-      store.setContent('hello!')
-      await store.save() // manual save → 写快照 content='hello!'
-
-      // 2) 版本历史缓存里现在有一条 auto 快照(content='hello!')
-      //    模拟它前面还有一条 manual 快照(content='hello')作为合并基线
-      const base = Date.now()
-      vhStore.snapshotsByFile.set('/p.md', [
-        { version: 1, id: String(base), filePath: '/p.md', content: 'hello!', savedAt: base, trigger: 'auto' },
-        { version: 1, id: 'manual-baseline', filePath: '/p.md', content: 'hello', savedAt: base - 100000, trigger: 'manual' },
+      const now = Date.now()
+      // 磁盘真相:最新一条 auto(content='hello!'),其前一条 manual 是合并基线(content='hello')
+      const snaps = mockDiskSnapshots([
+        { id: 'auto-1', content: 'hello!', savedAt: now, trigger: 'auto' },
+        { id: 'manual-baseline', content: 'hello', savedAt: now - 200_000, trigger: 'manual' },
       ])
+      // 面板缓存与磁盘一致,验证同步逻辑
+      vhStore.snapshotsByFile.set('/p.md', snaps)
 
-      // 3) 用户把内容改回 'hello' → auto save
-      //    新内容 'hello' === 合并基线 manual-baseline.content → 回到合并起点
+      // 用户改回 'hello' → 新内容与合并基线相同 → 回到合并起点
       store.setContent('hello')
       store.autoSaveEnabled = true
-
-      // mock deleteVersionSnapshot 走的 readDir / remove 等
-      vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readDir).mockResolvedValue([])
       vi.mocked(writeTextFile).mockClear()
+      await store.save('auto')
 
-      await store.save('auto') // auto save
-
-      // 验证:版本历史缓存里 auto 快照被删,只剩 manual 基线
-      // (不写新快照 —— 因为新内容与合并基线相同)
+      // 磁盘:删掉旧 auto 快照,没有写新的 .json.tmp
+      expect(vi.mocked(remove).mock.calls.some(([p]) => String(p).endsWith('auto-1.json'))).toBe(true)
+      expect(vi.mocked(writeTextFile).mock.calls.some(([p]) => String(p).endsWith('.json.tmp'))).toBe(false)
+      // 缓存:只剩 manual 基线
       const cached = vhStore.snapshotsByFile.get('/p.md')!
       expect(cached).toHaveLength(1)
       expect(cached[0].id).toBe('manual-baseline')
-      // auto 快照被删
-      expect(cached.find(s => s.id === String(base))).toBeUndefined()
+    })
+
+    it('版本历史面板未打开(缓存为空)时,auto 保存仍按磁盘快照合并', async () => {
+      const store = await setupOpenedFile('hello', '/p.md')
+      const wsStore = useWorkspaceStore()
+      wsStore.setActiveRoot('/test-ws')
+
+      const now = Date.now()
+      // 磁盘上有一条 30 秒前的 auto 快照,落在 5 分钟合并窗口内
+      mockDiskSnapshots([
+        { id: 'auto-1', content: 'hello!', savedAt: now - 30_000, trigger: 'auto' },
+        { id: 'manual-baseline', content: 'hello', savedAt: now - 200_000, trigger: 'manual' },
+      ])
+      // 关键:不预置 snapshotsByFile。旧实现在这一步会因 latest=undefined 跳过合并
+      expect(useVersionHistoryStore().snapshotsByFile.has('/p.md')).toBe(false)
+
+      store.setContent('hello world')
+      store.autoSaveEnabled = true
+      vi.mocked(writeTextFile).mockClear()
+      await store.save('auto')
+
+      // 旧 auto 被删(合并生效),且只写了一份新快照
+      expect(vi.mocked(remove).mock.calls.some(([p]) => String(p).endsWith('auto-1.json'))).toBe(true)
+      const snapshotWrites = vi.mocked(writeTextFile).mock.calls.filter(([p]) => String(p).endsWith('.json.tmp'))
+      expect(snapshotWrites).toHaveLength(1)
+      // 新快照是累积后的内容,而不是又一条碎片
+      expect(String(snapshotWrites[0][1])).toContain('hello world')
     })
 
   // ========== 多标签 + openFilePaths(v0.6.x 标签持久化) ==========

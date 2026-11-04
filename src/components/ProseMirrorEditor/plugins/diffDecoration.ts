@@ -13,12 +13,18 @@
 //   仅格式变更 → 变化区间 Decoration.inline(amber 底 + tooltip「格式变更」)
 //   其他(非文本 leaf 变更)→ 整块 amber 底色
 // - 拆分 / 合并 → 边界提示 widget(「段落在此拆分」/「N 个段落已合并」)
+// - 表格 → 二维网格结构化 diff(tableDiff.ts):整列 / 整行删除渲染为独立的
+//   红色幽灵列 / 幽灵行,单元格内改动只在单元格内做字符级 diff
+// - 多文本容器(列表 / 引用 / 脚注 …)→ 按容器分组对齐(group),
+//   删除内容独立成块,不再映射进留存的相邻段落
 //
 // 注:未变更区折叠 + hunk 导航 + 首次进入自动跳转(#diff-autoscroll)已回退,
 // 当前为未完成状态 —— 全文渲染,不做折叠。
 //
 // 比对层为 Block Tree Diff(blockDiff.ts):顶层 block 序列上跑 Myers,
 // key 含类型 / attrs / 文本 / marks / 非文本 leaf,格式与结构变更不再不可见。
+// 字符级 diff 一律以「单个文本容器」为最小作用域(diffCommon.ts),跨容器
+// 拼接文本做 diff 会把删除内容映射进留存容器(表格删列混排 BUG 的根因)。
 //
 // 增量渲染(#diff-incremental):
 // - 比对结果一次性算成 `DiffPlan`(按 op 分 entry),把"op → decoration 构造"
@@ -38,13 +44,18 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorView } from 'prosemirror-view'
 import { DOMSerializer } from 'prosemirror-model'
 import type { Node as PMNode } from 'prosemirror-model'
-import { diffChars } from '@/utils/lineDiff'
 import {
   diffBlocks,
   diffInlineMarkRanges,
   nodeTypeLabel,
   type BlockEntry,
 } from './blockDiff'
+import {
+  alignSequence,
+  charDiffDecorations,
+  offsetInSegments,
+} from './diffCommon'
+import { buildTablePairDecorations } from './tableDiff'
 import { getViewport, isInViewport, viewportKey } from '../nodes/viewportPlugin'
 
 export const diffDecorationKey = new PluginKey<DiffDecorationState>('veloDiffDecoration')
@@ -78,41 +89,8 @@ interface DiffDecorationState {
 export type DiffDecorationMeta = { oldDoc: PMNode | null }
 
 // ============================================================
-//  块内 offset → doc pos 映射
-// ============================================================
-
-/**
- * 把块内文本偏移量映射回 doc 绝对 pos。
- * 超出全部 segments(空块 / 偏移落在末尾)时返回块内容末尾。
- */
-function offsetInBlock(offset: number, block: BlockEntry): number {
-  if (block.segments.length === 0) return block.pos + 1
-  let cum = 0
-  for (const seg of block.segments) {
-    if (offset < cum + seg.text.length) {
-      return seg.pos + (offset - cum)
-    }
-    cum += seg.text.length
-  }
-  const last = block.segments[block.segments.length - 1]
-  return last.pos + last.text.length
-}
-
-// ============================================================
 //  装饰构造
 // ============================================================
-
-/** 构建红色删除 widget Decoration(配对修改的字符级删除,原位显示) */
-function removedWidget(pos: number, text: string): Decoration {
-  // ignoreSelection: 不让 PM 把 widget 内的 DOM 选区同步回 PM state
-  // (widget 不占 doc pos,同步会得到无效选区并清除浏览器原生选区)
-  return Decoration.widget(pos, () => {
-    const span = document.createElement('span')
-    span.className = 'velo-diff-removed'
-    span.textContent = text
-    return span
-  }, { side: -1, ignoreSelection: true })
-}
 
 /**
  * 整 block 删除的 widget:序列化旧 block 为带样式的只读片段
@@ -120,7 +98,7 @@ function removedWidget(pos: number, text: string): Decoration {
  * 而非裸文本摘要。结构 + marks 都由 schema 的 toDOM 自然保留。
  */
 function deletedBlockWidget(pos: number, node: PMNode): Decoration {
-  // ignoreSelection: 同 removedWidget,保留浏览器原生选区
+  // ignoreSelection: 同字符级删除 widget,保留浏览器原生选区
   return Decoration.widget(pos, () => {
     const wrapper = document.createElement('div')
     wrapper.className = 'velo-diff-deleted-block'
@@ -128,6 +106,29 @@ function deletedBlockWidget(pos: number, node: PMNode): Decoration {
     wrapper.appendChild(frag)
     return wrapper
   }, { side: -1, ignoreSelection: true })
+}
+
+/**
+ * 多文本容器 block 内「删掉一个容器」的红色片段。
+ * 序列化的是整个块级单元(列表项 → `<li>`,引用内段落 → `<p>`),DOM 类型
+ * 与新文档中同位置的节点一致,插在下一个留存容器之前,不会混进它的文本。
+ */
+function deletedGroupWidget(
+  pos: number,
+  blockPos: number,
+  index: number,
+  node: PMNode,
+): Decoration {
+  return Decoration.widget(pos, () => {
+    const dom = DOMSerializer.fromSchema(node.type.schema).serializeNode(node) as HTMLElement
+    dom.classList.add('velo-diff-deleted-group')
+    return dom
+  }, {
+    side: -1,
+    ignoreSelection: true,
+    // key 带 block pos:多个 block 同时删容器时全局唯一,PM 不会复用错 DOM
+    key: `velo-diff-deleted-group-${blockPos}-${index}`,
+  })
 }
 
 /** 拆分 / 合并的边界提示 widget(「段落在此拆分」/「N 个段落已合并」) */
@@ -229,65 +230,102 @@ function widgetInsertPos(
   return newDoc.content.size
 }
 
-/** pair op(「修改」)的装饰:字符级 diff,或同文异 key 的语义标记 */
+/** pair op(「修改」)的装饰:结构感知 diff / 字符级 diff / 同文异 key 语义标记 */
 function buildPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
-  const decos: Decoration[] = []
+  // 表格:二维网格结构化 diff。返回 null 表示结构未变(仅 marks / 非文本 leaf 变更),
+  // 落到下面的「同文异 key」逻辑,避免吞掉格式变更标记。
+  if (oldBlock.node.type.name === 'table' && newBlock.node.type.name === 'table') {
+    const tableDecos = buildTablePairDecorations(oldBlock, newBlock)
+    if (tableDecos !== null) return tableDecos
+  }
 
   if (oldBlock.text === newBlock.text) {
-    // 文本相同但 key 不同:节点类型 / 格式 / 非文本 leaf 变更
-    const oldLabel = nodeTypeLabel(oldBlock.node)
-    const newLabel = nodeTypeLabel(newBlock.node)
-    if (oldLabel !== newLabel) {
-      // 节点类型变更(含标题级别 / 代码块语言等关键 attrs):左侧条 + tooltip
-      decos.push(
-        Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, {
-          class: 'velo-diff-changed velo-diff-type-changed',
-          title: `${oldLabel} → ${newLabel}`,
-        }),
-      )
-      return decos
-    }
-    // 仅格式变更(marks):精确到变化区间的 inline 标记 + tooltip
-    const ranges = diffInlineMarkRanges(oldBlock.node, newBlock.node)
-    if (ranges.length === 0) {
-      // 非文本 leaf 变更(图片 src / alt 等):整块 amber 底色兜底
-      decos.push(
-        Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, { class: 'velo-diff-changed' }),
-      )
-      return decos
-    }
-    for (const r of ranges) {
-      const from = offsetInBlock(r.from, newBlock)
-      const to = offsetInBlock(r.to, newBlock)
-      if (from < to) {
-        decos.push(
-          Decoration.inline(from, to, { class: 'velo-diff-format-changed', title: '格式变更' }),
-        )
-      }
-    }
-    return decos
+    return buildSameTextDecorations(oldBlock, newBlock)
   }
 
-  // 文本不同 → 块内字符级 diff(block 可能跨 500 字符的表格 / 列表,上限放宽到 4000)
-  const segs = diffChars(oldBlock.text, newBlock.text, 4000)
-  let off = 0
-  for (const seg of segs) {
-    if (seg.type === 'added') {
-      const from = offsetInBlock(off, newBlock)
-      const to = offsetInBlock(off + seg.text.length, newBlock)
-      if (from < to) {
-        decos.push(Decoration.inline(from, to, { class: 'velo-diff-added-inline' }))
-      }
-      off += seg.text.length
-    }
-    else if (seg.type === 'removed') {
-      // removed 片段不占新文本 offset,widget 原位插入(被删字符的原位置)
-      decos.push(removedWidget(offsetInBlock(off, newBlock), seg.text))
-    }
-    else {
-      off += seg.text.length
+  // 多文本容器(列表 / 引用 / 脚注 …):按容器分组对齐,字符级 diff 只在单个
+  // 容器内做,删除的容器独立成块 —— 否则删除内容会被 offset 映射进相邻留存
+  // 容器(与表格删列同源的混排 BUG)。
+  if (oldBlock.groups.length > 1 || newBlock.groups.length > 1) {
+    return buildGroupedPairDecorations(oldBlock, newBlock)
+  }
+
+  return charDiffDecorations(oldBlock.text, newBlock)
+}
+
+/** 文本相同但 key 不同:节点类型 / 格式 / 非文本 leaf 变更 */
+function buildSameTextDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
+  const decos: Decoration[] = []
+  const oldLabel = nodeTypeLabel(oldBlock.node)
+  const newLabel = nodeTypeLabel(newBlock.node)
+  if (oldLabel !== newLabel) {
+    // 节点类型变更(含标题级别 / 代码块语言等关键 attrs):左侧条 + tooltip
+    decos.push(
+      Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, {
+        class: 'velo-diff-changed velo-diff-type-changed',
+        title: `${oldLabel} → ${newLabel}`,
+      }),
+    )
+    return decos
+  }
+  // 仅格式变更(marks):精确到变化区间的 inline 标记 + tooltip
+  const ranges = diffInlineMarkRanges(oldBlock.node, newBlock.node)
+  if (ranges.length === 0) {
+    // 非文本 leaf 变更(图片 src / alt 等):整块 amber 底色兜底
+    decos.push(
+      Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, { class: 'velo-diff-changed' }),
+    )
+    return decos
+  }
+  for (const r of ranges) {
+    const from = offsetInSegments(r.from, newBlock)
+    const to = offsetInSegments(r.to, newBlock)
+    if (from < to) {
+      decos.push(
+        Decoration.inline(from, to, { class: 'velo-diff-format-changed', title: '格式变更' }),
+      )
     }
   }
+  return decos
+}
+
+/**
+ * 多文本容器 block(列表 / 引用 / 脚注 …):按容器序列跑 Myers,
+ * 逐容器做字符级 diff;删除的容器序列化成独立的红色块级单元
+ * (列表项 → `<li>`,引用内段落 → `<p>`),插在下一个留存容器之前。
+ */
+function buildGroupedPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
+  const ops = alignSequence(
+    oldBlock.groups.map(g => g.text),
+    newBlock.groups.map(g => g.text),
+  )
+  const decos: Decoration[] = []
+  const blockEnd = newBlock.pos + 1 + newBlock.node.content.size
+  let outGroup = 0
+
+  for (const op of ops) {
+    if (op.kind === 'delete') {
+      const oldGroup = oldBlock.groups[op.oldIndex]
+      const atPos = newBlock.groups[outGroup]?.blockPos ?? blockEnd
+      decos.push(deletedGroupWidget(atPos, newBlock.pos, op.oldIndex, oldGroup.blockNode))
+      continue
+    }
+
+    const group = newBlock.groups[op.newIndex]
+    if (!group) { outGroup++; continue }
+    if (op.kind === 'insert') {
+      decos.push(
+        Decoration.node(group.blockPos, group.blockPos + group.blockSize, {
+          class: 'velo-diff-added',
+        }),
+      )
+    }
+    else if (op.kind === 'pair') {
+      decos.push(...charDiffDecorations(oldBlock.groups[op.oldIndex].text, group))
+    }
+    outGroup++
+  }
+
   return decos
 }
 

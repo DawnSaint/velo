@@ -64,7 +64,7 @@ _editor-fold.scss       ← 块级折叠 toggle / placeholder
 _editor-hr.scss         ← hr 选中态
 _editor-frontmatter.scss ← YAML front matter NodeView（Typora 风格 styled code block）
 _editor-dark.scss       ← 暗色模式（非 alert / 非 image 部分）
-_editor-diff.scss       ← WYSIWYG diff 装饰（.velo-diff-added / .velo-diff-removed 背景色）
+_editor-diff.scss       ← WYSIWYG diff 装饰（增删背景 + 表格幽灵列/行、多容器删除片段）
 _math.scss              ← 数学公式 NodeView + 编辑壳
 _mermaid.scss           ← mermaid widget / toolbar / error / loading
 _footnote.scss          ← 脚注 reference / definition

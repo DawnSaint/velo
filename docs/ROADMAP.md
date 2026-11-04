@@ -42,7 +42,7 @@
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P1  #diff-wysiwyg ──→ #diff-block-tree ──→ #diff-semantic-render · #diff-incremental
-    #diff-algo · #diff-merge · #diff-autoscroll（独立）
+    #diff-algo · #diff-autoscroll（独立）
                                                                 │
 P2  #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
@@ -95,11 +95,10 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - diff 视图工具栏新增「源码 / 预览」模式切换按钮（同 Word 修订模式切换语义）
   - 切换即时生效，不重新加载 content；但**切回预览会重建只读 EditorView 并重算 block diff**（2000 段文档约 300ms，其中 ~93% 是两次 `fromMarkdown` 解析，diff 只占 ~21ms）。如需消除，可把 `DiffView.vue` 的 `v-else-if` 换成 `v-show` 保留实例，并在重新显示时补一次 `refreshViewport`
 
-- [ ] **短时间 diff 条目合并展示** `#diff-merge` `P2` `S`
-  - 版本历史侧栏中，短时间内（如 2 分钟内）连续产生的快照条目合并为一个折叠组
-  - 合并组展示累计 +/- 行数；展开后显示子条目
-  - 与现有自动保存 5 分钟快照合并窗口区分：此处是 UI 层展示合并，不改变磁盘快照存储
-  - 手动保存 / 失焦保存的快照不参与合并，始终独立展示
+- ~~**短时间 diff 条目合并展示** `#diff-merge` `P2` `S`~~ → 不实现，由缺陷修复替代
+  - 2 分钟 ⊂ 磁盘层 5 分钟滑动合并窗口：连续 auto 保存早已被合并成 1 条累积 diff 条目，UI 层没有子条目可折叠；manual / blur 打断（需求明确排除）、auto 间隔 ≥ 5 分钟（超出 2 分钟窗口）、Git commit（非快照）均不构成场景；默认 `autoSaveEnabled` / `autoSaveOnBlur` 均为关闭，折叠组恒为空
+  - 「短时间冒出一堆条目」的真实成因是缺陷：合并判断误依赖 `versionHistoryStore.snapshotsByFile` 内存缓存，而该缓存只在用户打开版本历史面板时填充，面板未打开 / 重启 / 换文件期间合并静默失效、磁盘堆积碎片快照。已把合并逻辑下沉到 `persistence.ts`，由 `saveVersionSnapshot` 基于磁盘快照在一次读盘内完成判断 / 删旧 / 写新 / 修剪
+  - 另：UI 层再引入一套 2 分钟分组会与磁盘层合并语义重叠，「累计 +/-」与现有逐条 diff 基准不可加（有删改时逐条统计相加 ≠ 组内首尾一次性 diff）
 
 - [ ] **diff 视角自动跳转第一个 diff + hunk 导航 + 折叠未变更区** `#diff-autoscroll` `P2` `S` `← #diff-block-tree`
   - 选中版本条目进入 diff 视图时，自动滚动到第一处变更（源码 / 预览双模式）
@@ -141,7 +140,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [x] test：Myers diff 算法正确性单元测试（含移动 / 空行 / 纯新增 / 纯删除 / 大段重排）
 - [x] test：WYSIWYG diff Decoration 构建正确性测试（PM Node 树对齐 + 增删标记位置）
 - ~~test：双模式切换不重算 diff（切换前后 DecorationSet 引用不变）~~ → 不适用：双模式本就不共用同一份 diff 结果（见 `#diff-algo`），该断言的前提不成立
-- [ ] test：短时间条目合并展示逻辑测试（边界：恰好 2 分钟 / 手动保存不合并 / 跨文件不合并）
 
 
 

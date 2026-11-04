@@ -2,8 +2,8 @@
 //
 // 管理 UI 层状态:当前文件版本快照列表的懒加载缓存 + 选中态 + diff 视图开关。
 // IO 逻辑在 persistence.ts;document.ts 的 saveDoc 在写盘成功后调
-// persistence 的 saveVersionSnapshot + pruneVersionSnapshots 落盘,
-// 再调本 store 的 upsertSnapshot 同步更新内存缓存,使 UI 即时刷新。
+// persistence 的 saveVersionSnapshot 一次完成合并判断 / 写盘 / 修剪落盘,
+// 再调本 store 的 upsertSnapshot / removeSnapshot 同步更新内存缓存,使 UI 即时刷新。
 //
 // UI 形态(v0.8):左侧 ActivityBar「版本历史」入口 → 侧栏 VersionHistoryPanel
 // 列出快照条目;点击条目 → 编辑器区切换为 DiffView(覆盖编辑器),diff 展示
@@ -485,7 +485,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
 
   /** 保存后更新内存缓存(若已加载)。
    *
-   * saveDoc 写盘 + saveVersionSnapshot + pruneVersionSnapshots 之后调。
+   * saveDoc 写盘 + saveVersionSnapshot 之后调。
    * 正常追加新快照到缓存列表头部(保持倒序)并按 CAP + 过期天数修剪。
    * 若 `mergedOldId` 非空(auto 快照合并),先从缓存中移除旧快照再追加新快照。
    * 缓存未加载(null)时跳过 —— 下次打开 VersionHistoryPanel 时 loadSnapshots 从磁盘读。 */

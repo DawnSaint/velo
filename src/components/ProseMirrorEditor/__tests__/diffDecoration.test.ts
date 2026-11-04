@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { EditorState } from 'prosemirror-state'
-import { DecorationSet } from 'prosemirror-view'
+import { EditorState, Plugin } from 'prosemirror-state'
+import { DecorationSet, EditorView } from 'prosemirror-view'
 import { schema as veloSchema, type VeloSchema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
 import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin } from '../plugins/diffDecoration'
@@ -203,6 +203,200 @@ describe('buildDecorations', () => {
     const dom = (decos[0] as any).type.toDOM() as HTMLElement
     expect(dom.className).toBe('velo-diff-boundary-hint')
     expect(dom.textContent).toBe('2 个段落已合并')
+  })
+})
+
+// ========== 表格结构化 diff ==========
+// 回归:旧实现把整张表拍平成一个字符串做字符级 diff,删除整列时红色删除
+// widget 会落进留存单元格,呈现「一格内前半红、后半正常」。现在按二维网格
+// 比对,被删列渲染成独立的幽灵 <td>/<th>。
+
+const TABLE_3COL = '| A | B | C |\n| --- | --- | --- |\n| a1 | b1 | c1 |\n| a2 | b2 | c2 |'
+const TABLE_DEL_MID = '| A | C |\n| --- | --- |\n| a1 | c1 |\n| a2 | c2 |'
+
+/** 取出所有 widget 装饰构造出的 DOM */
+function widgetDoms(decos: ReturnType<typeof buildDecorations>): HTMLElement[] {
+  return decos
+    .filter(d => d.from === d.to)
+    .map(d => (d as any).type.toDOM?.() as HTMLElement | undefined)
+    .filter((d): d is HTMLElement => !!d)
+}
+
+/** 用真实 EditorView 渲染装饰,拿到可断言的 DOM 结构 */
+function renderDiff(oldMd: string, newMd: string): HTMLElement {
+  const oldDoc = makeDoc(oldMd)
+  const newDoc = makeDoc(newMd)
+  const decos = buildDecorations(newDoc, oldDoc)
+  const plugin = new Plugin({
+    props: { decorations: (state: EditorState) => DecorationSet.create(state.doc, decos) },
+  })
+  const view = new EditorView(document.createElement('div'), {
+    state: EditorState.create({ schema: veloSchema, doc: newDoc, plugins: [plugin] }),
+  })
+  const dom = view.dom.cloneNode(true) as HTMLElement
+  view.destroy()
+  return dom
+}
+
+describe('表格结构化 diff(整列 / 整行删除)', () => {
+  it('删除中间列 → 每行一个独立幽灵单元格,内容与旧列一致', () => {
+    const decos = buildDecorations(makeDoc(TABLE_DEL_MID), makeDoc(TABLE_3COL))
+    const ghosts = widgetDoms(decos).filter(d =>
+      d.classList.contains('velo-diff-removed-cell'))
+    expect(ghosts.length).toBe(3) // 表头行 + 2 个 body 行
+    expect(ghosts.map(d => d.tagName)).toEqual(['TH', 'TD', 'TD'])
+    expect(ghosts.map(d => d.textContent)).toEqual(['B', 'b1', 'b2'])
+    // 关键:不再有 inline 删除 widget(旧实现正是它把 B/b1/b2 塞进留存格)
+    expect(widgetDoms(decos).some(d => d.classList.contains('velo-diff-removed'))).toBe(false)
+  })
+
+  it('删除中间列 → 真实 DOM 里是单独一列标红,不与留存单元格混排', () => {
+    const dom = renderDiff(TABLE_3COL, TABLE_DEL_MID)
+    const rows = Array.from(dom.querySelectorAll('tr'))
+    expect(rows.length).toBe(3)
+    for (const row of rows) {
+      const cells = Array.from(row.querySelectorAll('td, th'))
+      expect(cells.length).toBe(3) // 2 个留存列 + 1 个幽灵列
+      expect(cells[1].classList.contains('velo-diff-removed-cell')).toBe(true)
+      expect(cells[1].textContent).not.toMatch(/[ACac]\d?/)
+    }
+    expect(dom.querySelectorAll('.velo-diff-removed').length).toBe(0)
+  })
+
+  it('删除首列 / 末列 → 幽灵列分别落在行首 / 行尾', () => {
+    const delFirst = '| B | C |\n| --- | --- |\n| b1 | c1 |\n| b2 | c2 |'
+    const delLast = '| A | B |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |'
+    const first = renderDiff(TABLE_3COL, delFirst)
+    const last = renderDiff(TABLE_3COL, delLast)
+    for (const dom of [first, last]) {
+      expect(dom.querySelectorAll('.velo-diff-removed-cell').length).toBe(3)
+    }
+    const firstCells = Array.from(first.querySelectorAll('tr')[1].querySelectorAll('td, th'))
+    const lastCells = Array.from(last.querySelectorAll('tr')[1].querySelectorAll('td, th'))
+    // 删首列 → 幽灵列是被删的 A 列,落在行首;删末列 → 幽灵列是 C 列,落在行尾
+    expect(firstCells[0].textContent).toBe('a1')
+    expect(firstCells[0].classList.contains('velo-diff-removed-cell')).toBe(true)
+    expect(lastCells[2].textContent).toBe('c1')
+    expect(lastCells[2].classList.contains('velo-diff-removed-cell')).toBe(true)
+  })
+
+  it('删除整行 → 独立幽灵 <tr>,列数与新表对齐', () => {
+    const oldMd = '| A | B | C |\n| --- | --- | --- |\n| a1 | b1 | c1 |\n| a2 | b2 | c2 |\n| a3 | b3 | c3 |'
+    const newMd = '| A | B | C |\n| --- | --- | --- |\n| a1 | b1 | c1 |\n| a3 | b3 | c3 |'
+    const dom = renderDiff(oldMd, newMd)
+    const ghostRows = Array.from(dom.querySelectorAll('tr.velo-diff-removed-row'))
+    expect(ghostRows.length).toBe(1)
+    expect(Array.from(ghostRows[0].querySelectorAll('td, th')).map(c => c.textContent))
+      .toEqual(['a2', 'b2', 'c2'])
+    expect(dom.querySelectorAll('tr').length).toBe(4)
+  })
+
+  it('单元格内文本修改 → 字符级高亮限定在该单元格内', () => {
+    const oldMd = '| A | B |\n| --- | --- |\n| a1 | b1 |'
+    const newMd = '| A | B |\n| --- | --- |\n| a1 | b1! |'
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const added = decos.filter(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-added-inline')
+    expect(added.length).toBe(1)
+    // '!' 落在 b1 单元格的段落内,而不是跨单元格的整表区间
+    expect(added[0].to - added[0].from).toBe(1)
+    expect(widgetDoms(decos).length).toBe(0)
+  })
+
+  it('新增整列 → 每行该列绿底,无删除标记', () => {
+    const oldMd = '| A |\n| --- |\n| a1 |'
+    const newMd = '| A | B |\n| --- | --- |\n| a1 | b1 |'
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const addedCells = decos.filter(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-added-cell')
+    expect(addedCells.length).toBe(2)
+    expect(widgetDoms(decos).length).toBe(0)
+  })
+
+  it('删除空列(整表文本不变)→ 仍渲染幽灵列,不退化成「格式变更」', () => {
+    const oldMd = '| A |  | C |\n| --- | --- | --- |\n| a1 |  | c1 |'
+    const newMd = '| A | C |\n| --- | --- |\n| a1 | c1 |'
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const ghosts = widgetDoms(decos).filter(d =>
+      d.classList.contains('velo-diff-removed-cell'))
+    expect(ghosts.length).toBe(2)
+    expect(decos.some(d => (d as any).type?.attrs?.class === 'velo-diff-changed')).toBe(false)
+  })
+
+  it('表格内仅格式变更 → 仍走同文异 key 逻辑,格式标记不丢失', () => {
+    const oldMd = '| A | B |\n| --- | --- |\n| a1 | b1 |'
+    const newMd = '| A | **B** |\n| --- | --- |\n| a1 | b1 |'
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const fmt = decos.filter(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-format-changed')
+    expect(fmt.length).toBe(1)
+  })
+
+  it('同页多张表格同时删列 → 各表幽灵列内容正确(widget key 不冲突)', () => {
+    const oldMd = `${TABLE_3COL}\n\n| X | Y | Z |\n| --- | --- | --- |\n| x1 | y1 | z1 |`
+    const newMd = `${TABLE_DEL_MID}\n\n| X | Z |\n| --- | --- |\n| x1 | z1 |`
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const keys = decos.filter(d => d.from === d.to)
+      .map(d => (d as any).type?.key as string | undefined)
+      .filter((k): k is string => !!k)
+    expect(new Set(keys).size).toBe(keys.length) // 全局唯一,PM 不会复用错 DOM
+
+    const dom = renderDiff(oldMd, newMd)
+    const tables = Array.from(dom.querySelectorAll('table'))
+    expect(tables.length).toBe(2)
+    const ghostsOf = (t: Element) => Array.from(t.querySelectorAll('.velo-diff-removed-cell'))
+      .map(c => c.textContent)
+    expect(ghostsOf(tables[0])).toEqual(['B', 'b1', 'b2'])
+    expect(ghostsOf(tables[1])).toEqual(['Y', 'y1'])
+  })
+
+  it('同时删列 + 删行 → 幽灵列与幽灵行共存,列数对齐', () => {
+    const oldMd = '| A | B | C |\n| --- | --- | --- |\n| a1 | b1 | c1 |\n| a2 | b2 | c2 |'
+    const newMd = '| A | C |\n| --- | --- |\n| a1 | c1 |'
+    const dom = renderDiff(oldMd, newMd)
+    const rows = Array.from(dom.querySelectorAll('tr'))
+    expect(rows.length).toBe(3)
+    // 删的是尾行 → 幽灵行必须在表尾,不能跑到表头前面
+    expect(rows[rows.length - 1].classList.contains('velo-diff-removed-row')).toBe(true)
+    expect(Array.from(rows[rows.length - 1].querySelectorAll('td, th'))
+      .map(c => c.textContent)).toEqual(['a2', 'b2', 'c2'])
+    for (const row of rows) {
+      expect(row.querySelectorAll('td, th').length).toBe(3)
+    }
+    // 列对齐不能错配成「把旧列文本塞进留存单元格」
+    expect(dom.querySelectorAll('.velo-diff-removed').length).toBe(0)
+  })
+})
+
+describe('其他自定义节点:多文本容器不混排', () => {
+  it('列表删中间项 → 独立红色 <li>,删除文本不落进留存项', () => {
+    const decos = buildDecorations(makeDoc('- one\n- three'), makeDoc('- one\n- two\n- three'))
+    const widgets = widgetDoms(decos)
+    expect(widgets.length).toBe(1)
+    expect(widgets[0].tagName).toBe('LI')
+    expect(widgets[0].classList.contains('velo-diff-deleted-group')).toBe(true)
+    expect(widgets[0].textContent).toBe('two')
+    // 旧实现会把 'two' 作为 inline 红色片段插进 'three' 的段落
+    expect(widgets.some(d => d.classList.contains('velo-diff-removed'))).toBe(false)
+  })
+
+  it('引用内删一段 → 独立红色 <p>,不混进留存段落', () => {
+    const oldMd = '> first\n>\n> second\n>\n> third'
+    const newMd = '> first\n>\n> third'
+    const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
+    const widgets = widgetDoms(decos)
+    expect(widgets.length).toBe(1)
+    expect(widgets[0].tagName).toBe('P')
+    expect(widgets[0].textContent).toBe('second')
+    expect(widgets[0].classList.contains('velo-diff-deleted-group')).toBe(true)
+  })
+
+  it('列表项内文本修改 → 只在被改的项内做字符级 diff', () => {
+    const decos = buildDecorations(makeDoc('- one\n- two!'), makeDoc('- one\n- two'))
+    const added = decos.filter(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-added-inline')
+    expect(added.length).toBe(1)
+    expect(added[0].to - added[0].from).toBe(1)
   })
 })
 

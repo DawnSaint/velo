@@ -20,6 +20,25 @@ import { myersDiff } from '@/utils/lineDiff'
 
 // ========== 类型定义 ==========
 
+/**
+ * 块内的一个「叶子文本容器」(paragraph / heading / code_block / 单元格内段落 …)。
+ * 字符级 diff 必须以容器为最小作用域:跨容器拼接文本做 diff 会把删除内容
+ * 映射到相邻容器里(表格删列、列表删项时的混排 BUG)。
+ */
+interface TextGroup {
+  node: PMNode
+  /** 容器节点的 doc 绝对起始 pos */
+  pos: number
+  size: number
+  /** 容器内文本段(doc 绝对 pos) */
+  segments: Array<{ pos: number; text: string }>
+  text: string
+  /** 可整体替换的块级单元:列表项优先(删整项时红片段独立成一项),否则是容器自身 */
+  blockNode: PMNode
+  blockPos: number
+  blockSize: number
+}
+
 /** 顶层 block 信息(新 / 旧 doc 通用) */
 export interface BlockEntry {
   node: PMNode
@@ -33,6 +52,8 @@ export interface BlockEntry {
   segments: Array<{ pos: number; text: string }>
   /** 块内全部文本(segments 顺序拼接) */
   text: string
+  /** 块内叶子文本容器序列(单容器 block 长度为 1) */
+  groups: TextGroup[]
 }
 
 export type BlockDiffOp =
@@ -46,9 +67,13 @@ export type BlockDiffOp =
 // ========== block 收集与签名 ==========
 
 /**
- * 收集 doc 顶层 block,附带结构签名与块内文本位置表。
+ * 收集 doc 顶层 block,附带结构签名、块内文本位置表、叶子文本容器序列。
  * pos 从 0 起累加 nodeSize;descendants 的 localPos 换算绝对 pos = pos + 1 + localPos
  * (与旧 extractText 同一约定)。
+ *
+ * groups 只在「非 textblock 容器」(表格 / 列表 / 引用 / 脚注 …) 里展开:
+ * textblock 自身就是一个叶子文本容器,直接复用整块的 segments/text,避免
+ * 重复遍历(doc 自身不会被 descendants 访问到)。
  */
 export function collectBlocks(doc: PMNode): BlockEntry[] {
   const blocks: BlockEntry[] = []
@@ -64,7 +89,54 @@ export function collectBlocks(doc: PMNode): BlockEntry[] {
       }
       return true
     })
-    blocks.push({ node, pos, size: node.nodeSize, key: blockKey(node), segments, text })
+
+    const makeGroup = (
+      child: PMNode,
+      groupPos: number,
+      groupSegments: Array<{ pos: number; text: string }>,
+      groupText: string,
+    ): TextGroup => {
+      // 列表项内的段落:整项才是可替换单元。用 resolve 精确定位父节点,
+      // 不依赖 descendants 的 localPos 反推(paragraph 未必是 li 的第一个 child)。
+      const $groupPos = doc.resolve(groupPos)
+      const parent = $groupPos.parent
+      const listItem = parent.type.name === 'list_item' ? parent : null
+      return {
+        node: child,
+        pos: groupPos,
+        size: child.nodeSize,
+        segments: groupSegments,
+        text: groupText,
+        blockNode: listItem ?? child,
+        blockPos: listItem ? $groupPos.before($groupPos.depth) : groupPos,
+        blockSize: listItem ? listItem.nodeSize : child.nodeSize,
+      }
+    }
+
+    let groups: TextGroup[]
+    if (node.isTextblock) {
+      groups = [makeGroup(node, pos, segments, text)]
+    }
+    else {
+      groups = []
+      node.descendants((child, localPos) => {
+        if (!child.isTextblock) return true
+        const groupPos = pos + 1 + localPos
+        const groupSegments: Array<{ pos: number; text: string }> = []
+        let groupText = ''
+        child.descendants((gc, gp) => {
+          if (gc.isText && gc.text) {
+            groupSegments.push({ pos: groupPos + 1 + gp, text: gc.text })
+            groupText += gc.text
+          }
+          return true
+        })
+        groups.push(makeGroup(child, groupPos, groupSegments, groupText))
+        return true
+      })
+    }
+
+    blocks.push({ node, pos, size: node.nodeSize, key: blockKey(node), segments, text, groups })
     pos += node.nodeSize
   }
   return blocks
@@ -72,8 +144,12 @@ export function collectBlocks(doc: PMNode): BlockEntry[] {
 
 /**
  * block 结构签名:节点类型 + attrs + 每个文本节点的(文本 + marks 签名)
- * + 每个非文本 leaf 节点的(类型 + attrs)。
+ * + 每个非文本 leaf 节点的(类型 + attrs) + 每个容器节点的(类型 + 子节点数 + attrs)。
  * 任何结构 / 格式 / 内容差异都会改变 key,从而在 block 序列 diff 中体现。
+ *
+ * 容器签名是必须的:table_row / table_cell / list_item / blockquote 等既不是
+ * 文本也不是 leaf,若不入 key,「删一个空列」「增删空行」「删空列表项」这类
+ * 不改变任何文本的结构变化会被判成 equal,diff 里彻底消失。
  */
 function blockKey(node: PMNode): string {
   const parts: string[] = [node.type.name, JSON.stringify(node.attrs)]
@@ -86,6 +162,10 @@ function blockKey(node: PMNode): string {
     else if (child.isLeaf) {
       // 非文本 leaf:image / hr / math_inline / emoji / hard_break 等
       parts.push(`<${child.type.name}:${JSON.stringify(child.attrs)}>`)
+    }
+    else {
+      // 非 leaf 容器:childCount 让行列数 / 段落数的变化进入签名
+      parts.push(`(${child.type.name}:${child.childCount}:${JSON.stringify(child.attrs)})`)
     }
     return true
   })

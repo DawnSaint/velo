@@ -60,11 +60,14 @@
   }
 
   // 行 hover(排除表头行)
-  tr:hover > td {
+  // :not 避让 diff 视图的幽灵列 / 新增列单元格(_editor-diff.scss):它们是只读的
+  // 删除 / 新增语义底色,hover 不能被刷成灰色。表头行那条 hover 规则特异性
+  // (0,3,2)高于 diff 亮色规则(0,2,2),光靠加载顺序压不住,必须在这里排除。
+  tr:hover > td:not(.velo-diff-removed-cell):not(.velo-diff-added-cell) {
     background: var(--velo-table-row-hover, #f8f9fa);
   }
   // 表头行也加 hover,颜色更轻
-  tr[data-is-header]:hover > th {
+  tr[data-is-header]:hover > th:not(.velo-diff-removed-cell):not(.velo-diff-added-cell) {
     background: var(--velo-table-row-hover, #f0f1f3);
   }
 
