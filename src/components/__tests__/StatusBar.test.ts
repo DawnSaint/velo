@@ -40,6 +40,15 @@ describe('StatusBar', () => {
     expect(mountStatusBar({ dirty: true, autoSaveEnabled: true }).text()).not.toContain('未保存')
   })
 
+  it('emits open-unsaved-diff when the dirty indicator is clicked', async () => {
+    const wrapper = mountStatusBar({ dirty: true })
+    const button = wrapper.get('[aria-label="查看未保存修改的 diff"]')
+    expect(button.text()).toContain('未保存')
+
+    await button.trigger('click')
+    expect(wrapper.emitted('open-unsaved-diff')).toHaveLength(1)
+  })
+
   it('opens workspace menu and emits workspace actions', async () => {
     const wrapper = mountStatusBar()
 

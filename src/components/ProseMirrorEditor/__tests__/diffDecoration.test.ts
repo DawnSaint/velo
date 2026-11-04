@@ -250,6 +250,31 @@ describe('diffDecorationPlugin 增量构建', () => {
       .toBeLessThan(diffDecorationKey.getState(full)!.decoSet!.find().length)
   })
 
+  it('删除文档首块:零长 widget entry 在视口 from=0 时仍构建(回归)', () => {
+    // 旧判定 pos + nodeSize > viewport.from 对 nodeSize=0 且 pos=0 恒为 false,
+    // 导致删除首段的红色片段永远不渲染(滚动也救不回来)。
+    const state = makeDiffState('第一段\n\n第二段', '第二段', { from: 0, to: 5000 })
+    const s = diffDecorationKey.getState(state)!
+    // plan 里有一个 delete entry(零长)
+    expect(s.plan!.entries.some(e => e.from === e.to)).toBe(true)
+    const decos = s.decoSet!.find()
+    expect(decos.length).toBeGreaterThan(0)
+    // 确实建出了删除片段 widget(widget 的 toDOM 返回 .velo-diff-deleted-block)
+    const classes = decos.map(d => ((d as any).type.toDOM?.() as HTMLElement | undefined)?.className)
+    expect(classes).toContain('velo-diff-deleted-block')
+  })
+
+  it('零长 entry 在视口外时仍跳过(不退化回全量)', () => {
+    // 删除首段 + 文档很长,视口落在尾部 → 首块的 delete widget 不应建
+    const longTail = Array.from({ length: 40 }, (_, i) => `段落 ${i}`).join('\n\n')
+    const state = makeDiffState(`第一段\n\n${longTail}`, longTail, { from: 500, to: 900 })
+    const s = diffDecorationKey.getState(state)!
+    const zeroLen = s.plan!.entries.filter(e => e.from === e.to)
+    expect(zeroLen.length).toBeGreaterThan(0)
+    expect(zeroLen.every(e => e.from < 500)).toBe(true)
+    expect(s.decoSet!.find().length).toBe(0)
+  })
+
   it('滚动后粘性追加:新进视口的 block 补建,已建的保留', () => {
     let state = makeDiffState('a\n\nb\n\nc', 'A\n\nB\n\nc', { from: 0, to: 1 })
     const before = diffDecorationKey.getState(state)!.decoSet!.find().length

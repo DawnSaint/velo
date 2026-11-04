@@ -126,7 +126,7 @@ describe('diffLines — Myers 算法', () => {
     const result = diffLines(oldLines.join('\n'), newLines.join('\n'))
     const elapsed = performance.now() - start
     expect(result.length).toBeGreaterThan(0)
-    expect(elapsed).toBeLessThan(500) // 性能基线:< 500ms(宽松,CI 环境波动)
+    expect(elapsed).toBeLessThan(500) // 性能基线:< 500ms(宽松,CI 环境波动);本机实测 ~34ms
   })
 
   it('无任何差异:大文档完全相同', () => {
@@ -134,6 +134,49 @@ describe('diffLines — Myers 算法', () => {
     const result = diffLines(text, text)
     expect(result.every(l => l.type === 'unchanged')).toBe(true)
     expect(result).toHaveLength(1000)
+  })
+})
+
+// ========== 公共前后缀预裁剪 ==========
+// myersDiff 先把两版相同的前缀 / 后缀剥掉,只对中段跑搜索。
+// 这里固定住裁剪边界的行为:裁少了只是慢,裁多了会丢行 / 行号错位。
+
+describe('myersDiff — 公共前后缀预裁剪', () => {
+  it('仅后缀相同(前缀不同):不丢行', () => {
+    const result = diffLines('x\na\nb', 'y\na\nb')
+    expect(result.filter(l => l.type === 'removed').map(l => l.text)).toEqual(['x'])
+    expect(result.filter(l => l.type === 'added').map(l => l.text)).toEqual(['y'])
+    expect(result.filter(l => l.type === 'unchanged').map(l => l.text)).toEqual(['a', 'b'])
+    expect(result.filter(l => l.type === 'unchanged').map(l => l.newLineNumber)).toEqual([2, 3])
+  })
+
+  it('仅前缀相同(后缀不同):不丢行', () => {
+    const result = diffLines('a\nb\nx', 'a\nb\ny')
+    expect(result.filter(l => l.type === 'unchanged').map(l => l.text)).toEqual(['a', 'b'])
+    expect(result.filter(l => l.type === 'removed').map(l => l.text)).toEqual(['x'])
+    expect(result.filter(l => l.type === 'added').map(l => l.text)).toEqual(['y'])
+  })
+
+  it('旧文本是新文本的前缀:只多出尾部新增行', () => {
+    const result = diffLines('a\nb', 'a\nb\nc\nd')
+    expect(result.filter(l => l.type === 'unchanged')).toHaveLength(2)
+    expect(result.filter(l => l.type === 'added').map(l => l.text)).toEqual(['c', 'd'])
+  })
+
+  it('新文本是旧文本的前缀:只多出尾部删除行', () => {
+    const result = diffLines('a\nb\nc\nd', 'a\nb')
+    expect(result.filter(l => l.type === 'unchanged')).toHaveLength(2)
+    expect(result.filter(l => l.type === 'removed').map(l => l.text)).toEqual(['c', 'd'])
+  })
+
+  it('首尾都相同、仅中段改动:只标记中段', () => {
+    const lines = Array.from({ length: 200 }, (_, i) => `line ${i}`)
+    const changed = [...lines]
+    changed[100] = 'line 100 changed'
+    const result = diffLines(lines.join('\n'), changed.join('\n'))
+    expect(result.filter(l => l.type === 'removed').map(l => l.text)).toEqual(['line 100'])
+    expect(result.filter(l => l.type === 'added').map(l => l.text)).toEqual(['line 100 changed'])
+    expect(result.filter(l => l.type === 'unchanged')).toHaveLength(199)
   })
 })
 

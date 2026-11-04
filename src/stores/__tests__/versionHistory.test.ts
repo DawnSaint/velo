@@ -341,6 +341,66 @@ describe('versionHistory store', () => {
       expect(store.selectedEntryId).toBe('1000')
     })
 
+    it('openUnsavedDiff: 打开未保存条目 diff,old 方取最新本地快照', async () => {
+      const docStore = useDocumentStore()
+      vi.mocked(readTextFile).mockResolvedValue('hello')
+      await docStore.openPath('/test.md')
+      docStore.setContent('hello modified')
+
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readDir).mockResolvedValue([
+        { name: '1000.json', isDirectory: false, isFile: true, isSymlink: false },
+        { name: '2000.json', isDirectory: false, isFile: true, isSymlink: false },
+      ] as any)
+      vi.mocked(readTextFile).mockImplementation(async (p: any) => {
+        const name = String(p).split(/[\\/]/).pop()!
+        if (name === '1000.json') {
+          return JSON.stringify({ version: 1, id: '1000', filePath: '/test.md', content: 'snapshot old', savedAt: 1000, trigger: 'manual' })
+        }
+        if (name === '2000.json') {
+          return JSON.stringify({ version: 1, id: '2000', filePath: '/test.md', content: 'snapshot new', savedAt: 2000, trigger: 'manual' })
+        }
+        return 'hello'
+      })
+
+      const store = useVersionHistoryStore()
+      const opened = await store.openUnsavedDiff()
+
+      expect(opened).toBe(true)
+      expect(store.diffViewActive).toBe(true)
+      expect(store.selectedEntryId).toBe(UNSAVED_ID)
+      // old 方是最新快照(2000),不是磁盘基线 hello
+      const old = await store.diffOldContentAsync(UNSAVED_ID)
+      expect(old.content).toBe('snapshot new')
+    })
+
+    it('openUnsavedDiff: 文档不 dirty 时不开视图', async () => {
+      const docStore = useDocumentStore()
+      vi.mocked(readTextFile).mockResolvedValue('hello')
+      await docStore.openPath('/test.md')
+      vi.mocked(exists).mockResolvedValue(false)
+
+      const store = useVersionHistoryStore()
+      const opened = await store.openUnsavedDiff()
+
+      expect(opened).toBe(false)
+      expect(store.diffViewActive).toBe(false)
+      expect(store.selectedEntryId).toBeNull()
+    })
+
+    it('openUnsavedDiff: 自动保存模式下不打开(无未保存条目)', async () => {
+      const docStore = useDocumentStore()
+      vi.mocked(readTextFile).mockResolvedValue('hello')
+      await docStore.openPath('/test.md')
+      docStore.setContent('hello modified')
+      docStore.autoSaveEnabled = true
+      vi.mocked(exists).mockResolvedValue(false)
+
+      const store = useVersionHistoryStore()
+      expect(await store.openUnsavedDiff()).toBe(false)
+      expect(store.diffViewActive).toBe(false)
+    })
+
     it('dirty + 有已保存快照时 displayEntries = [未保存, ...快照]', async () => {
       const docStore = useDocumentStore()
       vi.mocked(readTextFile).mockResolvedValue('hello')

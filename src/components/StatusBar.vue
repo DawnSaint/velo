@@ -32,6 +32,8 @@ const emit = defineEmits<{
   'set-active-root': [root: string | null]
   'toggle-source-mode': []
   'toggle-read-only': []
+  /** 点击「未保存」标记 → 打开未保存条目的 diff(对比上一版本) */
+  'open-unsaved-diff': []
 }>()
 
 const workspaceMenuOpen = ref(false)
@@ -141,14 +143,17 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <span
+    <button
       v-if="dirty && !autoSaveEnabled && !settingsActive"
-      class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-amber-600 dark:text-amber-400"
-      title="当前文档有未保存修改"
+      type="button"
+      class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-amber-600 transition-colors hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 dark:text-amber-400"
+      title="查看未保存修改的 diff（对比上一版本）"
+      aria-label="查看未保存修改的 diff"
+      @click="emit('open-unsaved-diff')"
     >
       <span class="h-1 w-1 rounded-full bg-amber-500" />
       未保存
-    </span>
+    </button>
 
     <div class="min-w-4 flex-1" />
 

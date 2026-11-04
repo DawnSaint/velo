@@ -5,7 +5,7 @@
 //
 // 算法演进:
 // - v0.7.10:朴素 LCS(O(m*n) DP 表),大文档内存占用高
-// - v0.7.14:Myers diff 算法(线性空间 + 更优 hunk 边界) + 字符级 inline diff
+// - v0.7.14:Myers diff 算法 + 字符级 inline diff,快照按 D 分配 + 前后缀预裁剪
 
 // ========== 类型定义 ==========
 
@@ -60,7 +60,14 @@ export function isPureCharRemoval(line: DiffLine): boolean {
 //
 // 基于 Eugene W. Myers 1986 年论文 "An O(ND) Difference Algorithm and Its Variations"。
 // 核心思想:在 edit graph 上找最短路径,D = edit distance。
-// 时间复杂度 O((m+n)D),空间复杂度 O(m+n)——远优于朴素 LCS 的 O(m*n)。
+// 时间复杂度 O((m+n)·D)——D 是编辑距离,不是文档长度:改动集中时极快,
+// 全文均匀改动时 D 接近 m+n,退化到接近 O(n²)。
+//
+// 空间:回溯需要保留每步的 V 数组,共 D+1 份。第 d 步只需覆盖对角线
+// k ∈ [-d, d](2d+1 个槽),所以快照内存是 O(D²) 而非 O(D·(m+n))。
+// 5000 行 / 10% 改动(D≈1000)时约 4MB,朴素实现按 2(m+n)+1 全量分配要 80MB。
+// 真正的 O(m+n) 线性空间要改成分治 + middle snake 回溯(不保留快照),
+// 实现复杂度和边界风险都高,当前未做(见 ROADMAP #diff-algo)。
 //
 // edit graph:横轴 x ∈ [0, m](旧版本 a),纵轴 y ∈ [0, n](新版本 b)。
 // - 对角线移动(equal):a[x] === b[y],不消耗 D
@@ -70,6 +77,15 @@ export function isPureCharRemoval(line: DiffLine): boolean {
 // V[k] = 对角线 k 上前向搜索能到达的最远 x 坐标。
 
 type EditOp = 'equal' | 'delete' | 'insert'
+
+/**
+ * 分配第 d 步的 V 快照。
+ * 覆盖 k ∈ [-d-1, d+1]:比实际需要的 [-d, d] 左右各多留 1 个零值槽,
+ * 让回溯计算 k±1 时不越界(越界处旧实现读到的也是 0,语义保持一致)。
+ */
+function makeSnapshot(d: number): Int32Array {
+  return new Int32Array(2 * d + 3)
+}
 
 /**
  * 用 Myers 算法计算两个字符串数组的编辑序列。
@@ -83,21 +99,53 @@ export function myersDiff(a: string[], b: string[]): EditOp[] {
   if (m === 0) return b.map(() => 'insert' as EditOp)
   if (n === 0) return a.map(() => 'delete' as EditOp)
 
-  const maxD = m + n
-  const offset = maxD
-  const size = 2 * maxD + 1
-  const vSnapshots: Int32Array[] = []
+  // 公共前后缀预裁剪:只对中段跑搜索。
+  // 真实写作文档通常是局部改动,首尾大段完全相同——裁掉后 m、n、D 一起下降,
+  // 是零风险的纯优化(公共前后缀在任意最短编辑序列里都可直接取 equal)。
+  const limit = Math.min(m, n)
+  let prefix = 0
+  while (prefix < limit && a[prefix] === b[prefix]) prefix++
+
+  // 后缀不与前缀重叠:limit - prefix 封顶避免「两段完全相同」时重复计入
+  let suffix = 0
+  while (suffix < limit - prefix && a[m - 1 - suffix] === b[n - 1 - suffix]) suffix++
+
+  const untrimmed = prefix === 0 && suffix === 0
+  const midOps = myersSearch(
+    untrimmed ? a : a.slice(prefix, m - suffix),
+    untrimmed ? b : b.slice(prefix, n - suffix),
+  )
+
+  if (untrimmed) return midOps
+
+  const ops: EditOp[] = new Array(prefix + midOps.length + suffix)
+  let i = 0
+  for (let p = 0; p < prefix; p++) ops[i++] = 'equal'
+  for (let p = 0; p < midOps.length; p++) ops[i++] = midOps[p]
+  for (let s = 0; s < suffix; s++) ops[i++] = 'equal'
+  return ops
+}
+
+/** Myers 搜索本体(已由调用方裁掉公共前后缀)。 */
+function myersSearch(a: string[], b: string[]): EditOp[] {
+  const m = a.length
+  const n = b.length
+
+  if (m === 0) return b.map(() => 'insert' as EditOp)
+  if (n === 0) return a.map(() => 'delete' as EditOp)
+
+  const snapshots: Int32Array[] = []
 
   // D=0: 从 (0,0) 沿 k=0 对角线前进
-  const v0 = new Int32Array(size)
+  const v0 = makeSnapshot(0)
   let x0 = 0
   let y0 = 0
   while (x0 < m && y0 < n && a[x0] === b[y0]) {
     x0++
     y0++
   }
-  v0[offset] = x0 // V[0] = 沿 k=0 到达的最远 x
-  vSnapshots.push(v0)
+  v0[1] = x0 // k=0,槽位 0 + offset(1)
+  snapshots.push(v0)
 
   // D=0 就到终点了(两段完全相同)
   if (x0 >= m && y0 >= n) {
@@ -108,9 +156,14 @@ export function myersDiff(a: string[], b: string[]): EditOp[] {
 
   let v = v0
   let finalD = -1
+  const maxD = m + n
 
   for (let d = 1; d <= maxD; d++) {
-    const nextV = new Int32Array(size)
+    const nextV = makeSnapshot(d)
+    // v 是第 d-1 步的快照,其槽位偏移为 (d-1)+1 = d;nextV 为 d+1
+    const offset = d
+    const nextOffset = d + 1
+
     for (let k = -d; k <= d; k += 2) {
       let x: number
       if (k === -d || (k !== d && v[k - 1 + offset] < v[k + 1 + offset])) {
@@ -127,15 +180,15 @@ export function myersDiff(a: string[], b: string[]): EditOp[] {
         x++
         y++
       }
-      nextV[k + offset] = x
+      nextV[k + nextOffset] = x
       if (x >= m && y >= n) {
-        vSnapshots.push(nextV)
         finalD = d
         break
       }
     }
+
+    snapshots.push(nextV)
     if (finalD !== -1) break
-    vSnapshots.push(nextV)
     v = nextV
   }
 
@@ -146,7 +199,8 @@ export function myersDiff(a: string[], b: string[]): EditOp[] {
   let y = n
 
   for (let d = finalD; d > 0; d--) {
-    const prevV = vSnapshots[d - 1]
+    const prevV = snapshots[d - 1]
+    const offset = d // 第 d-1 步快照的槽位偏移
     const k = x - y
 
     let prevK: number

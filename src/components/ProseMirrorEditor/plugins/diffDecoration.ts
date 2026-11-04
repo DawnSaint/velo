@@ -296,6 +296,28 @@ function buildPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decor
 // ============================================================
 
 /**
+ * entry 是否落在视口内。
+ *
+ * 与 `isInViewport` 的唯一差别:delete 的 widget entry 是**零长区间**
+ * (`from === to`,widget 不占 doc pos)。`isInViewport` 的判定是
+ * `pos + nodeSize > viewport.from && pos < viewport.to`,nodeSize=0 时退化为
+ * `pos > viewport.from` —— 而 viewport.from 最小就是 0,于是
+ * 「删除文档首块」(widget 落在 pos 0)的 entry 永远判定为不可见,
+ * 且滚动也救不回来(from 恒 >= 0),删除提示彻底不渲染。
+ * 零长 entry 改用「点是否落在闭区间」判定。
+ */
+function entryInViewport(
+  entry: DiffPlanEntry,
+  viewport: ReturnType<typeof getViewport>,
+): boolean {
+  if (!viewport) return true
+  if (entry.from === entry.to) {
+    return entry.from >= viewport.from && entry.from <= viewport.to
+  }
+  return isInViewport(entry.from, entry.to - entry.from, viewport)
+}
+
+/**
  * 找出视口内尚未构建的 entry，返回它们的装饰 + 更新 built 集合。
  * - viewport 为 null(无滚动容器 / 未就绪)→ 全量,退化为旧行为
  * - built 就地累积:只读 doc,已建过的 entry 不必重复构造(widget DOM 开销),
@@ -314,7 +336,7 @@ function collectVisibleDecos(
   plan.entries.forEach((entry, i) => {
     // 已建 → 跳过;未建但不在视口 → 跳过
     if (built.has(i)) return
-    if (!isInViewport(entry.from, entry.to - entry.from, viewport)) return
+    if (!entryInViewport(entry, viewport)) return
     built.add(i)
     for (const d of entry.decos) decos.push(d)
   })

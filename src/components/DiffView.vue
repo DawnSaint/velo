@@ -15,7 +15,8 @@
 // 双模式(#diff-switch):
 // - 源码 diff(sourceMode=true):行级列表,+/- 前缀,行背景色区分增删(原有实现)
 // - 预览 diff(sourceMode=false):ProseMirror 只读渲染 + Decoration 增删标记(绿色背景=新增,红色背景=删除)
-// 两种模式共用同一 diff 算法结果(Myers),切换不重算 diff。
+// 两种模式共用同一 Myers 算法实现,但不共用同一份结果(源码按行对齐、预览按 block 对齐);
+// 切回预览会重建只读 EditorView 并重新解析 + 比对。
 // 模式切换复用底部状态栏的 sourceMode toggle(Eye/Code2 按钮)。
 
 import { computed, ref, watch } from 'vue'
@@ -109,13 +110,24 @@ function rowVisual(line: DiffLine): RowVisual {
 
 /** 异步加载 diff:选中条目变化时触发
  *  - 本地快照:content 和前一版本 content 都在内存中,同步计算
- *  - Git 条目:content 可能需要 git show 懒加载,前一版本 content 也可能需要 */
+ *  - Git 条目:content 可能需要 git show 懒加载,前一版本 content 也可能需要
+ *
+ * 竞态守卫(loadSeq):`loadGitContent` / `diffOldContentAsync` 都是异步的,
+ * Git 条目的 git show 可能比后选中的本地快照慢得多。快速切换条目时
+ * (Git 条目 A → 本地条目 B),A 晚返回会把 B 的结果覆盖掉 —— 表现为
+ * 工具栏时间是 B、正文却是 A 的 diff。用自增序号丢弃过期结果:
+ * await 回来后不是最新一次请求就直接退出,且不得改动 loading 态。
+ */
+let loadSeq = 0
+
 async function loadDiff() {
+  const seq = ++loadSeq
   const entry = selected.value
   if (!entry) {
     diffResult.value = []
     newContent.value = ''
     oldContent.value = ''
+    loading.value = false
     return
   }
 
@@ -129,21 +141,26 @@ async function loadDiff() {
     }
 
     const oldResult = await versionHistory.diffOldContentAsync(entry.id)
+    // 期间用户已切到别的条目 → 本次结果作废(不写 ref、不动 loading)
+    if (seq !== loadSeq) return
     const oldContentRaw = oldResult.content ?? ''
 
-    // 两种模式共用同一 diff 结果
+    // 行级 diff:源码模式的行列表 + 工具栏 +/- 统计都用它;
+    // 预览模式的 block diff 在 WysiwygDiffView 内部另算(不复用这份结果)
     diffResult.value = diffLines(oldContentRaw, newContentRaw)
     newContent.value = newContentRaw
     oldContent.value = oldContentRaw
   }
   catch (e) {
+    if (seq !== loadSeq) return
     console.error('loadDiff 失败', e)
     diffResult.value = []
     newContent.value = ''
     oldContent.value = ''
   }
   finally {
-    loading.value = false
+    // 过期请求无权清 loading —— 新请求可能正在加载
+    if (seq === loadSeq) loading.value = false
   }
 }
 

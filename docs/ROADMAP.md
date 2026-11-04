@@ -42,7 +42,7 @@
 P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
                                                                 │
 P1  #diff-wysiwyg ──→ #diff-block-tree ──→ #diff-semantic-render · #diff-incremental
-    #diff-algo · #diff-merge · #diff-autoscroll · #diff-unsaved-entry（独立）
+    #diff-algo · #diff-merge · #diff-autoscroll（独立）
                                                                 │
 P2  #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
@@ -65,14 +65,14 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 >
 > 当前痛点：DiffView 是纯 `<div>` 渲染的只读行级列表，只有一种形态；diff 算法为朴素 LCS（O(m×n) DP 表），大文档内存占用高且无字符级细化；选中条目后视口不自动跳转到第一个有差异的位置，用户需手动滚动查找；自动保存模式下无「未保存」条目，用户缺少快速查看「我改了什么」的入口。
 >
-> **双模式设计**：源码 diff 保留现有行级对比（升级算法 + 字符级高亮）；WYSIWYG diff 在 ProseMirror 只读渲染上叠加 Decoration 标记增删（绿色背景 = 新增，红色背景 = 删除），用户看到的是富文本渲染态的变更对比而非原始 markdown 源码。两种模式在 diff 视图工具栏一键切换，共用同一 diff 算法结果。
+> **双模式设计**：源码 diff 保留现有行级对比（升级算法 + 字符级高亮）；WYSIWYG diff 在 ProseMirror 只读渲染上叠加 Decoration 标记增删（绿色背景 = 新增，红色背景 = 删除），用户看到的是富文本渲染态的变更对比而非原始 markdown 源码。两种模式在 diff 视图工具栏一键切换，**共用同一套 Myers 算法实现，但不共用同一份 diff 结果**（源码模式按 markdown 行对齐，预览模式按 ProseMirror 顶层 block 对齐，两者粒度不同构；切换回预览会重建只读 EditorView 并重新解析 + 比对）。
 
-- [ ] **diff 算法升级** `#diff-algo` `P1` `M`
-  - 从朴素 LCS（O(m×n) DP 表）升级为 Myers diff 算法（线性空间 + 更优 hunk 边界）
-  - 支持 hunk 级语义：连续的 added/removed 行合并为一个 hunk 单元，便于导航
-  - 增加字符级（inline）diff 层：同一行内只标红/标绿变更的字符，而非整行着色
-  - 大文档（> 5000 行）diff 性能基线：计算 < 100ms
-  - 两种 diff 模式共用同一算法结果，切换模式不重算 diff
+- [x] **diff 算法升级** `#diff-algo` `P1` `M`
+  - [x] 从朴素 LCS（O(m×n) DP 表）升级为 Myers diff 算法（时间复杂度 O((m+n)·D)，D 为编辑距离）；`myersDiff` 同时供行级 diff 与 Block Tree Diff 复用
+  - [x] 快照按 D 分配（每步只存 2D+3 个槽位）+ 公共前后缀预裁剪：空间从 O(D·(m+n)) 降到 O(D²)，5000 行 / 10% 改动实测 **79MB → 4.4MB**，耗时 103ms → 34ms（冷启动，含 10% 均匀改动）
+  - [x] 支持 hunk 级语义：连续的 added/removed 行合并为一个 hunk 单元（`extractHunks`；当前仅测试覆盖，UI 消费方随 `#diff-autoscroll` 一起启用）
+  - [x] 增加字符级（inline）diff 层：同一行内只标红/标绿变更的字符，而非整行着色
+  - [x] 大文档（> 5000 行）diff 性能基线：计算 < 100ms —— 实测 5000 行 / 10% 改动 ~34ms，5000 行 / 中段改 50 行 ~2.4ms
 
 - [x] **WYSIWYG diff 模式** `#diff-wysiwyg` `P1` `L`
   - 在 ProseMirror 只读渲染上叠加 Decoration 标记增删：`Decoration.inline` 给新增文本挂绿色背景 class，给删除文本挂红色背景 class
@@ -82,17 +82,18 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 复用项目已有 PM Decoration 基建范式（`findHighlight.ts` / `cjkLetterSpacing.ts` / `CodeHighlightWidget.ts`）
   - ~~配合 `viewportPlugin` 做视口感知 decoration 构建，大文档只构建可见区域 diff 标记~~ → 未落地（实际为全量构建），并入 `#diff-incremental`
   - 标题 / 表格 / 图片 / 代码块 / 公式等富文本元素正常渲染，只在其变更的文本片段上叠加高亮
-  - diff 视图只读（`editable: false`），不支持在 diff 中直接编辑（远期考虑）
+  - diff 视图只读（`editable: false`），不支持在 diff 中直接编辑（远期考虑）前回溯需保留每步 V 快照，空间是 O(D²) 而非 O(m+n)；要兑现需改成「分治 + middle snake 回溯」（只留两份 V 数组），实现复杂度与边界风险都高
+  - ~~两种 diff 模式共用同一算法结果，切换模式不重算 diff~~ → 不采纳：源码模式对齐 markdown 行、预览模式对齐 PM bloc
 
 - [x] **源码 diff 模式升级** `#diff-source` `P1` `S`
   - 保留并升级现有行级 diff 视图：Myers 算法 + 字符级 inline 高亮
   - 等宽字体行列表，`+`/`-` 前缀，行背景色区分增删
-  - 与 WYSIWYG diff 共用同一 diff 算法结果，切换不重算
+  - 与 WYSIWYG diff 共用同一 Myers 算法实现（对齐粒度不同：本模式按 markdown 行，预览模式按 PM block）
   - 保留异步加载 Git content 的 loading 态与竞态守卫逻辑
 
 - [x] **双模式切换 UI** `#diff-switch` `P1` `S` `← #diff-wysiwyg` `← #diff-source`
   - diff 视图工具栏新增「源码 / 预览」模式切换按钮（同 Word 修订模式切换语义）
-  - 切换即时生效，不重新加载 content、不重算 diff
+  - 切换即时生效，不重新加载 content；但**切回预览会重建只读 EditorView 并重算 block diff**（2000 段文档约 300ms，其中 ~93% 是两次 `fromMarkdown` 解析，diff 只占 ~21ms）。如需消除，可把 `DiffView.vue` 的 `v-else-if` 换成 `v-show` 保留实例，并在重新显示时补一次 `refreshViewport`
 
 - [ ] **短时间 diff 条目合并展示** `#diff-merge` `P2` `S`
   - 版本历史侧栏中，短时间内（如 2 分钟内）连续产生的快照条目合并为一个折叠组
@@ -130,15 +131,16 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [x] test：语义化渲染单元测试（marks 变化区间精确标记 / 类型变更 tooltip / 删除片段保留结构 / split·merge 边界提示 / 拆分+改文本退化为 pair+insert）
 - [x] test：增量渲染单元测试（窄 viewport 只建可见 entry / 滚动后粘性追加）——原「折叠默认生效 + toggleFold 展开 / hunk 锚点与折叠区计数」随 `#diff-autoscroll` 回退一并移除
 
-- [ ] **状态栏「未保存」点击进入 diff** `#diff-unsaved-entry` `P2` `S`
-  - 底部状态栏「未保存」标记从纯展示 `<span>` 改为可点击 `<button>`
-  - 点击 → 打开版本历史侧栏 + 进入 diff 视图 + 选中最新条目（自动保存模式下也有效）
+- [x] **状态栏「未保存」点击进入 diff** `#diff-unsaved-entry` `P2` `S`
+  - 底部状态栏「未保存」标记从纯展示 `<span>` 改为可点击 `<button>`（琥珀色 chip，hover 有反馈，带 aria-label「查看未保存修改的 diff」）
+  - 点击 → 进入未保存条目 diff（`openUnsavedDiff()`），无未保存条目时静默不开（文档已保存 / 自动保存模式）
   - 自动保存模式下「未保存」标记不显示（已有 `v-if` 守卫），此入口主要服务手动保存用户
-  - 复用 `openVersionHistory()` 已有逻辑，补一步 `showSidebarTab('history')`
+  - 实现比原计划更轻：不加载 Git 历史（未保存条目的 old 方只取最新本地快照，无快照则磁盘基线）、不切换侧栏 tab。因为 diff 视图本就独立于侧栏（命令面板「版本历史」同样只开 diff 视图）
+  - 注意：必须先 `loadCurrentFileSnapshots()` 再设 `selectedEntryId`，否则 `diffOldContentAsync(UNSAVED_ID)` 会退化到 `lastSavedContent`，基准从「上一版本」变成「最后一次写盘」
 
-- [ ] test：Myers diff 算法正确性单元测试（含移动 / 空行 / 纯新增 / 纯删除 / 大段重排）
-- [ ] test：WYSIWYG diff Decoration 构建正确性测试（PM Node 树对齐 + 增删标记位置）
-- [ ] test：双模式切换不重算 diff（切换前后 DecorationSet 引用不变）
+- [x] test：Myers diff 算法正确性单元测试（含移动 / 空行 / 纯新增 / 纯删除 / 大段重排）
+- [x] test：WYSIWYG diff Decoration 构建正确性测试（PM Node 树对齐 + 增删标记位置）
+- ~~test：双模式切换不重算 diff（切换前后 DecorationSet 引用不变）~~ → 不适用：双模式本就不共用同一份 diff 结果（见 `#diff-algo`），该断言的前提不成立
 - [ ] test：短时间条目合并展示逻辑测试（边界：恰好 2 分钟 / 手动保存不合并 / 跨文件不合并）
 
 

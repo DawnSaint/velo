@@ -1540,6 +1540,7 @@ watch(editorRef, (v) => {
       @set-active-root="workspaceStore.setActiveRoot"
       @toggle-source-mode="documentStore.toggleSourceMode()"
       @toggle-read-only="documentStore.readOnly = !documentStore.readOnly"
+      @open-unsaved-diff="() => void versionHistoryStore.openUnsavedDiff()"
     />
 
     <!-- 统一命令面板(v0.6.2):合并原 Ctrl+P 查找文件 + Ctrl+Shift+P 命令面板。

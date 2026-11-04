@@ -551,6 +551,27 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     }
   }
 
+  /** 从状态栏「未保存」标记直接进入未保存条目的 diff 视图。
+   *
+   *  与 openVersionHistory 的区别:不加载 Git 历史——未保存条目的 old 方只取
+   *  最新本地快照(无快照则磁盘基线),与 Git 无关,省掉一次 git 调用。
+   *  但必须先把快照读进缓存,否则 diffOldContentAsync(UNSAVED_ID) 会退化到
+   *  lastSavedContent,导致基准不是「上一版本」而是「最后一次写入磁盘」。
+   *
+   *  返回是否真的打开了(未保存条目不存在 → false,调用方无需处理)。 */
+  async function openUnsavedDiff(): Promise<boolean> {
+    if (!unsavedEntry.value) return false
+    const path = documentStore.currentFilePath
+    if (currentFileSnapshots.value === null) {
+      await loadCurrentFileSnapshots()
+      // 读盘期间可能已保存 / 切了文档:未保存条目消失或换了文件都要放弃
+      if (!unsavedEntry.value || documentStore.currentFilePath !== path) return false
+    }
+    selectedEntryId.value = UNSAVED_ID
+    diffViewActive.value = true
+    return true
+  }
+
   /** 关闭 diff 视图(回到编辑器) */
   function closeDiffView(): void {
     diffViewActive.value = false
@@ -596,6 +617,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     invalidateGit,
     invalidateAll,
     openVersionHistory,
+    openUnsavedDiff,
     closeDiffView,
     selectEntry,
   }
