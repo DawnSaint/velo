@@ -300,9 +300,9 @@ watch(
   () => store.darkMode,
   (val) => {
     document.documentElement.classList.toggle('dark', val)
-    // 通知带自管渲染的 NodeView（mermaid）刷新主题 —— ProseMirror 不会因
-    // 这次类名切换产生 transaction，nodeView.update() 不会触发，得我们主动喊
-    window.dispatchEvent(new CustomEvent('velo:theme-change'))
+    // mermaid(pele)图表的 SVG 颜色全部走 --pele-* CSS 变量(_mermaid.scss
+    // .dark 规则),类名切换即完成明暗翻面 —— 无需再派发 velo:theme-change
+    // 通知重渲染(原 mermaid.js 需要删缓存重渲,pele 零重渲染)。
   },
   { immediate: true },
 )

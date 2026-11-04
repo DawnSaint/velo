@@ -10,7 +10,8 @@
 //     派发 setSelection 把光标放进 pre 内部(focus 进 pre);关闭时把
 //     selection 移出(blur)
 //   - 源码编辑:用户在 doc 中直接编辑 code_block(pre 一直存在,只是 CSS 隐藏)
-//   - SVG 主题切换:widget 工厂挂 `velo:theme-change` listener 自己改 dom
+//   - SVG 主题切换:pele 颜色全部走 --pele-* CSS 变量(_mermaid.scss 里
+//     .dark 翻变量),light/dark 切换纯 CSS cascade,**零重渲染零 JS**
 //
 // 关键设计取舍:
 //   - 不再用 textarea + 自管 commit/cancel(source 全程在 doc.textContent 里)
@@ -26,41 +27,34 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-import type Mermaid from 'mermaid'
 import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
 import { isMermaidFolded, foldKey } from './FoldDecoration'
 import { scanDoc } from './docScanCache'
 import { getViewport, isInViewport, viewportKey } from './viewportPlugin'
 
-// ========== mermaid 懒加载 ==========
+// ========== pele 懒加载 ==========
 //
-// mermaid 包 ~3MB minified,首屏 doc 不含 ```mermaid 时无需加载。
-// 用模块级 lazy getter 把 `import mermaid` 推迟到第一次 render 时才执行,
-// Vite/rolldown 据此把 mermaid 拆出独立 chunk(配合 vite.config.ts 不再
-// codeSplitting:false)。`mermaid.initialize` 也挪到首次获取时执行,避免
-// 模块加载就跑 initialize 副作用。
+// 渲染库用 pele(Obsidian 出品,mermaid 语法兼容):~230KB gzip 零依赖,
+// render() 同步、无 initialize 副作用、默认安全(转义文本/过滤链接)。
+// 仍保持懒加载:首屏 doc 不含 ```mermaid 时无需加载 chunk。
+// 用模块级 lazy getter 把 `import pele` 推迟到第一次 render 时才执行,
+// Vite/rolldown 据此把 pele 拆出独立 chunk(沿用原 mermaid 的拆包策略)。
 //
 // plugin view attach 后 buildDecorations 会扫描 doc,如果含 mermaid 节点
-// 会自然触发 getMermaid() → 异步加载 → 加载完渲染 SVG(已有 loader 占位)。
+// 会自然触发 getPele() → 异步加载 → 加载完渲染 SVG(已有 loader 占位)。
 
-let mermaidMod: typeof Mermaid | null = null
-let mermaidPromise: Promise<typeof Mermaid> | null = null
+let peleMod: typeof import('pele') | null = null
+let pelePromise: Promise<typeof import('pele')> | null = null
 
-function getMermaid(): Promise<typeof Mermaid> {
-  if (mermaidMod) return Promise.resolve(mermaidMod)
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then((m) => {
-      const mermaid = m.default
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        theme: 'default',
-      })
-      mermaidMod = mermaid
-      return mermaid
+function getPele(): Promise<typeof import('pele')> {
+  if (peleMod) return Promise.resolve(peleMod)
+  if (!pelePromise) {
+    pelePromise = import('pele').then((m) => {
+      peleMod = m
+      return m
     })
   }
-  return mermaidPromise
+  return pelePromise
 }
 
 // ========== ID 生成 ==========
@@ -68,13 +62,6 @@ function getMermaid(): Promise<typeof Mermaid> {
 let nextId = 1
 function uid(): string {
   return `mermaid-${nextId++}`
-}
-
-// ========== 主题探测 ==========
-
-function getMermaidTheme(): 'default' | 'dark' {
-  if (document.documentElement.classList.contains('dark')) return 'dark'
-  return 'default'
 }
 
 // ========== HTML 转义(用于 error UI) ==========
@@ -88,38 +75,34 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
-// ========== 异步渲染 ==========
+// ========== 同步渲染(包加载仍是异步) ==========
 
 interface RenderOutcome {
   svg: string
-  bindFunctions?: (element: Element) => void
   error: string | null
 }
 
-async function renderMermaid(code: string, id: string, theme: 'default' | 'dark'): Promise<RenderOutcome> {
+async function renderMermaid(code: string, id: string): Promise<RenderOutcome> {
   const trimmed = code.trim()
   if (!trimmed) return { svg: '', error: null }
 
-  const mermaid = await getMermaid()
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme,
-  })
-
+  const pele = await getPele()
   try {
-    await mermaid.parse(trimmed)
+    // idPrefix:pele 用它前缀 SVG 内部 id(无障碍 title/description 等),
+    // 同页多 mermaid 块不共享 id(仅允许字母数字 - _,uid() 满足)。
+    // 主题不走这里 —— pele 颜色全部是 --pele-* CSS 变量,light/dark 切换
+    // 由 _mermaid.scss 的 .dark 规则接管,零重渲染。
+    const { svg } = pele.render(trimmed, { idPrefix: id })
+    return { svg, error: null }
   }
-  catch (e: any) {
-    return { svg: '', error: e?.message || 'Syntax error' }
-  }
-
-  try {
-    const result = await mermaid.render(id, trimmed)
-    return { svg: result.svg, bindFunctions: result.bindFunctions, error: null }
-  }
-  catch (e: any) {
-    return { svg: '', error: e?.message || 'Render error' }
+  catch (e: unknown) {
+    // PeleError(unsupported-diagram / syntax / semantic / limit)→ 用户可读
+    // message;非 PeleError 的意外异常也降级为 error 展示,不向上抛。
+    if (e instanceof pele.PeleError) {
+      return { svg: '', error: e.message || 'Render error' }
+    }
+    const msg = (e instanceof Error ? e.message : String(e)) || 'Render error'
+    return { svg: '', error: msg }
   }
 }
 
@@ -242,19 +225,12 @@ function buildDecosForMermaidBlock(
   const widgetPos = pos + node.nodeSize
   // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
   // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
-  const widget = makeMermaidWidget(source, getMermaidTheme(), deco, absolutePos, isEditing, node)
+  const widget = makeMermaidWidget(source, deco, absolutePos, isEditing, node)
   decos.push(Decoration.widget(widgetPos, widget, {
     block: true,
     side: -2,
     key: `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}`,
     ignoreSelection: true,
-    destroy(dom) {
-      const fn = widgetListeners.get(dom as HTMLElement)
-      if (fn) {
-        window.removeEventListener('velo:theme-change', fn)
-        widgetListeners.delete(dom as HTMLElement)
-      }
-    },
   }))
   return decos
 }
@@ -304,7 +280,6 @@ function applyViewportSticky(prev: MermaidDecoState, newState: EditorState): Mer
 
 function makeMermaidWidget(
   source: string,
-  theme: 'default' | 'dark',
   deco: MermaidDecoState,
   pos: number,
   isEditing: boolean,
@@ -332,32 +307,10 @@ function makeMermaidWidget(
 
   // v0.4.6+:SVG 区域不再响应 click(避免与后续 zoom/pan 拖动手势冲突);
   // 展开/收起 code block 仅通过 toolbar 上的 chevron 按钮。
-
-  // 主题切换:widget 自己挂 listener 直接改 dom,不走 plugin state(避免死循环)
-  const onThemeChange = () => {
-    if (!source) return
-    deco.svgCache.delete(source)
-    deco.errorCache.delete(source)
-    renderLoader(svgArea)
-    const p = renderMermaid(source, uid(), getMermaidTheme())
-    deco.pending.set(source, p)
-    p.then((outcome) => {
-      deco.pending.delete(source)
-      if (outcome.error) {
-        deco.errorCache.set(source, outcome.error)
-        renderError(svgArea, outcome.error)
-      }
-      else {
-        deco.svgCache.set(source, { svg: outcome.svg, height: 0 })
-        svgArea.innerHTML = outcome.svg
-        const newSvg = svgArea.querySelector('svg')
-        if (newSvg) newSvg.style.height = 'auto'
-        measureAndCacheHeight(svgArea, source, deco)
-      }
-    }).catch(() => deco.pending.delete(source))
-  }
-  widgetListeners.set(dom, onThemeChange)
-  window.addEventListener('velo:theme-change', onThemeChange)
+  //
+  // 主题切换(pele):SVG 颜色全部引用 --pele-* CSS 变量,_mermaid.scss 的
+  // .dark 规则翻变量即完成 light/dark 切换 —— 不再需要 velo:theme-change
+  // listener 重渲染(原 mermaid 需要删缓存 + initialize 换 theme 重渲)。
 
   // 高度衔接(修 code→loader→SVG 三段跳变):创建时垫住 min-height ——
   //  1. svgCache 命中:用上次渲染实测高度(精确,任何重建都不跳)
@@ -376,7 +329,7 @@ function makeMermaidWidget(
     }
   }
 
-  fillWidget(svgArea, source, theme, deco)
+  fillWidget(svgArea, source, deco)
 
   // **不在 widget 工厂里 focus**:widget 会在每次 decorations 重建时重新创建,
   // 如果在这里 focus → 每次用户尝试移出 pre 都会被 ProseMirror 的 DOMObserver
@@ -445,13 +398,9 @@ function makeDeleteBtn(pos: number, node: PMNode): HTMLElement {
   return btn
 }
 
-// 跟踪 widget dom → theme change listener
-const widgetListeners = new WeakMap<HTMLElement, () => void>()
-
 function fillWidget(
   dom: HTMLElement,
   source: string,
-  theme: 'default' | 'dark',
   deco: MermaidDecoState,
 ): void {
   const hasOldSvg = !!dom.querySelector('svg')
@@ -475,7 +424,7 @@ function fillWidget(
 
   let p = deco.pending.get(source)
   if (!p) {
-    p = renderMermaid(source, uid(), theme)
+    p = renderMermaid(source, uid())
     deco.pending.set(source, p)
   }
 

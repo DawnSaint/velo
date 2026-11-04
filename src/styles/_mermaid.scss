@@ -28,6 +28,30 @@
   border-color: rgba(128, 128, 128, 0.25);
 }
 
+/* ========== pele 主题变量 ========== */
+
+/* pele 渲染的 SVG 颜色全部引用 --pele-* CSS 变量(替代原 mermaid 的
+   default/dark 两套内置主题)。变量定义在容器上:编辑器是 .mermaid-svg-area,
+   导出 HTML 是 .velo-mermaid-block(body.velo-editor 下)—— light/dark 切换
+   纯 CSS cascade,零重渲染(原 mermaid 需要删缓存重渲)。
+   亮色取 pele 官方默认值;暗色对齐编辑器暗色面板(#1a1a1a 背景)。 */
+.velo-editor .mermaid-svg-area,
+.velo-editor .velo-mermaid-block {
+  --pele-bg: #ffffff;
+  --pele-fg: #1f1f1f;
+  --pele-fg-on-light: #1f1f1f;
+  --pele-fg-on-dark: #ffffff;
+  --pele-muted: #6e6e6e;
+  --pele-line: #1f1f1f;
+  --pele-surface: #f3f3f3;
+  --pele-surface-alt: #e6e6e6;
+  --pele-border: #8a8a8a;
+  --pele-accent: #5b7bd5;
+  --pele-critical: #e45756;
+  --pele-error: #e45756;
+  --pele-radius: 4px;
+}
+
 /* SVG area(默认态点击切到编辑)。
    flex 居中:懒加载高度衔接下 svgArea 会带 min-height(缓存高度 / pre 实测
    高度),loader / 占位 / 错误提示在预留空间内居中,SVG 也在其中居中。 */
@@ -125,6 +149,27 @@
 }
 
 /* ========== 暗色模式：Mermaid ========== */
+
+/* pele 主题变量暗色翻转(html.dark / .dark 祖先 + 导出 body.velo-editor.dark
+   三路命中,同 _editor-code.scss 的 dark 规则范式)。
+   系列色 --pele-series-1..8 用 pele 默认(Tableau 系),亮暗两版通用不翻。 */
+.dark .mermaid-svg-area,
+.velo-editor.dark .mermaid-svg-area,
+.dark .velo-mermaid-block,
+.velo-editor.dark .velo-mermaid-block {
+  --pele-bg: #1a1a1a;
+  --pele-fg: #e5e5e5;
+  --pele-fg-on-light: #1f1f1f;
+  --pele-fg-on-dark: #ffffff;
+  --pele-muted: #999999;
+  --pele-line: #c9c9c9;
+  --pele-surface: #2a2a2a;
+  --pele-surface-alt: #333333;
+  --pele-border: #555555;
+  --pele-accent: #6aa3e0;
+  --pele-critical: #f77878;
+  --pele-error: #f77878;
+}
 
 .dark .mermaid-placeholder,
 .velo-editor.dark .mermaid-placeholder {

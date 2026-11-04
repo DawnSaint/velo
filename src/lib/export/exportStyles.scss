@@ -81,6 +81,22 @@ html, body {
   .velo-editor h1, .velo-editor h2, .velo-editor h3, .velo-editor h4 {
     color: var(--md-doc-primary-color, #6aa3e0);
   }
+  // pele 图表暗色翻转(同 _mermaid.scss 的 .dark 规则;导出 HTML 没有
+  // <html class="dark">,系统暗色由这条媒体查询接管)
+  .velo-editor .velo-mermaid-block {
+    --pele-bg: #1a1a1a;
+    --pele-fg: #e5e5e5;
+    --pele-fg-on-light: #1f1f1f;
+    --pele-fg-on-dark: #ffffff;
+    --pele-muted: #999999;
+    --pele-line: #c9c9c9;
+    --pele-surface: #2a2a2a;
+    --pele-surface-alt: #333333;
+    --pele-border: #555555;
+    --pele-accent: #6aa3e0;
+    --pele-critical: #f77878;
+    --pele-error: #f77878;
+  }
 }
 
 // 导出场景不需要 find 高亮、ProseMirror 选区、drop-cursor 等编辑器内部装饰

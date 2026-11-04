@@ -21,17 +21,16 @@ import { fromMarkdown } from '../editor/markdownIO'
 import { codeLineNumberPlugin, lineNumbersKey } from '../nodes/CodeLineNumberWidget'
 import { mermaidDecoration, mermaidDecoKey } from '../nodes/MermaidDecoration'
 
-// ★ stub mermaid:真实包 ~3MB,jsdom 执行顶层代码阻塞主线程 → 本测只关心
-// 行号联动 editNodeSet,不需要真渲染 SVG。vi.mock 工厂让 getMermaid() 立即
-// resolve 一个 noop 实例,把 import 代价降到近零。
-vi.mock('mermaid', () => {
-  const noop = (): Promise<void> => Promise.resolve()
+// ★ stub pele:本测只关心行号联动 editNodeSet,不需要真渲染 SVG。vi.mock
+// 工厂提供 render / PeleError 最小形状(对齐 MermaidDecoration.getPele 的用法),
+// 把渲染产物固定为空 SVG,零真实计算。
+vi.mock('pele', () => {
+  class PeleError extends Error {
+    code = 'syntax'
+  }
   return {
-    default: {
-      initialize: noop,
-      parse: () => Promise.resolve(),
-      render: () => Promise.resolve({ svg: '<svg></svg>', bindFunctions: undefined }),
-    },
+    PeleError,
+    render: () => ({ svg: '<svg class="pele"></svg>' }),
   }
 })
 

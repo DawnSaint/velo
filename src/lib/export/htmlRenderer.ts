@@ -299,9 +299,11 @@ async function mdastNodeToHtml(node: RootContent | any, ctx: WalkContext): Promi
     case 'code': {
       const lang = (node.lang ?? '').toLowerCase()
       const value = node.value ?? ''
-      // mermaid 走独立路径:渲染为 SVG,失败降级为原文 <pre>
+      // mermaid 走独立路径:渲染为 SVG(pele,颜色走 --pele-* CSS 变量,
+      // _mermaid.scss 已含 light/dark 两套,导出 HTML 自动跟随系统主题),
+      // 失败降级为原文 <pre>
       if (lang === 'mermaid') {
-        const { svg, error } = await renderMermaidSvg(value, 'default')
+        const { svg, error } = await renderMermaidSvg(value)
         if (svg) {
           return `<div class="velo-mermaid-block">${svg}</div>`
         }

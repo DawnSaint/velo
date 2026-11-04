@@ -1,31 +1,17 @@
 // Mermaid → SVG 字符串。
 //
-// 复用 mermaid.render(自带异步 API)。与 editor/MermaidDecoration.ts 的
-// renderMermaid 函数同一范式(mermaid.parse 先解析 + mermaid.render 拿 svg),
-// 但直接调 mermaid 库不经过 NodeView 路径 —— 导出场景不需要 bindFunctions。
+// 渲染库用 pele(Obsidian 出品,mermaid 语法兼容):render() 同步、零依赖、
+// 默认安全(转义文本/过滤链接,对标原 mermaid securityLevel:'strict')。
+// 与 editor/MermaidDecoration.ts 的 renderMermaid 同范式(懒加载 chunk 共享,
+// pele.PeleError 降级为 error 字符串),但直接调库不经过 Decoration 路径。
 //
-// id 唯一性:用 module-local counter 自增,保证一次导出多 mermaid 块不冲突。
-// mermaid 内部按 id 注册 SVG 容器,重复 id 会让第二块覆盖第一块的 DOM 节点。
-
-import type Mermaid from 'mermaid'
-
-// mermaid 懒加载 —— 与 editor 侧 MermaidDecoration.ts 的 getMermaid 共享 Vite
-// 拆出的 mermaid chunk。导出场景下不渲染到 DOM(只要 SVG 字符串),所以不需要
-// 额外副作用,直接 import 拿模块即可。
-
-let mermaidMod: typeof Mermaid | null = null
-let mermaidPromise: Promise<typeof Mermaid> | null = null
-
-function getMermaid(): Promise<typeof Mermaid> {
-  if (mermaidMod) return Promise.resolve(mermaidMod)
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then((m) => {
-      mermaidMod = m.default
-      return m.default
-    })
-  }
-  return mermaidPromise
-}
+// 主题:pele 的 SVG 颜色全部引用 --pele-* CSS 变量。_mermaid.scss 给
+// .velo-mermaid-block 定义了 light/dark 两套变量(暗色同时覆盖 .dark 类与
+// prefers-color-scheme,匹配 exportStyles.scss 的暗色策略),导出 HTML 内联
+// 这份 CSS 后自动跟随系统主题 —— 不需要在渲染时传 theme。
+//
+// idPrefix 唯一性:用 module-local counter 自增,保证一次导出多 mermaid 块
+// 不共享 SVG 内部 id(pele 用 idPrefix 前缀无障碍 title/description 等 id)。
 
 export interface MermaidRenderResult {
   svg: string
@@ -48,34 +34,26 @@ function escapeHtml(text: string): string {
 
 export async function renderMermaidSvg(
   code: string,
-  theme: 'default' | 'dark' = 'default',
 ): Promise<MermaidRenderResult> {
   const trimmed = code.trim()
   if (!trimmed) {
     return { svg: '', error: null }
   }
-  const mermaid = await getMermaid()
-  // mermaid 是 singleton(整个 app 共享一个),每次 render 前 re-init 切 theme。
-  // 跟 MermaidDecoration.ts 同范式;并发调用理论上有 race(两次
-  // initialize 互相覆盖 theme),但导出场景同步 await 各块,不会并发。
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme,
-  })
-  const id = uid()
+  // pele 懒加载 —— 与 editor 侧 MermaidDecoration.ts 的 getPele 共享 Vite
+  // 拆出的 pele chunk。导出场景不渲染到 DOM(只要 SVG 字符串),render 同步
+  // 完成后直接返回。
+  const pele = await import('pele')
   try {
-    await mermaid.parse(trimmed)
+    const { svg } = pele.render(trimmed, { idPrefix: uid() })
+    return { svg, error: null }
   }
   catch (e: unknown) {
-    const msg = (e instanceof Error ? e.message : String(e)) || 'mermaid 语法错误'
-    return { svg: '', error: msg }
-  }
-  try {
-    const result = await mermaid.render(id, trimmed)
-    return { svg: result.svg, error: null }
-  }
-  catch (e: unknown) {
+    // PeleError(unsupported-diagram / syntax / semantic / limit)→ 用户可读
+    // message;其他异常也降级为 error,不向上抛(导出流程不能被单块中断)。
+    if (e instanceof pele.PeleError) {
+      const msg = e.message || 'mermaid 渲染失败'
+      return { svg: '', error: msg }
+    }
     const msg = (e instanceof Error ? e.message : String(e)) || 'mermaid 渲染失败'
     return { svg: '', error: msg }
   }
