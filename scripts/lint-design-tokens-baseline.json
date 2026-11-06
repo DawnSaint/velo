@@ -91,20 +91,56 @@
     "color": "#1a1a1a",
     "type": "hex"
   },
+  "src/lib/export/exportStyles.scss:#1f1f1f": {
+    "color": "#1f1f1f",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#2a2a2a": {
+    "color": "#2a2a2a",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#333333": {
+    "color": "#333333",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#555555": {
+    "color": "#555555",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#6aa3e0": {
+    "color": "#6aa3e0",
+    "type": "hex"
+  },
   "src/lib/export/exportStyles.scss:#888": {
     "color": "#888",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#999999": {
+    "color": "#999999",
     "type": "hex"
   },
   "src/lib/export/exportStyles.scss:#aaa": {
     "color": "#aaa",
     "type": "hex"
   },
+  "src/lib/export/exportStyles.scss:#c9c9c9": {
+    "color": "#c9c9c9",
+    "type": "hex"
+  },
   "src/lib/export/exportStyles.scss:#e5e5e5": {
     "color": "#e5e5e5",
     "type": "hex"
   },
+  "src/lib/export/exportStyles.scss:#f77878": {
+    "color": "#f77878",
+    "type": "hex"
+  },
   "src/lib/export/exportStyles.scss:#ff7b72": {
     "color": "#ff7b72",
+    "type": "hex"
+  },
+  "src/lib/export/exportStyles.scss:#ffffff": {
+    "color": "#ffffff",
     "type": "hex"
   },
   "src/lib/export/exportStyles.scss:rgba(255": {
@@ -331,6 +367,62 @@
     "color": "rgba(255",
     "type": "rgb"
   },
+  "src/styles/_editor-diff.scss:#16a34a": {
+    "color": "#16a34a",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#34d399": {
+    "color": "#34d399",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#555b63": {
+    "color": "#555b63",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#676d75": {
+    "color": "#676d75",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#797f88": {
+    "color": "#797f88",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#848a92": {
+    "color": "#848a92",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#9ba0a7": {
+    "color": "#9ba0a7",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#b0b5bb": {
+    "color": "#b0b5bb",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#d97706": {
+    "color": "#d97706",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:#f59e0b": {
+    "color": "#f59e0b",
+    "type": "hex"
+  },
+  "src/styles/_editor-diff.scss:rgb(146": {
+    "color": "rgb(146",
+    "type": "rgb"
+  },
+  "src/styles/_editor-diff.scss:rgb(253": {
+    "color": "rgb(253",
+    "type": "rgb"
+  },
+  "src/styles/_editor-diff.scss:rgb(254": {
+    "color": "rgb(254",
+    "type": "rgb"
+  },
+  "src/styles/_editor-diff.scss:rgb(69": {
+    "color": "rgb(69",
+    "type": "rgb"
+  },
   "src/styles/_editor-emoji.scss:#374151": {
     "color": "#374151",
     "type": "hex"
@@ -555,14 +647,6 @@
     "color": "#fff8dc",
     "type": "hex"
   },
-  "src/styles/_math.scss:#333": {
-    "color": "#333",
-    "type": "hex"
-  },
-  "src/styles/_math.scss:#d4d4d4": {
-    "color": "#d4d4d4",
-    "type": "hex"
-  },
   "src/styles/_math.scss:#e5534b": {
     "color": "#e5534b",
     "type": "hex"
@@ -575,20 +659,84 @@
     "color": "rgba(128",
     "type": "rgb"
   },
+  "src/styles/_mermaid.scss:#1a1a1a": {
+    "color": "#1a1a1a",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#1f1f1f": {
+    "color": "#1f1f1f",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#2a2a2a": {
+    "color": "#2a2a2a",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#333333": {
+    "color": "#333333",
+    "type": "hex"
+  },
   "src/styles/_mermaid.scss:#555": {
     "color": "#555",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#555555": {
+    "color": "#555555",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#5b7bd5": {
+    "color": "#5b7bd5",
     "type": "hex"
   },
   "src/styles/_mermaid.scss:#666": {
     "color": "#666",
     "type": "hex"
   },
+  "src/styles/_mermaid.scss:#6aa3e0": {
+    "color": "#6aa3e0",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#6e6e6e": {
+    "color": "#6e6e6e",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#8a8a8a": {
+    "color": "#8a8a8a",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#999999": {
+    "color": "#999999",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#c9c9c9": {
+    "color": "#c9c9c9",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#e45756": {
+    "color": "#e45756",
+    "type": "hex"
+  },
   "src/styles/_mermaid.scss:#e5534b": {
     "color": "#e5534b",
     "type": "hex"
   },
+  "src/styles/_mermaid.scss:#e5e5e5": {
+    "color": "#e5e5e5",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#e6e6e6": {
+    "color": "#e6e6e6",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#f3f3f3": {
+    "color": "#f3f3f3",
+    "type": "hex"
+  },
   "src/styles/_mermaid.scss:#f77878": {
     "color": "#f77878",
+    "type": "hex"
+  },
+  "src/styles/_mermaid.scss:#ffffff": {
+    "color": "#ffffff",
     "type": "hex"
   },
   "src/styles/_mermaid.scss:rgb(34": {

@@ -42,7 +42,7 @@
 
 ## 现状快照
 
-覆盖：纯函数(`utils/`)、Pinia store(`document` / `editor`(含 zoomLevel) / `export` / `system`(自动更新开关 hydrate / snapshot) / `workspace` / `versionHistory`(本地快照 + Git 历史合并 / 异步 diff / 缓存) / `migration`(settings v1→vN / workspaces v1→v5 迁移链))、ProseMirror 核心(markdownIO round-trip 含 underline mark / strictMath 插件(mathFlow 围栏 `$$` 独占行匹配 + mathText 行内 `$...$` 匹配) / 语法实时转换 / 键位(Enter 链:splitInListItemNestedBlock 守卫 / liftEmptyBlock / mathBlockEnter / Shift+Enter 多场景命令链) / NodeView / 插件 / 查找替换 / CJK 排版三件套:字间距装饰插件 / 括号自动配对插件 / 智能排版格式化器库(5 组规则 + 保护区扫描 + 完整性校验回滚 + WYSIWYG 往返) / markdownPaste 插件 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / 自绘光标(customCaret:非文本位置自绘覆盖条 / fold_placeholder 前后接管 / fallback 零高度矩形) / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理) / emoji 短码 round-trip(`:smile:` → emoji atom 节点 → `:smile:` idempotent)+ emoji 源码编辑(光标靠近展开 `:shortcode:` / 移出 commit 重建 / Escape 还原 / 降级纯文本)+ emoji 自动补全(`:short` 输入态下拉模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭)、数学公式(strictMath 严格围栏匹配 / math_block 围栏残缺降级 / 块级公式实时语法检测 / math_block 内 Enter 行为 / 降级后光标 clamp)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 + settingsActive 空态 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
+覆盖：纯函数(`utils/` 含 imageSrc 跨视图图片 src 解析)、Pinia store(`document` / `editor`(含 zoomLevel) / `export` / `system`(自动更新开关 hydrate / snapshot) / `workspace` / `versionHistory`(本地快照 + Git 历史合并 / 异步 diff / 缓存) / `migration`(settings v1→vN / workspaces v1→v5 迁移链))、ProseMirror 核心(markdownIO round-trip 含 underline mark / strictMath 插件(mathFlow 围栏 `$$` 独占行匹配 + mathText 行内 `$...$` 匹配) / 语法实时转换 / 键位(Enter 链:splitInListItemNestedBlock 守卫 / liftEmptyBlock / mathBlockEnter / Shift+Enter 多场景命令链) / NodeView / 插件 / WYSIWYG diff(整框分组包围盒几何 / 归组 pos 边界 / 视口增量下组稳定 / 删除片段图片 src 代理 / 文本块与原子块不配对) / 查找替换 / CJK 排版三件套:字间距装饰插件 / 括号自动配对插件 / 智能排版格式化器库(5 组规则 + 保护区扫描 + 完整性校验回滚 + WYSIWYG 往返) / markdownPaste 插件 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / 自绘光标(customCaret:非文本位置自绘覆盖条 / fold_placeholder 前后接管 / fallback 零高度矩形) / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理) / emoji 短码 round-trip(`:smile:` → emoji atom 节点 → `:smile:` idempotent)+ emoji 源码编辑(光标靠近展开 `:shortcode:` / 移出 commit 重建 / Escape 还原 / 降级纯文本)+ emoji 自动补全(`:short` 输入态下拉模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭)、数学公式(strictMath 严格围栏匹配 / math_block 围栏残缺降级 / 块级公式实时语法检测 / math_block 内 Enter 行为 / 降级后光标 clamp)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 + settingsActive 空态 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
 
 **E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 build.yml，见 ROADMAP `#ci-pipeline`。
 
@@ -63,7 +63,8 @@ src/
 │       ├── workspaceSearch.test.ts
 │       ├── documentStats.test.ts
 │       ├── statusPath.test.ts
-│       └── imagePath.test.ts
+│       ├── imagePath.test.ts
+│       └── imageSrc.test.ts           图片 src 解析:相对路径按文档目录归一 / 外链与 asset: 透传 / 无基准目录降级 / 非 Tauri 环境原样返回
 ├── stores/
 │   └── __tests__/
 │       ├── document.test.ts          openFilePaths / openPathsInTabs 批量并行恢复 / openPathInTab({ silent }) / closeTab 收敛
@@ -112,7 +113,8 @@ src/
         │   └── mathBlockBrokenFence.test.ts  math 围栏残缺降级:首尾 `$` 缺失 → paragraph / 内容为空 → 占位
         │   └── mathBlockSyntax.test.ts 块级公式实时语法检测:段落中 `$$\n...\n$$` 自动转 math_block / 不完整围栏不转
         │   └── mathBlockEnter.test.ts  math_block 内 Enter:闭合 `$$` 后 → 退出插入段落 / 内容区 → 换行不拆段
-        │   └── mathBlockDowngradeCursor.test.ts  math_block 降级光标 clamp:删除分隔符导致降级后光标定位在 paragraph content 范围内
+        │   ├── mathBlockDowngradeCursor.test.ts  math_block 降级光标 clamp:删除分隔符导致降级后光标定位在 paragraph content 范围内
+        │   └── diffGroupFrames.test.ts  整框 overlay:包围盒几何 / 归组 pos 边界 / 真实 EditorView 端到端定位 / destroy 后异步回调不重建
         ├── nodes/__tests__/
         │   ├── HtmlNodeView.test.ts   html_block NodeView:块级 HTML 源码切换(点击按钮→code_block 替换→光标移出 commit / Escape 还原) / 独立 img 分流(→ image 节点) / 嵌套 img proxyDomURL 代理
         │   └── mathLazyRender.test.ts B3 NodeView 延迟渲染:视口外不调 katex.render / 进入视口渲染 / 滚出销毁+缓存 / 缓存同步恢复 / edit 态不销毁(fake IntersectionObserver)

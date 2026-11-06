@@ -172,8 +172,13 @@ function blockKey(node: PMNode): string {
   return parts.join('')
 }
 
-/** 无可见内容的 block(空段落):无文本且无非文本 leaf */
+/** 无可见内容的文本块(空段落):无文本且无非文本 leaf */
 function isEmptyBlock(node: PMNode): boolean {
+  // 只有文本块才有「空」的概念。toc 这类 leaf 节点的 DOM 本身不带文本 ——
+  // 内容渲染在 Decoration.widget 上 —— 按空块处理会让「新增目录」在配对
+  // 退化里被当成纯 delete 丢掉,结果目录既没有标记也不进 diff 计划。
+  // 同理,新增的分割线 / 图片也不会因为「没有文字」而被吞掉。
+  if (!node.isTextblock) return false
   if (node.textContent !== '') return false
   let hasLeaf = false
   node.descendants((child) => {
@@ -181,6 +186,16 @@ function isEmptyBlock(node: PMNode): boolean {
     return !hasLeaf
   })
   return !hasLeaf
+}
+
+/**
+ * 删除块与新增块能否配成「修改」。
+ * 文本块 ↔ 原子块(toc / 分割线 …)之间不是「改了」,而是「换掉了」:
+ * 硬配对的结果是旧块被划掉、新块一点标记都没有(新块走的是删除侧的分组逻辑),
+ * 读者看不到新增了什么。这类情况退回 delete + insert。
+ */
+function canPairBlocks(oldNode: PMNode, newNode: PMNode): boolean {
+  return oldNode.isTextblock === newNode.isTextblock
 }
 
 /** 拆分 / 合并判定用的文本归一化:去掉全部空白(段落边界会吃掉原空格 / 换行) */
@@ -245,6 +260,10 @@ export function diffBlocks(
           }
           else if (isEmptyBlock(newBlocks[inss[i]].node)) {
             ops.push({ kind: 'delete', oldIndex: dels[i] })
+          }
+          else if (!canPairBlocks(oldBlocks[dels[i]].node, newBlocks[inss[i]].node)) {
+            ops.push({ kind: 'delete', oldIndex: dels[i] })
+            ops.push({ kind: 'insert', newIndex: inss[i] })
           }
           else {
             ops.push({ kind: 'pair', oldIndex: dels[i], newIndex: inss[i] })

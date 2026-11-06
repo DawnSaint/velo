@@ -3,7 +3,7 @@ import { EditorState, Plugin } from 'prosemirror-state'
 import { DecorationSet, EditorView } from 'prosemirror-view'
 import { schema as veloSchema, type VeloSchema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
-import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin } from '../plugins/diffDecoration'
+import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin, getDiffGroups } from '../plugins/diffDecoration'
 import { viewportPlugin, setInitialViewportHint, viewportKey } from '../nodes/viewportPlugin'
 
 function makeDoc(md: string) {
@@ -493,5 +493,104 @@ describe('diffDecorationPlugin 增量构建', () => {
     expect(after).toBe(fullCount)
     // 且大于初始(确实追加了新的)
     expect(after).toBeGreaterThan(before)
+  })
+})
+
+// ========== 整框分组(DiffGroup)==========
+// 组边界来自 diff 计划,不依赖渲染后的 DOM 相邻关系
+
+describe('DiffGroup 整框分组', () => {
+  /** 收集所有 node decoration 上的 data-diff-group-id */
+  function groupIdsIn(plan: ReturnType<typeof buildDiffPlan>): string[] {
+    return plan.entries.flatMap(e => e.decos)
+      .map(d => (d as any).type?.attrs?.['data-diff-group-id'])
+      .filter((id: unknown): id is string => typeof id === 'string')
+  }
+
+  it('连续多段新增 → 合成一个 added group,组内 id 一致', () => {
+    const plan = buildDiffPlan(
+      makeDoc('旧内容.\n\n新段一\n\n新段二\n\n新段三'),
+      makeDoc('旧内容.'),
+    )
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    expect(added[0].entries.length).toBe(3)
+    const ids = groupIdsIn(plan)
+    expect(ids.length).toBe(3)
+    expect(new Set(ids).size).toBe(1)
+    expect(ids[0]).toBe(added[0].id)
+  })
+
+  it('被未变更段隔开的新增 → 两个独立 group', () => {
+    const plan = buildDiffPlan(
+      makeDoc('新段一\n\nkeep\n\n新段二'),
+      makeDoc('keep'),
+    )
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(2)
+    expect(added[0].id).not.toBe(added[1].id)
+    expect(added.every(g => g.entries.length === 1)).toBe(true)
+  })
+
+  it('单个新增块 → group 的 from/to 与该 entry 一致', () => {
+    const plan = buildDiffPlan(makeDoc('旧内容.\n\n新段.'), makeDoc('旧内容.'))
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    const entry = plan.entries[added[0].entries[0]]
+    expect(added[0].from).toBe(entry.from)
+    expect(added[0].to).toBe(entry.to)
+    expect(entry.groupId).toBe(added[0].id)
+  })
+
+  it('连续删除 → 合成 deleted group(渲染层不画绿框)', () => {
+    const plan = buildDiffPlan(
+      makeDoc('keep'),
+      makeDoc('第一段\n\n第二段\n\nkeep'),
+    )
+    const deleted = plan.groups.filter(g => g.kind === 'deleted')
+    expect(deleted.length).toBe(1)
+    expect(deleted[0].entries.length).toBe(2)
+  })
+
+  it('字符级修改(pair)不产生整框组', () => {
+    const plan = buildDiffPlan(makeDoc('hello'), makeDoc('hello!'))
+    expect(plan.groups.length).toBe(0)
+  })
+
+  it('组是全量 plan 的一部分,窄视口下不随增量构建变化', () => {
+    const narrow = makeDiffState('旧内容.', '旧内容.\n\n新段一\n\n新段二', { from: 0, to: 1 })
+    const full = makeDiffState('旧内容.', '旧内容.\n\n新段一\n\n新段二', null)
+    expect(getDiffGroups(narrow)).toEqual(getDiffGroups(full))
+    expect(getDiffGroups(narrow).length).toBe(1)
+  })
+})
+
+// ========== 删除片段里的图片 src ==========
+// widget DOM 由 DOMSerializer 生成,不经过 image NodeView;必须把 markdown 里的
+// 相对路径也交给视图注入的 resolver,否则预览模式里删除版本的图片全部裂图。
+
+describe('删除片段图片 src 代理', () => {
+  // 单段落内两张图:分成两段会被判成 merge op(只有边界提示,没有删除片段)
+  const OLD_MD = '![图解](assets/x.png) ![另一张](assets/y.png)'
+
+  function deletedDom(srcResolver?: (s: string) => string): HTMLElement {
+    const plan = buildDiffPlan(makeDoc(''), makeDoc(OLD_MD), srcResolver)
+    const widgets = plan.entries.flatMap(e => e.decos).filter(d => d.from === d.to)
+    expect(widgets.length).toBeGreaterThan(0)
+    const dom = document.createElement('div')
+    for (const w of widgets) dom.appendChild((w as any).type.toDOM() as HTMLElement)
+    return dom
+  }
+
+  it('注入 resolver → 片段内所有 <img> 的 src 被改写', () => {
+    const dom = deletedDom(src => `asset://localhost/${src}`)
+    expect(Array.from(dom.querySelectorAll('img')).map(i => i.getAttribute('src')))
+      .toEqual(['asset://localhost/assets/x.png', 'asset://localhost/assets/y.png'])
+  })
+
+  it('未注入 resolver → 保持原始 src(纯逻辑 / 测试路径不回归)', () => {
+    const dom = deletedDom()
+    expect(Array.from(dom.querySelectorAll('img')).map(i => i.getAttribute('src')))
+      .toEqual(['assets/x.png', 'assets/y.png'])
   })
 })

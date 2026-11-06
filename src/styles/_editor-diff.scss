@@ -1,90 +1,408 @@
 // WYSIWYG diff 装饰样式(#diff-wysiwyg / #diff-semantic-render)
 //
 // 在 ProseMirror 只读渲染上叠加的增删标记:
-// - .velo-diff-added: 整行新增 block 级背景(Decoration.node,覆盖整个段落)
-// - .velo-diff-added-inline: 字符级新增 inline 背景(Decoration.inline,只标记变化的字符)
-// - .velo-diff-removed: 字符级删除文本 widget,红色背景(原位显示)
-// - .velo-diff-deleted-block: 整 block 删除的只读片段 widget(序列化旧 block,保留结构)
-// - .velo-diff-changed: 整块变更(非文本 leaf 变更等,文本未变),amber 底色
-// - .velo-diff-type-changed: 节点类型变更,在 changed 基础上加左侧条(+ tooltip)
-// - .velo-diff-format-changed: 仅格式变更的 inline 区间标记,amber 底 + 下划线
+// - .velo-diff-added: 整块新增(Decoration.node),带 data-diff-group-id 归属整框组
+// - .velo-diff-added-inline: 字符级新增 inline(Decoration.inline)
+// - .velo-diff-removed: 字符级删除文本 widget(原位显示)
+// - .velo-diff-deleted-block: 整 block 删除的只读片段 widget
+// - .velo-diff-changed / -type-changed / -format-changed: 格式 / 类型 / 非文本变更
 // - .velo-diff-boundary-hint: 段落拆分 / 合并的边界提示 badge
-// - .velo-diff-removed-cell / .velo-diff-added-cell: 表格整列 / 整行增删的
-//   幽灵单元格与新增单元格(Decoration.widget 的 <td>/<th> + node 装饰)
-// - .velo-diff-deleted-group: 多文本容器 block 内被删容器的独立红色片段
+// - .velo-diff-removed-cell / -added-cell: 表格结构化 diff 的幽灵 / 新增单元格
+// - .velo-diff-deleted-group: 多文本容器内被删容器的独立片段
 //
-// 纯背景色区分增删,不叠删除线——避免与 markdown ~~删除线~~ 语法(strike mark)的
-// 视觉样式冲突。颜色与源码 diff 模式(Tailwind class)统一:
-// - 整行背景 = green-50 / red-50(亮色),green-950/30% / red-950/30%(暗色)
-// - 字符级背景 = green-200/60% / red-200/60%(亮色),green-800/40% / red-800/40%(暗色)
-// - 格式 / 类型变更 = amber 系(区别于增删的第三种语义)
+// ## 标记语法(纯线条,不用底色与左侧竖条)
+//
+// | 状态        | 整段新增 / 变更         | 段内的字           | 非文本块          |
+// | ----------- | ----------------------- | ------------------ | ----------------- |
+// | 新增        | 绿色整框(连续多段一个) | 2px 绿色下划线     | 同左,由整框覆盖  |
+// | 删除        | 1.5px 删除线 + 文字调灰 | 同左               | 灰度化 + 灰描边   |
+// | 格式 / 类型 | 2px 琥珀点线描边        | 2px 琥珀点线下划线 | 2px 琥珀点线描边  |
+//
+// ## 整框由渲染层画,不再由 CSS 拼接
+//
+// 连续多个新增段落用**一个**框包住,这个框是 `plugins/diffGroupFrames.ts`
+// 生成的一个绝对定位空 div(每组一个),挂在 `.velo-diff-editor` 上、不进
+// `view.dom`。组来自 diff 计划的 DiffGroup,不靠 `:has(+ …)` 猜 DOM 相邻:
+//
+// - CSS 没有「给一组兄弟套共同边框」的原语。旧的逐块 border 拼接要求所有
+//   相邻块同父级、紧邻、同一左右边界、零间隙;而代码 header / mermaid SVG /
+//   目录 / 删除片段都是插进兄弟链的 widget,必然出现断口和独立小框;
+// - 各载体盒模型不同(负 margin 补偿 / outline-offset / 伪元素 inset),
+//   框宽天然不齐。overlay 的左右只取一次(版心 ±16px),与块类型无关;
+// - 视口增量构建时视口外的块暂时没有 decoration,CSS 猜的组首会随滚动漂移。
+//
+// 因此本节只定义 overlay 的外观与降级,不再有按节点类型画框的规则。
+//
+// **为什么不用底色 / 左竖条 / 文字染色**:预览模式是排版流,大色块会切碎
+// 段落;底色会被组件自身背景(代码块、表头、警告框)盖掉;左侧竖条与引用块、
+// 警告框自带彩条撞脸;中文字形密集,颜色差异容易被笔画淹没。线条是形状信号。
 //
 // **段间距策略**:diff 编辑器内段落去掉 margin,用 padding 撑开段间距。
-// padding 属于 content box,Decoration.node 的 background-color 天然覆盖,
-// 无段间空隙。后续状态栏控制面板统一调 line-height/padding 时自动跟随。
 
-// ── 整行背景(与源码 diff 的 bg-green-50 / bg-red-50 一致)──
+// ── 语义色 ──
 
-// 整行新增:block 级背景(Decoration.node),覆盖整个 <p> 的 content box
-.velo-diff-added {
-  background-color: rgb(240 253 244); // green-50
+// 删除色三档:整体偏中性灰(三通道差 ~12,不再带蓝调),且比上一版再淡一档。
+// 递进关系不变:亮色「正文 → 标题 → 删除线」逐级变淡;暗色反向,逐级往背景压暗。
+:root {
+  --diff-add-line: #16a34a; // green-600
+  --diff-del-ink: #848a92; // 删除正文
+  --diff-del-heading-ink: #9ba0a7; // 删除标题:再淡一档,抵消 bold + 大字号的墨量
+  --diff-del-line: #b0b5bb; // 删除线 / 描边 / 幽灵单元格底条
+  --diff-fmt-line: #d97706; // amber-600
 }
 
-// 整块变更(格式 / 节点类型变更,文本未变):amber-50 底色,区别于增删
-.velo-diff-changed {
-  background-color: rgb(255 251 235); // amber-50
+html.dark,
+.dark .velo-editor,
+.velo-editor.dark {
+  --diff-add-line: #34d399; // green-400(深底上提亮)
+  --diff-del-ink: #797f88;
+  // 暗底上「淡一档」= 往背景方向压暗(降低对比),而不是提亮——提亮会让粗体更抢眼
+  --diff-del-heading-ink: #676d75;
+  --diff-del-line: #555b63;
+  --diff-fmt-line: #f59e0b; // amber-500
 }
 
-// ── 字符级背景(与源码 diff 的 bg-green-200/60 / bg-red-200/60 一致)──
+// 语义「文本块」:能被文字删除线 / 文本标记承载的节点。
+// 不含 ul / ol / pre / table / 公式块 —— 给它们加 line-through 会横穿整个块。
+$diff-text-blocks: 'p, h1, h2, h3, h4, h5, h6, li, blockquote, dl, .footnote-definition';
 
-// 字符级新增:inline 背景(Decoration.inline),只标记变化的字符
+// 整块变更(changed)的载体分类:这类块用 outline 点线,文本块用下划线。
+$diff-frame-blocks: 'p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .math-block-node, div[data-type="math_block"]';
+
+@mixin diff-rule($color, $style: solid) {
+  text-decoration: underline;
+  text-decoration-color: $color;
+  text-decoration-style: $style;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+@mixin diff-frame($color, $style: solid) {
+  outline: 2px $style $color;
+  outline-offset: -2px;
+}
+
+@mixin diff-strike {
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-del-line);
+  text-decoration-thickness: 1.5px;
+}
+
+// ── 字符级 ──
+
+// 字符级新增:下划线只覆盖变化的字符
 .velo-diff-added-inline {
-  background-color: rgb(187 247 208 / 0.6); // green-200/60
-  border-radius: 2px;
+  @include diff-rule(var(--diff-add-line));
 }
 
-// 删除文本 widget:inline 背景(只覆盖文本片段)
-// ProseMirror 对 widget 自动设 contentEditable="false",Chrome UA 样式因此
-// 应用 -webkit-user-select:none 导致文字不可拖选。显式 user-select:text 覆盖。
+// 行内 code 的胶囊只有 2px 内边距,全局 offset 3px 会把线甩到胶囊外面
+code .velo-diff-added-inline,
+code.velo-diff-added-inline {
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 1px;
+}
+
+// 脚注引用端是上标:整个盒子被抬高,下划线会画在字下面一大截的空白处。
+// 必须带 .velo-editor 前缀压过 _footnote.scss 的 `outline: none`。
+.velo-editor .velo-diff-added-inline:is(.footnote-ref-node) {
+  text-decoration: none;
+  outline: 1.5px solid var(--diff-add-line);
+  outline-offset: 0;
+  border-radius: 3px;
+}
+
+// 字符级删除:原位 widget,调灰 + 删除线。
+// PM 对 widget 自动设 contentEditable=false,Chrome UA 样式会禁选,显式覆盖。
 .velo-diff-removed {
-  background-color: rgb(254 202 202 / 0.6); // red-200/60
-  border-radius: 2px;
   display: inline;
-  color: rgb(127 29 29 / 0.8);
+  color: var(--diff-del-ink);
+  @include diff-strike;
   -webkit-user-select: text;
   user-select: text;
 }
 
-// ── 语义化渲染(#diff-semantic-render)──
+code .velo-diff-removed,
+code.velo-diff-removed {
+  text-decoration-thickness: 1.2px;
+}
 
-// 整 block 删除的只读片段:内部是旧 block 序列化 DOM(标题保留字号、
-// 列表保留缩进、图片 / 分割线保留原形),叠加删除语义的红底 + 左侧条。
-// 内部 p 继承 .velo-diff-editor 的 padding 段间距策略,排版与正文一致。
-// user-select:text 同 .velo-diff-removed,覆盖 widget 的 contentEditable=false。
-// 左侧条与 .velo-diff-type-changed 同规格(3px),底色/描边走 red 系以区别「删除」。
+// 行内「删 + 增」紧邻时留一条缝,否则会读成一句话
+.velo-diff-removed + .velo-diff-added-inline,
+.velo-diff-added-inline + .velo-diff-removed {
+  margin-left: 0.22em;
+}
+
+// ── 整框 overlay ──
+
+// overlay 挂在 EditorView 的挂载点上(不是 view.dom 内),不参与 PM 的 DOM 映射。
+// frame 是唯一画框的元素:一组连续新增块一个框,左右坐标由 JS 统一给定。
+.velo-diff-editor {
+  position: relative;
+
+  .ProseMirror {
+    min-height: 100%;
+    padding: 2rem 4rem;
+    caret-color: transparent;
+
+    // 段落:去掉 margin,用 padding 撑开段间距
+    p {
+      margin: 0;
+      padding-block: 0.25em;
+    }
+  }
+}
+
+.velo-diff-frames {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.velo-diff-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--diff-add-line);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+// 降级:overlay 未就绪(或整组几何计算失败)时,至少让新增块可见。
+// 另外「多文本容器内单独新增的一项」不属于任何整框组(pair op 内的 insert),
+// 一直走这里的单块描边 —— 它本来就是一个局部新增,不该与整段新增合并。
+.velo-diff-editor:not(.velo-diff-frames-ready) .velo-diff-added,
+.velo-diff-added:not([data-diff-group-id]) {
+  outline: 2px solid var(--diff-add-line);
+  outline-offset: 2px;
+  border-radius: 5px;
+}
+
+// ── 块级删除 ──
+
+// 整 block 删除的只读片段:文字调灰 + 删除线 + 非文本块灰描边。
 .velo-diff-deleted-block {
-  background-color: rgb(254 242 242); // red-50
-  border-left: 3px solid rgb(239 68 68 / 0.5); // red-500/50
-  padding-left: 0.5em;
+  color: var(--diff-del-ink);
   -webkit-user-select: text;
   user-select: text;
 }
 
-// 节点类型变更:在 amber 底色(changed)上加左侧条,tooltip 由 decoration title 提供
-.velo-diff-type-changed {
-  border-left: 3px solid rgb(245 158 11); // amber-500
-  padding-left: 0.5em;
+.velo-diff-deleted-block :is(#{$diff-text-blocks}) {
+  color: inherit;
+  @include diff-strike;
 }
 
-// 仅格式变更(加粗 / 链接等 marks 变化)的 inline 区间:amber 底 + 下划线,
-// 区别于增删;tooltip「格式变更」由 decoration title 提供
+// 非文本块:内容灰度化 + 灰描边。不用删除线,否则会盖住语法高亮。
+// 描边落在内层块上:wrapper 没内边距,内层 pre / table 的背景会盖掉 wrapper
+// 的 inset 描边。
+.velo-diff-deleted-block :is(pre, table, .mermaid-node) {
+  @include diff-frame(var(--diff-del-line));
+}
+
+.velo-editor .velo-diff-deleted-block hr {
+  border-top-color: var(--diff-del-line);
+}
+
+// 删除块里的脚注上标:删除线与灰字传播不进 inline-block
+.velo-editor .velo-diff-deleted-block .footnote-ref-node,
+.velo-editor .velo-diff-deleted-group .footnote-ref-node {
+  color: inherit;
+  outline: 1.5px solid var(--diff-del-line);
+  outline-offset: 0;
+  border-radius: 3px;
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-del-line);
+  text-decoration-thickness: 1.2px;
+}
+
+.velo-diff-deleted-block :is(dl, .footnote-definition) :is(dt, p) {
+  color: inherit;
+  @include diff-strike;
+}
+
+.velo-diff-deleted-block :is(pre, img, table) {
+  filter: grayscale(1);
+  opacity: 0.78;
+}
+
+.velo-diff-deleted-block :is(code, a),
+.velo-diff-deleted-group :is(code, a) {
+  color: inherit;
+}
+
+.velo-diff-deleted-block img {
+  box-shadow: 0 2px 0 0 var(--diff-del-line);
+}
+
+// 多文本容器里被删容器的独立片段:class 直接落在该元素上
+.velo-diff-deleted-group {
+  color: var(--diff-del-ink);
+  @include diff-strike;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.velo-diff-deleted-group :is(#{$diff-text-blocks}) {
+  color: inherit;
+}
+
+// 删除片段里的标题要显式压过两条「活文档」规则:
+//   .velo-editor hN { color: var(--md-doc-primary-color, #333) }                    (0,1,1)
+//   :is(.dark .velo-editor, .velo-editor.dark) :is(h1…h6) { color: …white }        (0,2,1)
+// 上面两条 `.velo-diff-… :is($diff-text-blocks) { color: inherit }` 是 (0,2,0):
+// 亮色下能赢 typography 只是**侥幸** —— `:is()` 的特异性取参数里最具体的
+// 一项,而 $diff-text-blocks 恰好含 `.footnote-definition` 把 :is() 抬成了
+// (0,1,0)。一旦有人把这个 class 移出列表,删除标题立刻变回主题主色;
+// 暗色下 (0,2,0) 更是直接输给 (0,2,1),标题会保留亮白而正文是灰。
+// 这里用 .ProseMirror 前缀锁到 (0,3,1),不依赖参数内容或 @forward 顺序。
+// 颜色不再用 inherit:标题是 bold + 1.2em~2em,同样灰度的墨量远高于正文,
+// 看起来会「比正文黑」,所以单独给一档更浅的专用灰,正文仍走 --diff-del-ink。
+$diff-headings: 'h1, h2, h3, h4, h5, h6';
+
+.velo-editor .ProseMirror :is(.velo-diff-deleted-block, .velo-diff-deleted-group) :is(#{$diff-headings}),
+.velo-editor .ProseMirror .velo-diff-deleted-group:is(#{$diff-headings}) {
+  color: var(--diff-del-heading-ink);
+  // h2 自带 `border-bottom: 1px solid var(--md-doc-primary-color)`,删除样式
+  // 从没接管过它 —— 那是删除标题上唯一一条「活」的深色线,也跟着调灰。
+  border-bottom-color: var(--diff-del-line);
+}
+
+// ── 有序列表:删掉一项后重排序号 ──
+// <ol> 序号由浏览器按 DOM 数出,删除项仍占 <li>。只对「含删除项的 ol」
+// 改用 CSS counter:留存项按新顺序数,删除项只推进旧序号并自己划线。
+.velo-editor ol:has(.velo-diff-deleted-group) {
+  counter-reset: velo-diff-ordinal velo-diff-ordinal-old;
+
+  > li {
+    counter-increment: velo-diff-ordinal velo-diff-ordinal-old;
+
+    &::marker {
+      content: counter(velo-diff-ordinal) '.' '\00a0';
+    }
+  }
+
+  > li.velo-diff-deleted-group {
+    counter-increment: velo-diff-ordinal-old;
+    position: relative;
+    list-style: none;
+
+    &::marker {
+      content: '';
+    }
+
+    // right:100% 把序号右缘钉在 li 内容起点,和原生 marker 同一个锚点
+    &::before {
+      content: counter(velo-diff-ordinal-old) '.' '\00a0';
+      position: absolute;
+      top: 0;
+      right: 100%;
+      color: var(--diff-del-ink);
+      text-decoration: line-through;
+      text-decoration-color: var(--diff-del-line);
+      text-decoration-thickness: 1.5px;
+    }
+  }
+}
+
+// ── 格式 / 类型变更(琥珀点线)──
+
 .velo-diff-format-changed {
-  background-color: rgb(253 230 138 / 0.5); // amber-200/50
-  border-bottom: 2px solid rgb(245 158 11 / 0.7); // amber-500/70
-  border-radius: 2px;
+  @include diff-rule(var(--diff-fmt-line), dotted);
 }
 
-// 段落拆分 / 合并的边界提示 badge
+// 整块变更(非文本 leaf,如图片 src / 代码块换语言):整块点线描边
+.velo-diff-changed:not(:is(#{$diff-frame-blocks}, #{$diff-text-blocks})) {
+  @include diff-frame(var(--diff-fmt-line), dotted);
+}
+
+.velo-editor .velo-diff-changed:is(.velo-hr, hr) {
+  outline: 2px dotted var(--diff-fmt-line);
+  outline-offset: -2px;
+  border-radius: 3px;
+
+  &.velo-hr {
+    padding-block: 14px;
+    margin-block: 1.5em;
+
+    > hr {
+      margin: 0;
+      border-top-color: var(--diff-del-line);
+    }
+  }
+}
+
+.velo-diff-changed:is(#{$diff-text-blocks}):has(> img:only-child) {
+  text-decoration: none;
+}
+
+.velo-diff-changed > img {
+  box-shadow: 0 2px 0 0 var(--diff-fmt-line);
+}
+
+// 文本块的整块变更:点线下划线贴在字上,不用 border(避免撑行)
+.velo-diff-changed:is(#{$diff-text-blocks}) {
+  @include diff-rule(var(--diff-fmt-line), dotted);
+}
+
+.velo-editor .velo-diff-changed:is(.velo-alert) {
+  outline-offset: 2px;
+}
+
+// 节点类型变更:语义位保留,视觉沿用 changed 的点线
+.velo-diff-type-changed {
+  // 便于以后单独加视觉
+}
+
+// 目录的真实 DOM 在 widget 上(节点是空 div),changed 的标记转嫁过去
+.velo-editor .velo-toc:has(+ div[data-type='toc'].velo-diff-changed) {
+  outline: 2px dotted var(--diff-fmt-line);
+  outline-offset: 2px;
+}
+
+// 变更代码块:header 与代码区之间那条缝用 inset 阴影画分隔线,
+// 让 header 的伪元素描边能连续越过接缝
+.velo-code-header-widget:not([data-lang='mermaid']):has(+ pre.velo-diff-changed) {
+  position: relative;
+  z-index: 2;
+  border-bottom-width: 0;
+  box-shadow: inset 0 -1px 0 var(--shiki-light-border);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px dotted var(--diff-fmt-line);
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    pointer-events: none;
+  }
+}
+
+.velo-code-header-widget + pre.velo-diff-changed {
+  margin-top: -2px;
+  padding-top: calc(0.75em + 3px);
+}
+
+.velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded)::after {
+  border-bottom: 2px dotted var(--diff-fmt-line);
+  border-radius: 8px;
+}
+
+html.dark .velo-code-header-widget:not([data-lang='mermaid']):has(+ pre.velo-diff-changed),
+.dark .velo-editor .velo-code-header-widget:not([data-lang='mermaid']):has(+ pre.velo-diff-changed),
+.velo-editor.dark .velo-code-header-widget:not([data-lang='mermaid']):has(+ pre.velo-diff-changed) {
+  box-shadow: inset 0 -1px 0 var(--shiki-dark-border);
+}
+
+// 折叠态撤掉 inset 分隔线。dark 规则特异性(0,4,2)更高,三路各写一遍
+html.dark .velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded),
+.dark .velo-editor .velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded),
+.velo-editor.dark .velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded),
+.velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded) {
+  box-shadow: none;
+}
+
+// 段落拆分 / 合并的边界提示 badge:提示牌而非差异标记,保留 chip 形态
 .velo-diff-boundary-hint {
   display: block;
   width: fit-content;
@@ -96,98 +414,53 @@
   user-select: none;
   color: rgb(146 64 14); // amber-800
   background-color: rgb(254 243 199); // amber-100
+  border-left: 0;
+}
+
+html.dark .velo-diff-boundary-hint {
+  color: rgb(253 230 138);
+  background-color: rgb(69 26 3 / 0.5);
 }
 
 // ── 表格结构化 diff(#diff-wysiwyg)──
-// 幽灵列 / 幽灵行是 Decoration.widget 渲染的 <td>/<th>/<tr>,插在 table_row
-// 内部的 cell 边界 pos,PM 会当成 <tr> 的独立子节点渲染 —— 视觉上是单独
-// 一列标红,而不是把删除文本塞进留存单元格。
-// 选择器带 .velo-editor table + 元素名,优先级高于 _editor-tables.scss 的 `th` 底色;
-// 表格的 hover 高亮在那边用 :not(.velo-diff-*-cell) 主动避让 —— `tr[data-is-header]:hover > th`
-// 特异性(0,3,2)高于本规则(0,2,2),仅靠加载顺序压不住,否则删除列的表头 hover 会变灰。
-.velo-editor table :is(td, th).velo-diff-removed-cell {
-  background-color: rgb(254 202 202 / 0.6); // red-200/60
-  color: rgb(127 29 29 / 0.8);
-  -webkit-user-select: text; // widget 的 contentEditable=false 会禁选,显式覆盖
-  user-select: text;
+// 幽灵列 / 幽灵行是插在 table_row 内的 <td>/<th>/<tr> widget。
+// 整块变更的表格给外圈单元格画点线,不用 table 的 outline:th/td 是
+// position:relative 且各自带背景,会盖掉 outline。
+
+.velo-editor table.velo-diff-changed {
+  outline: none;
+
+  tr > :is(th, td):first-child {
+    border-left: 2px dotted var(--diff-fmt-line);
+  }
+
+  tr > :is(th, td):last-child {
+    border-right: 2px dotted var(--diff-fmt-line);
+  }
+
+  tr:first-child > :is(th, td) {
+    border-top: 2px dotted var(--diff-fmt-line);
+  }
+
+  tr:last-child > :is(th, td) {
+    border-bottom: 2px dotted var(--diff-fmt-line);
+  }
 }
 
+// 单元格底线用 background-image 渐变条(border-collapse:collapse 下
+// box-shadow 不可靠),不填充前景,也不盖掉表头自己的底色。
 .velo-editor table :is(td, th).velo-diff-added-cell {
-  background-color: rgb(187 247 208 / 0.6); // green-200/60
+  background-image: linear-gradient(to top, var(--diff-add-line) 0 2px, transparent 2px);
+  background-repeat: no-repeat;
+  background-position: bottom;
 }
 
-// 多文本容器 block(列表 / 引用 / 脚注)里被删容器的独立片段。
-// DOM 由旧容器序列化而来(<li> / <p> / <h1> …),类型与新文档同位置节点一致。
-.velo-diff-deleted-group {
-  background-color: rgb(254 242 242); // red-50
-  border-left: 3px solid rgb(239 68 68 / 0.5); // red-500/50
-  padding-left: 0.5em;
+.velo-editor table :is(td, th).velo-diff-removed-cell {
+  background-image: linear-gradient(to top, var(--diff-del-line) 0 2px, transparent 2px);
+  background-repeat: no-repeat;
+  background-position: bottom;
+  color: var(--diff-del-ink);
+  @include diff-strike;
   -webkit-user-select: text;
   user-select: text;
-}
-
-// 暗色模式(与源码 diff 的 dark:bg-green-950/30 / dark:bg-red-950/30 一致)
-html.dark {
-  .velo-diff-added {
-    background-color: rgb(5 46 22 / 0.3); // green-950/30
-  }
-
-  .velo-diff-changed {
-    background-color: rgb(69 26 3 / 0.3); // amber-950/30
-  }
-
-  .velo-diff-added-inline {
-    background-color: rgb(22 101 52 / 0.4); // green-800/40
-  }
-
-  .velo-diff-removed {
-    background-color: rgb(153 27 27 / 0.4); // red-800/40
-    color: rgb(254 202 202 / 0.8);
-  }
-
-  .velo-diff-deleted-block {
-    background-color: rgb(69 10 10 / 0.3); // red-950/30
-    border-left-color: rgb(248 113 113 / 0.55); // red-400/55(暗底上提亮)
-  }
-
-  .velo-editor table :is(td, th).velo-diff-removed-cell {
-    background-color: rgb(153 27 27 / 0.4); // red-800/40
-    color: rgb(254 202 202 / 0.8);
-  }
-
-  .velo-editor table :is(td, th).velo-diff-added-cell {
-    background-color: rgb(22 101 52 / 0.4); // green-800/40
-  }
-
-  .velo-diff-deleted-group {
-    background-color: rgb(69 10 10 / 0.3); // red-950/30
-    border-left-color: rgb(248 113 113 / 0.55);
-  }
-
-  .velo-diff-format-changed {
-    background-color: rgb(180 83 9 / 0.35); // amber-700/35
-    border-bottom-color: rgb(245 158 11 / 0.6);
-  }
-
-  .velo-diff-boundary-hint {
-    color: rgb(253 230 138); // amber-200
-    background-color: rgb(69 26 3 / 0.5); // amber-950/50
-  }
-}
-
-// diff 编辑器容器:复用编辑器基础样式但只读
-.velo-diff-editor {
-  .ProseMirror {
-    min-height: 100%;
-    padding: 2rem 4rem;
-    // 只读模式:隐藏 caret
-    caret-color: transparent;
-
-    // 段落:去掉 margin,用 padding 撑开段间距。
-    // padding 在 content box 内,Decoration.node 背景色天然覆盖,无段间空隙。
-    p {
-      margin: 0;
-      padding-block: 0.25em;
-    }
-  }
 }

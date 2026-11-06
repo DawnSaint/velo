@@ -19,7 +19,6 @@ import { gapCursor } from 'prosemirror-gapcursor'
 import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
 import { baseKeymap, chainCommands, liftEmptyBlock, selectAll, splitBlock } from 'prosemirror-commands'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { schema, type VeloSchema } from './editor/schema'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
@@ -202,7 +201,7 @@ import { buildShortcutKeymap } from './editor/shortcuts'
 import TableContextMenu from './TableContextMenu.vue'
 import { useDocumentStore } from '@/stores/document'
 import { useContextMenu } from '../../composables/useContextMenu'
-import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { resolveImageSrc } from '@/utils/imageSrc'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromDoc, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { getSourceEditRanges } from './editor/sourceEditSession'
@@ -554,24 +553,13 @@ function splitInListItemNestedBlock(state: any, dispatch?: any): boolean {
 //  image NodeView + Tauri 协议注入
 // ============================================================
 
-function isTauriEnv(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
+// 解析逻辑放在 @/utils/imageSrc,与 WysiwygDiffView 共用一份 —— 之前两边各写
+// 一份「同逻辑」,diff view 少了文档目录解析,本地图片全部裂图。
+const imageSrcProxy = (url: string) => resolveImageSrc(url, useDocumentStore().currentFilePath)
 
-// 把 markdown 里的 src(相对 / 绝对路径)转成浏览器可展示 url —— image NodeView
-// 与 imageEdit 预览 widget 共用同一份解析,避免渲染态与编辑态预览分叉。
-function resolveImageSrc(url: string): string {
-  if (!isTauriEnv()) return url
-  if (/^(https?:|data:|asset:|tauri:)/.test(url)) return url
-  const currentFilePath = useDocumentStore().currentFilePath
-  const absPath = resolveImageAssetAbsPath(url, currentFilePath)
-  if (!absPath.startsWith('/') && !/^[A-Z]:/i.test(absPath)) return absPath
-  return convertFileSrc(absPath)
-}
-
-const imageNodeView = createImageNodeView({ proxyDomURL: resolveImageSrc })
-const imageEditPlugin = createImageEditPlugin({ proxyDomURL: resolveImageSrc })
-const htmlNodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: resolveImageSrc })
+const imageNodeView = createImageNodeView({ proxyDomURL: imageSrcProxy })
+const imageEditPlugin = createImageEditPlugin({ proxyDomURL: imageSrcProxy })
+const htmlNodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: imageSrcProxy })
 
 // image_inline NodeView 接到 mathEditPlugin 同一个 Plugin 里。
 const imageInlineViewPlugin = new Plugin({

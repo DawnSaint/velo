@@ -89,6 +89,18 @@ describe('diffBlocks', () => {
     expect(ops.map(o => o.kind)).toEqual(['delete'])
   })
 
+  it('新增目录(toc 是空 leaf)→ delete + insert,不被空块配对退化吞掉', () => {
+    // toc 的 DOM 本身没有文本(内容渲染在 widget 上),旧逻辑按「空块」把它
+    // 和上面被删的段落配对掉,新增目录就既没有标记也不进 diff 计划。
+    const { ops } = diffBlocks(makeDoc('正文。'), makeDoc('[TOC]'))
+    expect(ops.map(o => o.kind)).toEqual(['delete', 'insert'])
+  })
+
+  it('段落 → 分割线 → delete + insert(文本块与原子块不配对)', () => {
+    const { ops } = diffBlocks(makeDoc('正文。'), makeDoc('---'))
+    expect(ops.map(o => o.kind)).toEqual(['delete', 'insert'])
+  })
+
   it('段落拆分(1 → 2,去空白后文本相同)→ split', () => {
     const { ops } = diffBlocks(makeDoc('hello world'), makeDoc('hello\n\nworld'))
     expect(ops.map(o => o.kind)).toEqual(['split'])

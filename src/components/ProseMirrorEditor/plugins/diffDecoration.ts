@@ -63,7 +63,7 @@ export const diffDecorationKey = new PluginKey<DiffDecorationState>('veloDiffDec
 // ========== Diff Plan ==========
 
 /** 一处变更 / 一段未变更 = 一个 entry。增量构建按 entry 粒度分批 */
-export interface DiffPlanEntry {
+interface DiffPlanEntry {
   /** true = 变更 op(insert/delete/pair/split/merge);false = 未变更 block */
   changed: boolean
   /** 覆盖的 doc 范围(视口过滤用);delete 的 widget entry from === to */
@@ -71,10 +71,34 @@ export interface DiffPlanEntry {
   to: number
   /** 该区域的装饰;未变更区为空 */
   decos: Decoration[]
+  /** 所属整框组(仅连续 insert / delete 有) */
+  groupId?: string
+}
+
+/**
+ * 连续同类变更块组成的「整框组」。
+ *
+ * 组边界来自 diff 计划而不是 DOM 兄弟关系 —— 后者会被 Decoration.widget
+ * (代码 header / mermaid SVG / 目录 / 删除片段)打断,且视口增量构建时
+ * 视口外的块暂时没有 decoration,用 CSS `:has(+ …)` 猜组首会随滚动漂移。
+ * 渲染层(diffGroupFrames.ts)据此为每组画**一个**绝对定位的框。
+ */
+export interface DiffGroup {
+  id: string
+  kind: 'added' | 'deleted'
+  /** 组覆盖的 doc 范围(用于把顶层 DOM 节点归组) */
+  from: number
+  to: number
+  /** 组内最后一个块的起始 pos(兜底定位用) */
+  lastFrom: number
+  /** 组内 entry 下标 */
+  entries: number[]
 }
 
 export interface DiffPlan {
   entries: DiffPlanEntry[]
+  /** 只含连续 insert / delete;pair / split / merge 不组成整框 */
+  groups: DiffGroup[]
 }
 
 interface DiffDecorationState {
@@ -86,24 +110,61 @@ interface DiffDecorationState {
   decoSet: DecorationSet | null
 }
 
-export type DiffDecorationMeta = { oldDoc: PMNode | null }
+/** 把 widget 片段里的图片 src 转成 WebView 可加载的 URL(由只读视图注入) */
+export type ImageSrcResolver = (url: string) => string
+
+type DiffDecorationMeta = {
+  oldDoc: PMNode | null
+  resolveImageSrc?: ImageSrcResolver
+}
 
 // ============================================================
 //  装饰构造
 // ============================================================
 
 /**
+ * widget 里的 DOM 由 DOMSerializer 生成,**不经过 image NodeView** ——
+ * schema 的 image.toDOM 只输出 markdown 里的原始 src(通常是 `assets/x.png`
+ * 这类相对路径),WebView 加载不到。序列化后统一改写 <img src>。
+ */
+function serializeDeletedNode(
+  node: PMNode,
+  resolveSrc?: ImageSrcResolver,
+): HTMLElement | Text {
+  const dom = DOMSerializer.fromSchema(node.type.schema).serializeNode(node)
+  if (!resolveSrc) return dom
+  const resolve = resolveSrc
+  // serializeNode 也可能返回 Text 节点,它没有 querySelectorAll
+  if (!('querySelectorAll' in dom)) return dom
+  const rewrite = (img: Element): void => {
+    const raw = img.getAttribute('src')
+    if (!raw) return
+    const next = resolve(raw)
+    if (next !== raw) img.setAttribute('src', next)
+  }
+  // serializeNode 对 inline 节点可能直接返回 <img>,querySelectorAll 不含自身
+  if (dom.tagName === 'IMG') rewrite(dom)
+  for (const img of Array.from(dom.querySelectorAll('img[src]'))) rewrite(img)
+  return dom
+}
+
+/**
  * 整 block 删除的 widget:序列化旧 block 为带样式的只读片段
  * (标题保留字号、列表保留缩进、图片 / 分割线保留原形),
  * 而非裸文本摘要。结构 + marks 都由 schema 的 toDOM 自然保留。
  */
-function deletedBlockWidget(pos: number, node: PMNode): Decoration {
+function deletedBlockWidget(
+  pos: number,
+  node: PMNode,
+  groupId?: string,
+  resolveSrc?: ImageSrcResolver,
+): Decoration {
   // ignoreSelection: 同字符级删除 widget,保留浏览器原生选区
   return Decoration.widget(pos, () => {
     const wrapper = document.createElement('div')
     wrapper.className = 'velo-diff-deleted-block'
-    const frag = DOMSerializer.fromSchema(node.type.schema).serializeNode(node)
-    wrapper.appendChild(frag)
+    if (groupId) wrapper.setAttribute('data-diff-group-id', groupId)
+    wrapper.appendChild(serializeDeletedNode(node, resolveSrc))
     return wrapper
   }, { side: -1, ignoreSelection: true })
 }
@@ -118,9 +179,10 @@ function deletedGroupWidget(
   blockPos: number,
   index: number,
   node: PMNode,
+  resolveSrc?: ImageSrcResolver,
 ): Decoration {
   return Decoration.widget(pos, () => {
-    const dom = DOMSerializer.fromSchema(node.type.schema).serializeNode(node) as HTMLElement
+    const dom = serializeDeletedNode(node, resolveSrc) as HTMLElement
     dom.classList.add('velo-diff-deleted-group')
     return dom
   }, {
@@ -152,30 +214,91 @@ function boundaryHintWidget(pos: number, text: string): Decoration {
  * block 序列对齐必须对全文跑,无法按视口切分;但"装饰构造"按 entry 分组后
  * 可以按需分批 —— 见 collectVisibleDecos。
  */
-export function buildDiffPlan(newDoc: PMNode, oldDoc: PMNode): DiffPlan {
+/**
+ * 预扫描 ops,给「连续的 insert」/「连续的 delete」分配整框组 id。
+ * 分组只看 diff 计划里的相邻关系 —— 与 DOM 里是否夹着 widget、该块是否
+ * 已被视口增量构建过都无关,所以组边界不会随滚动变化。
+ */
+function planGroupIds(ops: ReturnType<typeof diffBlocks>['ops']): (string | null)[] {
+  const ids: (string | null)[] = new Array(ops.length).fill(null)
+  let seq = 0
+  for (let i = 0; i < ops.length;) {
+    const kind = ops[i].kind
+    if (kind !== 'insert' && kind !== 'delete') { i++; continue }
+    let j = i
+    while (j + 1 < ops.length && ops[j + 1].kind === kind) j++
+    const id = `dg${seq++}`
+    for (let k = i; k <= j; k++) ids[k] = id
+    i = j + 1
+  }
+  return ids
+}
+
+function joinGroup(
+  groups: Map<string, DiffGroup>,
+  id: string,
+  kind: DiffGroup['kind'],
+  from: number,
+  to: number,
+  lastFrom: number,
+  entryIndex: number,
+): void {
+  const g = groups.get(id)
+  if (!g) {
+    groups.set(id, { id, kind, from, to, lastFrom, entries: [entryIndex] })
+    return
+  }
+  g.from = Math.min(g.from, from)
+  g.to = Math.max(g.to, to)
+  g.lastFrom = Math.max(g.lastFrom, lastFrom)
+  g.entries.push(entryIndex)
+}
+
+export function buildDiffPlan(
+  newDoc: PMNode,
+  oldDoc: PMNode,
+  resolveSrc?: ImageSrcResolver,
+): DiffPlan {
   const { ops, oldBlocks, newBlocks } = diffBlocks(oldDoc, newDoc)
+  const groupIds = planGroupIds(ops)
   const entries: DiffPlanEntry[] = []
+  const groups = new Map<string, DiffGroup>()
 
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i]
+    const groupId = groupIds[i] ?? undefined
 
     if (op.kind === 'insert') {
       const b = newBlocks[op.newIndex]
-      entries.push({
+      const from = b.pos
+      const to = b.pos + b.size
+      const attrs: Record<string, string> = { class: 'velo-diff-added' }
+      if (groupId) attrs['data-diff-group-id'] = groupId
+      const entry: DiffPlanEntry = {
         changed: true,
-        from: b.pos,
-        to: b.pos + b.size,
-        decos: [Decoration.node(b.pos, b.pos + b.size, { class: 'velo-diff-added' })],
-      })
+        from,
+        to,
+        decos: [Decoration.node(from, to, attrs)],
+      }
+      if (groupId) {
+        entry.groupId = groupId
+        joinGroup(groups, groupId, 'added', from, to, b.pos, entries.length)
+      }
+      entries.push(entry)
     }
     else if (op.kind === 'delete') {
       const pos = widgetInsertPos(ops, i, newBlocks, newDoc)
-      entries.push({
+      const entry: DiffPlanEntry = {
         changed: true,
         from: pos,
         to: pos,
-        decos: [deletedBlockWidget(pos, oldBlocks[op.oldIndex].node)],
-      })
+        decos: [deletedBlockWidget(pos, oldBlocks[op.oldIndex].node, groupId, resolveSrc)],
+      }
+      if (groupId) {
+        entry.groupId = groupId
+        joinGroup(groups, groupId, 'deleted', pos, pos, pos, entries.length)
+      }
+      entries.push(entry)
     }
     else if (op.kind === 'split') {
       const decos: Decoration[] = []
@@ -202,7 +325,7 @@ export function buildDiffPlan(newDoc: PMNode, oldDoc: PMNode): DiffPlan {
         changed: true,
         from: b.pos,
         to: b.pos + b.size,
-        decos: buildPairDecorations(oldBlocks[op.oldIndex], b),
+        decos: buildPairDecorations(oldBlocks[op.oldIndex], b, resolveSrc),
       })
     }
     else {
@@ -211,7 +334,7 @@ export function buildDiffPlan(newDoc: PMNode, oldDoc: PMNode): DiffPlan {
     }
   }
 
-  return { entries }
+  return { entries, groups: [...groups.values()] }
 }
 
 /** delete 的 widget 插入位置:其后第一个引用新 block 的 op 的 block pos;无 → 文档末尾 */
@@ -231,7 +354,11 @@ function widgetInsertPos(
 }
 
 /** pair op(「修改」)的装饰:结构感知 diff / 字符级 diff / 同文异 key 语义标记 */
-function buildPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
+function buildPairDecorations(
+  oldBlock: BlockEntry,
+  newBlock: BlockEntry,
+  resolveSrc?: ImageSrcResolver,
+): Decoration[] {
   // 表格:二维网格结构化 diff。返回 null 表示结构未变(仅 marks / 非文本 leaf 变更),
   // 落到下面的「同文异 key」逻辑,避免吞掉格式变更标记。
   if (oldBlock.node.type.name === 'table' && newBlock.node.type.name === 'table') {
@@ -247,7 +374,7 @@ function buildPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decor
   // 容器内做,删除的容器独立成块 —— 否则删除内容会被 offset 映射进相邻留存
   // 容器(与表格删列同源的混排 BUG)。
   if (oldBlock.groups.length > 1 || newBlock.groups.length > 1) {
-    return buildGroupedPairDecorations(oldBlock, newBlock)
+    return buildGroupedPairDecorations(oldBlock, newBlock, resolveSrc)
   }
 
   return charDiffDecorations(oldBlock.text, newBlock)
@@ -294,7 +421,11 @@ function buildSameTextDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): D
  * 逐容器做字符级 diff;删除的容器序列化成独立的红色块级单元
  * (列表项 → `<li>`,引用内段落 → `<p>`),插在下一个留存容器之前。
  */
-function buildGroupedPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
+function buildGroupedPairDecorations(
+  oldBlock: BlockEntry,
+  newBlock: BlockEntry,
+  resolveSrc?: ImageSrcResolver,
+): Decoration[] {
   const ops = alignSequence(
     oldBlock.groups.map(g => g.text),
     newBlock.groups.map(g => g.text),
@@ -307,7 +438,7 @@ function buildGroupedPairDecorations(oldBlock: BlockEntry, newBlock: BlockEntry)
     if (op.kind === 'delete') {
       const oldGroup = oldBlock.groups[op.oldIndex]
       const atPos = newBlock.groups[outGroup]?.blockPos ?? blockEnd
-      decos.push(deletedGroupWidget(atPos, newBlock.pos, op.oldIndex, oldGroup.blockNode))
+      decos.push(deletedGroupWidget(atPos, newBlock.pos, op.oldIndex, oldGroup.blockNode, resolveSrc))
       continue
     }
 
@@ -408,7 +539,7 @@ export const diffDecorationPlugin = new Plugin<DiffDecorationState>({
         if (!meta.oldDoc) {
           return { oldDoc: null, plan: null, built: null, decoSet: null }
         }
-        const plan = buildDiffPlan(newState.doc, meta.oldDoc)
+        const plan = buildDiffPlan(newState.doc, meta.oldDoc, meta.resolveImageSrc)
         const built = new Set<number>()
         const decos = collectVisibleDecos(plan, built, getViewport(newState))
         return {
@@ -456,6 +587,18 @@ export const diffDecorationPlugin = new Plugin<DiffDecorationState>({
  * 更新 diff 装饰的旧版本 doc。
  * 选中版本条目变化时调它就够 —— 不需要销毁重建 EditorView。
  */
-export function setDiffOldDoc(view: EditorView, oldDoc: PMNode | null): void {
-  view.dispatch(view.state.tr.setMeta(diffDecorationKey, { oldDoc }))
+export function setDiffOldDoc(
+  view: EditorView,
+  oldDoc: PMNode | null,
+  resolveImageSrc?: ImageSrcResolver,
+): void {
+  view.dispatch(view.state.tr.setMeta(diffDecorationKey, { oldDoc, resolveImageSrc }))
+}
+
+/**
+ * 读取当前 diff 的整框分组(供只读视图的 overlay 层使用)。
+ * 组是全量 plan 的一部分,不受视口增量构建影响。
+ */
+export function getDiffGroups(state: EditorState): DiffGroup[] {
+  return diffDecorationKey.getState(state)?.plan?.groups ?? []
 }

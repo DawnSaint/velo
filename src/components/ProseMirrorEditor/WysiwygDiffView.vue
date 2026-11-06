@@ -2,8 +2,8 @@
 // WysiwygDiffView(#diff-wysiwyg):WYSIWYG diff 视图。
 //
 // 在 ProseMirror 只读渲染上叠加 Decoration 标记增删:
-// - 绿色背景 = 新增文本(Decoration.inline)
-// - 红色背景 = 删除文本(Decoration.widget,不占文档 pos,只视觉呈现)
+// - 标记走线条语义(新增绿色下划线 / 整框,删除删除线 + 灰字,格式 / 类型琥珀点线),
+//   见 _editor-diff.scss;整框由 plugins/diffGroupFrames.ts 的 overlay 画
 //
 // 与源码 diff(DiffView.vue 的行级列表)共用同一 diff 算法结果(Myers),
 // 切换模式不重算 diff。
@@ -23,11 +23,13 @@ import { onMounted, onBeforeUnmount, ref, watch, shallowRef } from 'vue'
 import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { keymap } from 'prosemirror-keymap'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { baseKeymap } from 'prosemirror-commands'
+import { useDocumentStore } from '@/stores/document'
+import { resolveImageSrc } from '@/utils/imageSrc'
 import { schema as veloSchema, type VeloSchema } from './editor/schema'
 import { fromMarkdown } from './editor/markdownIO'
 import { setDiffOldDoc, diffDecorationPlugin } from './plugins/diffDecoration'
+import { createDiffGroupFrames, type DiffGroupFrames } from './plugins/diffGroupFrames'
 import { viewportPlugin, setInitialViewportHint, refreshViewport } from './nodes/viewportPlugin'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
@@ -57,22 +59,15 @@ const viewRef = shallowRef<EditorView | null>(null)
 const error = ref<string | null>(null)
 /** 插件实例数组:updateState 换新 doc 时必须复用同一批实例(否则 plugin state 全丢) */
 let pluginInstances: Plugin[] | null = null
+/** 整框 overlay 层:一组连续新增块只画一个框,见 plugins/diffGroupFrames.ts */
+let frames: DiffGroupFrames | null = null
 
-// 图片 src 解析:与 EditorInner.vue 的 resolveImageSrc 同逻辑
-function resolveImageSrc(url: string): string {
-  if (!url) return url
-  // http(s) / data: 直接用
-  if (/^https?:\/\//.test(url) || url.startsWith('data:')) return url
-  // 绝对路径 / 相对路径 → Tauri asset:// 代理
-  try {
-    return convertFileSrc(url)
-  } catch {
-    return url
-  }
-}
+// 与主编辑器共用同一份 src 解析:必须基于当前文档目录把相对路径转绝对路径,
+// 否则 asset:// 指向不存在的位置,预览模式里本地图片会全部裂图。
+const imageSrcProxy = (url: string) => resolveImageSrc(url, useDocumentStore().currentFilePath)
 
-const imageNodeView = createImageNodeView({ proxyDomURL: resolveImageSrc })
-const htmlNodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: resolveImageSrc })
+const imageNodeView = createImageNodeView({ proxyDomURL: imageSrcProxy })
+const htmlNodeViewPlugin = createHtmlNodeViewPlugin({ proxyDomURL: imageSrcProxy })
 
 // 最小化插件集:只保留视觉渲染需要的插件,不含编辑类(keymap/inputrules/history/paste 等)
 function buildPlugins(): Plugin[] {
@@ -127,7 +122,9 @@ function makeState(doc: PMNode): EditorState {
 
 /** 注入 diff 基准(oldDoc),由插件增量重建 decoration —— 不重建 view */
 function applyOldDoc(view: EditorView) {
-  setDiffOldDoc(view, parseMarkdown(props.oldContent))
+  // 第三个参数供「整块删除」widget 用:它走 DOMSerializer,不经过 image NodeView,
+  // 需要同一个 src 解析器把 markdown 相对路径转成 asset:// URL。
+  setDiffOldDoc(view, parseMarkdown(props.oldContent), imageSrcProxy)
 }
 
 function createView() {
@@ -145,13 +142,19 @@ function createView() {
       // 但不触发 onChange 回写 —— 只读视图不需要序列化 markdown。
       dispatchTransaction(tr) {
         view.updateState(view.state.apply(tr))
+        frames?.schedule()
       },
     })
 
     viewRef.value = view
+    frames = createDiffGroupFrames(containerRef.value, view)
     applyOldDoc(view)
+    frames.refresh()
     // DOM 布局就绪后按真实视口补装饰(FIRST_SCREEN_HINT 只覆盖首屏)
-    requestAnimationFrame(() => refreshViewport(view))
+    requestAnimationFrame(() => {
+      refreshViewport(view)
+      frames?.refresh()
+    })
   }
   catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -163,7 +166,11 @@ function replaceDoc(doc: PMNode) {
   const view = viewRef.value
   if (!view) return
   view.updateState(makeState(doc))
-  requestAnimationFrame(() => refreshViewport(view))
+  frames?.schedule()
+  requestAnimationFrame(() => {
+    refreshViewport(view)
+    frames?.refresh()
+  })
 }
 
 onMounted(() => {
@@ -171,6 +178,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  frames?.destroy()
+  frames = null
   if (viewRef.value) {
     viewRef.value.destroy()
     viewRef.value = null

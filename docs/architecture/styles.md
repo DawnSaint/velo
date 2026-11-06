@@ -490,6 +490,25 @@ GFM alert 五种级别的配色，对齐 GitHub alert 色。
 | `#ff7b72` | 导出代码红色 | 暗 |
 | `var(--editor-text-muted)` | 导出暗色次要文字 | 暗 |
 
+#### M. WYSIWYG diff 线条语义色（`_editor-diff.scss`）
+
+diff 标记是线条语义(新增整框 / 下划线、删除删除线 + 灰度、格式 / 类型点线)而非底色:预览是排版流,大色块会切碎段落且被代码块 / 表头自身背景盖掉,左侧竖条又与引用块 / 警告框自带彩条撞脸。色值集中定义在 `:root` 与 `html.dark` 的 `--diff-*` 上,属「运行时动态切换」用途,亮暗各一套;变量定义处天然是字面量。
+
+| 颜色值 | Tailwind 对应 | 用途 | 亮/暗 |
+|--------|-------------|------|--------|
+| `#16a34a` | green-600 | `--diff-add-line` 新增整框 / 下划线 | 亮 |
+| `#848a92` | — | `--diff-del-ink` 删除正文 | 亮 |
+| `#9ba0a7` | — | `--diff-del-heading-ink` 删除标题(bold + 大字号需再淡一档) | 亮 |
+| `#b0b5bb` | — | `--diff-del-line` 删除线 / 灰描边 / 幽灵单元格底条 | 亮 |
+| `#d97706` | amber-600 | `--diff-fmt-line` 格式 / 类型变更点线 | 亮 |
+| `#34d399` | green-400 | `--diff-add-line` | 暗 |
+| `#797f88` | — | `--diff-del-ink` | 暗 |
+| `#676d75` | — | `--diff-del-heading-ink`(暗底往背景压暗,不是提亮) | 暗 |
+| `#555b63` | — | `--diff-del-line` | 暗 |
+| `#f59e0b` | amber-500 | `--diff-fmt-line` | 暗 |
+
+> `exportStyles.scss` / `_mermaid.scss` 中 `--pele-*` 变量定义处的静态色同属「变量定义处不走变量」,baseline 一并收录,不逐行登记。
+
 
 ### 新增颜色约定
 
