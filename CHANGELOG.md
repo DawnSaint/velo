@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.14](https://github.com/DawnSaint/velo/compare/v0.7.13...v0.7.14) (2026-11-07)
+
+
+### Features
+
+* **editor:** add status bar unsaved-diff entry and fix diff view defects ([16aa3b3](https://github.com/DawnSaint/velo/commit/16aa3b366f98d2bc869841b0399a412e395acee7))
+* **editor:** add WYSIWYG diff view with block tree diff and inline char-level diff ([0e82bd4](https://github.com/DawnSaint/velo/commit/0e82bd451ca3d7218d003ab45622925db7693941))
+* **editor:** rework WYSIWYG diff markers into line semantics with grouped frames ([4e36ff4](https://github.com/DawnSaint/velo/commit/4e36ff4ae0a99ce5a2f3ff74a6a6f39d60c6b65a))
+
+
+### Bug Fixes
+
+* **editor:** avoid table duplication on row delete and keep diff widget selectable ([3484225](https://github.com/DawnSaint/velo/commit/3484225fa18a2229332314995d6fc06cdcd1b577))
+* **editor:** fix fold placeholder caret flash on click and enter behavior ([c487931](https://github.com/DawnSaint/velo/commit/c487931bb8d09de925abb007a5fa95ab388f7115))
+* **editor:** isolate deleted table columns in diff view and merge auto snapshots from disk ([8972cad](https://github.com/DawnSaint/velo/commit/8972cad5627819f7186c7bc6550e84941c145b28))
+
+
+### Performance Improvements
+
+* **mermaid:** replace mermaid.js renderer with pele ([e3f2790](https://github.com/DawnSaint/velo/commit/e3f2790a9589efbaae9ffd36ef8d6a2522f42a39))
+
 ## [0.7.13](https://github.com/DawnSaint/velo/compare/v0.7.12...v0.7.13) (2026-09-05)
 
 
