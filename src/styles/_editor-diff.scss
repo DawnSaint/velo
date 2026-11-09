@@ -2,7 +2,7 @@
 //
 // 在 ProseMirror 只读渲染上叠加的增删标记:
 // - .velo-diff-added: 整块新增(Decoration.node),带 data-diff-group-id 归属整框组
-// - .velo-diff-added-inline: 字符级新增 inline(Decoration.inline)
+// - .velo-diff-added-inline: 字符级新增 inline(Decoration.inline),线由 overlay 接管,本类只作降级
 // - .velo-diff-removed: 字符级删除文本 widget(原位显示)
 // - .velo-diff-deleted-block: 整 block 删除的只读片段 widget
 // - .velo-diff-changed / -type-changed / -format-changed: 格式 / 类型 / 非文本变更
@@ -90,17 +90,31 @@ $diff-frame-blocks: 'p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, 
 
 // ── 字符级 ──
 
-// 字符级新增:下划线只覆盖变化的字符
+// 字符级新增的下划线由 overlay 画(plugins/diffInlineUnderlines.ts):按 DOM
+// rect 折成「同一行的连续线段」,天然跨过行内 code 胶囊的 padding。
+// 这里保留完整 text-decoration 作为降级 —— overlay 未就绪(jsdom 无布局 /
+// 几何算不出来)时线仍可见,就绪后只把颜色置透明,避免叠出双线;几何属性
+// 不删,JS 还要从 computedStyle 读 offset / thickness 算线高。
+// skip-ink 默认 auto 会在字形与线相交处让路,CJK / 括号密集时把降级线切碎。
 .velo-diff-added-inline {
   @include diff-rule(var(--diff-add-line));
+  text-decoration-skip-ink: none;
 }
 
-// 行内 code 的胶囊只有 2px 内边距,全局 offset 3px 会把线甩到胶囊外面
-code .velo-diff-added-inline,
-code.velo-diff-added-inline {
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 1px;
+// 脚注上标不进 overlay(见下方 outline 规则),排除掉以免误撤它的语义位。
+.velo-diff-editor.velo-diff-inline-ready .velo-diff-added-inline:not(.footnote-ref-node) {
+  text-decoration-color: transparent;
 }
+
+// 不要再给 code 内的新增单独调 offset / thickness。
+// 曾经设成 offset 1px + 1.5px(理由是「3px 会把线甩出胶囊」),实测 3px 的线
+// 仍落在胶囊底边以内,而 1px 反而让 code 下的线比正文高 2~4px 且更细 ——
+// 正文↔行内 code 交界处因此读成一条断线。统一用全局值才能同高同粗。
+//
+// 剩下的 padding 缝已由 overlay 解决:text-decoration 只画在有文字的 run 上,
+// code 左右各 6px padding 里没有文字,那里必然留缝;实测把整段新增包成单个
+// span 与 PM 拆成 3 个 span 的渲染像素完全一致。overlay 只在「整个 code 文本
+// 段都是新增」时把胶囊 padding 算进线段,局部新增不会被误标成整段新增。
 
 // 脚注引用端是上标:整个盒子被抬高,下划线会画在字下面一大截的空白处。
 // 必须带 .velo-editor 前缀压过 _footnote.scss 的 `outline: none`。
@@ -168,9 +182,19 @@ code.velo-diff-removed {
   pointer-events: none;
 }
 
+// 同一 layer 里的字符级新增下划线:一条连续线段一个 div,宽高由 JS 按
+// DOM rect 给定(2px 厚、贴在 baseline + text-underline-offset 处)。
+.velo-diff-inline-line {
+  position: absolute;
+  background: var(--diff-add-line);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
 // 降级:overlay 未就绪(或整组几何计算失败)时,至少让新增块可见。
-// 另外「多文本容器内单独新增的一项」不属于任何整框组(pair op 内的 insert),
-// 一直走这里的单块描边 —— 它本来就是一个局部新增,不该与整段新增合并。
+// 另外「多文本容器内零星新增的一项」不属于任何整框组(pair op 内的 insert),
+// 仍走这里的单块描边 —— 局部新增不该与整段新增合并。整组容器全新增的 pair
+// 已在 buildDiffPlan 提升为顶层 insert,会带 groupId 改由 overlay 画整框。
 .velo-diff-editor:not(.velo-diff-frames-ready) .velo-diff-added,
 .velo-diff-added:not([data-diff-group-id]) {
   outline: 2px solid var(--diff-add-line);

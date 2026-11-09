@@ -3,7 +3,8 @@
 //
 // 在 ProseMirror 只读渲染上叠加 Decoration 标记增删:
 // - 标记走线条语义(新增绿色下划线 / 整框,删除删除线 + 灰字,格式 / 类型琥珀点线),
-//   见 _editor-diff.scss;整框由 plugins/diffGroupFrames.ts 的 overlay 画
+//   见 _editor-diff.scss;整框与字符级新增的贯通下划线都由 plugins/diffGroupFrames.ts
+//   的同一层 overlay 画(后者见 plugins/diffInlineUnderlines.ts),CSS 只留降级
 //
 // 与源码 diff(DiffView.vue 的行级列表)共用同一 diff 算法结果(Myers),
 // 切换模式不重算 diff。
@@ -59,7 +60,7 @@ const viewRef = shallowRef<EditorView | null>(null)
 const error = ref<string | null>(null)
 /** 插件实例数组:updateState 换新 doc 时必须复用同一批实例(否则 plugin state 全丢) */
 let pluginInstances: Plugin[] | null = null
-/** 整框 overlay 层:一组连续新增块只画一个框,见 plugins/diffGroupFrames.ts */
+/** overlay 层:连续新增块的整框 + 字符级新增的贯通下划线,见 plugins/diffGroupFrames.ts */
 let frames: DiffGroupFrames | null = null
 
 // 与主编辑器共用同一份 src 解析:必须基于当前文档目录把相对路径转绝对路径,

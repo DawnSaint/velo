@@ -48,6 +48,7 @@ import {
   diffBlocks,
   diffInlineMarkRanges,
   nodeTypeLabel,
+  type BlockDiffOp,
   type BlockEntry,
 } from './blockDiff'
 import {
@@ -234,6 +235,26 @@ function planGroupIds(ops: ReturnType<typeof diffBlocks>['ops']): (string | null
   return ids
 }
 
+/**
+ * pair 是否等价于「整块新增」。
+ *
+ * 多文本容器(列表 / 引用 …)整体换成另一批容器时,buildGroupedPairDecorations
+ * 会给每个新容器单独加 velo-diff-added —— 这些 decoration 不带 groupId,只能
+ * 落到单块描边降级规则,一串连续新增行就被画成 N 个独立小绿框。按顶层 insert
+ * 渲染才同时符合语义(整块都是新的)与整框分组。
+ *
+ * 只在「容器对齐结果全是 insert」时提升:出现 delete(红色幽灵项)/ pair / equal
+ * 说明还有删除片段、字符级修改或留存内容,提升会把它们吞掉。
+ */
+function isWholeBlockInsert(oldBlock: BlockEntry, newBlock: BlockEntry): boolean {
+  // 表格走二维网格 diff,单容器 block 走字符级 diff,都不该提升
+  if (oldBlock.node.type.name === 'table' || newBlock.node.type.name === 'table') return false
+  if (oldBlock.groups.length <= 1 && newBlock.groups.length <= 1) return false
+  if (oldBlock.text === newBlock.text) return false
+  const ops = alignSequence(oldBlock.groups.map(g => g.text), newBlock.groups.map(g => g.text))
+  return ops.length > 0 && ops.every(op => op.kind === 'insert')
+}
+
 function joinGroup(
   groups: Map<string, DiffGroup>,
   id: string,
@@ -260,12 +281,18 @@ export function buildDiffPlan(
   resolveSrc?: ImageSrcResolver,
 ): DiffPlan {
   const { ops, oldBlocks, newBlocks } = diffBlocks(oldDoc, newDoc)
-  const groupIds = planGroupIds(ops)
+  // 整组容器全新增的 pair 按顶层 insert 渲染,才能与相邻新增块一起进整框组
+  const renderOps: BlockDiffOp[] = ops.map(op =>
+    op.kind === 'pair' && isWholeBlockInsert(oldBlocks[op.oldIndex], newBlocks[op.newIndex])
+      ? { kind: 'insert' as const, newIndex: op.newIndex }
+      : op,
+  )
+  const groupIds = planGroupIds(renderOps)
   const entries: DiffPlanEntry[] = []
   const groups = new Map<string, DiffGroup>()
 
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i]
+  for (let i = 0; i < renderOps.length; i++) {
+    const op = renderOps[i]
     const groupId = groupIds[i] ?? undefined
 
     if (op.kind === 'insert') {
@@ -287,7 +314,7 @@ export function buildDiffPlan(
       entries.push(entry)
     }
     else if (op.kind === 'delete') {
-      const pos = widgetInsertPos(ops, i, newBlocks, newDoc)
+      const pos = widgetInsertPos(renderOps, i, newBlocks, newDoc)
       const entry: DiffPlanEntry = {
         changed: true,
         from: pos,

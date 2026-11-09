@@ -18,9 +18,14 @@
 //   mermaid SVG、目录都自然被包住,不需要按节点类型写特例;
 // - 组来自 diff 计划(getDiffGroups),全量稳定,不受滚动/增量构建影响;
 // - 只读视图,pointer-events:none,不参与选区与编辑。
+//
+// 同一个 layer 还承载「字符级新增下划线」(diffInlineUnderlines.ts):连续新增
+// 跨过行内 code 胶囊时,CSS text-decoration 在 padding 处必然留缝,改由盒级
+// 线段画才能连成一条。两者共用 refresh / observer / rAF,不新增挂载点。
 
 import type { EditorView } from 'prosemirror-view'
 import { getDiffGroups, type DiffGroup } from './diffDecoration'
+import { createInlineUnderlines } from './diffInlineUnderlines'
 
 /** 框线离版心(content box)两侧的距离,所有组共用 */
 const FRAME_X = 16
@@ -155,6 +160,7 @@ export function createDiffGroupFrames(
   // 挂在 container 上而不是 view.dom 内:PM 只管理 view.dom 的 children
   container.appendChild(layer)
 
+  const underlines = createInlineUnderlines(layer, container, view)
   const frames = new Map<string, HTMLElement>()
   let raf = 0
   let disposed = false
@@ -223,6 +229,8 @@ export function createDiffGroupFrames(
     // 有组却一个框都没画出来时不解除降级,避免「新增内容完全没有标记」
     const ready = groups.length === 0 || seen.size > 0
     container.classList.toggle('velo-diff-frames-ready', ready)
+    // 与整框同帧重算:两者的 rect 都是视口坐标,相对 layer 的差值不随滚动变化
+    underlines.refresh()
   }
 
   function schedule(): void {
@@ -259,6 +267,7 @@ export function createDiffGroupFrames(
       ro?.disconnect()
       window.removeEventListener('resize', schedule)
       container.removeEventListener('load', schedule, true)
+      underlines.destroy()
       layer.remove()
       container.classList.remove('velo-diff-frames-ready')
       frames.clear()

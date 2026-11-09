@@ -340,6 +340,15 @@ export const useDocumentStore = defineStore('document', () => {
     void syncTitle()
   }
 
+  /**
+   * 按标签 id 回写内容。切标签时 activeId 已指向新标签,但编辑器待回写的
+   * markdown 属于即将离开的旧标签 —— 走 setContent 会串到新标签上。
+   */
+  function setContentForDoc(docId: string, v: string) {
+    const d = documents.value.get(docId)
+    if (d) d.content = v
+  }
+
   /** App.vue 在 setup 阶段调用一次,创建首个(空白)标签 */
   function init(initial: string) {
     // 幂等:HMR / 二次调用时已有标签则不重建
@@ -1374,6 +1383,7 @@ export const useDocumentStore = defineStore('document', () => {
     // 生命周期 / IO
     init,
     setContent,
+    setContentForDoc,
     loadContent,
     loadContentInto,
     open,

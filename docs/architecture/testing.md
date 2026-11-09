@@ -93,6 +93,7 @@ src/
     │   └── Sidebar.test.ts
     └── ProseMirrorEditor/
         ├── __tests__/                    # 编辑器核心:markdownIO / 语法 / 键位 / NodeView / 插件
+        │   ├── contentSync.test.ts       内容回写 ↔ 大纲一致性:普通删除 / echo 回环撞后一笔编辑 / debounce 窗口内切标签 / 点击旧标题按 DOM 重建
         │   ├── codeBlockLangSuggest.test.ts  ``` 语言建议下拉(状态检测 / DOM / 键盘导航 / Enter 提交 / Escape / 点击)
         │   ├── codeHighlight.test.ts     code header widget(装载 / shiki dual-theme token / 语言切换 / 复制 / mermaid 联动折叠 / 祖先折叠时 header 跳过 / frontmatter yaml+toml 高亮)
         │   ├── foldDecoration.test.ts    折叠 plugin(makeStableKey / collectFoldableKeys / apply / 跨 plugin 同步 / fold_placeholder 真实节点:appendTransaction 插入删除、handleClickOn 点击展开、Decoration.node 选中高亮、foldDeleteCommand 整块删除、toggle data-fold-state 同步)

@@ -141,7 +141,18 @@ const headingIndex = computed<Map<string, HeadingIndexEntry>>(() => {
 // ========== 滚动到标题 ==========
 // 走共享 util(与统一命令面板 @ 符号模式同款 DOM 跳转 + outline-highlight 闪烁)。
 function onItemClick(item: FlatItem) {
-  revealHeadingInDom(item.level, item.displayText)
+  if (revealHeadingInDom(item.level, item.displayText)) return
+  // 没匹配到 = 标题已不在编辑器里(content 回写滞后 / 内容被删)。以 DOM 中
+  // 真实存在的标题为准重建一次,避免旧 title 一直挂在面板上且怎么点都没反应。
+  const editor = document.querySelector('.ProseMirror')
+  // 只读 diff 视图也是一个 .ProseMirror,但它不是当前文档的真相源。
+  if (!editor || !editor.closest('.velo-editor')) return
+  const lines: string[] = []
+  editor.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6').forEach((el) => {
+    const text = el.textContent?.trim()
+    if (text) lines.push(`${'#'.repeat(Number(el.tagName.substring(1)))} ${text}`)
+  })
+  if (lines.length) tree.value = parseHeadings(lines.join('\n'))
 }
 
 // ========== 缩进（与文件树一致：base 12px + 每级 12px） ==========

@@ -557,6 +557,53 @@ describe('DiffGroup 整框分组', () => {
     expect(plan.groups.length).toBe(0)
   })
 
+  // 回归:旧块是无文本容器的原子块(hr / toc / 图片)而新块是列表时,两者被
+  // 配成 pair;逐容器对齐后每个列表项都是 insert,过去会给每项单独加不带
+  // groupId 的 velo-diff-added,视觉上就是一串独立小绿框而非一个整框。
+  const NEW_LIST = '1. flow_data 删掉 finishText\n2. total 不删\n3. 4 张候选新表不建\n4. 第二批 9 个项目已填好\n5. 新增第 7 节'
+
+  it('多文本容器整体新增 → 提升为顶层 insert,只留一个带 groupId 的 added block', () => {
+    const plan = buildDiffPlan(makeDoc(`# T\n\n${NEW_LIST}`), makeDoc('# T\n\n---'))
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    expect(added[0].entries.length).toBe(1)
+    expect(groupIdsIn(plan)).toEqual([added[0].id])
+    const addedNodes = plan.entries.flatMap(e => e.decos)
+      .filter(d => (d as any).type?.attrs?.class === 'velo-diff-added')
+    expect(addedNodes.length).toBe(1)
+  })
+
+  it('提升后的容器与相邻新增块 → 合并进同一个 added group', () => {
+    const plan = buildDiffPlan(
+      makeDoc(`# T\n\n${NEW_LIST}\n\n新增尾段`),
+      makeDoc('# T\n\n---'),
+    )
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    expect(added[0].entries.length).toBe(2)
+    expect(new Set(groupIdsIn(plan)).size).toBe(1)
+  })
+
+  it('容器内有改写 / 删除项 → 不提升,字符级 diff 与红色删除片段都要保留', () => {
+    const rewritten = buildDiffPlan(
+      makeDoc('# T\n\n1. A\n2. B\n3. C'),
+      makeDoc('# T\n\n1. X\n2. Y\n3. Z'),
+    )
+    expect(rewritten.groups.length).toBe(0)
+    expect(rewritten.entries.some(e => e.decos.some(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-added-inline'))).toBe(true)
+
+    const withDelete = buildDiffPlan(
+      makeDoc('- one\n- three'),
+      makeDoc('- one\n- two\n- three'),
+    )
+    expect(withDelete.groups.length).toBe(0)
+    const ghosts = widgetDoms(withDelete.entries.flatMap(e => e.decos))
+      .filter(d => d.classList.contains('velo-diff-deleted-group'))
+    expect(ghosts.length).toBe(1)
+    expect(ghosts[0].textContent).toBe('two')
+  })
+
   it('组是全量 plan 的一部分,窄视口下不随增量构建变化', () => {
     const narrow = makeDiffState('旧内容.', '旧内容.\n\n新段一\n\n新段二', { from: 0, to: 1 })
     const full = makeDiffState('旧内容.', '旧内容.\n\n新段一\n\n新段二', null)

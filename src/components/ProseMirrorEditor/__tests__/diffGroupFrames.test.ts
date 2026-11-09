@@ -198,6 +198,38 @@ describe('createDiffGroupFrames(端到端)', () => {
     view.destroy()
   })
 
+  it('同一 layer 也画字符级新增下划线,并解除其 CSS 降级', () => {
+    const { container, view } = makeView(['A'])
+    stubRect(container, 0, 400, 0, 800)
+    stubRect(view.dom, 0, 400, 0, 800)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    const p = view.dom.querySelector('p')!
+    p.innerHTML = '<span class="velo-diff-added-inline" style="font-size:16px">new</span>'
+    const span = p.querySelector('.velo-diff-added-inline')!
+    const r = {
+      top: 19,
+      bottom: 40,
+      left: 40,
+      right: 120,
+      x: 40,
+      y: 19,
+      width: 80,
+      height: 21,
+      toJSON: () => ({}),
+    } as DOMRect
+    vi.spyOn(span, 'getClientRects').mockReturnValue([r] as unknown as DOMRectList)
+
+    const frames = createDiffGroupFrames(container, view)
+    frames.refresh()
+    const layer = container.querySelector('.velo-diff-frames')!
+    expect(layer.querySelectorAll('.velo-diff-inline-line')).toHaveLength(1)
+    expect(container.classList.contains('velo-diff-inline-ready')).toBe(true)
+
+    frames.destroy()
+    expect(container.classList.contains('velo-diff-inline-ready')).toBe(false)
+    view.destroy()
+  })
+
   it('destroy 之后异步回调不再把框加回来', () => {
     const { container, view } = makeView(['A'])
     stubRect(container, 0, 400, 0, 800)

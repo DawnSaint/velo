@@ -858,6 +858,9 @@ const emit = defineEmits<{
 // 否则 → 直接 view.updateState 替换内部状态,plugin state 因 init 跑而归零
 // (等价于"销毁重建 EditorView",但不动 view 实例,不重挂 NodeView 容器)。
 let lastSelfEmitted: string | null = null
+// echo 只对"发出它的那个标签 + 那份 doc"成立。多标签下 lastSelfEmitted 是全局
+// 单例,若不记 docId,切回旧标签时会把外部替换误判成 echo 而跳过 view 重建。
+let lastSelfEmittedDocId: string | null = null
 // 切标签恢复期间(tabSwitchToken watch 调 view.updateState(cachedState) 后)
 // 置 true,让同 tick 的 modelValue watch 跳过重建 —— 否则缓存恢复的 undo 历史被
 // EditorState.create 重置掉。flush:'sync' 的 tabSwitchToken watch 先跑置位,
@@ -882,10 +885,13 @@ let parseToken = 0
 // 大文档下 toMarkdown 序列化耗时数十毫秒,每次按键同步执行会拖慢输入。
 // debounce 150ms:连续打字期间不序列化,停顿后才触发。
 // - lastSelfEmitted 仍在 emit 时设置(与 modelValue watch 的 echo 检测同步)
-// - 组件卸载时 flush,防止丢失最后一次编辑
+// - 组件卸载 / 切标签时 flush,防止丢失最后一次编辑
 // - 外部 modelValue 变化(切文件 / fs:watch)时 cancel,防止旧 doc 序列化结果覆盖新内容
+// pendingDocId 记录这份待回写 doc 属于哪个标签:切标签时 activeId 已指向新标签,
+// 若仍走 emit,旧标签的编辑会被写进新标签,而旧标签 content 永远停在删除前。
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let pendingDoc: PMNode | null = null
+let pendingDocId: string | null = null
 const DEBOUNCE_MS = 150
 
 function cancelPendingEmit(): void {
@@ -894,6 +900,7 @@ function cancelPendingEmit(): void {
     debounceTimer = null
   }
   pendingDoc = null
+  pendingDocId = null
 }
 
 function flushPendingEmit(): void {
@@ -901,43 +908,47 @@ function flushPendingEmit(): void {
     clearTimeout(debounceTimer)
     debounceTimer = null
     const doc = pendingDoc
+    const docId = pendingDocId ?? documentStore.activeId
     pendingDoc = null
-    doEmitMarkdown(doc)
+    pendingDocId = null
+    commitDoc(doc, docId)
   }
 }
 
-/**
- * 执行 toMarkdown 序列化 + emit。
- * 从 onChange 回调和 debounce flush 两处调用。
- */
-function doEmitMarkdown(doc: PMNode): void {
+/** toMarkdown 序列化(源码编辑 session 活跃时做占位符转义补偿)。 */
+function serializeDoc(doc: PMNode): string {
   const view = getView()
-  const ranges = view ? getSourceEditRanges(view.state) : []
-  let md: string
-  if (ranges.length > 0) {
-    // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
-    // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
-    // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
-    const schema_ = doc.type.schema
-    let tr = view!.state.tr
-    const restores: { placeholder: string; original: string }[] = []
-    for (let i = ranges.length - 1; i >= 0; i--) {
-      const { from, to } = ranges[i]
-      const original = doc.textBetween(from, to, '\n', '\n')
-      if (!original) continue
-      const placeholder = `veloRaw${i}Placeholder`
-      tr = tr.replaceWith(from, to, schema_.text(placeholder))
-      restores.unshift({ placeholder, original })
-    }
-    md = toMarkdown(tr.doc)
-    for (const { placeholder, original } of restores) {
-      md = md.replace(placeholder, original)
-    }
-  } else {
-    md = toMarkdown(doc)
+  if (!view) return toMarkdown(doc)
+  const ranges = getSourceEditRanges(view.state)
+  if (ranges.length === 0) return toMarkdown(doc)
+  // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
+  // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
+  // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
+  const schema_ = doc.type.schema
+  let tr = view.state.tr
+  const restores: { placeholder: string; original: string }[] = []
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    const { from, to } = ranges[i]
+    const original = doc.textBetween(from, to, '\n', '\n')
+    if (!original) continue
+    const placeholder = `veloRaw${i}Placeholder`
+    tr = tr.replaceWith(from, to, schema_.text(placeholder))
+    restores.unshift({ placeholder, original })
   }
+  let md = toMarkdown(tr.doc)
+  for (const { placeholder, original } of restores) {
+    md = md.replace(placeholder, original)
+  }
+  return md
+}
+
+/** 回写 content。切标签后才 flush 的编辑属于旧标签,按 id 写入而不是 emit。 */
+function commitDoc(doc: PMNode, docId: string): void {
+  const md = serializeDoc(doc)
   lastSelfEmitted = md
-  emit('update:modelValue', md)
+  lastSelfEmittedDocId = docId
+  if (docId === documentStore.activeId) emit('update:modelValue', md)
+  else documentStore.setContentForDoc(docId, md)
 }
 
 // 折叠状态持久化 store —— scheduleFoldRestore 读取当前文件的稳定 key 集合
@@ -959,16 +970,20 @@ function emitHeadingContext() {
 }
 
 watch(() => props.modelValue, async (newVal) => {
-  // 外部 modelValue 变化(切文件 / fs:watch / CLI 打开):cancel pending debounce,
-  // 防止旧 doc 的序列化结果在 150ms 后覆盖新内容。
-  cancelPendingEmit()
   if (pendingTabRestore) {
     // 切标签恢复已由 tabSwitchToken watch 调 view.updateState(cachedState) 处理,
     // 这里不能再 EditorState.create 重建(会丢 undo)。清 flag 跳过。
     pendingTabRestore = false
     return
   }
-  if (newVal === lastSelfEmitted) return
+  // self-emit echo:content 已与 view 里的这份 doc 一致,无需重建。
+  // 不能在这里 cancelPendingEmit —— echo 回环若晚于下一笔编辑到达,会连那笔
+  // 编辑的 pendingDoc 一起丢掉:view 已是新内容、content 永远停在旧值,
+  // 大纲保留被删掉的标题且点击找不到 DOM。让 debounce 自己把更新后的 doc 回写。
+  if (newVal === lastSelfEmitted && lastSelfEmittedDocId === documentStore.activeId) return
+  // 外部 modelValue 变化(切文件 / fs:watch / CLI 打开):cancel pending debounce,
+  // 防止旧 doc 的序列化结果在 150ms 后覆盖新内容。
+  cancelPendingEmit()
   const view = getView()
   if (!view) return
 
@@ -1127,6 +1142,13 @@ watch(() => documentStore.tabSwitchToken, () => {
   if (!mounted) return
   const view = getView()
   if (!view) return
+  // debounce 未到期就切标签:先把旧标签的编辑按 id 回写。否则随后 modelValue
+  // watch 会 cancel 掉 pending emit,旧标签 content 永远停在删除前 —— 大纲留着
+  // 已删标题、切回时缓存的 pmState 与 content 对不上。
+  flushPendingEmit()
+  // echo 哨兵是全局单例,跨标签失效:不清会在切回旧标签时把外部替换误判成 echo。
+  lastSelfEmitted = null
+  lastSelfEmittedDocId = null
   // 同步捕获即将离开的标签的 state + 滚动位
   if (prevActiveId && prevActiveId !== documentStore.activeId) {
     const scroller = findScrollAncestor(view.dom)
@@ -1182,11 +1204,14 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
     // 注意:cancelPendingEmit 必须在 pendingDoc 赋值之前调,它会清 pendingDoc=null。
     cancelPendingEmit()
     pendingDoc = doc
+    pendingDocId = documentStore.activeId
     debounceTimer = setTimeout(() => {
       debounceTimer = null
       const d = pendingDoc
+      const docId = pendingDocId ?? documentStore.activeId
       pendingDoc = null
-      if (d) doEmitMarkdown(d)
+      pendingDocId = null
+      if (d) commitDoc(d, docId)
     }, DEBOUNCE_MS)
     // state 缓存走 onSelectionChange(它覆盖 docChanged + selectionSet,更全)
   },
