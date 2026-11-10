@@ -6,6 +6,7 @@ import type { CJKFormattingSettings, RuleScopes } from '@/lib/cjkFormatter'
 import { createDefaultFormatting, RULE_DEFS } from '@/lib/cjkFormatter'
 import { buildFontStack } from '@/utils/fontStacks'
 import { isMacOS } from '@/utils/platform'
+import { readThemeModeMirror, readSystemDark, writeThemeModeMirror } from '@/utils/themeBoot'
 
 // ========== 侧栏宽度常量(v0.5.5) ==========
 // canonical home 在 editorStore(全局 UI 偏好);workspace.ts re-export 保持
@@ -87,10 +88,14 @@ export const useEditorStore = defineStore('editor', () => {
   const fontFamily = computed(() => buildFontStack(latinFont.value, cjkFont.value, monoFont.value).sans)
   /** 等宽字体族，注入 --font-mono。 */
   const fontMono = computed(() => buildFontStack(latinFont.value, cjkFont.value, monoFont.value).mono)
-  /** 用户主题偏好：跟随系统 / 始终浅色 / 始终暗色。持久化字段。 */
-  const themeMode = ref<ThemeMode>('system')
-  /** 系统当前深浅色偏好（运行时从 matchMedia 读取，不持久化）。 */
-  const systemDarkMode = ref(false)
+  /** 用户主题偏好：跟随系统 / 始终浅色 / 始终暗色。持久化字段。
+   *  初值读 localStorage 镜像（由 public/theme-boot.js 写入首帧），而不是硬编码
+   *  'system' —— 否则 Vue 首帧的 darkMode 会与首帧脚本定下的 .dark 相反，
+   *  watch immediate 把 class 摘掉、hydrate 后又加回来，正是那次明暗翻面。 */
+  const themeMode = ref<ThemeMode>(readThemeModeMirror())
+  /** 系统当前深浅色偏好（运行时从 matchMedia 读取，不持久化）。
+   *  同样在 store 创建时同步读，保证 darkMode 从第一刻起就是最终值。 */
+  const systemDarkMode = ref(readSystemDark())
   /** 实际生效的暗色状态：themeMode='system' 时跟随 systemDarkMode，否则由 themeMode 决定。 */
   const darkMode = computed(() =>
     themeMode.value === 'system' ? systemDarkMode.value : themeMode.value === 'dark',
@@ -213,6 +218,9 @@ export const useEditorStore = defineStore('editor', () => {
     if (typeof e.monoFont === 'string') monoFont.value = e.monoFont
     if (e.themeMode === 'system' || e.themeMode === 'light' || e.themeMode === 'dark') {
       themeMode.value = e.themeMode
+      // 磁盘是权威数据源：hydrate 成功后立刻把最终值回写镜像，纠正
+      // 「用户手改配置文件 / 镜像过期」的情况，下次启动首帧即定色。
+      writeThemeModeMirror(e.themeMode)
     }
     if (typeof e.codeLightTheme === 'string') codeLightTheme.value = e.codeLightTheme
     if (typeof e.codeDarkTheme === 'string') codeDarkTheme.value = e.codeDarkTheme

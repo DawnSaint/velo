@@ -6,7 +6,7 @@
 // 根行按钮 → RootActionButtons。本文件只剩 UI 状态机 + 事件接线 + 模板。
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch, type CSSProperties } from 'vue'
-import { ChevronRight, File, Image } from '@lucide/vue'
+import { ChevronRight, File, Image, Loader2 } from '@lucide/vue'
 import { remove as fsRemove } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { confirm as nativeConfirm } from '@/tauri/dialog'
@@ -39,6 +39,17 @@ const documentStore = useDocumentStore()
 const notify = useNotifyStore()
 
 const { rootNode, dirIndex, rebuildFromRoot, loadDirChildren, refreshDir, pruneDirIndexPrefix } = useTreeData()
+
+// 根加载态骨架行:缩进 / 宽度交错,贴近真实树层级。只在 readDir 超过 200ms
+// 时显示(见 useTreeData.rebuildFromRoot),避免本地快加载闪一帧。
+const skeletonRows = [
+  { indent: 0, width: '56%' },
+  { indent: 1, width: '40%' },
+  { indent: 1, width: '64%' },
+  { indent: 2, width: '46%' },
+  { indent: 0, width: '50%' },
+  { indent: 1, width: '36%' },
+]
 
 /** 根节点折叠态(v0.5.1+,组件本地状态):
  *  - 不持久化 —— 切工作区 / 重启都视觉默认展开,折叠是临时 UI 操作
@@ -594,8 +605,22 @@ function displayName(node: TreeNode): string {
       @dblclick.self="onContainerDblClick"
       @contextmenu.self="onContainerContextMenu"
     >
-      <div v-if="rootNode?.loading" class="px-4 py-0.5 text-xs text-gray-400">
-        加载中…
+      <div v-if="rootNode?.loading" class="select-none px-3 py-2" role="status" aria-live="polite">
+        <div class="mb-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-blue-500 dark:text-blue-400" />
+          <span>正在加载文件树…</span>
+        </div>
+        <div class="animate-pulse space-y-2" aria-hidden="true">
+          <div
+            v-for="(row, i) in skeletonRows"
+            :key="i"
+            class="flex h-7 items-center gap-2"
+            :style="{ paddingLeft: `${row.indent * 14}px` }"
+          >
+            <div class="h-3.5 w-3.5 shrink-0 rounded-[3px] bg-gray-200 dark:bg-gray-700/60" />
+            <div class="h-2.5 rounded-full bg-gray-200 dark:bg-gray-700/60" :style="{ width: row.width }" />
+          </div>
+        </div>
       </div>
       <div v-else-if="rootNode?.error" class="px-4 py-0.5 text-xs text-red-500" :title="rootNode.error">
         读取目录失败

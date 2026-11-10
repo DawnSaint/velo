@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, provide, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, provide, computed, nextTick } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useSystemStore } from '@/stores/system'
@@ -63,9 +63,11 @@ import { isTauri } from '@tauri-apps/api/core'
 import {
   getCurrentWindowLabel,
   newAppWindow,
+  showMainWindow,
   takeWindowCliArgs,
   type CliArgsPayload,
 } from '@/tauri/window'
+import { writeThemeModeMirror } from '@/utils/themeBoot'
 
 import { isMacOS as isMacOSPlatform } from '@/utils/platform'
 const tauri = isTauri()
@@ -112,7 +114,12 @@ const codeBlockReady = ref(false)
 // 守门编辑器/WelcomeDialog,避免启动期先显示“未命名”Tab 再跳变为恢复的 Tab。
 const tabsReady = ref(false)
 void initSettings()
-  .finally(() => { settingsReady.value = true; mark('settings-ready') })
+  .finally(() => {
+    settingsReady.value = true
+    mark('settings-ready')
+    // 窗口是 visible(false) 创建的：主题 hydrate 完、Vue 首帧落地后再显示。
+    void revealMainWindow()
+  })
   .then(async () => {
     // 等 settings hydrate 完再读 store 主题(此时是用户值,可能不是 DEFAULT)
     // 空字符串(NO_THEME) → 用 DEFAULT 装 highlighter(shiki createHighlighter
@@ -293,7 +300,20 @@ const displaySidebarWidth = computed(() => {
   return Math.max(sidebarWidthRef.value, SIDEBAR_WIDTH_MIN)
 })
 
+// 主题偏好变化（用户改设置 / 磁盘 hydrate）→ 同步 localStorage 镜像，
+// 供下次启动的 public/theme-boot.js 在外部 CSS 之前定色。immediate + sync：
+// 保证镜像与 store 初值一致（store 初值本身也从镜像读），不漏首次写入。
+watch(
+  () => store.themeMode,
+  (mode) => writeThemeModeMirror(mode),
+  { immediate: true, flush: 'sync' },
+)
+
 // 将 dark class 同步到 <html>，使 Tailwind dark: 变体全局生效。
+// **首帧的 .dark 已由 public/theme-boot.js 在 CSS 之前设好**；store 的
+// themeMode / systemDarkMode 初值同样来自 localStorage 镜像 + matchMedia，
+// 所以 immediate 这次算出的 darkMode 与首帧一致，不会先摘掉 class 再挂回去
+// —— 这是消除「异步 hydrate 导致整页明暗翻面」的关键。
 // darkMode 是 computed：themeMode='system' 时跟随 systemDarkMode（由下方
 // matchMedia listener 维护），否则由 themeMode 直接决定。
 watch(
@@ -405,6 +425,18 @@ async function initSettings() {
   store.hydrateSettings(loaded.editor)
   documentStore.hydrateSettings(loaded.document)
   systemStore.hydrateSettings(loaded.system)
+}
+
+// 窗口由 Rust 以 visible(false) 创建（src-tauri/src/lib.rs），等主题定色 +
+// Vue 首帧落地后才显示，避开 WebView2 导航期的默认白底那一帧。
+// **不用 requestAnimationFrame**：窗口 hidden 时 Chromium 会暂停 rAF,
+// 可能永远不触发,反而要等 Rust 的 3s 兜底才出现。nextTick 让 hydrate 引起的
+// .dark / CSS 变量变化同步进 DOM,再用 macrotask 给合成器留出一次绘制机会。
+// showMainWindow 内部对非 Tauri(浏览器 dev) 静默跳过,Rust 侧另有兜底。
+async function revealMainWindow() {
+  await nextTick()
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  await showMainWindow()
 }
 
 function snapshotSettings(): PersistedSettings {

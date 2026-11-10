@@ -9,14 +9,14 @@
 // 设计要点:
 //  - 所有 TreeNode 必须经 reactive() 包(见 docs/architecture/file-tree.md 的 TreeNode reactivity contract):
 //    dirIndex(Map)与 rootNode(ref)持有同一份引用,raw 对象会让 ref 拿 proxy /
-//    Map 拿 raw 两份不同步,异步 readDir 完成后模板永远卡"加载中…"。
+//    Map 拿 raw 两份不同步,异步 readDir 完成后模板永远卡在骨架屏加载态。
 //  - loadDirChildren **按 name + isDir 复用旧 TreeNode 引用**(见 docs/architecture/file-tree.md),避免父级
 //    computed 重新 reconcile 整树 → 闪烁。
-//  - 根的 "加载中…" UI 由 rebuildFromRoot 单独 toggle,loadDirChildren 不再
+//  - 根的骨架屏加载态由 rebuildFromRoot 单独 toggle,loadDirChildren 不再
 //    toggle node.loading —— 子目录的 loading 不可见,提早 reactive 通知反而浪费。
 //    rebuildFromRoot 的 loading 为延迟 toggle(200ms 阈值):本地 readDir 通常
-//    <50ms,同步置 true 会导致模板闪一帧"加载中…"再被实际内容替换;阈值内
-//    完成的加载不置 loading,只有真正慢的大目录 / 网络盘才显示"加载中…"。
+//    <50ms,同步置 true 会导致模板闪一帧骨架屏再被实际内容替换;阈值内
+//    完成的加载不置 loading,只有真正慢的大目录 / 网络盘才显示骨架屏。
 
 import { reactive, ref, type Ref } from 'vue'
 import { readDir } from '@/tauri/fs'
@@ -116,8 +116,8 @@ export function useTreeData(): UseTreeData {
     const node = makeNode(root, basename(root) || root, true)
     dirIndex.set(root, node)
     rootNode.value = node
-    // 延迟显示 "加载中…"：本地 readDir 通常 <50ms，同步置 loading=true 会导致
-    // 模板闪一帧"加载中…"再被实际内容替换。阈值 200ms 内完成的加载不闪。
+    // 延迟显示骨架屏：本地 readDir 通常 <50ms，同步置 loading=true 会导致
+    // 模板闪一帧骨架屏再被实际内容替换。阈值 200ms 内完成的加载不闪。
     const loadingTimer = setTimeout(() => {
       if (rootNode.value === node) node.loading = true
     }, 200)

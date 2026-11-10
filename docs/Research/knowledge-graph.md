@@ -474,7 +474,7 @@ npm install sigma graphology graphology-layout-forceatlas2
 - Wikilink 正式语法支持会牵涉 schema、markdownIO、syntax、link click、测试，不建议和图谱 MVP 混在一个 PR。
 - 大 workspace 性能不要用「每次打开图谱全量读盘」；必须有 store 缓存和增量刷新。
 - license：Foam / Quartz / graph libs 多数 MIT 可参考；Logseq 是 AGPL，只建议看设计，不建议复制实现。
-- 工作区根 fs.watch 与图谱增量刷新要协调：单 recursive 句柄已有 150ms (Tauri) + 120ms (前端) 两级 debounce，必须保证图谱 store 复用同一事件源，否则会出现「文件树更新了但图谱没跟上 / 反之」的双源脱节。
+- 工作区根 fs.watch 与图谱增量刷新要协调：单 recursive 句柄只走前端 120ms 脏目录集 debounce，必须保证图谱 store 复用同一事件源，否则会出现「文件树更新了但图谱没跟上 / 反之」的双源脱节。
 - ROADMAP v0.5.6 与 v0.5.5 资产面板（`fs:allow-copy`）在 capability 依赖上有交集；新增图谱依赖前先确认 capability 没漏。
 
 ---

@@ -114,6 +114,8 @@ ProseMirror NodeView / Decoration 通过 `document.createElement` 命令式创�
 
 持久化只存 `themeMode`；旧版本设置文件的 `darkMode: boolean` 在 hydrate 时迁移（`true`→`'dark'`，`false`→`'light'`）。
 
+**首屏定色**: `themeMode` 另有一份 localStorage 镜像（`src/utils/themeBoot.ts`），供 `index.html` 里的同步首帧脚本在外部 CSS 之前定下 `.dark`；`editorStore` 的 `themeMode` / `systemDarkMode` 初值也读这份镜像，磁盘 hydrate 成功后以磁盘为准回写。三者同源，异步读盘不会造成整页明暗翻面，Vue 的 immediate watch 也不会把首帧 class 摘掉再挂回。改 key / 枚举 / 色值时必须同步 `public/theme-boot.js`（纯 JS，不能 import TS；CSP 只允许 `'self'`，故不能用内联脚本）。
+
 ### 两种触发源
 
 项目有两套暗色触发源，覆盖不同场景：

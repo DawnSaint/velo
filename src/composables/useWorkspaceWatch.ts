@@ -4,6 +4,14 @@
 // 120ms debounce 后让 Sidebar.refreshDir 重拉那棵子树。**不做 path diff**,
 // 重拉整 dir 简单可靠,目录中数十个文件 readDir < 5ms。
 //
+// **必须用 watchImmediate,不能用 plugin-fs 的 watch**:JS 层 watch() 默认
+// 注入 delayMs:2000(`{ delayMs: 2000, ...options }`),光在 options 里不传
+// delayMs 是无效的 —— Rust 侧仍走 debouncer,在同步 command 里用 FileIdMap
+// 全树 WalkDir 为每个路径取 file id,打开含 node_modules 的大目录会占死 Tauri
+// 主线程,所有 IPC(含关闭窗口)排队,整窗「未响应」。watchImmediate 强制
+// delayMs:undefined → RecommendedWatcher,Windows 单句柄递归注册 O(1)。
+// 去抖统一由下方 120ms dirtyDirs debounce 承担。
+//
 // 与"当前文件 watch"(documentStore.startWatchOf)共存:当前文件也落在根树
 // 下,会收到两份事件 —— 但 documentStore 内 `disk === lastSavedContent`
 // 短路 + externalCheckInFlight 重入保护已足够去重,不需要在此特殊处理。
@@ -14,7 +22,7 @@
 
 import { nextTick, onBeforeUnmount, watch, type Ref } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { watch as watchFs, type UnwatchFn as FsUnwatchFn } from '@/tauri/fs'
+import { watchImmediate as watchFs, type UnwatchFn as FsUnwatchFn } from '@/tauri/fs'
 import {
   clearAll as clearQuickOpenIndex,
   invalidate as invalidateQuickOpenIndex,
@@ -75,6 +83,10 @@ export function useWorkspaceWatch(opts: {
   async function startWorkspaceWatch(root: string) {
     await stopWorkspaceWatch()
     if (!tauri) return
+    // watch 是同步 command:主线程被占住时,这个 await 的往返时长就是肉眼可见的
+    // 卡顿时長(窗口「未响应」期间 IPC 回不来)。超过 500ms 打一条 warn,打包版
+    // 打开 devtools 即可直接读出注册耗时,不必靠秒表猜是哪一步慢。
+    const startedAt = performance.now()
     try {
       workspaceUnwatch = await watchFs(
         root,
@@ -87,11 +99,17 @@ export function useWorkspaceWatch(opts: {
           if (paths.length === 0) dirtyDirs.add(root)
           scheduleDirtyFlush()
         },
-        { recursive: true, delayMs: 150 },
+        { recursive: true },
       )
     }
     catch (e) {
       console.error('工作区 watch 启动失败', e)
+    }
+    finally {
+      const elapsed = performance.now() - startedAt
+      if (elapsed > 500) {
+        console.warn(`工作区 watch 注册耗时 ${Math.round(elapsed)}ms(>500ms),可能被全树扫描阻塞`)
+      }
     }
   }
 

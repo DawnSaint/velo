@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const MD_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdown", "mdwn", "mdtxt", "mdtext"];
@@ -29,6 +30,11 @@ impl CliArgsPayload {
 
 struct PendingWindowCliArgs(Mutex<HashMap<String, CliArgsPayload>>);
 
+/// 已经显示过的窗口 label。前端正常路径与启动兜底都查这张表去重，
+/// 避免兜底对已显示窗口再 show 一次（会重新抢焦点 / 触发一次无谓重绘）。
+#[derive(Default)]
+struct ShownWindows(Mutex<HashSet<String>>);
+
 fn next_app_window_label() -> String {
     format!(
         "{}{}",
@@ -47,6 +53,29 @@ fn store_window_payload(app: &AppHandle, label: &str, payload: CliArgsPayload) {
             guard.insert(label.to_string(), payload);
         };
     }
+}
+
+/// 显示兜底：前端 JS 加载失败 / 抛异常时窗口会永远隐藏，3s 后补一次 show。
+/// 按窗口注册（而不是 setup 里只扫一次），动态新窗口同样受保护。
+/// ShownWindows 去重：已由前端正常显示过的窗口不再被触碰，避免抢焦点。
+fn spawn_show_fallback(app: &AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(3));
+        let state = app.state::<ShownWindows>();
+        let fresh = match state.0.lock() {
+            Ok(mut shown) => shown.insert(label.clone()),
+            Err(_) => true,
+        };
+        if !fresh {
+            return;
+        }
+        if let Some(win) = app.get_webview_window(&label) {
+            log::warn!("[window] 前端未在 3s 内请求显示窗口 {label},走兜底 show");
+            let _ = win.show();
+        }
+    });
 }
 
 /// 创建一个 app 窗口。`label` 为 None 时使用自增 label（动态窗口），
@@ -69,6 +98,10 @@ fn create_window(
     .center()
     .resizable(true)
     .fullscreen(false)
+    // 隐藏创建：由前端首帧 invoke('show_main_window') 显示，避免 WebView2
+    // 导航到 index.html 期间先画一帧默认白底（首屏白闪）。
+    // create_window 会为每个窗口注册 3s 兜底，前端 JS 异常也不会让窗口永久隐藏。
+    .visible(false)
     .disable_drag_drop_handler();
 
     // GPU 硬件加速：用户可在设置中关闭（仅 Windows WebView2 有效）。
@@ -95,8 +128,10 @@ fn create_window(
     let build_result = builder.build();
 
     match build_result {
-        Ok(win) => {
-            let _ = win.set_focus();
+        Ok(_win) => {
+            // 不在这里 set_focus：窗口此刻是隐藏的，焦点交给 show_main_window
+            //（显示时统一 set_focus），动态新窗口同样走这条路径。
+            spawn_show_fallback(app, label);
             Ok(label.to_string())
         }
         Err(e) => {
@@ -154,6 +189,21 @@ fn take_window_cli_args(label: String, state: tauri::State<PendingWindowCliArgs>
         .lock()
         .map(|mut g| g.remove(&label).unwrap_or_default())
         .unwrap_or_default()
+}
+
+/// 前端首帧渲染完成后调用，把 visible(false) 创建的窗口显示出来。
+/// `window` 由 Tauri 注入为**调用方窗口**，所以动态新窗口自动适用，
+/// 不需要按 label 传参；ShownWindows 保证每个窗口只 show 一次。
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow, state: tauri::State<ShownWindows>) {
+    let label = window.label().to_string();
+    if let Ok(mut shown) = state.0.lock() {
+        if !shown.insert(label) {
+            return;
+        }
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 #[tauri::command]
@@ -295,6 +345,7 @@ mod linux_menu;
 pub fn run() {
     tauri::Builder::default()
         .manage(PendingWindowCliArgs(Mutex::new(HashMap::new())))
+        .manage(ShownWindows::default())
         // single-instance 必须第一个注册:拦截后续启动并在现有进程中创建新窗口
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let payload = parse_cli_args(&args);
@@ -319,6 +370,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             take_window_cli_args,
             new_app_window,
+            show_main_window,
             open_devtools,
             export_pdf,
             #[cfg(target_os = "windows")]
@@ -341,18 +393,13 @@ pub fn run() {
             // 主窗口由代码创建（非 tauri.conf.json 配置驱动），以便在创建时
             // 注入 additional_browser_args（GPU 加速偏好）。tauri.conf.json 的
             // windows 配置已清空，避免配置驱动的窗口与代码创建的窗口冲突。
-            // 创建后立即 show（配置中 visible:false 的等效由代码完成）。
+            // 窗口隐藏创建（create_window 里的 .visible(false)），由前端首帧
+            // invoke('show_main_window') 显示 —— 早显示会露出 WebView2 导航白底。
+            // 3s 兜底由 create_window 按窗口注册，这里不再单独起线程。
             let label = MAIN_WINDOW_LABEL.to_string();
-            match create_window(app.handle(), &label, payload) {
-                Ok(_) => {
-                    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                        let _ = win.show();
-                    }
-                }
-                Err(e) => {
-                    log::error!("创建主窗口失败: {e}");
-                    return Err(e.into());
-                }
+            if let Err(e) = create_window(app.handle(), &label, payload) {
+                log::error!("创建主窗口失败: {e}");
+                return Err(e.into());
             }
 
             // 注册/刷新"在 Velo 中打开"文件夹右键菜单。

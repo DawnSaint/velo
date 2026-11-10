@@ -36,6 +36,9 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   watch: vi.fn(async () => () => {}),
+  // 工作区根监听走无去抖版本(见 src/tauri/fs.ts);mock 必须同步补齐该导出,
+  // 否则 @/tauri/fs 模块加载就会因 "No export is defined on the mock" 整批失败。
+  watchImmediate: vi.fn(async () => () => {}),
   // 草稿管理(drafts/)用到的:存在判断 / 建目录 / 列目录 / 原子 rename / 删文件
   exists: vi.fn(),
   mkdir: vi.fn(),

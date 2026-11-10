@@ -175,7 +175,7 @@ clear(): void  // workspace 切换时
 
 ## 7. 风险点
 
-- **缓存失效**：外部进程改 .md（git checkout 等）通过 fs.watch 刷新，延迟 ≤ 150+120 ms debounce，可接受。
+- **缓存失效**：外部进程改 .md（git checkout 等）通过 fs.watch 刷新，延迟 ≤ 120 ms debounce，可接受。
 - **文件名大小写**：Windows 路径大小写不敏感，引用计算需 `path.toLowerCase()` 归一（所有读写 assetRefGraph 都归一）。
 - **本 markdown 脏内容未保存**：`documentStore.save()` 后才刷新，编辑态中途引用不计入（与知识图谱章节 3.3 同款取舍）。
 - **`markdown` 参数可选**：默认从 `documentStore.content` 取；若 store 还没，fallback readFile（仅当 fs.watch 触发外部进程改且本 md 未打开时）。

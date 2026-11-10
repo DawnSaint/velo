@@ -1,7 +1,7 @@
 // Ctrl+P 查找文件:工作区 .md 文件索引(v0.5.2)
 //
 // 一个 module-level 单例 Map<root, Entry[]>。首次 `ensureIndex(root)`
-// 触发递归 readDir 收集所有 .md 文件;后续命中缓存直接返回。
+// 触发按层并发递归 readDir 收集所有 .md 文件;后续命中缓存直接返回。
 //
 // 失效策略走"标记 stale 而非局部 patch":App.vue 的工作区 fs.watch 回调
 // 任何脏事件都 `invalidate(root)`,下次面板打开时重扫。简单可靠,与
@@ -16,6 +16,7 @@
 import { readDir } from '@/tauri/fs'
 import { join } from '@/tauri/path'
 import { isMarkdownPath } from '@/utils/markdownPath'
+import { mapWithConcurrency, WALK_CONCURRENCY } from '@/utils/mapWithConcurrency'
 
 export interface QuickOpenEntry {
   fullPath: string
@@ -39,39 +40,57 @@ function normalizeSep(s: string): string {
   return s.replace(/\\/g, '/')
 }
 
+interface LevelResult {
+  dirs: string[]
+  files: QuickOpenEntry[]
+}
+
+async function scanDir(root: string, dir: string): Promise<LevelResult> {
+  const dirs: string[] = []
+  const files: QuickOpenEntry[] = []
+  let entries
+  try {
+    entries = await readDir(dir)
+  }
+  catch {
+    // 单条 readDir 失败不影响整次 walk
+    return { dirs, files }
+  }
+  for (const e of entries) {
+    if (!e.name) continue
+    if (e.isDirectory) {
+      if (e.name.startsWith('.')) continue // 隐藏目录(.git 等)整段跳过
+      try {
+        dirs.push(await join(dir, e.name))
+      }
+      catch { /* join 极少失败,静默 */ }
+    }
+    else if (isMarkdownPath(e.name)) {
+      try {
+        const fullPath = await join(dir, e.name)
+        // relPath:去掉 root 前缀 + 起始分隔符,再归一斜杠
+        let rel = fullPath.startsWith(root) ? fullPath.slice(root.length) : fullPath
+        if (rel.startsWith('/') || rel.startsWith('\\')) rel = rel.slice(1)
+        files.push({ fullPath, name: e.name, relPath: normalizeSep(rel) })
+      }
+      catch { /* 同上 */ }
+    }
+  }
+  return { dirs, files }
+}
+
 async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
   const out: QuickOpenEntry[] = []
-  // 单条 readDir 失败不影响整次 walk
-  const queue: string[] = [root]
-  while (queue.length) {
-    const dir = queue.shift()!
-    let entries
-    try {
-      entries = await readDir(dir)
+  let level: string[] = [root]
+  while (level.length) {
+    const results = await mapWithConcurrency(level, WALK_CONCURRENCY, dir => scanDir(root, dir))
+    const nextLevel: string[] = []
+    for (const r of results) {
+      if (!r) continue
+      nextLevel.push(...r.dirs)
+      out.push(...r.files)
     }
-    catch {
-      continue
-    }
-    for (const e of entries) {
-      if (!e.name) continue
-      if (e.isDirectory) {
-        if (e.name.startsWith('.')) continue // 隐藏目录(.git 等)整段跳过
-        try {
-          queue.push(await join(dir, e.name))
-        }
-        catch { /* join 极少失败,静默 */ }
-      }
-      else if (isMarkdownPath(e.name)) {
-        try {
-          const fullPath = await join(dir, e.name)
-          // relPath:去掉 root 前缀 + 起始分隔符,再归一斜杠
-          let rel = fullPath.startsWith(root) ? fullPath.slice(root.length) : fullPath
-          if (rel.startsWith('/') || rel.startsWith('\\')) rel = rel.slice(1)
-          out.push({ fullPath, name: e.name, relPath: normalizeSep(rel) })
-        }
-        catch { /* 同上 */ }
-      }
-    }
+    level = nextLevel
   }
   return out
 }
@@ -83,17 +102,15 @@ async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
  * 不重复 walk。
  */
 export async function ensureIndex(root: string): Promise<QuickOpenEntry[]> {
-  let slot = cache.get(root)
-  if (slot && !slot.stale && !slot.pending) return slot.entries
-  if (slot?.pending) return slot.pending
-  if (!slot) {
-    slot = { entries: [], stale: true, pending: null }
-    cache.set(root, slot)
-  }
+  const cached = cache.get(root)
+  if (cached && !cached.stale && !cached.pending) return cached.entries
+  if (cached?.pending) return cached.pending
+  const slot: CacheSlot = cached ?? { entries: [], stale: true, pending: null }
+  if (!cached) cache.set(root, slot)
   const p = walkRoot(root).then((entries) => {
-    slot!.entries = entries
-    slot!.stale = false
-    slot!.pending = null
+    slot.entries = entries
+    slot.stale = false
+    slot.pending = null
     return entries
   })
   slot.pending = p

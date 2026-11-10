@@ -3,6 +3,7 @@ import type { FindReplaceBackend } from '@/components/ProseMirrorEditor/findrepl
 import { isMarkdownPath } from '@/utils/markdownPath'
 import { readDir, readTextFile, writeTextFile, tauriOnly } from '@/tauri/fs'
 import { join } from '@/tauri/path'
+import { mapWithConcurrency, WALK_CONCURRENCY } from '@/utils/mapWithConcurrency'
 
 type WorkspaceSearchPhase = 'idle' | 'scanning' | 'searching' | 'done' | 'canceled' | 'error'
 
@@ -111,6 +112,11 @@ function fileGroupsFrom(groupsByPath: Map<string, WorkspaceSearchGroup>): Worksp
   return Array.from(groupsByPath.values())
 }
 
+interface ScanLevelResult {
+  dirs: string[]
+  found: WorkspaceSearchFileEntry[]
+}
+
 async function scanMarkdownFiles(
   scopeDir: string,
   controller: WorkspaceSearchController,
@@ -118,37 +124,56 @@ async function scanMarkdownFiles(
   callbacks: WorkspaceSearchCallbacks,
 ): Promise<WorkspaceSearchFileEntry[]> {
   const files: WorkspaceSearchFileEntry[] = []
-  const queue: string[] = [scopeDir]
+  let level: string[] = [scopeDir]
   setProgress(progress, { phase: 'scanning' }, callbacks)
 
-  while (queue.length && !controller.canceled) {
-    const dir = queue.shift()!
-    let entries
-    try {
-      entries = await readDir(dir)
-    }
-    catch {
-      setProgress(progress, { dirsScanned: progress.dirsScanned + 1 }, callbacks)
-      continue
-    }
-    if (controller.canceled) break
+  while (level.length && !controller.canceled) {
+    const results = await mapWithConcurrency(
+      level,
+      WALK_CONCURRENCY,
+      async (dir): Promise<ScanLevelResult | null> => {
+        if (controller.canceled) return null
+        let entries
+        try {
+          entries = await readDir(dir)
+        }
+        catch {
+          setProgress(progress, { dirsScanned: progress.dirsScanned + 1 }, callbacks)
+          return null
+        }
+        if (controller.canceled) return null
 
-    for (const e of entries) {
-      if (controller.canceled) break
-      if (!e.name) continue
-      if (e.isDirectory) {
-        if (e.name.startsWith('.')) continue
-        try { queue.push(await join(dir, e.name)) }
-        catch { /* 单条失败不影响整次 walk */ }
-      }
-      else if (isMarkdownPath(e.name)) {
-        const entry = await makeEntry(scopeDir, dir, e.name)
-        if (!entry) continue
-        files.push(entry)
-        setProgress(progress, { filesFound: files.length }, callbacks)
-      }
+        const dirs: string[] = []
+        const found: WorkspaceSearchFileEntry[] = []
+        for (const e of entries) {
+          if (controller.canceled) break
+          if (!e.name) continue
+          if (e.isDirectory) {
+            if (e.name.startsWith('.')) continue
+            try { dirs.push(await join(dir, e.name)) }
+            catch { /* 单条失败不影响整次 walk */ }
+          }
+          else if (isMarkdownPath(e.name)) {
+            const entry = await makeEntry(scopeDir, dir, e.name)
+            if (entry) found.push(entry)
+          }
+        }
+        setProgress(progress, { dirsScanned: progress.dirsScanned + 1 }, callbacks)
+        return { dirs, found }
+      },
+      () => controller.canceled,
+    )
+
+    const nextLevel: string[] = []
+    let levelFileCount = 0
+    for (const r of results) {
+      if (!r) continue
+      nextLevel.push(...r.dirs)
+      files.push(...r.found)
+      levelFileCount += r.found.length
     }
-    setProgress(progress, { dirsScanned: progress.dirsScanned + 1 }, callbacks)
+    if (levelFileCount > 0) setProgress(progress, { filesFound: files.length }, callbacks)
+    level = nextLevel
   }
 
   return files

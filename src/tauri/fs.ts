@@ -28,6 +28,7 @@ import {
   rename as _rename,
   copyFile as _copyFile,
   watch as _watch,
+  watchImmediate as _watchImmediate,
   type UnwatchFn,
   type DirEntry,
 } from '@tauri-apps/plugin-fs'
@@ -56,3 +57,22 @@ export const rename = _rename
 /** 单文件复制(二进制安全,不走文本编解码)。目录复制需上层递归 readDir + copyFile 拼。 */
 export const copyFile = _copyFile
 export const watch = _watch
+
+/**
+ * 无去抖版本 —— 工作区根(递归监听)**必须**用这个,不要直接用 `watch`。
+ *
+ * plugin-fs 的 JS `watch()` 内部是 `{ delayMs: 2000, ...options }`:调用方
+ * 即便不传 delayMs,Rust 侧 `WatchOptions.delay_ms` 仍是 Some,会走
+ * notify-debouncer-full 分支。该分支在 `watch()` 里用 FileIdMap 对整棵目录树
+ * WalkDir 逐路径取 file id,而 `watch` 是同步 command 跑在 Tauri 主线程 ——
+ * 打开含 node_modules 的大目录会占死主线程,所有 IPC(含关闭窗口)排队,
+ * 表现为整个窗口「未响应」。
+ *
+ * `watchImmediate()` 是 `{ ...options, delayMs: undefined }`,强制走
+ * RecommendedWatcher:Windows 单个 ReadDirectoryChangesW 句柄即递归,注册 O(1)。
+ * 去抖交给前端 dirtyDirs + 120ms timer 承担。
+ *
+ * 单文件监听(非递归)继续用 `watch({ delayMs: 100 })`:其 FileIdMap 只扫 1 个
+ * 文件,开销可忽略,保留去抖可合并编辑器的连续写入事件。
+ */
+export const watchImmediate = _watchImmediate

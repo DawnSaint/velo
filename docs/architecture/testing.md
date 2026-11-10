@@ -159,7 +159,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 **原则**:业务代码只调 `@tauri-apps/*` 的“语义”,不关心实现。测试用 `vi.mock` 把 Tauri 全替成 stub。
 
 **已 mock 的清单**(见 `src/test/setup.ts`):
-- `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `watch`
+- `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `watch` / `watchImmediate` / `readFile` / `writeFile` / `readDir` / `exists` / `mkdir` / `rename` / `remove` / `copyFile`。清单必须跟住 `src/tauri/fs.ts` 的 re-export:该模块是测试 mock 的单一入口,任一导出缺失会让所有间接 import `@/tauri/fs` 的测试文件在**模块加载期**整批报 "No export is defined on the mock"(不是断言失败)
 - `@tauri-apps/plugin-dialog` → `open` / `save` / `confirm`
 - `@tauri-apps/plugin-clipboard-manager` → `writeText`
 - `@tauri-apps/api/window` → `getCurrentWindow().{label,setTitle,onCloseRequested,minimize,toggleMaximize,close,destroy,isMaximized,onResized}`
