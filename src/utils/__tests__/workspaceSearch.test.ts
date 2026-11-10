@@ -166,6 +166,8 @@ describe('workspaceSearch', () => {
       getRangeText: vi.fn(),
       findMatches: vi.fn(),
       setHighlight: vi.fn(),
+      setFindActive: vi.fn(),
+      onDocChange: vi.fn(() => () => {}),
       replaceRange: vi.fn(),
     }
 

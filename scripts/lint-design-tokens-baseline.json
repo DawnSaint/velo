@@ -135,17 +135,9 @@
     "color": "#f77878",
     "type": "hex"
   },
-  "src/lib/export/exportStyles.scss:#ff7b72": {
-    "color": "#ff7b72",
-    "type": "hex"
-  },
   "src/lib/export/exportStyles.scss:#ffffff": {
     "color": "#ffffff",
     "type": "hex"
-  },
-  "src/lib/export/exportStyles.scss:rgba(255": {
-    "color": "rgba(255",
-    "type": "rgb"
   },
   "src/styles/_context-menu.scss:rgb(220": {
     "color": "rgb(220",
@@ -263,10 +255,6 @@
     "color": "#c9d1d9",
     "type": "hex"
   },
-  "src/styles/_editor-code.scss:#d14": {
-    "color": "#d14",
-    "type": "hex"
-  },
   "src/styles/_editor-code.scss:#e1e4e8": {
     "color": "#e1e4e8",
     "type": "hex"
@@ -285,10 +273,6 @@
   },
   "src/styles/_editor-code.scss:#fb923c": {
     "color": "#fb923c",
-    "type": "hex"
-  },
-  "src/styles/_editor-code.scss:#ff7b72": {
-    "color": "#ff7b72",
     "type": "hex"
   },
   "src/styles/_editor-code.scss:#fff": {
@@ -357,10 +341,6 @@
   },
   "src/styles/_editor-dark.scss:#f0d96f": {
     "color": "#f0d96f",
-    "type": "hex"
-  },
-  "src/styles/_editor-dark.scss:#f77878": {
-    "color": "#f77878",
     "type": "hex"
   },
   "src/styles/_editor-dark.scss:rgba(255": {

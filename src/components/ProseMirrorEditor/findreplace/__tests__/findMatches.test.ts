@@ -172,6 +172,21 @@ describe('findMatchesInDoc', () => {
     const matches = findMatchesInDoc(doc, '你好', opt())
     expect(matches).toHaveLength(2)
   })
+
+  // 锁定「搜索定位错位」的数值根因:同一段文本在渲染态 / 源码态是两份 doc,
+  // matches 坐标只属于产出它的那份 doc,不能跨形态复用。
+  it('doc 形态变化后必须重算:源码态坐标误用到渲染态会漂一个字符', () => {
+    const rendered = mkDoc(mkP('关表，itemCount 已留'))
+    const source = mkDoc(mkP('关表，`itemCount` 已留'))
+    const a = findMatchesInDoc(rendered, 'itemCount', opt())
+    const b = findMatchesInDoc(source, 'itemCount', opt())
+    expect(a).toEqual([{ from: 4, to: 13 }])
+    expect(b).toEqual([{ from: 5, to: 14 }])
+    expect(rendered.textBetween(a[0].from, a[0].to)).toBe('itemCount')
+    expect(source.textBetween(b[0].from, b[0].to)).toBe('itemCount')
+    // 截图里的现象:搜 itemCount,却定位成 temCount 加一个空格
+    expect(rendered.textBetween(b[0].from, b[0].to)).toBe('temCount ')
+  })
 })
 
 describe('replaceInText', () => {

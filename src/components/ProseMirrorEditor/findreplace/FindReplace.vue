@@ -8,11 +8,13 @@
 //     共享 —— 切模式时 PM 份卸载、CM6 份新挂,意图在 App.vue 存活,query 不丢。
 //     matches / currentIndex 是模式相关的,不上提,新挂载时用当前后端重算。
 //   - query / options 变化时自动 recompute matches,跳到第一个;空 query 清空。
+//   - 面板打开期间冻结 PM 侧「把视图状态写进 doc」的插件(mark 源码编辑等),
+//     并订阅 doc 变化 → 重算 matches,避免缓存坐标因 doc 形态切换而漂移。
 //   - Enter / Shift+Enter 在 find 输入里走 next / prev;Enter 在 replace 里走 replace。
 //   - 替换后从光标处继续找下一个 match;全部替换走倒序循环 String.replace 支持 $1 $2。
 //   - 关闭时把焦点还给编辑器,回到编辑态。
 
-import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, ChevronUp, X } from '@lucide/vue'
 import { replaceInText, type FindOptions, type Match } from './findMatches'
 import type { FindReplaceBackend } from './backend'
@@ -51,6 +53,10 @@ const currentIndex = ref(0)
 const findInputRef = ref<HTMLInputElement | null>(null)
 const replaceInputRef = ref<HTMLInputElement | null>(null)
 
+// doc 变化订阅的取消函数。后端对象是临时创建的,订阅表按 EditorView 去重,
+// 每次 recomputeMatches 重订阅一次即可覆盖「切文件 / 切模式换了 view」。
+let unsubscribeDocChange: (() => void) | null = null
+
 const options = computed<FindOptions>(() => ({
   caseSensitive: caseSensitive.value,
   wholeWord: wholeWord.value,
@@ -78,9 +84,12 @@ watch(() => props.open, async (isOpen) => {
   if (!isOpen) {
     matches.value = []
     currentIndex.value = 0
+    // PM 侧 clearHighlight 同时把 findHighlight.active 翻回 false,
+    // 解除对 mark 源码编辑等插件的冻结。
     clearHighlight()
     return
   }
+  activateFindSession()
   recomputeMatches()
   pushHighlightToEditor()
   if (matches.value.length > 0) selectMatch(0)
@@ -114,11 +123,27 @@ onMounted(() => {
   if (!props.open) return
   void nextTick().then(() => {
     if (!props.open) return
+    activateFindSession()
     recomputeMatches()
     pushHighlightToEditor()
     if (matches.value.length > 0) selectMatch(0)
   })
 })
+
+onUnmounted(() => {
+  unsubscribeDocChange?.()
+  unsubscribeDocChange = null
+})
+
+/**
+ * 面板打开 → 通知后端冻结 PM 侧「把视图状态写进 doc」的瞬时插件,并 commit
+ * 已经存在的会话。必须在 recomputeMatches 之前:先统一 doc 形态,再算坐标。
+ * setup 阶段的 immediate watcher 可能拿不到 view(后端为 null),onMounted 的
+ * nextTick 会再补一次 —— 两次 dispatch 是幂等的。
+ */
+function activateFindSession() {
+  props.backendGetter()?.setFindActive(true)
+}
 
 function recomputeMatches() {
   const be = props.backendGetter()
@@ -126,7 +151,24 @@ function recomputeMatches() {
     matches.value = []
     return
   }
+  unsubscribeDocChange?.()
+  unsubscribeDocChange = be.onDocChange(resyncMatches)
   matches.value = be.findMatches(query.value, options.value)
+}
+
+/**
+ * 面板打开期间 doc 变了(用户在编辑器里输入、外部替换、别的插件改文档)→
+ * 缓存的 matches 坐标全部失效。重算 + 重推高亮,但**不重设选区** —— 用户可能
+ * 正在编辑器里打字。currentIndex 只夹回合法范围,保留当前命中序号。
+ */
+function resyncMatches() {
+  if (!props.open) return
+  const be = props.backendGetter()
+  if (!be) return
+  const fresh = be.findMatches(query.value, options.value)
+  matches.value = fresh
+  if (currentIndex.value >= fresh.length) currentIndex.value = Math.max(0, fresh.length - 1)
+  be.setHighlight(fresh, currentIndex.value)
 }
 
 /**

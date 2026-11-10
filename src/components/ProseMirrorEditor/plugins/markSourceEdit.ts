@@ -38,6 +38,7 @@ import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
 import { htmlSourceEditKey } from './htmlSourceEdit'
+import { isFindReplaceActive } from '../findreplace/findHighlight'
 
 export const markSourceEditKey = new PluginKey<MarkSourceEditState>('markSourceEdit')
 
@@ -365,6 +366,11 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
   appendTransaction(transactions, _oldState, newState) {
     // 阅读模式下不展开源码:view.editable=false 时光标进入 mark 范围不换源码字符,保持渲染态。
     if (editorView && !editorView.editable) return null
+    // 守卫 (0):查找/替换面板打开期间不进 session。enter 会把 mark 换成源码字面量
+    // (行内 code → "`code`",净 +2),而 FindReplace 缓存的 matches 是渲染态坐标 ——
+    // doc 一变,命中区间就整体错位(高亮从 `itemCount` 漂成 `temCount `,commit
+    // 后甚至只剩尾部空格)。面板关闭时 findHighlight 的 active 翻回 false,恢复正常。
+    if (isFindReplaceActive(newState)) return null
     // 守卫 (a):已开会话不重复进
     if (markSourceEditKey.getState(newState)?.session) return null
     // 守卫 (b):仅纯选区变化(方向键 / 点击)触发;键入 / IME / 粘贴是 docChanged 不触发

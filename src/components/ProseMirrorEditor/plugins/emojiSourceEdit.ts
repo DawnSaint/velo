@@ -36,6 +36,7 @@ import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
 import { markSourceEditKey } from './markSourceEdit'
 import { htmlSourceEditKey } from './htmlSourceEdit'
+import { isFindReplaceActive } from '../findreplace/findHighlight'
 
 export const emojiSourceEditKey = new PluginKey<EmojiSourceEditState>('emojiSourceEdit')
 
@@ -214,6 +215,10 @@ export const emojiSourceEditPlugin = new Plugin<EmojiSourceEditState>({
   appendTransaction(transactions, _oldState, newState) {
     // 阅读模式下不展开源码
     if (editorView && !editorView.editable) return null
+    // 守卫 (0):查找/替换面板打开期间不进 session。emoji → :shortcode: 同样是
+    // 「把视图状态写进 doc」的净长度变化,会让 FindReplace 的 matches 坐标整体漂
+    // (同 markSourceEdit 的行内 code 错位)。
+    if (isFindReplaceActive(newState)) return null
     // 守卫 (a):已开会话不重复进
     if (emojiSourceEditKey.getState(newState)?.session) return null
     // 守卫 (b):仅纯选区变化(方向键 / 点击)触发;键入 / IME / 粘贴是 docChanged 不触发

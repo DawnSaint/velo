@@ -9,6 +9,10 @@
 //   - scroll:PM 焦点在 find 输入里时 tr.scrollIntoView 早退 → 手动 coordsAtPos +
 //     祖先 scrollBy;CM6 的 scrollIntoView effect 不依赖焦点,直接 dispatch 即居中。
 //   - selection / replaceRange / getRangeText:各自原生 API。
+//   - PM 侧特有:markSourceEdit 会把行内 code / strong 等 mark 临时换成 markdown
+//     源码字面量(改 doc),FindReplace 缓存的 matches 坐标因此会整体漂移。
+//     findMatches 前先 flush 会话、面板打开期间冻结这类插件、doc 变化后重算,
+//     三条一起保证坐标唯一(见 findHighlight.ts 顶部注释)。
 //
 // Match.from/to 是编辑器本地坐标(PM pos / CM6 offset),FindReplace 不感知差异。
 
@@ -17,8 +21,9 @@ import { TextSelection } from 'prosemirror-state'
 import { EditorView as CmEditorView } from '@codemirror/view'
 import { EditorSelection as CmEditorSelection } from '@codemirror/state'
 import { findMatchesInDoc, buildPattern, type FindOptions, type Match } from './findMatches'
-import { findHighlightKey } from './findHighlight'
+import { findHighlightKey, subscribeFindDocChange } from './findHighlight'
 import { cmFindHighlightEffect } from './cmFindHighlight'
+import { flushMarkSourceEdit } from '../plugins/markSourceEdit'
 import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
 
 export interface FindReplaceBackend {
@@ -34,8 +39,12 @@ export interface FindReplaceBackend {
   scrollMatchIntoView(from: number): void
   /** 推高亮(matches / currentIndex 变化后调)。 */
   setHighlight(matches: Match[], currentIndex: number): void
-  /** 清高亮。 */
+  /** 清高亮。PM 侧同时解除「查找面板打开」标记。 */
   clearHighlight(): void
+  /** 查找面板开合通知:PM 侧冻结会改 doc 的瞬时视图插件,并 flush 已有会话。 */
+  setFindActive(active: boolean): void
+  /** 订阅文档变化 → 面板打开期间重算 matches,返回取消订阅函数。 */
+  onDocChange(cb: () => void): () => void
   /** 替换 [from,to) 为 newText,返回替换后光标应停的 pos(from + newText.length)。 */
   replaceRange(from: number, to: number, newText: string): number
   /** 焦点拉回编辑器(replaceAll / close 后)。 */
@@ -84,6 +93,11 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       return view.state.doc.textBetween(from, to, '\n', '\n')
     },
     findMatches(query, options) {
+      // markSourceEdit 的 session 把 mark 换成源码字面量(行内 code → "`code`",
+      // 净 +2),doc 坐标系与渲染态不通用。先 commit 会话再搜,matches 才能落在
+      // 稳定的渲染态坐标上。flush 是同步 dispatch,view.state.doc 随即更新;
+      // 没有 session(或没装该插件)时返回 null,零副作用。
+      flushMarkSourceEdit(view)
       return findMatchesInDoc(view.state.doc, query, options)
     },
     setSelection(from, to) {
@@ -113,10 +127,23 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       centerPmPos(view, from)
     },
     setHighlight(matches, currentIndex) {
-      view.dispatch(view.state.tr.setMeta(findHighlightKey, { matches, currentIndex }))
+      view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'set', matches, currentIndex }))
     },
     clearHighlight() {
-      view.dispatch(view.state.tr.setMeta(findHighlightKey, { matches: [], currentIndex: 0 }))
+      view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: false }))
+    },
+    setFindActive(active) {
+      if (active) {
+        // 先立守卫再 flush:flush 自身是 docChanged tr,不会被 appendTransaction
+        // 的「纯选区变化」守卫误判成又一次 enter。
+        view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: true }))
+        flushMarkSourceEdit(view)
+      } else {
+        view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: false }))
+      }
+    },
+    onDocChange(cb) {
+      return subscribeFindDocChange(view, cb)
     },
     replaceRange(from, to, newText) {
       const tr = view.state.tr
@@ -182,6 +209,12 @@ export function createCmBackend(view: CmEditorView): FindReplaceBackend {
     },
     clearHighlight() {
       view.dispatch({ effects: cmFindHighlightEffect.of({ matches: [], currentIndex: 0 }) })
+    },
+    // CM6 的文档就是原始 markdown,没有「渲染态 ↔ 源码态」的瞬时切换,无需冻结;
+    // 装饰也由 cmFindHighlightField 的 deco.map(tr.changes) 自行跟住文档变化。
+    setFindActive(_active) {},
+    onDocChange(_cb) {
+      return () => {}
     },
     replaceRange(from, to, newText) {
       view.dispatch({

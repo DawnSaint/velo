@@ -349,6 +349,8 @@ html.dark .velo-editor pre,        // 全局 <html class="dark">
 
 shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**不建议随意改动**——语法高亮色有独立的色板体系。
 
+**行内 code 不在此表内**：它只承担「这是一段代码」的容器标记，不做语法着色。文字 `color: inherit` 跟随正文色，底色用 `color-mix(in srgb, currentColor 7%, transparent)` 由当前文字色派生，亮暗模式自动翻面，既不需要 dark 覆盖规则，也不会与主题里的红色 token 撞色（`_editor-code.scss` 文件头注释）。
+
 | 颜色值 | 用途 | 亮/暗 |
 |--------|------|--------|
 | `#24292e` | `--shiki-light` 代码文字 / caret / border-left | 亮 |
@@ -357,8 +359,6 @@ shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**�
 | `#0d1117` | `--shiki-dark-bg` 代码背景 | 暗 |
 | `#e1e4e8` | `--shiki-light-border` 代码边框 | 亮 |
 | `#30363d` | `--shiki-dark-border` 代码边框 | 暗 |
-| `#d14` | 行内 code 文字 | 亮 |
-| `#ff7b72` | 代码红色 token | 暗 |
 | `#0d1117` | 代码暗色背景 | 暗 |
 | `var(--code-header-dark-bg)` | 代码块 / emoji dropdown 暗色背景 (gray-800) | 暗 |
 | `#374151` | 代码块 header 暗色背景 (gray-700) | 暗 |
@@ -369,14 +369,14 @@ shiki 双主题 token 色和代码块 UI 色。对齐 GitHub Primer 色板。**�
 | `#fb923c` | 代码 orange-400 | 暗 |
 | `#2da44e` | 按钮 green | 亮 |
 | `#fff` | 代码块 caret / cursor | 暗 |
-| `rgba(0, 0, 0, 0.05)` | 行内 code 背景 | 亮 |
+| `rgba(0, 0, 0, 0.05)` | 源码编辑态标记底（link / html / emoji） | 亮 |
 | `rgba(0, 0, 0, 0.15)` | 代码块阴影 | 亮 |
 | `var(--code-dark-shadow)` | 代码块 / emoji dropdown 暗色阴影 | 暗 |
 | `rgba(255, 215, 0, 0.18)` | CM6 find 高亮背景 | 亮 |
 | `rgba(255, 215, 0, 0.85)` | CM6 find 高亮边框 | 亮 |
 | `rgba(15, 76, 129, 0.35)` | CM6 selection 背景 | 亮 |
 | `rgba(255, 255, 255, 0.2)` | CM6 暗色背景 | 暗 |
-| `rgba(255, 255, 255, 0.08)` | 代码块暗色 hover 背景 / 更新日志行内 code 暗色背景 | 暗 |
+| `rgba(255, 255, 255, 0.08)` | 图标按钮暗色 hover / 更新日志行内 code 暗色背景 | 暗 |
 
 #### G. 编辑器内容 — alert / callout 色（`_editor-alerts.scss`）
 
@@ -488,8 +488,6 @@ GFM alert 五种级别的配色，对齐 GitHub alert 色。
 |--------|------|--------|
 | `#1a1a1a` | 导出根背景 | 亮 |
 | `#e5e5e5` | 导出根文字 | 亮 |
-| `rgba(255, 255, 255, 0.08)` | 导出暗色背景 | 暗 |
-| `#ff7b72` | 导出代码红色 | 暗 |
 | `var(--editor-text-muted)` | 导出暗色次要文字 | 暗 |
 
 #### M. WYSIWYG diff 线条语义色（`_editor-diff.scss`）

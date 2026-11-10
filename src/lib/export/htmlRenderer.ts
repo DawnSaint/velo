@@ -205,10 +205,6 @@ ${katexCss}
     border-color: var(--shiki-dark-border, #30363d);
     color: var(--shiki-dark, #c9d1d9);
   }
-  .velo-editor code {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ff7b72;
-  }
   .velo-editor blockquote { color: #aaa; }
   .velo-editor h1, .velo-editor h2, .velo-editor h3, .velo-editor h4 {
     color: var(--md-doc-primary-color, #6aa3e0);

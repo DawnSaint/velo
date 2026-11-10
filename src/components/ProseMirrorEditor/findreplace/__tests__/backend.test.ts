@@ -16,6 +16,7 @@ import { createPmBackend, createCmBackend } from '../backend'
 import { cmFindHighlightField } from '../cmFindHighlight'
 import { findHighlight, findHighlightKey } from '../findHighlight'
 import { mermaidDecoration, mermaidDecoKey } from '../../nodes/MermaidDecoration'
+import { markSourceEditPlugin, markSourceEditKey } from '../../plugins/markSourceEdit'
 
 const opt = (overrides: Partial<{ caseSensitive: boolean, wholeWord: boolean, regex: boolean }> = {}) => ({
   caseSensitive: false,
@@ -96,6 +97,98 @@ describe('PM 后端', () => {
       const $p = view.state.doc.resolve(m.from)
       expect($p.parent.textContent).toContain('hello')
     }
+    view.destroy()
+  })
+
+  // 回归:「搜 itemCount 却定位到 temCount + 一个空格 / 点击行内代码后只剩空格高亮」。
+  // 根因是 markSourceEdit 把 code mark 临时换成 "`itemCount`"(净 +2),doc 坐标系
+  // 与渲染态不通用,而 FindReplace 缓存了旧坐标。
+  it('findMatches:行内 code 源码态下先 flush,命中区间恒等 query', () => {
+    const view = makePmView('关表，`itemCount` 已留', [markSourceEditPlugin, findHighlight])
+    const be = createPmBackend(view)
+    const codePos = pmPosOf(view.state.doc, 'itemCount')
+    expect(codePos).toBeGreaterThanOrEqual(0)
+
+    const rendered = be.findMatches('itemCount', opt())
+    expect(rendered).toHaveLength(1)
+    expect(be.getRangeText(rendered[0].from, rendered[0].to)).toBe('itemCount')
+
+    // 光标移入 code mark → appendTransaction 展开成 `itemCount`(净 +2)
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, codePos + 2)))
+    expect(markSourceEditKey.getState(view.state)?.session).not.toBeNull()
+    // 旧坐标在源码态 doc 上已经错位
+    expect(be.getRangeText(rendered[0].from, rendered[0].to)).not.toBe('itemCount')
+
+    // 重算:findMatches 先 flush 会话 → doc 还原渲染态 → 坐标重新对齐
+    const fresh = be.findMatches('itemCount', opt())
+    expect(markSourceEditKey.getState(view.state)?.session).toBeNull()
+    expect(fresh).toHaveLength(1)
+    expect(be.getRangeText(fresh[0].from, fresh[0].to)).toBe('itemCount')
+    view.destroy()
+  })
+
+  it('打开查找时光标已在 code mark 内 → setFindActive 先 flush 再算坐标', () => {
+    const view = makePmView('关表，`itemCount` 已留', [markSourceEditPlugin, findHighlight])
+    const be = createPmBackend(view)
+    const codePos = pmPosOf(view.state.doc, 'itemCount')
+    const expected = be.findMatches('itemCount', opt())
+
+    // 「偶现」的触发条件:Ctrl+F 之前光标恰好停在某个行内代码里,session 已激活
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, codePos + 2)))
+    expect(markSourceEditKey.getState(view.state)?.session).not.toBeNull()
+
+    // 打开面板:先立守卫 + commit 已有会话,再重算(对应 FindReplace.open watcher)
+    be.setFindActive(true)
+    expect(markSourceEditKey.getState(view.state)?.session).toBeNull()
+    const matches = be.findMatches('itemCount', opt())
+    be.setHighlight(matches, 0)
+
+    expect(matches).toEqual(expected)
+    expect(be.getRangeText(matches[0].from, matches[0].to)).toBe('itemCount')
+    expect(findHighlightKey.getState(view.state)?.active).toBe(true)
+    view.destroy()
+  })
+
+  it('查找面板打开期间点击进入 code mark 不展开源码,高亮坐标不漂', () => {
+    const view = makePmView('关表，`itemCount` 已留', [markSourceEditPlugin, findHighlight])
+    const be = createPmBackend(view)
+    be.setFindActive(true)
+    expect(findHighlightKey.getState(view.state)?.active).toBe(true)
+
+    const matches = be.findMatches('itemCount', opt())
+    be.setHighlight(matches, 0)
+    const codePos = pmPosOf(view.state.doc, 'itemCount')
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, codePos + 2)))
+
+    // 守卫生效:没有 session、doc 没被改、高亮区间原封不动
+    expect(markSourceEditKey.getState(view.state)?.session).toBeNull()
+    expect(be.getRangeText(matches[0].from, matches[0].to)).toBe('itemCount')
+    expect(findHighlightKey.getState(view.state)?.matches[0]).toEqual(matches[0])
+
+    be.clearHighlight()
+    expect(findHighlightKey.getState(view.state)?.active).toBe(false)
+    view.destroy()
+  })
+
+  it('doc 变化经订阅通知重算;映射区间不塌缩到尾部字符', async () => {
+    const view = makePmView('Hello world hello.', [findHighlight])
+    const be = createPmBackend(view)
+    const matches = be.findMatches('world', opt())
+    be.setHighlight(matches, 0)
+    let notified = 0
+    const off = be.onDocChange(() => { notified++ })
+
+    // 整体替换命中区间(等价于 mark 源码态切换 / 粘贴覆盖)
+    view.dispatch(view.state.tr.replaceWith(matches[0].from, matches[0].to, view.state.schema.text('earth')))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(notified).toBe(1)
+    const mapped = findHighlightKey.getState(view.state)?.matches[0]
+    expect(mapped).toBeDefined()
+    // 老实现两端都用 assoc=1 → 区间塌缩成空 / 尾部一个字符(截图 2)
+    expect(view.state.doc.textBetween(mapped!.from, mapped!.to)).toBe('earth')
+    off()
     view.destroy()
   })
 
@@ -271,6 +364,11 @@ describe('PM 后端', () => {
     be.clearHighlight()
     const hl2 = findHighlightKey.getState(view.state)
     expect(hl2?.matches.length).toBe(0)
+    expect(hl2?.active).toBe(false)
+    // set 只推命中数据,不擅自把面板重新标成「打开」——否则关闭后残留的一次
+    // setHighlight 会让 markSourceEdit / emojiSourceEdit 一直冻结。
+    be.setHighlight(matches, 0)
+    expect(findHighlightKey.getState(view.state)?.active).toBe(false)
     view.destroy()
   })
 

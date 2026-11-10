@@ -20,14 +20,20 @@
 //  行内 code
 // ============================================================
 
+// 行内 code 只做"这是一段代码"的容器标记,不做语法着色:
+// - 文字 color: inherit 跟随正文色,不再写死独立色板;
+// - 底色由 currentColor 派生,亮色下是淡黑、暗色下自动翻成淡白,
+//   因此不需要任何 dark 覆盖规则,也不会与 shiki 主题里的红色 token 撞色。
+// 语法高亮的色彩预算全部留给块级 pre(code_block):用户切主题时行内 code
+// 不参与,页面颜色数量恒定。
 .velo-editor {
   code {
     font-family: var(--font-mono);
-    background: rgba(0, 0, 0, 0.05);
+    color: inherit;
+    background: color-mix(in srgb, currentColor 7%, transparent);
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.9em;
-    color: #d14;
   }
 }
 
@@ -162,12 +168,8 @@ html.dark .velo-editor pre span,
   color: var(--shiki-dark);
 }
 
-// inline code 在 dark 模式下需要调色(仅行内 code,用 :not(pre) > code 排除块级)
-.velo-editor.dark :not(pre) > code,
-html.dark .velo-editor :not(pre) > code {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ff7b72;
-}
+// 行内 code 无需 dark 覆盖:底色由 currentColor 派生,随正文色自动翻面
+// (见文件开头的行内 code 规则)。勿在此重新引入写死的暗色文字色。
 
 // ============================================================
 //  Header 标题栏 widget(正常文档流 block,渲染在 pre 之前,视觉连为一体)
