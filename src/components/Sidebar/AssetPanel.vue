@@ -16,7 +16,7 @@
 // 未被引用图片扫描走 Tauri fs.readDir,dev web 端降级为只显示文档图片。
 
 import { computed, onMounted, ref, watch } from 'vue'
-import { Image as ImageIcon, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'
+import { Image as ImageIcon, ImageOff, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
@@ -576,7 +576,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
                     class="asset-item__img"
                     @error="onThumbError(img.displayUrl)"
                   >
-                  <ImageIcon v-else :size="14" class="text-gray-400" />
+                  <ImageOff v-else :size="14" class="text-gray-400" />
                 </div>
                 <div class="asset-item__info">
                   <span class="asset-item__name">{{ img.label }}</span>
@@ -610,7 +610,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
                     class="asset-item__img"
                     @error="onThumbError(img.displayUrl)"
                   >
-                  <ImageIcon v-else :size="14" class="text-gray-400" />
+                  <ImageOff v-else :size="14" class="text-gray-400" />
                 </div>
                 <div class="asset-item__info">
                   <span class="asset-item__name">{{ img.label }}</span>
@@ -656,7 +656,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
                   class="asset-item__img"
                   @error="onThumbError(orphan.displayUrl)"
                 >
-                <ImageIcon v-else :size="14" class="text-gray-400" />
+                <ImageOff v-else :size="14" class="text-gray-400" />
               </div>
               <div class="asset-item__info">
                 <span class="asset-item__name">{{ orphan.fileName }}</span>

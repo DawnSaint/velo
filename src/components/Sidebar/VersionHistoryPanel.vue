@@ -37,7 +37,29 @@ const gitLoading = computed(() => versionHistory.gitLoading)
 const hoveredGitEntry = ref<TimelineEntry | null>(null)
 const tooltipStyle = ref({ left: '0px', top: '0px' })
 
+/** 隐藏延时定时器:离开 row 或 tooltip 后短暂保留,
+ *  以便鼠标能跨越 row 与 tooltip 之间的间隙(尤其是滚动 message body)。 */
+let hideTimer: number | null = null
+
+/** 取消待执行的隐藏(进入 row 或 tooltip 时调用) */
+function cancelHideTimer() {
+  if (hideTimer !== null) {
+    clearTimeout(hideTimer)
+    hideTimer = null
+  }
+}
+
+/** 安排隐藏:延迟执行,给鼠标移动到 tooltip 留出时间 */
+function scheduleHide() {
+  cancelHideTimer()
+  hideTimer = window.setTimeout(() => {
+    hoveredGitEntry.value = null
+    hideTimer = null
+  }, 180)
+}
+
 function onGitMouseEnter(entry: TimelineEntry, e: MouseEvent) {
+  cancelHideTimer()
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
   // tooltip 显示在条目右侧,如果右侧空间不足则显示在左侧
   const tooltipWidth = 320
@@ -52,7 +74,17 @@ function onGitMouseEnter(entry: TimelineEntry, e: MouseEvent) {
 }
 
 function onGitMouseLeave() {
-  hoveredGitEntry.value = null
+  scheduleHide()
+}
+
+/** 鼠标进入 tooltip:取消隐藏,保持可见(用于滚动 / 选中文本) */
+function onTooltipMouseEnter() {
+  cancelHideTimer()
+}
+
+/** 鼠标离开 tooltip:安排隐藏 */
+function onTooltipMouseLeave() {
+  scheduleHide()
 }
 
 /** 格式化 Git commit 完整时间 */
@@ -272,8 +304,10 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
     <Teleport to="body">
       <div
         v-if="hoveredGitEntry?.git"
-        class="fixed z-[1100] w-80 rounded-lg bg-[var(--surface-3)] p-3 text-xs shadow-[var(--shadow-popover)] ring-1 ring-black/5 dark:ring-white/10"
+        class="git-tooltip fixed z-[1100] w-80 rounded-lg bg-[var(--surface-3)] p-3 text-xs shadow-[var(--shadow-popover)] ring-1 ring-black/5 dark:ring-white/10"
         :style="tooltipStyle"
+        @mouseenter="onTooltipMouseEnter"
+        @mouseleave="onTooltipMouseLeave"
       >
         <!-- subject -->
         <div class="mb-2 break-words font-medium text-gray-800 dark:text-gray-100">
@@ -299,3 +333,23 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Git hover tooltip 的透明桥接层:
+   覆盖 row 与 tooltip 之间的 8px 间隙(两侧都加,兼容左右两种排布),
+   使鼠标从 row 移动到 tooltip 时不会因跨越空隙而触发隐藏。 */
+.git-tooltip::before,
+.git-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+}
+.git-tooltip::before {
+  left: -12px;
+}
+.git-tooltip::after {
+  right: -12px;
+}
+</style>

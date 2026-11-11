@@ -4,6 +4,7 @@ import type { EditorView, NodeView } from 'prosemirror-view'
 import { triggerImageEdit } from '../image/imageEditPlugin'
 import { codeXmlSvg } from '@/components/icons/widgetIcons'
 import { createSelectionSync } from '../nodes/selectionSync'
+import { attachImageErrorFallback } from './imageErrorPlaceholder'
 
 export interface ImageViewOptions {
   /** 把 markdown 里的 src(可能是相对路径 / 绝对路径)转成浏览器能展示的 url。 */
@@ -33,7 +34,7 @@ export function createImageNodeView(opts: ImageViewOptions) {
     // 常驻悬浮按钮:CSS 按 .selected 显隐。code-xml 图标,尺寸同代码块复制按钮。
     const editBtn = document.createElement('button')
     editBtn.type = 'button'
-    editBtn.className = 'velo-icon-btn velo-icon-btn--hidden image-edit-btn'
+    editBtn.className = 'velo-icon-btn velo-icon-btn--hidden velo-icon-btn--on-media image-edit-btn'
     editBtn.title = '编辑图片源码'
     editBtn.innerHTML = codeXmlSvg(12)
     // capture 阶段拦 mousedown:stopPropagation → PM 不抢 selection(NodeSelection
@@ -73,8 +74,11 @@ export function createImageNodeView(opts: ImageViewOptions) {
       } else {
         const img = document.createElement('img')
         img.className = 'image-inline'
-        img.src = opts.proxyDomURL(src)
         img.alt = (currentNode.attrs.alt as string) || ''
+        // 先挂失败兜底再赋 src:asset:// 的失败可能同步触发。传 markdown 原始
+        // src 做 title,代理后的 asset:// 不便排查;文案本身不区分来源。
+        attachImageErrorFallback(img, src)
+        img.src = opts.proxyDomURL(src)
         const title = currentNode.attrs.title as string
         if (title) img.title = title
         // htmlSource image 的额外属性(width/style 等)展开到 img,让视觉效果生效

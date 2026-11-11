@@ -54,6 +54,16 @@ const TRASH_INNER
   + '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />'
   + '<line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />'
 
+// image-off:lucide 标准 path(对角斜杠 + 缺角画框 + 山形 / 太阳残片)。
+// path 抄自 @lucide/vue 的 image-off.mjs,不要手改,方便随版本核对。
+const IMAGE_OFF_INNER
+  = '<line x1="2" y1="2" x2="22" y2="22" />'
+  + '<path d="M10.41 10.41a2 2 0 1 1-2.83-2.83" />'
+  + '<line x1="13.5" y1="13.5" x2="6" y2="21" />'
+  + '<line x1="18" y1="12" x2="21" y2="15" />'
+  + '<path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59" />'
+  + '<path d="M21 15V5a2 2 0 0 0-2-2H9" />'
+
 /** 向下箭头(代码块语言下拉、mermaid 收起)。 */
 export const chevronDownSvg = (size: number): string => makeSvg(CHEVRON_DOWN_INNER, size)
 
@@ -83,3 +93,6 @@ export const listOrderedSvg = (size: number): string => makeSvg(LIST_ORDERED_INN
 
 /** 行号关闭图标(等宽填充行,表示行号已关闭)。 */
 export const alignJustifySvg = (size: number): string => makeSvg(ALIGN_JUSTIFY_INNER, size)
+
+/** image-off 图标(图片加载失败占位符)。描边收细到 1.5,与提示文案同重量级。 */
+export const imageOffSvg = (size: number): string => makeSvg(IMAGE_OFF_INNER, size, 1.5)

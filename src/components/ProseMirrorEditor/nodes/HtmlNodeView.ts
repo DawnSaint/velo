@@ -32,6 +32,7 @@ import { Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
 import type { Node as PMNode } from 'prosemirror-model'
 import { codeXmlSvg } from '@/components/icons/widgetIcons'
+import { attachImageErrorFallback } from '../editor/imageErrorPlaceholder'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 
@@ -55,7 +56,9 @@ const PURIFY_CONFIG: PurifyConfig = {
 function proxyImageSrcs(target: HTMLElement, proxyDomURL: (url: string) => string): void {
   target.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
     const original = img.getAttribute('src')
-    if (original) img.src = proxyDomURL(original)
+    if (!original) return
+    attachImageErrorFallback(img, original)
+    img.src = proxyDomURL(original)
   })
 }
 

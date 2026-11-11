@@ -231,6 +231,22 @@
   background: rgba(207, 34, 46, 0.1);
 }
 
+// 浮在任意内容之上的 icon 按钮(深色图片 / 透明 PNG / 加载失败占位符):
+// 不透明底板让可读性与底层内容解耦,亮暗由 --surface-3 自动翻面,不新增色值。
+// 不覆盖 opacity —— 显隐仍由 --hidden 与各按钮的 .selected 规则控制。
+.velo-icon-btn--on-media {
+  box-sizing: border-box;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-card);
+  color: var(--editor-text-muted);
+
+  &:hover {
+    // 公共 hover 的半透明浅灰底会在深色图片上重新变透明,这里维持实底
+    background: var(--surface-3);
+  }
+}
+
 // 暗色模式:底灰换成浅灰底,hover 换成浅灰底,图标默认浅色(亮色 #888)
 :is(.dark .velo-editor, .velo-editor.dark) {
   .velo-icon-btn {
@@ -242,5 +258,9 @@
   .velo-icon-btn--danger:hover {
     color: #f85149;
     background: rgba(248, 81, 73, 0.1);
+  }
+  // 暗色公共 hover 规则特异性更高,on-media 的实底要在这里再压一次
+  .velo-icon-btn--on-media:hover {
+    background: var(--surface-3);
   }
 }

@@ -3,7 +3,8 @@ import { EditorState, Plugin } from 'prosemirror-state'
 import { DecorationSet, EditorView } from 'prosemirror-view'
 import { schema as veloSchema, type VeloSchema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
-import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin, getDiffGroups } from '../plugins/diffDecoration'
+import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin, getDiffGroups, ensureStableDeletedWidgetRoot } from '../plugins/diffDecoration'
+import { attachImageErrorFallback } from '../editor/imageErrorPlaceholder'
 import { viewportPlugin, setInitialViewportHint, viewportKey } from '../nodes/viewportPlugin'
 
 function makeDoc(md: string) {
@@ -639,5 +640,61 @@ describe('删除片段图片 src 代理', () => {
     const dom = deletedDom()
     expect(Array.from(dom.querySelectorAll('img')).map(i => i.getAttribute('src')))
       .toEqual(['assets/x.png', 'assets/y.png'])
+  })
+
+  it('删除片段图片加载失败 → 复用统一占位符(无 resolver 也生效)', () => {
+    const dom = deletedDom()
+    const img = dom.querySelector('img')!
+    img.dispatchEvent(new Event('error'))
+
+    expect(dom.querySelector('img[src="assets/x.png"]')).toBeNull()
+    const placeholder = dom.querySelector('.velo-image-error')
+    expect(placeholder).not.toBeNull()
+    expect(placeholder?.textContent).toBe('图片加载异常')
+    expect(placeholder?.getAttribute('title')).toBe('assets/x.png')
+  })
+
+  it('删除片段 widget 的根节点不是 <img>(PM viewdesc 引用稳定)', () => {
+    // serializeNode 对 inline image 可能直接返回 <img>;若它作 widget 根节点,
+    // 上面的 replaceWith 会把 PM 持有的根节点换掉。根节点必须始终是容器。
+    for (const oldMd of [OLD_MD, '![图解](assets/x.png)']) {
+      const plan = buildDiffPlan(makeDoc(''), makeDoc(oldMd))
+      const widgets = plan.entries.flatMap(e => e.decos).filter(d => d.from === d.to)
+      expect(widgets.length).toBeGreaterThan(0)
+      for (const w of widgets) {
+        const dom = (w as any).type.toDOM() as HTMLElement
+        expect(dom.tagName).not.toBe('IMG')
+      }
+    }
+  })
+})
+
+// buildDiffPlan 的常见删除场景根节点本来就是 <div>;「根节点恰好是 <img>」是
+// serializeNode 对 inline image 的防御分支,直接测稳定化函数确保它真的生效。
+describe('ensureStableDeletedWidgetRoot', () => {
+  it('<img> 作根节点 → 包一层稳定容器,删除语义 class 仍留在 img 上', () => {
+    const img = document.createElement('img')
+    img.src = 'assets/x.png'
+    img.classList.add('velo-diff-deleted-group')
+    attachImageErrorFallback(img, 'assets/x.png')
+
+    const root = ensureStableDeletedWidgetRoot(img)
+    expect(root).not.toBe(img)
+    expect(root.className).toBe('velo-diff-deleted-image-frame')
+    expect(root.firstElementChild).toBe(img)
+    expect(img.classList.contains('velo-diff-deleted-group')).toBe(true)
+
+    // 失败兜底替换的是容器内子节点,根节点不变(PM viewdesc 引用有效)
+    img.dispatchEvent(new Event('error'))
+    expect(root.querySelector('.velo-image-error')?.textContent).toBe('图片加载异常')
+    expect(root.querySelector('img')).toBeNull()
+  })
+
+  it('非 <img>(<li> / <h2> / <p>)原样返回,不改变删除语义 class 的落点', () => {
+    for (const tag of ['li', 'h2', 'p']) {
+      const el = document.createElement(tag)
+      el.classList.add('velo-diff-deleted-group')
+      expect(ensureStableDeletedWidgetRoot(el)).toBe(el)
+    }
   })
 })

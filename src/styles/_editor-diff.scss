@@ -258,12 +258,32 @@ code.velo-diff-removed {
   box-shadow: 0 2px 0 0 var(--diff-del-line);
 }
 
+.velo-diff-deleted-block .velo-image-error {
+  filter: grayscale(1);
+  opacity: 0.78;
+  box-shadow: 0 2px 0 0 var(--diff-del-line);
+}
+
 // 多文本容器里被删容器的独立片段:class 直接落在该元素上
 .velo-diff-deleted-group {
   color: var(--diff-del-ink);
   @include diff-strike;
   -webkit-user-select: text;
   user-select: text;
+}
+
+// inline 图片被删时 DOMSerializer 直接返回 <img>,若它作 widget 根节点会被
+// 加载失败兜底 replaceWith 掉 —— diffDecoration.ts 包一层稳定容器,根节点不变。
+// 灰度 / 灰底线与整块删除的旧图保持一致(占位符本体仍中性)。
+.velo-diff-deleted-image-frame {
+  display: inline-block;
+  vertical-align: middle;
+
+  :is(img, .velo-image-error) {
+    filter: grayscale(1);
+    opacity: 0.78;
+    box-shadow: 0 2px 0 0 var(--diff-del-line);
+  }
 }
 
 .velo-diff-deleted-group :is(#{$diff-text-blocks}) {

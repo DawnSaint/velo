@@ -17,7 +17,7 @@ import { EditorView } from 'prosemirror-view'
 
 import { createImageNodeView } from '../editor/imageNodeView'
 import { schema } from '../editor/schema'
-import { imageEditKey, createImageEditPlugin, imageEditEscapeKeymap, triggerImageEdit } from '../image/imageEditPlugin'
+import { imageEditKey, createImageEditPlugin, imageEditEscapeKeymap, triggerImageEdit, IMAGE_PREVIEW_DEBOUNCE_MS } from '../image/imageEditPlugin'
 import { parseImageSource, serializeImageSource } from '../image/imageSource'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 
@@ -489,6 +489,57 @@ describe('选中图片时键入不生效(NodeSelection inert)', () => {
     const sel = view.state.selection
     expect(view.someProp('handleTextInput', f => f(view, sel.from, sel.to, 'x', () => view.state.tr.insertText('x')))).toBeFalsy()
     expect(view.someProp('handleKeyDown', f => f(view, new KeyboardEvent('keydown', { key: 'a' })))).toBeFalsy()
+    view.destroy()
+  })
+})
+
+describe('源码预览 widget:稳定容器 + 失败占位 + src 防抖', () => {
+  it('首次进入编辑态立即加载,根节点是稳定容器', async () => {
+    const view = makeView(imageNode({ src: 'gone.png', alt: 'alt', title: '' }))
+    await enterEdit(view)
+
+    const root = view.dom.querySelector('.velo-image-source-preview-widget') as HTMLElement
+    expect(root).not.toBeNull()
+    expect(root.tagName).toBe('SPAN')
+    expect(root.classList.contains('velo-image-error-container')).toBe(true)
+    const preview = root.querySelector('.velo-image-source-preview') as HTMLImageElement
+    expect(preview.tagName).toBe('IMG')
+    expect(preview.src).toContain('gone.png')
+    expect(root.classList.contains('is-pending')).toBe(false)
+    view.destroy()
+  })
+
+  it('预览图加载失败 → 只切 class,根节点与 img 都不被替换', async () => {
+    const view = makeView(imageNode({ src: 'gone.png', alt: 'alt', title: '' }))
+    await enterEdit(view)
+
+    const root = view.dom.querySelector('.velo-image-source-preview-widget') as HTMLElement
+    const preview = root.querySelector('.velo-image-source-preview') as HTMLImageElement
+    preview.dispatchEvent(new Event('error'))
+
+    expect(view.dom.querySelector('.velo-image-source-preview-widget')).toBe(root)
+    expect(root.firstElementChild).toBe(preview)
+    expect(root.classList.contains('is-broken')).toBe(true)
+    expect(root.querySelector('.velo-image-error')?.textContent).toBe('图片加载异常')
+    expect(root.querySelector('.velo-image-error')?.getAttribute('title')).toBe('gone.png')
+    view.destroy()
+  })
+
+  it('改动 src 后延时加载:防抖期间无 src 且带 is-pending,停顿后恢复', async () => {
+    const view = makeView(imageNode({ src: 'gone.png', alt: 'alt', title: '' }))
+    await enterEdit(view)
+    const session = imageEditKey.getState(view.state).session!
+    view.dispatch(view.state.tr.insertText('x', session.editTo - 1))
+    await new Promise(r => setTimeout(r, 10))
+
+    const root = view.dom.querySelector('.velo-image-source-preview-widget') as HTMLElement
+    const preview = root.querySelector('.velo-image-source-preview') as HTMLImageElement
+    expect(root.classList.contains('is-pending')).toBe(true)
+    expect(preview.getAttribute('src')).toBeNull()
+
+    await new Promise(r => setTimeout(r, IMAGE_PREVIEW_DEBOUNCE_MS + 20))
+    expect(root.classList.contains('is-pending')).toBe(false)
+    expect(preview.getAttribute('src')).toContain('gone.pngx')
     view.destroy()
   })
 })

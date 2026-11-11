@@ -70,8 +70,8 @@
     outline-width: 0.1em;
   }
 
-  // 悬浮编辑按钮:.velo-icon-btn + .velo-icon-btn--hidden 提供基础
-  // (含隐藏态),这里只写差异——绝对定位、选中态显现。
+  // 悬浮编辑按钮:.velo-icon-btn + --hidden + --on-media 提供基础
+  // (含隐藏态 / 不透明底板),这里只写差异——绝对定位、选中态显现。
   > .image-frame > .image-edit-btn {
     position: absolute;
     top: 4px;
@@ -80,13 +80,10 @@
   }
 
   &.selected > .image-frame > .image-edit-btn {
-    opacity: 0.5;
+    // 底板已与图片内容解耦,不再压低不透明度(深色图片上会看不见按钮)
+    opacity: 1;
     visibility: visible;
     pointer-events: auto;
-
-    &:hover {
-      opacity: 0.8;
-    }
   }
 
   // 空态 input 框/上传按钮/预览图——跟 image-inline 提供的默认 UI 配套
@@ -209,13 +206,73 @@
 // 图片源码编辑态的预览 widget(Decoration.widget,渲染在源码文本之后 side:1,
 // 落在源码下方)。替换 image atom → 纯文本后 image NodeView 销毁,编辑期间靠这个
 // widget 保留图片;源码合法时实时跟随 src 变化(同 math_block 预览),残缺时不挂。
-img.velo-image-source-preview {
+// 根节点是 PM viewdesc 持有的稳定容器,失败时只切 class,不能替换根节点。
+.velo-image-source-preview-widget {
   display: block;
+  max-width: 100%;
   margin: 8px auto 0;
+  text-align: center;
+
+  > .velo-image-error {
+    margin: 0 auto;
+  }
+}
+
+img.velo-image-source-preview {
   max-width: 100%;
   max-height: 400px;
   height: auto;
   border-radius: 4px;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+// 稳定容器:img 与占位符都预先在 DOM 里,error 只切 class(零 DOM 增删)。
+// 供所有「<img> 是 PM Decoration.widget 根节点」的路径复用。
+.velo-image-error-container {
+  > img {
+    display: block;
+    margin: 0 auto;
+  }
+
+  > .velo-image-error {
+    display: none;
+  }
+
+  &.is-pending > img,
+  &.is-broken > img {
+    display: none;
+  }
+
+  &.is-broken > .velo-image-error {
+    display: flex;
+  }
+}
+
+// ── 图片加载失败占位符 ──
+.velo-image-error {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 320px;
+  max-width: 100%;
+  min-height: 120px;
+  padding: 18px 20px;
+  color: var(--editor-text-muted);
+  text-align: center;
+  user-select: none;
+  -webkit-user-drag: none;
+
+  .velo-image-error-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .velo-image-error-text {
+    font-size: 13px;
+    line-height: 1.4;
+  }
 }

@@ -58,6 +58,7 @@ import {
 } from './diffCommon'
 import { buildTablePairDecorations } from './tableDiff'
 import { getViewport, isInViewport, viewportKey } from '../nodes/viewportPlugin'
+import { attachImageErrorFallback } from '../editor/imageErrorPlaceholder'
 
 export const diffDecorationKey = new PluginKey<DiffDecorationState>('veloDiffDecoration')
 
@@ -126,27 +127,50 @@ type DiffDecorationMeta = {
 /**
  * widget 里的 DOM 由 DOMSerializer 生成,**不经过 image NodeView** ——
  * schema 的 image.toDOM 只输出 markdown 里的原始 src(通常是 `assets/x.png`
- * 这类相对路径),WebView 加载不到。序列化后统一改写 <img src>。
+ * 这类相对路径),WebView 加载不到。序列化后统一改写 <img src>,并给每个
+ * <img> 挂同一份加载失败兜底(占位符由 editor/imageErrorPlaceholder.ts 生成)。
  */
 function serializeDeletedNode(
   node: PMNode,
   resolveSrc?: ImageSrcResolver,
 ): HTMLElement | Text {
   const dom = DOMSerializer.fromSchema(node.type.schema).serializeNode(node)
-  if (!resolveSrc) return dom
-  const resolve = resolveSrc
   // serializeNode 也可能返回 Text 节点,它没有 querySelectorAll
   if (!('querySelectorAll' in dom)) return dom
-  const rewrite = (img: Element): void => {
+
+  const prepare = (el: Element): void => {
+    if (el.tagName !== 'IMG') return
+    const img = el as HTMLImageElement
     const raw = img.getAttribute('src')
     if (!raw) return
-    const next = resolve(raw)
-    if (next !== raw) img.setAttribute('src', next)
+    // 挂在改写 src 之前:改写会重新发起加载。即使没有 resolver(纯逻辑 /
+    // 测试路径),失败兜底也要挂 —— 否则删除片段里仍是浏览器破图。
+    attachImageErrorFallback(img, raw)
+    if (resolveSrc) {
+      const next = resolveSrc(raw)
+      if (next !== raw) img.setAttribute('src', next)
+    }
   }
   // serializeNode 对 inline 节点可能直接返回 <img>,querySelectorAll 不含自身
-  if (dom.tagName === 'IMG') rewrite(dom)
-  for (const img of Array.from(dom.querySelectorAll('img[src]'))) rewrite(img)
+  prepare(dom)
+  for (const img of Array.from(dom.querySelectorAll('img[src]'))) prepare(img)
   return dom
+}
+
+/** 保证删除片段 widget 的根节点不是 <img>。
+ *
+ * DOMSerializer 对 inline image 直接返回 <img>;若它作为 Decoration.widget 的
+ * 根节点,加载失败兜底的 replaceWith 会把 PM viewdesc 持有的根节点换掉。包一层
+ * 稳定容器后根节点不变,替换的只是容器内的子节点。
+ * 非 <img> 一律原样返回 —— `velo-diff-deleted-group` 有时必须落在 <li> / <h2>
+ * 自身(见 _editor-diff.scss 的 `> li.velo-diff-deleted-group` / `:is(headings)`)。
+ * 导出供单测直接覆盖这条防御分支:buildDiffPlan 很难稳定构造出 IMG 根节点。 */
+export function ensureStableDeletedWidgetRoot(dom: HTMLElement): HTMLElement {
+  if (dom.tagName !== 'IMG') return dom
+  const frame = document.createElement('span')
+  frame.className = 'velo-diff-deleted-image-frame'
+  frame.appendChild(dom)
+  return frame
 }
 
 /**
@@ -185,7 +209,7 @@ function deletedGroupWidget(
   return Decoration.widget(pos, () => {
     const dom = serializeDeletedNode(node, resolveSrc) as HTMLElement
     dom.classList.add('velo-diff-deleted-group')
-    return dom
+    return ensureStableDeletedWidgetRoot(dom)
   }, {
     side: -1,
     ignoreSelection: true,

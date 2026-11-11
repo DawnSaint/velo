@@ -41,6 +41,12 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 
 import { parseImageSource, serializeImageSource, parseHtmlImageSource, serializeHtmlImageSource } from './imageSource'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
+import { IMAGE_ERROR_PENDING_CLASS, createImageErrorContainer } from '../editor/imageErrorPlaceholder'
+
+/** 源码逐字编辑会按 key 重建预览 widget;改过 src 后等输入停顿再发起加载,
+ *  避免每敲一键都加载一次不存在的路径、占位符反复闪。首次进入编辑态
+ *  (源码 == originalSource)仍立即加载,预览不等人。 */
+export const IMAGE_PREVIEW_DEBOUNCE_MS = 150
 
 export const imageEditKey = new PluginKey('imageEdit')
 
@@ -116,7 +122,7 @@ export function createImageEditPlugin(opts: ImageEditPluginOptions): Plugin<Imag
       decorations(state) {
         const pluginState = imageEditKey.getState(state)
         if (!pluginState?.session) return DecorationSet.empty
-        const { editFrom, editTo } = pluginState.session
+        const { editFrom, editTo, originalSource } = pluginState.session
 
         const decos: Decoration[] = [
           Decoration.inline(editFrom, editTo, { class: 'velo-image-source-edit' }),
@@ -125,17 +131,26 @@ export function createImageEditPlugin(opts: ImageEditPluginOptions): Plugin<Imag
         // 图片预览 widget:源码合法时渲染在文本之后(side:1,落在源码下方),
         // 实时跟随 src。key 含当前源码 → 文本变 → 重建 widget → 实时预览。
         // 残缺 → 不挂(图片隐藏)。
+        //
+        // 根节点必须是稳定容器:PM 的 WidgetViewDesc 持有 toDOM 返回的根节点,
+        // 根节点若是 <img> 又被加载失败兜底 replaceWith 掉,viewdesc 与真实 DOM
+        // 会在下次 renderDescs / destroy 时对不上。故容器内预放 img + 占位符,
+        // error 只切 class、零 DOM 增删(见 editor/imageErrorPlaceholder.ts)。
         const currentText = state.doc.textBetween(editFrom, editTo, '\n', '\n')
         const parsed = pluginState.session.format === 'html'
           ? parseHtmlImageSource(currentText)
           : parseImageSource(currentText)
         if (parsed && parsed.src) {
           const extraAttrs = 'extraAttrs' in parsed ? parsed.extraAttrs : null
+          const source = parsed!.src
+          const previewURL = opts.proxyDomURL(source)
+          // 首次进入编辑态立即加载;改过源码才防抖(逐字编辑会不断重建 widget)。
+          const debounced = currentText !== originalSource
+          let loadTimer: ReturnType<typeof setTimeout> | undefined
           decos.push(
             Decoration.widget(editTo, () => {
-              const img = document.createElement('img')
+              const { root, img } = createImageErrorContainer(source, 'velo-image-source-preview-widget')
               img.className = 'velo-image-source-preview'
-              img.src = opts.proxyDomURL(parsed!.src)
               img.alt = parsed!.alt
               if (parsed!.title) img.title = parsed!.title
               if (extraAttrs) {
@@ -145,11 +160,27 @@ export function createImageEditPlugin(opts: ImageEditPluginOptions): Plugin<Imag
               }
               img.draggable = false
               img.contentEditable = 'false'
-              return img
+              if (!debounced) {
+                img.src = previewURL
+              }
+              else {
+                // 待加载期间先隐藏无 src 的 img(否则 Chrome 会显示 alt 文本);
+                // widget 被 PM 销毁后不再发起加载。
+                root.classList.add(IMAGE_ERROR_PENDING_CLASS)
+                loadTimer = setTimeout(() => {
+                  if (!img.isConnected) return
+                  root.classList.remove(IMAGE_ERROR_PENDING_CLASS)
+                  img.src = previewURL
+                }, IMAGE_PREVIEW_DEBOUNCE_MS)
+              }
+              return root
             }, {
               side: 1,
               key: `image-source-preview:${currentText}`,
               ignoreSelection: true,
+              destroy: () => {
+                if (loadTimer !== undefined) clearTimeout(loadTimer)
+              },
             }),
           )
         }
