@@ -9,7 +9,6 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMoun
 import { ChevronRight, File, Image, Loader2 } from '@lucide/vue'
 import { remove as fsRemove } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
-import { confirm as nativeConfirm } from '@/tauri/dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { tauriOnly } from '@/tauri/fs'
 import { newAppWindow } from '@/tauri/window'
@@ -17,6 +16,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
 import { useNotifyStore } from '@/stores/notify'
+import { useConfirmStore } from '@/stores/confirm'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
 import RootActionButtons from './RootActionButtons.vue'
@@ -334,20 +334,26 @@ function deleteContainsOpenFile(pathToDelete: string): boolean {
 async function confirmAndDelete(node: TreeNode) {
   const isDir = node.isDir
   const name = node.name
+  const dirtyOpen = documentStore.countDirtyTabsUnder(node.fullPath)
   let message: string
   if (isDir) {
-    const dirtyOpen = documentStore.countDirtyTabsUnder(node.fullPath)
     message = dirtyOpen > 0
-      ? `「${name}」中有 ${dirtyOpen} 个正在编辑且未保存的文件,删除后修改将丢失。\n确定要继续吗？`
+      ? `「${name}」中有 ${dirtyOpen} 个正在编辑且未保存的文件，删除后修改将丢失。`
       : `确定要删除目录「${name}」及其所有内容吗？`
   }
   else {
-    const dirtyOpen = documentStore.countDirtyTabsUnder(node.fullPath)
     message = dirtyOpen > 0
-      ? `「${name}」有未保存修改,删除后修改将丢失。\n确定要继续吗？`
+      ? `「${name}」有未保存修改，删除后修改将丢失。`
       : `确定要删除「${name}」吗？`
   }
-  const ok = await nativeConfirm(message, { title: '确认删除', kind: 'warning' })
+  const ok = await useConfirmStore().ask({
+    title: '确认删除',
+    message,
+    detail: node.fullPath,
+    confirmText: dirtyOpen > 0 ? '仍要删除' : '删除',
+    cancelText: '取消',
+    kind: 'danger',
+  })
   if (!ok) return
   const parentDir = parentDirOfPath(node.fullPath)
   try {

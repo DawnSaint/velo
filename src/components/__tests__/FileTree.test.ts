@@ -18,9 +18,14 @@ import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useNotifyStore } from '@/stores/notify'
 import FileTree from '../Sidebar/FileTree.vue'
 import { copyFile, readDir, rename as fsRename, remove as fsRemove, writeTextFile, mkdir as fsMkdir } from '@tauri-apps/plugin-fs'
-import { confirm } from '@tauri-apps/plugin-dialog'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import type { DirEntry } from '@tauri-apps/plugin-fs'
+
+// 自绘确认框在单测里没有 VeloConfirmDialog 挂载,用 ask 桩结算;默认「取消」。
+const { confirmAsk } = vi.hoisted(() => ({ confirmAsk: vi.fn() }))
+vi.mock('@/stores/confirm', () => ({
+  useConfirmStore: () => ({ ask: confirmAsk }),
+}))
 
 function flushPromises() {
   return new Promise(resolve => setTimeout(resolve, 0))
@@ -357,13 +362,13 @@ describe('FileTree', () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
 
-    vi.mocked(confirm).mockResolvedValue(false)
+    confirmAsk.mockResolvedValue(false)
     const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
 
-    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirmAsk).toHaveBeenCalledTimes(1)
     expect(fsRemove).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -372,13 +377,13 @@ describe('FileTree', () => {
     const wrapper = await mountWithEntries([entry('note.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
 
-    vi.mocked(confirm).mockResolvedValue(true)
+    confirmAsk.mockResolvedValue(true)
     const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
 
-    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirmAsk).toHaveBeenCalledTimes(1)
     expect(fsRemove).toHaveBeenCalledWith('/test/root/note.md', { recursive: false })
     expect(readDir).toHaveBeenCalledTimes(2) // 1 = initial mount, 2 = refreshDir after delete
     wrapper.unmount()
@@ -394,14 +399,14 @@ describe('FileTree', () => {
 
     await openContextMenuOnRow(wrapper, 'note.md')
 
-    vi.mocked(confirm).mockResolvedValue(true)
+    confirmAsk.mockResolvedValue(true)
     const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()
     await flushPromises()
 
     // dirty 删除 → confirm 文案含"未保存" + "将丢失"
-    const confirmMsg = vi.mocked(confirm).mock.calls[0]?.[0] as string
+    const confirmMsg = confirmAsk.mock.calls[0]?.[0]?.message as string
     expect(confirmMsg).toContain('未保存')
     expect(confirmMsg).toContain('将丢失')
     // 联动:loadContent('', null) → currentFilePath 清空
@@ -421,7 +426,7 @@ describe('FileTree', () => {
     const wrapper = await mountWithEntries([entry('note.md', false), entry('keep.md', false)])
     await openContextMenuOnRow(wrapper, 'note.md')
 
-    vi.mocked(confirm).mockResolvedValue(true)
+    confirmAsk.mockResolvedValue(true)
     const deleteBtn = Array.from(document.body.querySelectorAll('[data-tree-context-menu] button'))
       .find(b => b.textContent?.includes('删除')) as HTMLButtonElement
     await deleteBtn.click()

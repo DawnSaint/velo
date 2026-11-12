@@ -6,7 +6,7 @@
 //
 // 设计取舍：
 // - **只接管「告知性反馈」**：需要用户决策的场景（保存覆盖确认 / 关闭脏标签
-//   等）仍走原生 confirm，不替成 Toast —— 阻塞确认与非阻塞告知职责正交。
+//   等）走 `useConfirmStore` + `VeloConfirmDialog`，不替成 Toast —— 阻塞确认与非阻塞告知职责正交。
 // - **零依赖自建**：项目已有 Teleport + TransitionGroup + lucide 图标 + Tailwind
 //   + 暗色模式的完整体系，Toast 顺着同一套 idiom 写，不需要引第三方库。
 // - **setTimeout 管理**：每条 toast push 时挂一个定时器到时自动 dismiss，

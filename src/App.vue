@@ -1661,7 +1661,7 @@ watch(editorRef, (v) => {
     <!-- Toast 通知容器：右上角浮层，Teleport 到 body，不占文档流 -->
     <ToastContainer />
 
-    <!-- 通用确认弹窗：Teleport 到 body，取代原生 confirm，先服务失效工作区清理 -->
+    <!-- 通用确认弹窗：Teleport 到 body，承载全站二选一确认 -->
     <VeloConfirmDialog />
 
     <!-- Zoom 指示器：快捷键缩放时底部居中弹出，显示百分比 + 滑块 + 重置按钮 -->

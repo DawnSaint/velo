@@ -22,12 +22,13 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
 import { Image as TauriImage } from '@tauri-apps/api/image'
 import { readDir, readFile, remove, copyFile, tauriOnly } from '@/tauri/fs'
-import { save as dialogSave, confirm as dialogConfirm } from '@/tauri/dialog'
+import { save as dialogSave } from '@/tauri/dialog'
 import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/imagePath'
 import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
 import { writeClipboardText } from '@/utils/clipboard'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useNotifyStore } from '@/stores/notify'
+import { useConfirmStore } from '@/stores/confirm'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { ASSET_IMAGE_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { basename as basenameSync } from './treeUtils'
@@ -461,7 +462,16 @@ async function onDelete() {
   const { absPath, src } = contextMenu.value
   const fileName = basenameSync(absPath)
   closeContextMenu()
-  const ok = await dialogConfirm(`确定要删除「${fileName}」吗？`, { title: '确认删除', kind: 'warning' })
+  const ok = await useConfirmStore().ask({
+    title: '确认删除',
+    message: src !== null
+      ? `确定要删除「${fileName}」吗？文档中引用该图片的位置也会一并移除。`
+      : `确定要删除「${fileName}」吗？删除后无法恢复。`,
+    detail: absPath,
+    confirmText: '删除',
+    cancelText: '取消',
+    kind: 'danger',
+  })
   if (!ok) return
   try {
     await remove(absPath)

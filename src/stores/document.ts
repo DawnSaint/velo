@@ -1,6 +1,7 @@
 import { ref, computed, markRaw } from 'vue'
 import { defineStore } from 'pinia'
-import { open as openDialog, save as saveDialog, confirm } from '@/tauri/dialog'
+import { open as openDialog, save as saveDialog } from '@/tauri/dialog'
+import { useConfirmStore } from '@/stores/confirm'
 import { readTextFile, writeTextFile, watch, type UnwatchFn } from '@/tauri/fs'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { MARKDOWN_DIALOG_FILTERS } from '@/utils/markdownPath'
@@ -312,10 +313,14 @@ export const useDocumentStore = defineStore('document', () => {
         useNotifyStore().info(`「${docFileName(d)}」已在外部更新，已自动重新加载`)
         return
       }
-      const reload = await confirm(
-        `「${docFileName(d)}」在编辑器外被修改了。\n本地还有未保存的修改 —— 确定要丢弃本地版本并重新加载吗？`,
-        { title: '文件已变化', kind: 'warning' },
-      )
+      const reload = await useConfirmStore().ask({
+        title: '文件已在外部被修改',
+        message: '磁盘上的内容比编辑器中的版本更新，重新载入会丢弃本地未保存的修改。',
+        detail: path,
+        confirmText: '重新载入',
+        cancelText: '保留当前',
+        kind: 'danger',
+      })
       if (reload) loadContentInto(d, disk, path)
     }
     finally {
@@ -461,14 +466,18 @@ export const useDocumentStore = defineStore('document', () => {
     loadContentInto(d, c, path, readOnlyLocked_)
   }
 
-  /** active doc 脏盘时弹原生确认,true=用户同意放弃,可继续覆盖 */
+  /** active doc 脏盘时弹通用确认框,true=用户同意放弃,可继续覆盖 */
   async function confirmDiscardIfDirty(): Promise<boolean> {
     const d = activeDoc()
     if (!d || d.content === d.lastSavedContent) return true
-    return await confirm(
-      `「${docFileName(d)}」有未保存的修改，确定要放弃吗？`,
-      { title: '未保存的修改', kind: 'warning' },
-    )
+    return await useConfirmStore().ask({
+      title: '未保存的修改',
+      message: `「${docFileName(d)}」有未保存的修改，放弃后本次编辑内容无法恢复。`,
+      detail: d.currentFilePath ?? undefined,
+      confirmText: '放弃修改',
+      cancelText: '继续编辑',
+      kind: 'danger',
+    })
   }
 
   /** 只读模式下禁止写入磁盘 */
@@ -998,10 +1007,14 @@ export const useDocumentStore = defineStore('document', () => {
     const d = documents.value.get(id)
     if (!d) return false
     if (d.content !== d.lastSavedContent) {
-      const ok = await confirm(
-        `「${docFileName(d)}」有未保存的修改，确定要关闭吗？`,
-        { title: '未保存的修改', kind: 'warning' },
-      )
+      const ok = await useConfirmStore().ask({
+        title: '未保存的修改',
+        message: `「${docFileName(d)}」有未保存的修改，关闭后这些内容将丢失。`,
+        detail: d.currentFilePath ?? undefined,
+        confirmText: '关闭标签',
+        cancelText: '继续编辑',
+        kind: 'danger',
+      })
       if (!ok) return false
     }
     // 关闭前记下相邻标签(关掉后激活它),Map 保插入序

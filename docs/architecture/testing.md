@@ -169,11 +169,13 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 
 **已 mock 的清单**(见 `src/test/setup.ts`):
 - `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `watch` / `watchImmediate` / `readFile` / `writeFile` / `readDir` / `exists` / `mkdir` / `rename` / `remove` / `copyFile`。清单必须跟住 `src/tauri/fs.ts` 的 re-export:该模块是测试 mock 的单一入口,任一导出缺失会让所有间接 import `@/tauri/fs` 的测试文件在**模块加载期**整批报 "No export is defined on the mock"(不是断言失败)
-- `@tauri-apps/plugin-dialog` → `open` / `save` / `confirm`
+- `@tauri-apps/plugin-dialog` → `open` / `save` / `message`(系统对话框只剩选文件 / 选保存位置)
 - `@tauri-apps/plugin-clipboard-manager` → `writeText`
 - `@tauri-apps/api/window` → `getCurrentWindow().{label,setTitle,onCloseRequested,minimize,toggleMaximize,close,destroy,isMaximized,onResized}`
 
 **全局指令注册**: `setup.ts` 还全局注册了 `v-velo-scroll` 指令(工作区滚动条 hover 显示，实现见 `src/directives/veloScroll.ts`)，避免每个 mount 用到它的组件测试(FileTree / WorkspaceSearchPanel / Sidebar / AssetPanel 等)单独传 `global.directives`。
+
+**确认弹窗**: 单测不挂载 `VeloConfirmDialog`,`useConfirmStore().ask()` 会留下永不 resolve 的 promise。触发确认决策的用例(`document.test.ts` / `FileTree.test.ts`)在各自文件内 `vi.mock('@/stores/confirm')` 把 `ask` 换成 `vi.fn()` 桩 —— `vi.resetAllMocks()` 后桩返回 undefined(falsy = 取消),要放行时 `mockResolvedValue(true)`。测弹窗本身 / 失效清理的用例(`confirm.test.ts` / `VeloConfirmDialog.test.ts` / `useStaleEntry.test.ts` / `QuickCommandPanel.test.ts`)用真实 store,通过 `store.current` 断言文案、`store.confirm()` / `store.cancel()` 结算。
 
 **新增 Tauri 调用的规约**:
 - 在 `src/tauri/` 下建薄封装(如 `src/tauri/fs.ts`、`src/tauri/dialog.ts`),业务侧 import 封装
@@ -250,13 +252,13 @@ E2E spec 不依赖 class 名(Tailwind utility,改起来频)。**所有 E2E 选�
 
 ### `__VELO_E2E_AUTO_CONFIRM__` window flag
 
-WebDriver 无法操作系统级 confirm 对话框(`@tauri-apps/plugin-dialog::confirm` 在 Windows 上调系统对话框)。E2E spec 删除链路依赖此钩子绕开:
+自绘确认框是 DOM,WebDriver 本来就能点;但删除链路这类 spec 可用一次性 flag 跳过全部二选一确认:
 
-- `src/tauri/dialog.ts` 的 `confirm` 包了 `import.meta.env.DEV` 守门:dev build 下若 `window.__VELO_E2E_AUTO_CONFIRM__ === true`,直接 resolve `true` 跳过原生对话框
+- `src/stores/confirm.ts` 的 `ask` 包了 `import.meta.env.DEV` 守门:dev build 下若 `globalThis.__VELO_E2E_AUTO_CONFIRM__ === true`,直接 resolve `true`
 - release build 经 esbuild 把 `if (import.meta.env.DEV && ...)` dead-code-eliminate,行为不变
-- spec 在 `before()` 里一次性 `browser.execute(() => { window.__VELO_E2E_AUTO_CONFIRM__ = true })` 打开
+- 需要时在 spec 的 `before()` 里 `browser.execute(() => { window.__VELO_E2E_AUTO_CONFIRM__ = true })` 打开(当前唯一 spec `multi-window.spec.ts` 不涉及删除,未启用)
 
-> 不走 Rust 端 `#[cfg(debug_assertions)]` invoke 拦截:前端守门等效但实施代价 10× 低,且不涉及 Cargo 重建。如未来要支持系统 message / save dialog 同款绕开,继续走前端 flag 模式即可。
+> 该 flag 不影响 `open` / `save` 的系统对话框。不走 Rust 端 `#[cfg(debug_assertions)]` invoke 拦截:前端守门等效但实施代价 10× 低,且不涉及 Cargo 重建。如未来要支持系统 message / save dialog 同款绕开,继续走前端 flag 模式即可。
 
 ### WebView2 + msedgedriver 交互层兜底
 

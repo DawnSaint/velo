@@ -6,7 +6,13 @@ import { useNotifyStore } from '../notify'
 import { useWorkspaceStore } from '../workspace'
 import { useVersionHistoryStore } from '../versionHistory'
 import { readTextFile, writeTextFile, watch, exists, readDir, remove, rename } from '@tauri-apps/plugin-fs'
-import { save as saveDialog, confirm } from '@tauri-apps/plugin-dialog'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
+
+// 自绘确认框在单测里没有 VeloConfirmDialog 挂载,用 ask 桩结算;默认「取消」。
+const { confirmAsk } = vi.hoisted(() => ({ confirmAsk: vi.fn() }))
+vi.mock('@/stores/confirm', () => ({
+  useConfirmStore: () => ({ ask: confirmAsk }),
+}))
 
 /**
  * 工具:把 store 拉到一个"可操作"的稳定状态
@@ -181,7 +187,7 @@ describe('document store', () => {
       await store.checkExternalChange()
 
       // disk === lastSavedContent('hello\n') → 应早退,不弹 confirm,content 不变
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
       expect(store.content).toBe('hello world\n') // 用户编辑保留
     })
 
@@ -209,7 +215,7 @@ describe('document store', () => {
       await store.checkExternalChange()
 
       // canonicalDisk === lastSavedContent → 应早退,不弹 confirm
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
       // 用户编辑保留
       expect(store.content).toContain('edited')
     })
@@ -261,7 +267,7 @@ describe('document store', () => {
       const before = store.content
       await store.checkExternalChange()
       expect(store.content).toBe(before) // 没被重载
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
     })
 
     it('b. disk === content(别人重写为同样内容),只刷新基线', async () => {
@@ -273,7 +279,7 @@ describe('document store', () => {
       await store.checkExternalChange()
       // baseline 被刷新到 'hello world' → dirty 清零
       expect(store.dirty).toBe(false)
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
     })
 
     it('c. !dirty,disk 变化 → 静默重载,不弹确认', async () => {
@@ -284,27 +290,27 @@ describe('document store', () => {
       await store.checkExternalChange()
       expect(store.content).toBe('hello updated\n')
       expect(store.dirty).toBe(false)
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
     })
 
     it('d-同意. dirty,disk 变化 → 弹确认,同意则 reload', async () => {
       const store = await setupOpenedFile('hello\n', '/p.md')
       store.setContent('hello edited\n') // dirty=true
       vi.mocked(readTextFile).mockResolvedValue('hello updated\n')
-      vi.mocked(confirm).mockResolvedValueOnce(true)
+      confirmAsk.mockResolvedValueOnce(true)
       await store.checkExternalChange()
       expect(store.content).toBe('hello updated\n')
-      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(confirmAsk).toHaveBeenCalledTimes(1)
     })
 
     it('d-拒绝. dirty,disk 变化 → 弹确认,拒绝则保留本地版本', async () => {
       const store = await setupOpenedFile('hello\n', '/p.md')
       store.setContent('hello edited\n') // dirty=true
       vi.mocked(readTextFile).mockResolvedValue('hello updated\n')
-      vi.mocked(confirm).mockResolvedValueOnce(false)
+      confirmAsk.mockResolvedValueOnce(false)
       await store.checkExternalChange()
       expect(store.content).toBe('hello edited\n') // 本地版本保留
-      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(confirmAsk).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -427,13 +433,13 @@ describe('document store', () => {
       const store = await setupOpenedFile('hello', '/p.md')
       const result = await store.confirmDiscardIfDirty()
       expect(result).toBe(true)
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
     })
 
     it('脏 + 同意 → true', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello edited')
-      vi.mocked(confirm).mockResolvedValueOnce(true)
+      confirmAsk.mockResolvedValueOnce(true)
       const result = await store.confirmDiscardIfDirty()
       expect(result).toBe(true)
     })
@@ -441,7 +447,7 @@ describe('document store', () => {
     it('脏 + 拒绝 → false', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello edited')
-      vi.mocked(confirm).mockResolvedValueOnce(false)
+      confirmAsk.mockResolvedValueOnce(false)
       const result = await store.confirmDiscardIfDirty()
       expect(result).toBe(false)
     })
@@ -491,7 +497,7 @@ describe('document store', () => {
     it('多标签:newDoc 不弹脏盘确认(新标签不打扰活动标签),活动脏盘标签保留', async () => {
       const store = await setupOpenedFile('hello', '/p.md')
       store.setContent('hello edited') // /p.md 标签 dirty
-      vi.mocked(confirm).mockClear()
+      confirmAsk.mockClear()
 
       const before = store.focusRequestToken
 
@@ -500,7 +506,7 @@ describe('document store', () => {
       // 新标签创建 → token 递增(不再因脏盘确认而早退)
       expect(store.focusRequestToken).toBe(before + 1)
       // 多标签:newDoc 开新标签,不弹当前标签的脏盘确认
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
       // /p.md 标签仍在且仍 dirty(未被新标签覆盖)
       const pId = store.findTabByPath('/p.md')
       expect(pId).toBeTruthy()
@@ -653,13 +659,13 @@ describe('document store', () => {
       store.setContent('hello world\n')
       expect(store.dirty).toBe(true)
 
-      vi.mocked(confirm).mockClear()
+      confirmAsk.mockClear()
       vi.mocked(readTextFile).mockResolvedValueOnce('other\n')
 
       // 中键点击 /other.md → 新开标签,不弹脏盘确认
       await store.openPathInNewTab('/other.md')
 
-      expect(confirm).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
       // /a.md 标签仍在且 dirty
       const aId = store.findTabByPath('/a.md')
       const aTab = store.tabs.find(t => t.id === aId)
@@ -768,7 +774,7 @@ describe('document store', () => {
 
     it('closeOtherTabs:关掉除指定外的全部,dirty 逐个 confirm', async () => {
       const { store, ids } = await setupThreeTabsWithDirty()
-      vi.mocked(confirm).mockResolvedValue(true) // 用户同意丢脏
+      confirmAsk.mockResolvedValue(true) // 用户同意丢脏
 
       await store.closeOtherTabs(ids.b)
 
@@ -779,7 +785,7 @@ describe('document store', () => {
     it('closeOtherTabs:用户中途取消 dirty → 停在该 dirty 标签,后续不再弹', async () => {
       const { store, ids } = await setupThreeTabsWithDirty()
       // a 是第一个被 closeOtherTabs 关的 dirty 标签(顺序按 Map 插入序 a / b / c)
-      vi.mocked(confirm).mockResolvedValueOnce(false)
+      confirmAsk.mockResolvedValueOnce(false)
 
       const ok = await store.closeOtherTabs(ids.b)
       expect(ok).toBe(false)
@@ -791,7 +797,7 @@ describe('document store', () => {
 
     it('closeTabsToRight:关掉指定 tab 右侧的全部(不含自身)', async () => {
       const { store, ids } = await setupThreeTabsWithDirty()
-      vi.mocked(confirm).mockResolvedValue(true)
+      confirmAsk.mockResolvedValue(true)
 
       await store.closeTabsToRight(ids.a)
 
@@ -801,11 +807,11 @@ describe('document store', () => {
 
     it('closeTabsToRight:指定 tab 是最右 → no-op', async () => {
       const { store, ids } = await setupThreeTabsWithDirty()
-      vi.mocked(confirm).mockClear()
+      confirmAsk.mockClear()
 
       const ok = await store.closeTabsToRight(ids.c)
       expect(ok).toBe(true)
-      expect(vi.mocked(confirm)).not.toHaveBeenCalled()
+      expect(confirmAsk).not.toHaveBeenCalled()
       expect(store.tabs.length).toBe(3)
     })
 
@@ -839,7 +845,7 @@ describe('document store', () => {
 
     it('closeAllTabs:逐个 confirm;用户同意 → 全关,activeId 变空', async () => {
       const { store } = await setupThreeTabsWithDirty()
-      vi.mocked(confirm).mockResolvedValue(true)
+      confirmAsk.mockResolvedValue(true)
 
       const ok = await store.closeAllTabs()
       expect(ok).toBe(true)
@@ -849,7 +855,7 @@ describe('document store', () => {
 
     it('closeAllTabs:用户中途取消 → 保留后续未弹 confirm 的', async () => {
       const { store, ids } = await setupThreeTabsWithDirty()
-      vi.mocked(confirm).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      confirmAsk.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
       // a dirty 确认关,b dirty 确认弹但取消,c 不再弹(循环停在 b)
       const ok = await store.closeAllTabs()
       expect(ok).toBe(false)
@@ -1234,7 +1240,7 @@ describe('document store', () => {
       await store.openPathInTab('/c.md')
       const middleTab = store.tabs.find(t => t.fileName === 'b.md')!
       vi.mocked(saveDialog as any).mockResolvedValue(undefined) // 关 dirty 标签时 confirm
-      vi.mocked(confirm).mockResolvedValue(true)
+      confirmAsk.mockResolvedValue(true)
       await store.closeTab(middleTab.id)
       expect(store.openFilePaths).toEqual(['/a.md', '/c.md'])
     })

@@ -52,7 +52,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
   save: vi.fn(),
-  confirm: vi.fn(),
   message: vi.fn(),
 }))
 
