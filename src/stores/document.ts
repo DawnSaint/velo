@@ -372,6 +372,32 @@ export const useDocumentStore = defineStore('document', () => {
    */
   const CANON_SKIP_THRESHOLD = 2000
 
+  // 字符实体引用:数字(十进制 / 十六进制)或命名(&nbsp; / &amp; / &copy; ...)。
+  // 含这类实体的文档打开时保留 raw、不做 canonical round-trip —— 见 loadContentInto。
+  const CHAR_REF_RE = /&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]+);/
+
+  /**
+   * 只在代码块 / 行内代码之外检测字符实体。
+   * 代码里的 `&#x20;` 是字面文本(parse/stringify 都不解码,不会被 canonical 改写),
+   * 不该让整篇文档白白失去 canonical 的 CRLF / 多空行 dirty 归零语义。
+   * 轻量行扫描(不建 mdast):围栏 ``` / ~~~ 成对跳过,行内 `...` 挖空。
+   */
+  function hasCharRefOutsideCode(src: string): boolean {
+    let fence: string | null = null
+    for (const line of (src ?? '').split('\n')) {
+      const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+      if (fenceMatch) {
+        const marker = fenceMatch[1][0]
+        if (!fence) fence = marker
+        else if (fence === marker) fence = null
+        continue
+      }
+      if (fence) continue
+      if (CHAR_REF_RE.test(line.replace(/`+[^`]*`+/g, ''))) return true
+    }
+    return false
+  }
+
   function loadContentInto(d: DocState, c: string, path: string | null, readOnlyLocked_ = false) {
     d.currentFilePath = path
     // 切换到真实文件时清掉虚拟名(sample 装载后由 caller 单独 setVirtualFileName)
@@ -394,16 +420,28 @@ export const useDocumentStore = defineStore('document', () => {
     } else {
       const pmDoc = fromMarkdown(c, pmSchema)
       d.pendingPmDoc = markRaw(pmDoc)
-      // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
-      // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
-      // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
-      // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
-      // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
-      // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
-      // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
-      const canonical = toMarkdown(pmDoc)
-      d.content = canonical
-      d.lastSavedContent = canonical
+      // 正文含字符实体(&#x20; / &nbsp; 等)的文档:打开保留 raw,不做 canonical
+      // round-trip。toMarkdown 会把实体解码成字符再规范化掉,若塞进 content /
+      // lastSavedContent 会静默改写磁盘内容、且因两者相等不显示 dirty —— 用户看到
+      // "编辑器里实体没了但盘上还在"。这类文档以 raw 作基线:源码模式逐字节保真、
+      // 搜得到实体,打开不 dirty;真正编辑时仍走 toMarkdown(不自动添加实体)。
+      // 代价:实体文档 type+delete 不归零(与 >2000 行大文档同款取舍)。
+      // 代码块 / 行内代码里的字面实体不会被解码,照旧 canonical。
+      if (hasCharRefOutsideCode(c)) {
+        d.content = c
+        d.lastSavedContent = c
+      } else {
+        // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
+        // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
+        // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
+        // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
+        // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
+        // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
+        // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
+        const canonical = toMarkdown(pmDoc)
+        d.content = canonical
+        d.lastSavedContent = canonical
+      }
     }
 
     // 内容已外部替换 → Step 3 的 cached editor state 失效,切回时重建

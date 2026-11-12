@@ -1568,4 +1568,101 @@ describe('C0 + C0b + C3: pendingPmDoc + 大文档跳过 canonical + 延迟 fromM
       expect(store.consumePendingPmDoc()).toBeNull()
     })
   })
+
+  // 字符实体文档打开保真:含 &#x20; / &#8203; 等的文档 load 时保留 raw,不做
+  // canonical round-trip —— 否则 toMarkdown 把实体解码成空格再规范化掉,静默改写
+  // 磁盘内容且因 content===lastSavedContent 不显示 dirty(用户报告"编辑器里实体
+  // 没了但盘上还在")。无实体文档照旧 canonical,保住 CRLF / 多空行 dirty 归零。
+  describe('字符实体文档打开保真(不 canonical 剥离实体)', () => {
+    it('含 &#x20; 的文档:content 保留 raw 实体,dirty=false', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '- `math`**&#x20;模块** ：是纯 Python 实现的。\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toBe(raw)
+      expect(store.content).toContain('&#x20;')
+      expect(store.dirty).toBe(false)
+    })
+
+    it('含十进制实体 &#8203; 的文档同样保留 raw', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '**foo**&#8203;\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toBe(raw)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('含实体文档仍设 pendingPmDoc(小文档同步解析供编辑器渲染)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.loadContent('**&#x20;XXX**\n', '/p.md')
+
+      expect(store.consumePendingPmDoc()).not.toBeNull()
+    })
+
+    it('含实体 + CRLF:raw 逐字节保留(实体触发跳过 canonical,CRLF 也不规范化)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '**&#x20;XXX**\r\nsecond\r\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toBe(raw)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('无实体的加粗夹代码文档:canonical 不自动添加 &#x20;', () => {
+      const store = useDocumentStore()
+      store.init('')
+      store.loadContent('**a `b` c**\n', '/p.md')
+
+      expect(store.content).not.toContain('&#x20;')
+      expect(store.dirty).toBe(false)
+    })
+
+    it('命名实体 &nbsp; / &amp; 同样保留 raw(不只是数字实体)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = 'a&nbsp;b &amp; c\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toBe(raw)
+      expect(store.dirty).toBe(false)
+    })
+
+    it('代码块内的字面实体不触发 raw:canonical 仍规范化 CRLF', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '```md\r\n代码 &#x20; 示例\r\n```\r\n'
+      store.loadContent(raw, '/p.md')
+
+      // 代码块内容原样保留,但整体走 canonical → CRLF 被规范化
+      expect(store.content).toContain('&#x20;')
+      expect(store.content).not.toContain('\r\n')
+      expect(store.dirty).toBe(false)
+    })
+
+    it('行内代码内的字面实体同样走 canonical', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '正文 `字面 &#x20;` 行内代码\r\n第二行\r\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toContain('`字面 &#x20;`')
+      expect(store.content).not.toContain('\r\n')
+      expect(store.dirty).toBe(false)
+    })
+
+    it('正文实体 + CRLF:仍逐字节保留(排除代码区没有误伤正文)', () => {
+      const store = useDocumentStore()
+      store.init('')
+      const raw = '正文实体 &#x20; 在这里\r\n第二行\r\n'
+      store.loadContent(raw, '/p.md')
+
+      expect(store.content).toBe(raw)
+      expect(store.dirty).toBe(false)
+    })
+  })
 })

@@ -794,3 +794,122 @@ describe('emphasis/strong marker attr round-trip', () => {
     expect(getMarker(doc2, 'emphasis')).toBe('_')
   })
 })
+
+// strong/emphasis 内容首尾空白移出界定符(不编码成 &#x20;)。
+// 病根:code mark `excludes:'_'` 独占 + wrapWithMarks 逐 span 独立包裹,使
+// "加粗夹行内代码"被碎片化成多段 strong,切口空格落在 strong 首尾。旧实现
+// inside 编码把边界空格写成 `&#x20;` 污染源码;现移到界定符外,渲染等价、源码干净。
+describe('strong/emphasis 边界空白不编码成实体', () => {
+  it('加粗夹行内代码:边界空格移出界定符,不产生 &#x20;', () => {
+    const doc = fromMarkdown('**a `b` c**', schema)
+    const back = toMarkdown(doc)
+    expect(back).not.toContain('&#x20;')
+    expect(back.trim()).toBe('**a** `b` **c**')
+  })
+
+  it('标题内加粗夹行内代码(用户报告场景)不产生 &#x20;', () => {
+    const md = '##### **用法 A：右栏（不传 `district`，...）**'
+    const back = toMarkdown(fromMarkdown(md, schema))
+    expect(back).not.toContain('&#x20;')
+    expect(back.trim()).toBe('##### **用法 A：右栏（不传** `district`**，...）**')
+  })
+
+  it('加粗夹行内代码 round-trip 字符串幂等', () => {
+    const once = toMarkdown(fromMarkdown('**a `b` c**', schema))
+    const twice = toMarkdown(fromMarkdown(once, schema))
+    expect(twice).toBe(once)
+  })
+
+  it('strong 首尾空格移出界定符(空格保留在加粗外,渲染等价)', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.text('x'),
+        schema.text(' foo ', [schema.marks.strong.create({ marker: '*' })]),
+        schema.text('y'),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('x **foo** y')
+  })
+
+  it('emphasis 首尾空格移出界定符', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.text('x'),
+        schema.text(' foo ', [schema.marks.emphasis.create({ marker: '_' })]),
+        schema.text('y'),
+      ]),
+    ])
+    expect(toMarkdown(doc).trim()).toBe('x _foo_ y')
+  })
+
+  it('全空白 strong 丢弃界定符(不产出 ****)', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.text('x'),
+        schema.text('   ', [schema.marks.strong.create({ marker: '*' })]),
+        schema.text('y'),
+      ]),
+    ])
+    const out = toMarkdown(doc).trim()
+    expect(out).not.toContain('**')
+    expect(out).toBe('x   y')
+  })
+
+  it('边界空格 strong round-trip 字符串幂等', () => {
+    const md = 'x **foo** y'
+    const once = toMarkdown(fromMarkdown(md, schema))
+    const twice = toMarkdown(fromMarkdown(once, schema))
+    expect(twice).toBe(once)
+  })
+})
+
+// remarkCjkEmphasis 只补 CJK 标点导致的 strong 漏判,不能扩大语法:CommonMark 里
+// `** foo**` / `**foo **` 因界定符紧贴空白不构成 strong。修复前插件的宽松正则把
+// 它们也补成 strong,wrapAttention 再把空格移出界定符,用户源码被静默改写成
+// `**foo**` 且多一轮 round-trip 才稳定。现在跳这类匹配,与标准对齐。
+describe('remarkCjkEmphasis 与 CommonMark 边界空白对齐', () => {
+  function strongTexts(md: string): string[] {
+    const runs: string[] = []
+    fromMarkdown(md, schema).descendants(node => {
+      if (node.isText && node.marks.some(m => m.type.name === 'strong')) runs.push(node.text ?? '')
+    })
+    return runs
+  }
+
+  it('** foo** 保持字面文本,不补 strong', () => {
+    expect(strongTexts('** foo**')).toEqual([])
+    expect(toMarkdown(fromMarkdown('** foo**', schema)).trim()).toBe('\\*\\* foo\\*\\*')
+  })
+
+  it('**foo ** 保持字面文本,不补 strong', () => {
+    expect(strongTexts('**foo **')).toEqual([])
+    expect(toMarkdown(fromMarkdown('**foo **', schema)).trim()).toBe('\\*\\*foo \\*\\*')
+  })
+
+  it('非法边界空白写法 round-trip 字符串幂等', () => {
+    for (const md of ['** foo**', '**foo **']) {
+      const once = toMarkdown(fromMarkdown(md, schema))
+      expect(toMarkdown(fromMarkdown(once, schema))).toBe(once)
+    }
+  })
+
+  it('同一行跳过非法匹配不影响后面的合法 / CJK 匹配', () => {
+    const md = '** foo** 和 **正常** 和 **数据排序：**正文 和 **bar **'
+    const runs = strongTexts(md)
+    expect(runs).toContain('正常')
+    expect(runs).toContain('数据排序：')
+    expect(runs).not.toContain(' foo')
+    expect(runs).not.toContain('bar ')
+    const out = toMarkdown(fromMarkdown(md, schema))
+    expect(out).toContain('\\*\\* foo\\*\\*')
+    expect(out).toContain('**正常**')
+    expect(out).toContain('**数据排序：**正文')
+    expect(out).toContain('\\*\\*bar \\*\\*')
+  })
+
+  it('CJK 标点场景仍被补成 strong(不被误伤)', () => {
+    expect(strongTexts('**数据排序：**正文')).toContain('数据排序：')
+    expect(strongTexts('正文**（2）数据：**')).toContain('（2）数据：')
+    expect(toMarkdown(fromMarkdown('**数据排序：**正文', schema)).trim()).toBe('**数据排序：**正文')
+  })
+})

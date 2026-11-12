@@ -110,6 +110,10 @@ function makeInitialState(): CodeHighlightState {
 
 export const codeHighlightKey = new PluginKey<CodeHighlightState>('codeHighlight')
 
+/** header widget 的 spec.key 前缀。key 里还编码了块 pos / lang / 文本 hash /
+ *  wrap / 行号状态;清理孤儿 decoration 时只按前缀认领本 plugin 的 widget。 */
+const CODE_HEADER_KEY_PREFIX = 'code-header:'
+
 // ============================================================
 //  Header widget factory —— prosemirror-view 接受 (view, getPos) => DOMNode
 // ============================================================
@@ -647,7 +651,7 @@ function buildDecosForCodeBlock(
     // 同一门控(同视口/同 seen),PM 会把多个 node decoration 的 class 合并
     // (velo-folded / data-velo-wrap / 此处共存的既有路径)。
     decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'velo-code-has-header' }))
-    const key = `code-header:${pos}:${lang}:${hashCode(code)}:${isWrapped}:${hasLineNumbers}`
+    const key = `${CODE_HEADER_KEY_PREFIX}${pos}:${lang}:${hashCode(code)}:${isWrapped}:${hasLineNumbers}`
     decos.push(
       Decoration.widget(pos, (view, _getPos) => {
         return makeHeaderDom(
@@ -780,6 +784,30 @@ function buildDecorations(
 //  Plugin
 // ============================================================
 
+/**
+ * 清掉"孤儿" code header widget(锚点已不在任何存活 code_block 起点)。
+ *
+ * PM 的 `WidgetType.map` 是 `mapping.mapResult(pos, side < 0 ? -1 : 1)`:
+ * header widget 用 side:-1、锚在 code_block **起始边界**,整块被删除时
+ * 它落在删除区间左边界、`deleted=false` → 被原样保留;而同块的
+ * `Decoration.node` 因边界失效、`Decoration.inline` 因范围塌陷都会被
+ * map 自动丢弃 —— 于是只剩一个没有 `<pre>` 的空标题栏。增量更新只对
+ * dirty range 内"仍存在"的块重建装饰,块被整块删掉时 affected 为空,
+ * 孤儿 header 就永久留在 DOM 里(粘贴代码块后 Ctrl+Z 的可见症状)。
+ *
+ * 按当前 doc 的真实 code_block 起点做一次清理:scanDoc 用 doc 身份缓存,
+ * 与下方 dirty-range 逻辑共用一次扫描,不额外遍历。
+ */
+function pruneOrphanCodeHeaders(set: DecorationSet, doc: PMNode): DecorationSet {
+  const livePos = new Set<number>()
+  for (const { pos } of scanDoc(doc).codeBlocks) livePos.add(pos)
+  const orphans = set.find(
+    undefined, undefined,
+    spec => typeof spec?.key === 'string' && spec.key.startsWith(CODE_HEADER_KEY_PREFIX),
+  ).filter(deco => !livePos.has(deco.from))
+  return orphans.length ? set.remove(orphans) : set
+}
+
 /** docChanged 时把 seenSet 的 content-start pos 平移到新 doc 坐标。
  *  assoc=-1:同 mermaid editNodeSet 的坑 —— 块起点在块内插入文本时保持
  *  不动(assoc=+1 会把它推到插入末尾,下次 descendants 扫描对不上号);
@@ -893,8 +921,12 @@ export const codeHighlightPlugin = new Plugin<CodeHighlightState>({
         return { ...prev, seenSet, decoSet: built }
       }
 
-      // 增量更新:map 旧 set → 只重建 dirty range 内 code_block/frontmatter 的 decoration
+      // 增量更新:map 旧 set → 清孤儿 header → 只重建 dirty range 内块的 decoration
       let newSet = prev.decoSet.map(tr.mapping, tr.doc)
+      // docChanged 必做:map 不会删掉 side:-1 的 header widget(见
+      // pruneOrphanCodeHeaders 注释),块被整块删除 / undo 撤回粘贴时,
+      // 不清理就会留下一个下面没有 <pre> 的空标题栏。
+      newSet = pruneOrphanCodeHeaders(newSet, tr.doc)
 
       // 从 tr.steps 提取 dirty ranges(新 doc 坐标)
       const dirtyRanges: Array<{ from: number; to: number }> = []

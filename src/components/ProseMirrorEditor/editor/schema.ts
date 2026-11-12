@@ -582,6 +582,15 @@ nodes.table_header_row = {
 nodes.table_row = {
   ...nodes.table_row,
   content: '(table_cell)*',
+  // table_row 在 OrderedMap 里排在 table_header_row 之前,裸 {tag:'tr'} 会先抢走
+  // 带 data-is-header / 含 <th> 的头行,DOMParser 于是把 <tr>/<th> 拆到顶层,
+  // HTML round-trip 后的表格断裂成「空 table + 散落 row/cell」。排除头行让规则
+  // 落到 table_header_row,复制含表格的多块内容才能完整还原。
+  parseDOM: [{
+    tag: 'tr',
+    getAttrs: (dom: HTMLElement) =>
+      dom.hasAttribute('data-is-header') || dom.querySelector('th') ? false : {},
+  }],
 }
 
 // ============================================================

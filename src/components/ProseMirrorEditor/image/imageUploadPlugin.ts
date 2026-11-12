@@ -78,10 +78,9 @@ function insertImageNode(view: EditorView, src: string, alt: string, dropPos: nu
  * imageUploadPlugin 优先拦截图片文件 → 表格被插图。检测到 HTML 含表格时
  * 应改为插 table 节点。
  *
- * 不能走 ProseMirror 默认 HTML 路径:浏览器解析 <table> 时会自动插入 <tbody>,
- * 而 prosemirror-tables 的 table parseDOM 期望 <tr> 是 <table> 的直接子节点
- * (content: 'table_header_row table_row*'),<tbody> 导致 parseSlice 断裂成
- * 两个 table 节点(第一个空)。这里手动从 DOM 解析出规整的 table 节点。
+ * 外部 HTML 表格结构不可控:<tbody>/<thead> 混用、合并单元格、富文本样式。
+ * PM 的默认 DOMParser 路径只适合自己序列化出来的 HTML(带 data-pm-slice),
+ * 这里统一按 textContent 重建规整 table 节点,与 buildTsvSlice 的 TSV 路径对齐。
  *
  * 行内含 th → table_header_row(table_header),否则 table_row(table_cell)。
  * 单元格只取 textContent(忽略行内格式),与 buildTsvSlice 的 TSV 路径对齐。
@@ -181,21 +180,20 @@ export const imageUploadPlugin = new Plugin({
       // imageUploadPlugin 会优先拦截图片文件 → 表格被插图。检测到 HTML 含表格时
       // 改为手动解析 <table> 成规整的 table 节点插入,而不是插图。
       //
-      // 不能走 ProseMirror 默认 HTML 路径:浏览器解析 <table> 时会自动插入 <tbody>,
-      // 而 prosemirror-tables 的 table parseDOM 期望 <tr> 是 <table> 的直接子节点,
-      // <tbody> 导致 parseSlice 断裂成两个 table 节点(第一个空)。详见 parseTableFromHTML。
+      // 含 <table> 的三种来源必须分开处理,否则「多段文字 + 表格」复制粘贴会只剩表格:
+      //  1. Velo 自身复制 / 剪切 → HTML 带 data-pm-slice。放行给 PM 原生 HTML
+      //     round-trip,它按该属性恢复 openStart/openEnd,完整还原选区里所有块、
+      //     marks 和表格结构。不能走 fromMarkdown(text/plain):PM 默认 textBetween
+      //     产出的是无 markdown 标记的纯文本,不是文档源码;也不能只提取 <table>。
+      //  2. 外部 markdown 文档(text/plain 含 markdown 语法特征)→ fromMarkdown。
+      //  3. Excel / Sheets 的 TSV → parseTableFromHTML 提取表格。
       //
       // 纯图片粘贴(截图 / 浏览器复制图)无 text/html → 不受影响,走下方图片分支。
-      //
-      // **坑**:从编辑器 / 浏览器复制含表格的完整 markdown 文档时,剪贴板同样有
-      // text/html(含 <table>) + text/plain(完整 markdown)。如果无条件只提取表格,
-      // 其余内容全部丢失。必须先检查 text/plain 是否包含 markdown 语法特征 ——
-      // 是 markdown 文档则用 fromMarkdown 解析完整文档插入(含表格);仅当
-      // text/plain 是 TSV(Excel / Sheets)时才走表格提取路径。
-      // 不能 return false 让 ProseMirror 默认处理:有 text/html 时 doPaste 走
-      // DOMParser.fromSchema HTML 路径,不调用 clipboardTextParser(那是纯文本路径)。
       const html = cb?.getData('text/html')
       if (html && /<table[\s>]/i.test(html)) {
+        // data-pm-slice 只由 PM 的 serializeForClipboard 写入(copy 与 cut 同路径),
+        // 是内部复制的可靠标记;Excel / 网页等外部来源不会带。
+        if (/data-pm-slice\s*=/i.test(html)) return false
         const plain = cb?.getData('text/plain') ?? ''
 
         // 判断 text/plain 是否是 markdown 文档(而非 Excel TSV)。
@@ -211,10 +209,10 @@ export const imageUploadPlugin = new Plugin({
           || /^---+$/m.test(plain)                        // hr
 
         if (isMarkdown) {
-          // Markdown 文档粘贴 → 直接用 fromMarkdown 解析完整文档插入。
-          // 不能 return false:ProseMirror doPaste 在有 text/html 时走
-          // DOMParser.fromSchema HTML 路径(不调 clipboardTextParser),
-          // markdownPastePlugin 的 clipboardTextParser 只在纯文本路径被调用。
+          // 外部 markdown 文档粘贴 → 直接用 fromMarkdown 解析完整文档插入。
+          // 这里不能像 case 1 那样放行:外部 HTML 无 data-pm-slice,doPaste 走
+          // DOMParser.fromSchema HTML 路径(不调 clipboardTextParser),只保留渲染后
+          // 的 HTML 结构,markdown 源码语义(fenced code / 表格 / 引用等)会丢。
           event.preventDefault()
           try {
             const doc = fromMarkdown(plain, veloSchema)

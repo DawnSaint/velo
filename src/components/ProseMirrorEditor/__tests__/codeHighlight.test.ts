@@ -22,6 +22,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { createPinia, setActivePinia } from 'pinia'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
+import { history, redo, undo } from 'prosemirror-history'
 import { schema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
 import {
@@ -803,6 +804,92 @@ describe('codeHighlight helpers', () => {
     expect(headerAfter).not.toBeNull()
     expect(headerAfter!.getAttribute('data-fold-state')).toBe('collapsed')
 
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  粘贴 / 剪切代码块后 undo —— 不得留下"孤儿" header
+//
+//  PM 的 WidgetType.map 用 mapResult(pos, side < 0 ? -1 : 1):header widget
+//  锚在 code_block **起始边界**(side:-1),整块被删除时落在删除区间左边界、
+//  deleted=false → 被原样保留;而 inline decoration 因范围塌陷、node
+//  decoration 因节点边界失效都会被 map 自动丢弃,最后只剩一个下面没有
+//  <pre> 的空标题栏。增量更新只对 dirty range 内"仍存在"的块重建装饰,
+//  块被整块删掉时 affected 为空 → 孤儿 header 永久留在 DOM。
+//  注意:锚在**末尾边界**的 widget(mermaid SVG,side:-2)不受影响 —— 右边界
+//  assoc -1 命中 DEL_SIDE,PM 自动丢弃。
+// ============================================================
+
+describe('粘贴/剪切代码块后 undo:不留孤儿 code header', () => {
+  function makeUndoView(md: string): EditorView {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown(md, schema),
+      plugins: [history(), codeHighlightPlugin],
+    })
+    return new EditorView(container, { state })
+  }
+
+  const headerCount = (view: EditorView) =>
+    view.dom.querySelectorAll('.velo-code-header-widget').length
+
+  function sqlBlock() {
+    return schema.nodes.code_block.create(
+      { language: 'sql' },
+      schema.text('SELECT * FROM users;'),
+    )
+  }
+
+  it('粘贴插入 code_block → Ctrl+Z → header 随块一起消失,redo 可恢复', () => {
+    const view = makeUndoView('前面一段文字\n')
+    expect(headerCount(view)).toBe(0)
+
+    view.dispatch(view.state.tr.insert(view.state.doc.content.size, sqlBlock()))
+    expect(headerCount(view)).toBe(1)
+
+    undo(view.state, tr => view.dispatch(tr))
+    expect(view.state.doc.textContent).not.toContain('SELECT')
+    expect(headerCount(view)).toBe(0)
+
+    // 清理不能破坏历史重放:redo 后 header 必须回来
+    redo(view.state, tr => view.dispatch(tr))
+    expect(view.state.doc.textContent).toContain('SELECT')
+    expect(headerCount(view)).toBe(1)
+    view.destroy()
+  })
+
+  it('整段替换式粘贴 → Ctrl+Z → header 消失', () => {
+    const view = makeUndoView('')
+    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, sqlBlock()))
+    expect(headerCount(view)).toBe(1)
+
+    undo(view.state, tr => view.dispatch(tr))
+    expect(headerCount(view)).toBe(0)
+    view.destroy()
+  })
+
+  it('已有代码块时撤回新粘贴的块:旧 header 保留、不重复、不误删', () => {
+    const view = makeUndoView('```js\nconst a = 1\n```\n')
+    expect(headerCount(view)).toBe(1)
+
+    view.dispatch(view.state.tr.insert(view.state.doc.content.size, sqlBlock()))
+    expect(headerCount(view)).toBe(2)
+
+    undo(view.state, tr => view.dispatch(tr))
+    expect(view.state.doc.textContent).not.toContain('SELECT')
+    expect(headerCount(view)).toBe(1)
+    view.destroy()
+  })
+
+  it('直接删掉整块(cut / 删块)同样不留 header', () => {
+    const view = makeUndoView('```js\nconst a = 1\n```\n')
+    expect(headerCount(view)).toBe(1)
+    const node = view.state.doc.firstChild!
+    view.dispatch(view.state.tr.replaceWith(0, node.nodeSize, schema.nodes.paragraph.create()))
+    expect(headerCount(view)).toBe(0)
     view.destroy()
   })
 })

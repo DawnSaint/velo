@@ -42,10 +42,27 @@ import { createParseProcessor, preprocessSource } from './parseProcessor'
  * 2. **CJK outside 编码跳过**:默认 strong handler 在内容以标点结尾且后跟字母时,
  *    会把字母编码为 HTML 实体(如 `&#x6B63;`),防 `**` 闭合判定失败。
  *    但 remarkCjkEmphasis 插件已在 parse 阶段修复 CJK 标点问题,outside 编码不再必要。
- *    保留 inside 编码(内容首尾是空白时仍需编码,防 delimiter 歧义)。
+ *
+ * 3. **首尾空白移出界定符(不编码)**:CommonMark 不允许 `**foo **`(闭合界定符前
+ *    紧贴空白不构成 strong)。上游 mdast-util-to-markdown 用 inside 编码把边界空格
+ *    写成 `&#x20;` 保真,但 mark 碎片化(加粗夹行内代码等 atom —— code mark
+ *    `excludes:'_'` 独占,wrapWithMarks 逐 span 独立包裹)会让切口空格落在
+ *    strong/emphasis 首尾,频繁产出丑陋的 `&#x20;`。边界空格渲染上与普通空格无异,
+ *    移到界定符外即可得到干净且等价的源码(见 wrapAttention)。
+ *    前提:parse 侧不把 CommonMark 非法的 `** foo**` 补成 strong
+ *    (`remarkCjkEmphasis` 已跳过首尾空白匹配),否则会把用户源码改写成 `**foo**`。
  */
-function encodeCharRef(code: number): string {
-  return '&#x' + code.toString(16).toUpperCase() + ';'
+
+// 把 attention(strong/emphasis)内容首尾的空白移出界定符,而不是编码成 `&#x20;`。
+// 内容全是空白时加粗/斜体无意义,直接输出空白(丢弃界定符),避免产出 `****`。
+// inner 内容始终以 `**`/`*` 为前后上下文(空白移到界定符外不影响 inner 的
+// containerPhrasing 序列化),外层 containerPhrasing 会对完整返回串重新 track。
+function wrapAttention(before: string, between: string, after: string): string {
+  const lead = between.match(/^[ \t]+/)?.[0] ?? ''
+  const trail = between.match(/[ \t]+$/)?.[0] ?? ''
+  const inner = between.slice(lead.length, between.length - trail.length)
+  if (inner.length === 0) return between
+  return lead + before + inner + after + trail
 }
 
 const strongHandler = function (node: any, _parent: any, state: any, info: any) {
@@ -54,7 +71,7 @@ const strongHandler = function (node: any, _parent: any, state: any, info: any) 
   const tracker = state.createTracker(info)
   const before = tracker.move(marker + marker)
 
-  let between = tracker.move(
+  const between = tracker.move(
     state.containerPhrasing(node, {
       after: marker,
       before,
@@ -62,24 +79,13 @@ const strongHandler = function (node: any, _parent: any, state: any, info: any) 
     })
   )
 
-  // inside 编码:内容首尾是空白时编码为 HTML 实体,防 `**` delimiter 歧义。
-  // 与 mdast-util-to-markdown 的 encodeInfo inside 逻辑对齐。
-  const head = between.charAt(0)
-  if (head === ' ' || head === '\t') {
-    between = encodeCharRef(head.charCodeAt(0)) + between.slice(1)
-  }
-  const tail = between.charAt(between.length - 1)
-  if (tail === ' ' || tail === '\t') {
-    between = between.slice(0, -1) + encodeCharRef(tail.charCodeAt(0))
-  }
-
   const after = tracker.move(marker + marker)
   exit()
 
   // 跳过 outside 编码:不设置 attentionEncodeSurroundingInfo。
   state.attentionEncodeSurroundingInfo = undefined
 
-  return before + between + after
+  return wrapAttention(before, between, after)
 }
 strongHandler.peek = function (_node: any, _parent: any, state: any) {
   return state.options.strong || '*'
@@ -88,7 +94,7 @@ strongHandler.peek = function (_node: any, _parent: any, state: any) {
 /**
  * 自定义 emphasis handler —— 与 strongHandler 同范式。
  * 读 `node._marker` 决定用 `*` 还是 `_`,保 marker 保真。
- * emphasis 单字符分隔符,strong 双字符;其余逻辑(inside 编码 / outside 跳过)一致。
+ * emphasis 单字符分隔符,strong 双字符;其余逻辑(首尾空白移出 / outside 跳过)一致。
  */
 const emphasisHandler = function (node: any, _parent: any, state: any, info: any) {
   const marker = node._marker || state.options.emphasis || '_'
@@ -96,7 +102,7 @@ const emphasisHandler = function (node: any, _parent: any, state: any, info: any
   const tracker = state.createTracker(info)
   const before = tracker.move(marker)
 
-  let between = tracker.move(
+  const between = tracker.move(
     state.containerPhrasing(node, {
       after: marker,
       before,
@@ -104,22 +110,12 @@ const emphasisHandler = function (node: any, _parent: any, state: any, info: any
     })
   )
 
-  // inside 编码:内容首尾是空白时编码为 HTML 实体,防 delimiter 歧义。
-  const head = between.charAt(0)
-  if (head === ' ' || head === '\t') {
-    between = encodeCharRef(head.charCodeAt(0)) + between.slice(1)
-  }
-  const tail = between.charAt(between.length - 1)
-  if (tail === ' ' || tail === '\t') {
-    between = between.slice(0, -1) + encodeCharRef(tail.charCodeAt(0))
-  }
-
   const after = tracker.move(marker)
   exit()
 
   state.attentionEncodeSurroundingInfo = undefined
 
-  return before + between + after
+  return wrapAttention(before, between, after)
 }
 emphasisHandler.peek = function (_node: any, _parent: any, state: any) {
   return state.options.emphasis || '_'
