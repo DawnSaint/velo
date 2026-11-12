@@ -77,6 +77,37 @@ describe('recentFiles store', () => {
 
     expect(store.entries.map(e => e.path)).toEqual(['/root/dir.md', '/root/dir2/a.md'])
   })
+
+  it('removePaths 精确删除多条失效记录,不误伤同名前缀文件', async () => {
+    const store = useRecentFilesStore()
+    store.loadFrom({
+      version: 1,
+      entries: [
+        { path: '/root/gone.md', openedAt: 5 },
+        { path: '/root/gone.md.bak', openedAt: 4 },
+        { path: '/root/also-gone.md', openedAt: 3 },
+        { path: '/root/keep.md', openedAt: 2 },
+      ],
+    })
+
+    store.removePaths(['/root/gone.md', '/root/also-gone.md'])
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(store.entries.map(e => e.path)).toEqual(['/root/gone.md.bak', '/root/keep.md'])
+  })
+
+  it('removePaths 传未记录的路径 → no-op,不写盘', async () => {
+    const writeSpy = vi.mocked(writeTextFile)
+    writeSpy.mockClear()
+    const store = useRecentFilesStore()
+    store.loadFrom({ version: 1, entries: [{ path: '/a.md', openedAt: 1 }] })
+
+    store.removePaths(['/never.md'])
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(store.entries.map(e => e.path)).toEqual(['/a.md'])
+    expect(writeSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('recentFiles persistence', () => {
@@ -115,5 +146,46 @@ describe('recentFiles persistence', () => {
     const [, body] = vi.mocked(writeTextFile).mock.calls.at(-1)!
     const saved = JSON.parse(String(body))
     expect(saved.entries).toEqual([{ path: '/same.md', openedAt: 5 }])
+  })
+
+  it('saveRecentFilesPatch deletes 精确删除失效项,不误伤同名前缀记录', async () => {
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({
+      version: 1,
+      entries: [
+        { path: '/root/gone.md', openedAt: 5 },
+        { path: '/root/gone.md.bak', openedAt: 4 },
+        { path: '/root/keep.md', openedAt: 3 },
+        { path: '/root/gone2.md', openedAt: 2 },
+      ],
+    }))
+    vi.mocked(writeTextFile).mockResolvedValue()
+
+    await saveRecentFilesPatch({ deletes: ['/root/gone.md', '/root/gone2.md'] })
+
+    const [, body] = vi.mocked(writeTextFile).mock.calls.at(-1)!
+    const saved = JSON.parse(String(body))
+    expect(saved.entries.map((e: { path: string }) => e.path)).toEqual([
+      '/root/gone.md.bak',
+      '/root/keep.md',
+    ])
+  })
+
+  it('saveRecentFilesPatch deletes 与 upserts 同 patch:先删后加,新记录不被误删', async () => {
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readTextFile).mockResolvedValue(JSON.stringify({
+      version: 1,
+      entries: [{ path: '/gone.md', openedAt: 1 }],
+    }))
+    vi.mocked(writeTextFile).mockResolvedValue()
+
+    await saveRecentFilesPatch({
+      deletes: ['/gone.md'],
+      upserts: [{ path: '/fresh.md', openedAt: 9 }],
+    })
+
+    const [, body] = vi.mocked(writeTextFile).mock.calls.at(-1)!
+    const saved = JSON.parse(String(body))
+    expect(saved.entries).toEqual([{ path: '/fresh.md', openedAt: 9 }])
   })
 })

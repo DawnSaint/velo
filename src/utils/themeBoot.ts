@@ -4,12 +4,13 @@
 // 让 index.html 里的 public/theme-boot.js（同步、早于所有外部 CSS）和 Vue store
 // 在创建的第一刻就拿到上次保存的 themeMode，从而与异步 hydrate 后的最终值一致。
 //
-// ⚠️ 改动这里的 KEY / 枚举 / 判定逻辑时，必须同步改 public/theme-boot.js ——
+// ⚠️ 改动这里的 KEY / 枚举 / 色值时，必须同步改 public/theme-boot.js ——
 // 那个文件是纯 JS，不能 import 本模块（CSP 的 script-src 只允许 'self'，
 // 不含 'unsafe-inline'，所以首帧脚本是外部同步脚本而非内联 <script>）。
+// 首帧的 system→dark 判定与 --surface-0 兜底色也在那里独立实现。
 
 /** localStorage 镜像 key。与 public/theme-boot.js 的 KEY 保持一致。 */
-export const THEME_MODE_KEY = 'velo.theme-mode'
+const THEME_MODE_KEY = 'velo.theme-mode'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -36,12 +37,5 @@ export function readSystemDark(): boolean {
     && window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
-/** 主题偏好 + 系统偏好 → 最终深浅色。与 public/theme-boot.js 算法一致。 */
-export function resolveDark(mode: ThemeMode): boolean {
-  if (mode === 'dark') return true
-  if (mode === 'light') return false
-  return readSystemDark()
-}
-
-/** --surface-0 的亮/暗值，与 src/styles/index.scss 的变量表保持一致。 */
-export const BOOT_SURFACE_0 = { light: '#e9ebf0', dark: '#15171c' } as const
+// 深浅色判定在 editorStore 内组合 themeMode + systemDarkMode；首帧那份独立实现
+// 在 public/theme-boot.js。这里不重复导出一份没人用的 resolveDark / 色值常量。

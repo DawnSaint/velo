@@ -707,6 +707,10 @@ export interface WorkspacePatch {
   active: string | null | undefined
   /** 当前窗口改动到的 workspace roots;保存时 merge 到磁盘现有 map。 */
   workspaces: Record<string, WorkspaceState>
+  /** 磁盘上已失效、需要从 map 中删掉的 roots(外部删除的目录)。
+   *  patch 是 merge 语义,只删内存里的 key 不够 —— 本窗口或别的窗口下一次保存
+   *  会把磁盘上的旧 key merge 回来,历史列表里死路径复活。每次 patch 都带上。 */
+  removedRoots?: string[]
 }
 
 /**
@@ -869,6 +873,14 @@ export async function saveWorkspacePatch(patch: WorkspacePatch): Promise<void> {
   if (!tauriOnly()) return
   try {
     const current = await loadWorkspaces()
+    const workspaces: Record<string, WorkspaceState> = {
+      ...(current?.workspaces ?? {}),
+      ...patch.workspaces,
+    }
+    for (const root of patch.removedRoots ?? []) delete workspaces[root]
+    let active = patch.active !== undefined ? patch.active : (current?.active ?? null)
+    // active hint 指向已移除的 root 时一并清掉,否则下次冷启动仍会拿到死路径。
+    if (active && (patch.removedRoots ?? []).includes(active)) active = null
     const merged: PersistedWorkspaces = {
       version: WORKSPACES_VERSION,
       // patch.active = undefined:当前窗口无 active workspace(动态窗口 / watcher 误触发),
@@ -876,11 +888,8 @@ export async function saveWorkspacePatch(patch: WorkspacePatch): Promise<void> {
       //   的 active workspace 清成 null。
       // patch.active = null:用户显式关闭工作区,覆盖磁盘为 null。
       // patch.active = string:有 active workspace,正常覆盖。
-      active: patch.active !== undefined ? patch.active : (current?.active ?? null),
-      workspaces: {
-        ...(current?.workspaces ?? {}),
-        ...patch.workspaces,
-      },
+      active,
+      workspaces,
     }
     await saveWorkspaces(merged)
   }
@@ -912,6 +921,9 @@ export interface PersistedRecentFiles {
 export interface RecentFilesPatch {
   upserts?: RecentFileEntry[]
   renames?: Array<{ oldPath: string, newPath: string }>
+  /** 精确删除单条文件路径(失效历史记录清理)。与 deletePrefixes 分开,
+   *  避免把同名前缀目录下的其它记录一并删掉;一次可带多条,避免并发 patch 竞态。 */
+  deletes?: string[]
   deletePrefixes?: string[]
 }
 
@@ -951,6 +963,10 @@ function applyRecentPatch(entries: RecentFileEntry[], patch: RecentFilesPatch): 
       ...entry,
       path: applyPathPrefix(entry.path, rename.oldPath, rename.newPath),
     }))
+  }
+  if (patch.deletes?.length) {
+    const deleted = new Set(patch.deletes)
+    next = next.filter(entry => !deleted.has(entry.path))
   }
   for (const prefix of patch.deletePrefixes ?? []) {
     next = next.filter(entry => !hasPathPrefix(entry.path, prefix))

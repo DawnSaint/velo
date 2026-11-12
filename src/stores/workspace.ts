@@ -62,6 +62,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 历史工作区根路径列表(派生自 workspaces 的 keys),用于切换下拉。 */
   const knownRoots = computed<string[]>(() => Object.keys(workspaces.value))
 
+  /** 本窗口已判定失效并移除的 root。patch merge 会按它从磁盘删 key,
+   *  一直带着(不清空)以防 debounce save 与 pagehide save 竞态把死路径复活。 */
+  let removedRoots: string[] = []
+
   /** 取当前工作区的局部状态;无活跃工作区返回空对象。 */
   const activeWorkspace = computed<WorkspaceState>(() => {
     if (!activeRoot.value) return emptyWorkspaceState()
@@ -119,6 +123,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /**
+   * 移除一个磁盘上已不存在的历史工作区。
+   *
+   * 与 closeWorkspace 的区别:后者只清 runtime active,历史记录仍留在下拉里;
+   * 这里要把 workspaces 的 key 一并删掉,并让每次 patch 都从磁盘移除该 key ——
+   * 多窗口 patch merge 是 merge 语义,少带一次就会把死路径复活。
+   * 移除的正好是 active root 时顺带清掉磁盘 active hint,避免下次冷启动恢复死路径。
+   */
+  function removeRoot(root: string) {
+    if (!workspaces.value[root]) return
+    if (activeRoot.value === root) {
+      setActiveRoot(null)
+      activeExplicitlyCleared = true
+    }
+    delete workspaces.value[root]
+    if (!removedRoots.includes(root)) removedRoots.push(root)
+  }
+
+  /**
    * 把一个目录标记为展开 / 折叠。pathSet 只为当前活跃工作区维护。
    * 无活跃工作区时静默丢弃 —— 没工作区也就没文件树展开状态。
    */
@@ -156,6 +178,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     list.unshift(filePath)
     if (list.length > RECENT_FILES_CAP) list.length = RECENT_FILES_CAP
     ws.recentFiles = list
+  }
+
+  /**
+   * 精确移除 Ctrl+P「最近打开」段里已确认失效的路径。
+   * 索引本身会过滤死路径,但 store 里一直残留(占 cap / 反复落盘),由
+   * QuickCommandPanel 刷新索引时 exists 校验后调这里清掉。
+   * 不能写 activeWorkspace —— 无 activeRoot 时它返回临时空对象,写了不落盘。
+   */
+  function removeRecentFiles(paths: string[]) {
+    if (!activeRoot.value || paths.length === 0) return
+    const ws = ensureWorkspace(activeRoot.value)
+    if (!ws.recentFiles?.length) return
+    const removed = new Set(paths)
+    ws.recentFiles = ws.recentFiles.filter(p => !removed.has(p))
   }
 
   /**
@@ -310,6 +346,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function loadFrom(data: PersistedWorkspaces, options: { restoreActive?: boolean } = {}) {
     const restoreActive = options.restoreActive ?? true
     activeExplicitlyCleared = false // 启动恢复重置标记,避免上一会话残留
+    removedRoots = []
     const ws: Record<string, WorkspaceState> = {}
     for (const [k, v] of Object.entries(data.workspaces)) {
       ws[k] = normalizeWorkspaceState(v)
@@ -343,6 +380,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       workspaces: active && workspaces.value[active]
         ? { [active]: snapshotWorkspaceState(workspaces.value[active]) }
         : {},
+      removedRoots: [...removedRoots],
     }
   }
 
@@ -369,9 +407,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setActiveRoot,
     pickWorkspace,
     closeWorkspace,
+    removeRoot,
     setDirExpanded,
     isDirExpanded,
     setLastFile,
+    removeRecentFiles,
     setOpenTabsForActiveWorkspace,
     renamePathPrefix,
     removePathPrefix,

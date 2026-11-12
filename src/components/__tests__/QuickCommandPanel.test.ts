@@ -6,6 +6,8 @@ import QuickCommandPanel from '../QuickCommandPanel.vue'
 import type { CommandPaletteItem } from '@/utils/commandPalette'
 import { useDocumentStore } from '@/stores/document'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useConfirmStore } from '@/stores/confirm'
+import { exists } from '@tauri-apps/plugin-fs'
 
 // 控制 file 模式索引(allEntries),无需真 fs:默认返回空(无匹配 → 触发新建行)
 const { ensureIndexMock } = vi.hoisted(() => ({ ensureIndexMock: vi.fn() }))
@@ -44,6 +46,8 @@ describe('QuickCommandPanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     ensureIndexMock.mockResolvedValue([])
+    // 失效守卫用例会覆写 exists 实现;每个用例前清干净,避免污染其它 file 模式测试
+    vi.mocked(exists).mockReset()
   })
   afterEach(() => {
     wrapper?.unmount()
@@ -402,5 +406,97 @@ describe('QuickCommandPanel', () => {
 
     expect(wrapper.find('[data-testid="quick-command-row-help-command"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('工作区内没有 .md 文件')
+  })
+
+  // ===== ④ Ctrl+P「最近打开」失效记录清理 =====
+  /** refreshIndex 是 fire-and-forget,清理在其后的多个 await 里完成。 */
+  async function flushIndexRefresh() {
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await nextTick()
+  }
+
+  it('刷新索引时静默清掉 recentFiles 里已失效的路径', async () => {
+    vi.mocked(exists).mockImplementation(async p => String(p) !== '/test/root/gone.md')
+    const ws = useWorkspaceStore()
+    ws.activeRoot = '/test/root'
+    ws.setLastFile('/test/root/foo.md')
+    ws.setLastFile('/test/root/gone.md')
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/foo.md', relPath: 'foo.md', name: 'foo.md' },
+    ])
+
+    wrapper = mountPanel({ initialQuery: '' })
+    await flushIndexRefresh()
+
+    expect(ws.activeWorkspace.recentFiles).toEqual(['/test/root/foo.md'])
+    expect(useConfirmStore().current).toBeNull() // 静默清理不弹窗
+  })
+
+  it('exists 抛错(权限 / 网络盘抖动)时保留记录,不误删', async () => {
+    vi.mocked(exists).mockRejectedValue(new Error('EACCES'))
+    const ws = useWorkspaceStore()
+    ws.activeRoot = '/test/root'
+    ws.setLastFile('/test/root/gone.md')
+    ensureIndexMock.mockResolvedValue([])
+
+    wrapper = mountPanel({ initialQuery: '' })
+    await flushIndexRefresh()
+
+    expect(ws.activeWorkspace.recentFiles).toEqual(['/test/root/gone.md'])
+  })
+
+  it('点击索引缓存里的失效文件:弹统一确认框,确认后从最近段移除', async () => {
+    vi.mocked(exists).mockImplementation(async p => String(p) !== '/test/root/gone.md')
+    const ws = useWorkspaceStore()
+    ws.activeRoot = '/test/root'
+    ws.setLastFile('/test/root/gone.md')
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/gone.md', relPath: 'gone.md', name: 'gone.md' },
+    ])
+    const openSpy = vi.spyOn(useDocumentStore(), 'openPathInTab').mockResolvedValue(true)
+
+    wrapper = mountPanel({ initialQuery: '' })
+    await flushIndexRefresh()
+    // 索引仍含 gone.md(缓存未失效)→ 静默清理不动它,行可见
+    expect(ws.activeWorkspace.recentFiles).toContain('/test/root/gone.md')
+
+    await wrapper.find('[data-testid="quick-command-row-/test/root/gone.md"]').trigger('click')
+    await nextTick()
+
+    const confirm = useConfirmStore()
+    expect(confirm.current).toMatchObject({
+      title: '文件已失效',
+      detail: '/test/root/gone.md',
+      confirmText: '从列表移除',
+    })
+    expect(openSpy).not.toHaveBeenCalled()
+
+    confirm.confirm()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ws.activeWorkspace.recentFiles).not.toContain('/test/root/gone.md')
+    openSpy.mockRestore()
+  })
+
+  it('点击失效文件后取消:保留记录且不打开', async () => {
+    vi.mocked(exists).mockResolvedValue(false)
+    const ws = useWorkspaceStore()
+    ws.activeRoot = '/test/root'
+    ws.setLastFile('/test/root/gone.md')
+    ensureIndexMock.mockResolvedValue([
+      { fullPath: '/test/root/gone.md', relPath: 'gone.md', name: 'gone.md' },
+    ])
+    const openSpy = vi.spyOn(useDocumentStore(), 'openPathInTab').mockResolvedValue(true)
+
+    wrapper = mountPanel({ initialQuery: '' })
+    await flushIndexRefresh()
+    await wrapper.find('[data-testid="quick-command-row-/test/root/gone.md"]').trigger('click')
+    await nextTick()
+
+    useConfirmStore().cancel()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ws.activeWorkspace.recentFiles).toContain('/test/root/gone.md')
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
   })
 })

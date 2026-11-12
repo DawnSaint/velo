@@ -30,11 +30,13 @@
 
 | 层 | 工具 | 理由 |
 |---|---|---|
-| 单测 / 集成 | **Vitest** | Vite 原生,TypeScript + ESM + JSDOM 一把梭,极快 |
+| 单测 / 集成 | **Vitest 5.1** | Vite 原生,TypeScript + ESM + JSDOM 一把梭,极快 |
 | 组件 | **@vue/test-utils** | Vue 3 官方 |
-| 覆盖率 | **@vitest/coverage-v8** | 看个大概,不卡阈值 |
+| 覆盖率 | **@vitest/coverage-v8 5.1** | 看个大概,不卡阈值 |
 | 端到端 | **WebdriverIO 9** + `tauri-driver` | Tauri 官方 webdriver 走 WD Classic;Playwright 仅支持 CDP/BiDi 不可用 |
 | 断言辅助 | **@testing-library/jest-dom** | 组件断言更语义化(可选) |
+
+> **版本约束** —— Vitest 5 要求 Node ≥ 22.12、Vite ≥ 6.4,且 `vite` 已成为必需 peer(本项目已显式声明)。`vitest` 与 `@vitest/coverage-v8` 必须同版本升级(coverage 的 peer 锁的是精确版本)。v5 起报告产物统一进 `.vitest/`,覆盖率报告仍在 `coverage/`,两者均已 gitignore。
 
 > **不选 Jest** —— 配 ESM + Vite alias 麻烦。**Playwright 不可用于 Tauri webview** —— `tauri-driver` 是 WebDriver Classic 代理,Playwright 只支持 CDP/BiDi;Tauri 官方 example 只给 Selenium / WebdriverIO。
 
@@ -68,14 +70,18 @@ src/
 │       └── lineDiff.test.ts           Myers 行级 diff / 字符级 inline diff / hunk 提取 / 公共前后缀裁剪 / 大文档快照空间分配
 ├── stores/
 │   └── __tests__/
+│       ├── confirm.test.ts           ask 结算 / 并发 ask 取消上一请求 / 重复 settle
 │       ├── document.test.ts          openFilePaths / openPathsInTabs 批量并行恢复 / openPathInTab({ silent }) / closeTab 收敛 / 自动保存快照合并下沉磁盘(缓存为空 / 一次读盘判断删旧写新修剪)
 │       ├── editor.test.ts             zoomLevel hydrate / snapshot / clampZoomLevel 边界
 │       ├── export.test.ts
 │       ├── migration.test.ts         持久化迁移链(settings v1→vN / workspaces v1→v5 / sidebarWidth 跨文件迁移 / 废弃字段清理)
-│       ├── recentFiles.test.ts
+│       ├── recentFiles.test.ts       push / 前缀重写·删除 / removePaths 精确批量删除 / deletes patch merge
 │       ├── system.test.ts           自动更新开关 hydrate / snapshot / 非法值忽略 / 快照往返
 │       ├── versionHistory.test.ts      本地快照 diff 语义 / 虚拟未保存条目 / Git 历史合并排序 / 异步 diff 流程 / 缓存失效
-│       └── workspace.test.ts
+│       └── workspace.test.ts           工作区切换 / recentFiles / 失效记录 removeRoot·removeRecentFiles / patch merge
+├── composables/
+│   └── __tests__/
+│       └── useStaleEntry.test.ts      失效判定(exists false / 抛错不误删)/ 启动 last-file 探测 / 统一确认框结算
 ├── lib/export/
 │   └── __tests__/
 │       └── htmlRenderer.test.ts
@@ -84,6 +90,8 @@ src/
     │   ├── ActivityBar.test.ts
     │   ├── DiffView.test.ts            diff 视图:未保存条目入口 / 异步加载竞态守卫 / 双模式切换
     │   ├── CommandPalettePanel.test.ts
+    │   ├── VeloConfirmDialog.test.ts 精简内容渲染 / 主按钮结算 / Esc 取消 / 无请求不渲染
+    │   ├── QuickCommandPanel.test.ts 前缀分发 / 键盘导航 / file 模式新建行 / 失效最近记录清理(静默 + 确认框)
     │   ├── FileMenuButton.test.ts
     │   ├── WorkspaceSearchPanel.test.ts
     │   ├── StatusBar.test.ts
@@ -139,6 +147,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 
 约定:
 - 单测放 `__tests__/` 子目录,后缀 `.test.ts`(`vitest.config.ts` 已配 include)
+- 基准测试放 `src/bench/`,后缀 `.bench.ts`(`vitest.config.ts` 的 `benchmark.include` 已配),跑 `npm run bench`;Vitest 5 起 `bench` 不再是顶层导出,而是 test context fixture:`test(name, async ({ bench }) => { await bench(name, fn).run() })`
 - 一个源文件一个对应测试文件,集成场景加 `.integration.test.ts` 后缀
 - 描述用 `it('写盘失败时 lastSavedContent 回滚, dirty 恢复', ...)` 这种“行为 + 期望”句式,不要 `it('test save')`
 
@@ -266,7 +275,7 @@ E2E 用 `tauri:options.args = [tmpWs]` 注入工作区路径,但 tauri-driver �
 
 ### appData 持久化文件快照/还原
 
-debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `setActiveRoot(tempWs)` 触发 App.vue debounce watch 落盘 `velo-workspaces.json`,**永久污染用户数据**(active 指向已删的 tempWs → 用户下次 dev 启动 FileTree 报“读取目录失败”)。
+debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `setActiveRoot(tempWs)` 触发 App.vue debounce watch 落盘 `velo-workspaces.json`,**永久污染用户数据**(active 指向已删的 tempWs)。v0.7.15 起启动期会对恢复出来的 active root 做一次静默 `exists` 校验并清掉死路径,不再出现“读取目录失败”,但脏 `active` 字段仍会写入、仍需靠快照还原兜底。
 
 **修法**:`e2e/helpers/appdata.ts` 提供 `snapshotAppData()` / `restoreAppData()`:
 - `before()`:把 `velo-workspaces.json` / `velo-outline-state.json` / `velo-settings.json` 三份整体备份到 `tmpdir()/velo-e2e-appdata-snapshot/`,原本不存在的文件留一个 `.missing` 标记

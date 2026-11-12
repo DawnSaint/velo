@@ -21,8 +21,10 @@ import { imageOffSvg } from '@/components/icons/widgetIcons'
 
 const ERROR_TEXT = '图片加载异常'
 
-export const IMAGE_ERROR_CONTAINER_CLASS = 'velo-image-error-container'
-export const IMAGE_ERROR_BROKEN_CLASS = 'is-broken'
+// 容器 / 失败态 class 只在本模块内使用,不对外导出;PENDING 由 imageEditPlugin
+// 在 widget 重建时切换,是唯一需要跨模块共享的一个。
+const IMAGE_ERROR_CONTAINER_CLASS = 'velo-image-error-container'
+const IMAGE_ERROR_BROKEN_CLASS = 'is-broken'
 export const IMAGE_ERROR_PENDING_CLASS = 'is-pending'
 
 /** 生成占位 DOM。用 span 而非 div:diff 删除片段里的 <img> 可能位于 <p> 内。 */

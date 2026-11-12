@@ -23,7 +23,7 @@ import {
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentStore } from '@/stores/document'
 import { fuzzyScore } from '@/utils/fuzzy'
-import { ensureIndex, type QuickOpenEntry } from '@/utils/quickOpenIndex'
+import { ensureIndex, invalidate, type QuickOpenEntry } from '@/utils/quickOpenIndex'
 import {
   buildCommandPaletteSections,
   buildCommandPaletteSegments,
@@ -37,8 +37,9 @@ import { parseQuickCommand } from '@/utils/quickCommand'
 import { parseHeadings, type HeadingItem } from '@/utils/outline'
 import { getLineText, getLineCount } from '@/utils/revealHeading'
 import { join } from '@/tauri/path'
-import { exists, writeTextFile } from '@/tauri/fs'
+import { exists, tauriOnly, writeTextFile } from '@/tauri/fs'
 import { finalName, validateName } from '@/components/Sidebar/treeUtils'
+import { useStaleEntry } from '@/composables/useStaleEntry'
 
 const props = defineProps<{
   open: boolean
@@ -58,6 +59,7 @@ const emit = defineEmits<{
 
 const workspace = useWorkspaceStore()
 const documentStore = useDocumentStore()
+const staleEntry = useStaleEntry()
 
 const query = ref('')
 const parsed = computed(() => parseQuickCommand(query.value))
@@ -88,6 +90,32 @@ async function refreshIndex() {
   finally {
     loading.value = false
   }
+  await pruneStaleRecentFiles(root)
+}
+
+/**
+ * ④ 索引刚扫完盘:把 per-workspace recentFiles 里「不在索引中且 exists 明确 false」
+ * 的路径静默清掉。死路径本来就被 recentFileRows 的索引过滤掉了,但 store 里会
+ * 一直残留(占 10 条 cap / 反复落盘)。
+ *
+ * 只校验不在索引里的项 —— 索引里有的必然存在;隐藏目录 / 索引局部失败等情况
+ * 由 exists 兜底(返回 true 或抛错都不删),不会因为索引不完整误删有效记录。
+ */
+async function pruneStaleRecentFiles(root: string) {
+  if (!tauriOnly()) return
+  const recent = workspace.activeWorkspace.recentFiles ?? []
+  if (!recent.length) return
+  const inIndex = new Set(allEntries.value.map(e => e.fullPath))
+  const candidates = recent.filter(p => !inIndex.has(p))
+  if (!candidates.length) return
+  const checked = await Promise.all(candidates.map(async path => ({
+    path,
+    missing: await staleEntry.isMissingPath(path),
+  })))
+  const missing = checked.filter(r => r.missing).map(r => r.path)
+  // await 期间用户可能切了工作区,别把 A 的记录从 B 删掉
+  if (workspace.activeRoot !== root || !missing.length) return
+  workspace.removeRecentFiles(missing)
 }
 
 function splitRel(rel: string): { name: string, dir: string } {
@@ -477,6 +505,18 @@ async function runCommand(row: CommandPaletteRow) {
 }
 
 async function openFileRow(entry: QuickOpenEntry) {
+  // 索引可能仍是缓存(stale),刚被外部删的文件还留在列表里 —— 点击时再判一次。
+  if (await staleEntry.isMissingPath(entry.fullPath)) {
+    close()
+    invalidate(workspace.activeRoot)
+    const remove = await staleEntry.confirmRemove(
+      '文件已失效',
+      '该文件已不存在，可能已被移动或删除。',
+      entry.fullPath,
+    )
+    if (remove) workspace.removeRecentFiles([entry.fullPath])
+    return
+  }
   const ok = await documentStore.openPathInTab(entry.fullPath)
   if (!ok) return
   workspace.setLastFile(entry.fullPath)

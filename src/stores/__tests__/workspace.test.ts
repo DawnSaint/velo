@@ -193,6 +193,65 @@ describe('workspace store', () => {
     expect(Object.keys(saved.workspaces).sort()).toEqual(['/a', '/b'])
     expect(saved.active).toBe('/b')
   })
+
+  // ========== 失效工作区清理 ==========
+
+  it('removeRoot 从历史列表移除 root,并让每次 patch 都带上 removedRoots', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/gone')
+    store.setLastFile('/gone/a.md')
+    store.setActiveRoot('/alive')
+    store.removeRoot('/gone')
+
+    expect(store.knownRoots).toEqual(['/alive'])
+    expect(store.snapshotActiveForPersistence().removedRoots).toEqual(['/gone'])
+    // 不清空:debounce save 与 pagehide save 竞态时,任何一次 patch 都能删掉磁盘 key
+    expect(store.snapshotActiveForPersistence().removedRoots).toEqual(['/gone'])
+  })
+
+  it('removeRoot 移除 active root:清 active hint + sidebarTab 回退', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/gone')
+    store.setSidebarTab('files')
+    store.removeRoot('/gone')
+
+    expect(store.activeRoot).toBeNull()
+    expect(store.knownRoots).toEqual([])
+    expect(store.sidebarTab).toBe('outline')
+    // active=null 覆盖磁盘,否则下次冷启动又拿到死路径
+    expect(store.snapshotActiveForPersistence().active).toBeNull()
+  })
+
+  it('loadFrom 重置 removedRoots,不把上一会话的清理带进新会话', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/gone')
+    store.removeRoot('/gone')
+    store.loadFrom({ version: 5, active: null, workspaces: {} })
+    expect(store.snapshotActiveForPersistence().removedRoots).toEqual([])
+  })
+
+  it('saveWorkspacePatch 按 removedRoots 删磁盘 key 并清掉指向它的 active', async () => {
+    let disk = JSON.stringify({
+      version: 5,
+      active: '/dead',
+      workspaces: {
+        '/dead': { expandedDirs: [], lastFile: null, sidebarTab: 'outline' },
+        '/alive': { expandedDirs: [], lastFile: null, sidebarTab: 'outline' },
+      },
+    })
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readTextFile).mockImplementation(async () => disk)
+    vi.mocked(writeTextFile).mockImplementation(async (_path: any, body: any) => {
+      disk = String(body)
+    })
+
+    await saveWorkspacePatch({ active: undefined, workspaces: {}, removedRoots: ['/dead'] })
+
+    const saved = JSON.parse(disk)
+    expect(Object.keys(saved.workspaces)).toEqual(['/alive'])
+    expect(saved.active).toBeNull()
+  })
+
   // ========== recentFiles(v0.5.2,Ctrl+P 双分区"最近打开"段) ==========
 
   it('setLastFile 自动把路径推入 recentFiles 头部', () => {
@@ -467,5 +526,26 @@ describe('workspace store', () => {
     )
     expect(store.activeWorkspace.openTabs).toEqual(['/new/x.md', '/new/y.md'])
     expect(store.activeWorkspace.activeTab).toBe('/new/x.md')
+  })
+
+  it('removeRecentFiles 精确清理 Ctrl+P 最近段死路径,不误伤其它记录', () => {
+    const store = useWorkspaceStore()
+    store.setActiveRoot('/root')
+    store.setLastFile('/root/keep.md')
+    store.setLastFile('/root/gone.md')
+    store.setLastFile('/root/keep2.md')
+    expect(store.activeWorkspace.recentFiles).toEqual([
+      '/root/keep2.md', '/root/gone.md', '/root/keep.md',
+    ])
+
+    store.removeRecentFiles(['/root/gone.md'])
+
+    expect(store.activeWorkspace.recentFiles).toEqual(['/root/keep2.md', '/root/keep.md'])
+  })
+
+  it('removeRecentFiles 无活跃工作区时 no-op(不写临时空对象)', () => {
+    const store = useWorkspaceStore()
+    store.removeRecentFiles(['/x.md'])
+    expect(store.knownRoots).toEqual([])
   })
 })

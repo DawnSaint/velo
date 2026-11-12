@@ -76,6 +76,19 @@ export const useRecentFilesStore = defineStore('recentFiles', () => {
     void saveRecentFilesPatch({ deletePrefixes: [pathPrefix] })
   }
 
+  /**
+   * 精确移除已确认失效的文件记录(用户点「从列表移除」/ 启动期静默清理)。
+   * 一次收一个数组:saveRecentFilesPatch 是「读盘 → merge patch → 写盘」,
+   * 逐条 fire-and-forget 会互相覆盖,批量删除必须合成单个 patch。
+   */
+  function removePaths(paths: string[]) {
+    const deleted = new Set(paths)
+    const next = entries.value.filter(entry => !deleted.has(entry.path))
+    if (next.length === entries.value.length) return
+    setEntries(next)
+    void saveRecentFilesPatch({ deletes: paths })
+  }
+
   return {
     entries,
     hydrate,
@@ -84,5 +97,6 @@ export const useRecentFilesStore = defineStore('recentFiles', () => {
     push,
     renamePathPrefix,
     removePathPrefix,
+    removePaths,
   }
 })

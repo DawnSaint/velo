@@ -2,8 +2,9 @@
 //
 // 问题:debug build 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec
 // `setActiveRoot(tempWs)` 会触发 App.vue 的 debounce watch 落盘到这个目录的
-// `velo-workspaces.json`,**永久污染**用户真实数据(active 指向已删的 tempWs,
-// 用户下次 dev 启动看到"读取目录失败")。
+// `velo-workspaces.json`,**永久污染**用户真实数据(active 指向已删的 tempWs;
+// v0.7.15 起启动期会静默校验并清掉失效 active,不再显示"读取目录失败",但脏
+// 字段仍会写入,仍需靠快照还原)。
 //
 // 修法:spec `before()` 调 snapshotAppData() 把三份 JSON 整体备份到临时文件,
 // `after()` 调 restoreAppData() 全量回写。E2E 写盘任你飞,跑完原样不动。

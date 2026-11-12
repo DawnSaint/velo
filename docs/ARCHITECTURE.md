@@ -62,12 +62,12 @@ velo/
 ├── src/
 │   ├── App.vue                  应用根组件：顶栏 + 主体（ActivityBar + 侧栏 + 编辑器）+ 状态栏
 │   ├── main.ts                  应用入口
-│   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / export / persistence / versionHistory）
+│   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / confirm / export / persistence / versionHistory）
 │   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window / git），业务侧只 import 这里
 │   ├── lib/export/              导出管线（mdast walker + shiki / KaTeX / mermaid / DOMPurify）
 │   ├── lib/cjkFormatter/        CJK 智能排版格式化器（保护区扫描 → 分段 → 规则 → 重建 → 完整性校验）
 │   ├── utils/                   跨组件纯工具（fuzzy / commandPalette / quickOpenIndex / workspaceSearch / documentStats 等）
-│   ├── composables/             shell 层通用 composable（useContextMenu / useWorkspaceWatch / useCommandPaletteItems / useWorkspaceSearch / useGlobalKeybindings / useCrossModeSync）
+│   ├── composables/             shell 层通用 composable（useContextMenu / useWorkspaceWatch / useCommandPaletteItems / useWorkspaceSearch / useGlobalKeybindings / useCrossModeSync / useStaleEntry）
 │   ├── styles/                  Tailwind + Sass partial
 │   ├── test/                    测试基建（vitest setup）
 │   └── components/

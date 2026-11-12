@@ -12,7 +12,8 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { bench, describe } from 'vitest'
+// Vitest 5 起 bench 不再是顶层导出，而是 test context 里的 fixture。
+import { describe, test } from 'vitest'
 import { fromMarkdown, toMarkdown } from '../components/ProseMirrorEditor/editor/markdownIO'
 import { schema } from '../components/ProseMirrorEditor/editor/schema'
 
@@ -41,44 +42,60 @@ const mediumDoc = fromMarkdown(medium, schema)
 
 // ── parse（fromMarkdown）──────────────────────────────────
 describe('fromMarkdown (parse)', () => {
-  bench('100KB document', () => {
-    fromMarkdown(small, schema)
+  test('100KB document', async ({ bench }) => {
+    await bench('100KB document', () => {
+      fromMarkdown(small, schema)
+    }).run()
   })
 
-  bench('500KB document', () => {
-    fromMarkdown(medium, schema)
+  test('500KB document', async ({ bench }) => {
+    await bench('500KB document', () => {
+      fromMarkdown(medium, schema)
+    }).run()
   })
 
-  bench('1MB document', () => {
-    fromMarkdown(large, schema)
+  test('1MB document', async ({ bench }) => {
+    await bench('1MB document', () => {
+      fromMarkdown(large, schema)
+    }).run()
   })
 })
 
 // ── serialize（toMarkdown）────────────────────────────────
 describe('toMarkdown (serialize)', () => {
-  bench('100KB document', () => {
-    toMarkdown(smallDoc)
+  test('100KB document', async ({ bench }) => {
+    await bench('100KB document', () => {
+      toMarkdown(smallDoc)
+    }).run()
   })
 
-  bench('500KB document', () => {
-    toMarkdown(mediumDoc)
+  test('500KB document', async ({ bench }) => {
+    await bench('500KB document', () => {
+      toMarkdown(mediumDoc)
+    }).run()
   })
 
-  bench('1MB document', () => {
-    const largeDoc = fromMarkdown(large, schema)
-    toMarkdown(largeDoc)
+  test('1MB document', async ({ bench }) => {
+    await bench('1MB document', () => {
+      const largeDoc = fromMarkdown(large, schema)
+      toMarkdown(largeDoc)
+    }).run()
   })
 })
 
 // ── round-trip（parse → serialize）────────────────────────
 describe('round-trip (parse → serialize)', () => {
-  bench('100KB document', () => {
-    const doc = fromMarkdown(small, schema)
-    toMarkdown(doc)
+  test('100KB document', async ({ bench }) => {
+    await bench('100KB document', () => {
+      const doc = fromMarkdown(small, schema)
+      toMarkdown(doc)
+    }).run()
   })
 
-  bench('500KB document', () => {
-    const doc = fromMarkdown(medium, schema)
-    toMarkdown(doc)
+  test('500KB document', async ({ bench }) => {
+    await bench('500KB document', () => {
+      const doc = fromMarkdown(medium, schema)
+      toMarkdown(doc)
+    }).run()
   })
 })

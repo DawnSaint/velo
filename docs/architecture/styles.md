@@ -83,7 +83,7 @@ _settings.scss          ← 设置页共享样式（.velo-setting-row / .velo-sw
 
 ### Vue scoped style
 
-12 个组件有 `<style scoped>` 块。其中 `TabBar.vue` 和 `FileTree.vue` 用 `lang="scss"`，其余用纯 CSS。
+14 个组件有 `<style scoped>` 块。其中 `TabBar.vue` 和 `FileTree.vue` 用 `lang="scss"`，其余用纯 CSS。
 
 scoped style 中如需引用暗色模式，优先走 Tailwind `dark:` variant（在模板 `class=""` 里写 `dark:bg-gray-800`）；只有当选择器无法用 Tailwind 表达（如 `:hover` 伪类组合、`::before` 伪元素）时才用 `:global(.dark ...)`。
 

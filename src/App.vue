@@ -34,6 +34,7 @@ import { useGlobalKeybindings } from '@/composables/useGlobalKeybindings'
 import { useCrossModeSync } from '@/composables/useCrossModeSync'
 import { useUpdater } from '@/composables/useUpdater'
 import { useZoom } from '@/composables/useZoom'
+import { useStaleEntry, probeExistingPath } from '@/composables/useStaleEntry'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
 import SettingsPage from '@/components/settings/SettingsPage.vue'
@@ -51,6 +52,7 @@ import { ChevronDown } from '@lucide/vue'
 import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import VeloConfirmDialog from '@/components/VeloConfirmDialog.vue'
 import ZoomIndicator from '@/components/ZoomIndicator.vue'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
@@ -85,6 +87,7 @@ const exportStore = useExportStore()
 const workspaceStore = useWorkspaceStore()
 const recentFilesStore = useRecentFilesStore()
 const versionHistoryStore = useVersionHistoryStore()
+const staleEntry = useStaleEntry()
 
 // store hydrate + shiki highlighter ready 必须在 ProseMirrorEditor 子组件
 // mount **之前**完成,否则首屏代码块会闪两遍:
@@ -886,10 +889,64 @@ function openFolderAsWorkspace() {
   void workspaceStore.pickWorkspace()
 }
 
+/**
+ * 切换历史工作区前校验目录仍在磁盘上。只在「访问记录」时做一次 exists,
+ * 不在启动时批量扫全部 known roots(避免开机 IO 风暴)。
+ * 判定与弹窗走 useStaleEntry,与「最近文件」各入口共用同一套语义。
+ */
+async function handleSetActiveRoot(root: string | null) {
+  if (!root || !tauri) {
+    workspaceStore.setActiveRoot(root)
+    return
+  }
+  if (!(await staleEntry.isMissingPath(root))) {
+    workspaceStore.setActiveRoot(root)
+    return
+  }
+  const remove = await staleEntry.confirmRemove(
+    '工作区目录已失效',
+    '该文件夹已不存在，可能已被移动或删除。',
+    root,
+  )
+  if (remove) workspaceStore.removeRoot(root)
+}
+
+/**
+ * 全局最近文件的统一打开入口 —— ②「文件」下拉「最近文件」子菜单和
+ * ③命令面板「打开最近文件」都 emit 到这里(命令面板会先关面板再 await,
+ * 自绘弹窗 Teleport 到 body,不受面板关闭影响)。
+ *
+ * 访问记录前先 exists:明确失效才弹确认框并精确删除该条;exists 抛错或
+ * openPathInTab 因其它原因失败都保留记录,避免误删。
+ */
 async function openRecentFile(path: string) {
+  if (tauri && await staleEntry.isMissingPath(path)) {
+    const remove = await staleEntry.confirmRemove(
+      '文件已失效',
+      '该文件已不存在，可能已被移动或删除。',
+      path,
+    )
+    if (remove) recentFilesStore.removePaths([path])
+    return
+  }
   const ok = await documentStore.openPathInTab(path)
   if (!ok) return
   workspaceStore.setLastFile(path)
+}
+
+/**
+ * ⑤ 启动 'last-file' 恢复:找第一条仍存在的全局最近文件,顺路静默清掉
+ * 探测过程中确认已失效的记录(不弹框)。最多探测前 5 条,避免开机 IO 风暴;
+ * 剩下的记录留给下次启动或用户点击时再判。失效项合并成一次 removePaths ——
+ * 逐条落盘会互相覆盖(读盘 merge patch 竞态)。
+ */
+const STARTUP_RECENT_PROBE_LIMIT = 5
+async function firstExistingRecentPath(): Promise<string | null> {
+  const paths = recentFilesStore.entries.map(entry => entry.path)
+  if (!tauri) return paths[0] ?? null
+  const { found, missing } = await probeExistingPath(paths, STARTUP_RECENT_PROBE_LIMIT)
+  if (missing.length) recentFilesStore.removePaths(missing)
+  return found
 }
 
 // ========== composable: 跨模式同步 + 行号模式 ==========
@@ -1094,6 +1151,14 @@ onMounted(async () => {
   let persistedOpenTabs: string[] = []
   let persistedActiveTab: string | null = null
   if (workspacesLoaded) workspaceStore.loadFrom(workspacesLoaded, { restoreActive: shouldRestoreActive })
+
+  // 持久化的 active root 可能已被外部删除:静默清掉,否则 FileTree 启动即报
+  // 「读取目录失败」。只校验恢复出来的这一个 root,历史列表里的其它目录等点击时再判。
+  if (tauri && shouldRestoreActive && workspaceStore.activeRoot) {
+    const restoredRoot = workspaceStore.activeRoot
+    if (await staleEntry.isMissingPath(restoredRoot)) workspaceStore.removeRoot(restoredRoot)
+  }
+
   if (shouldRestoreActive && workspaceStore.activeRoot) {
     persistedOpenTabs = (workspaceStore.activeWorkspace.openTabs ?? []).slice()
     persistedActiveTab = workspaceStore.activeWorkspace.activeTab ?? null
@@ -1138,7 +1203,8 @@ onMounted(async () => {
 
   // 无 CLI 参数 + 非首次启动:按 editor.startupMode 决定打开内容。
   //   - 'last-file'(默认):尝试打开全局最近文件(recentFilesStore 已在 0.1 hydrate);
-  //     文件已不存在时 openPath 返回 false,静默保留空白文档。
+  //     先探测前几条是否存在,失效的静默清掉,找到第一条有效文件才建标签,
+  //     全失效则静默保留空白文档(启动期不弹窗)。
   //   - 'new-doc':保留 init('') 的空白文档,不做任何事。
   // CLI 打开文件 / 目录时跳过,避免覆盖显式启动意图。
   //
@@ -1156,7 +1222,7 @@ onMounted(async () => {
   // 走 loadContentIntoTabs 而非 openPathInTab:统一草稿恢复路径 —— 即使无 workspace,
   // fallback 草稿(_no_workspace)也能被检出并恢复。
   if (shouldRestoreActive && !initialFile && !initialDir && persistedOpenTabs.length === 0 && store.startupMode === 'last-file') {
-    const lastPath = recentFilesStore.entries[0]?.path
+    const lastPath = await firstExistingRecentPath()
     if (lastPath) {
       documentStore.createTabsFromPaths([lastPath], lastPath)
       void documentStore.loadContentIntoTabs([lastPath])
@@ -1569,7 +1635,7 @@ watch(editorRef, (v) => {
       :settings-active="settingsActive"
       :diff-view-active="versionHistoryStore.diffViewActive"
       @pick-workspace="() => void workspaceStore.pickWorkspace()"
-      @set-active-root="workspaceStore.setActiveRoot"
+      @set-active-root="handleSetActiveRoot"
       @toggle-source-mode="documentStore.toggleSourceMode()"
       @toggle-read-only="documentStore.readOnly = !documentStore.readOnly"
       @open-unsaved-diff="() => void versionHistoryStore.openUnsavedDiff()"
@@ -1594,6 +1660,9 @@ watch(editorRef, (v) => {
 
     <!-- Toast 通知容器：右上角浮层，Teleport 到 body，不占文档流 -->
     <ToastContainer />
+
+    <!-- 通用确认弹窗：Teleport 到 body，取代原生 confirm，先服务失效工作区清理 -->
+    <VeloConfirmDialog />
 
     <!-- Zoom 指示器：快捷键缩放时底部居中弹出，显示百分比 + 滑块 + 重置按钮 -->
     <ZoomIndicator />

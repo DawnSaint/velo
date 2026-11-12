@@ -31,7 +31,7 @@ export interface FindHighlight {
 }
 
 /** setMeta 载荷:'set' 推全量命中;'active' 切面板开合(关闭时顺带清命中)。 */
-export type FindHighlightMeta =
+type FindHighlightMeta =
   | { type: 'set', matches: FindHighlight['matches'], currentIndex: number }
   | { type: 'active', active: boolean }
 
