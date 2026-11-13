@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- 右内容:顶部 Tab 栏 + 分组内容(所有分组 v-show 共存,纵向滚动)。顶栏由 TabBar 的设置 tab 承担。
-       flex-1 + min-w-0 确保侧栏开合时内容区被"压缩"而非被"推动"(见 file-tree.md min-w-0 链)。 -->
+       flex-1 + min-w-0 确保侧栏开合时内容区被"压缩"而非被"推动"(见 file-tree.md 红线「min-w-0 链」)。 -->
   <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-2)]">
     <!-- 分组内容:居中限宽,纵向滚动,所有分组同时挂载(v-show 切换可见性),
          让搜索索引覆盖未激活分组的设置项。Tab 栏放内容容器顶部(取代各分组组件

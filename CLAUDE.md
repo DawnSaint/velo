@@ -14,7 +14,7 @@
      - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约与边界；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 时读
      - [`docs/architecture/styles.md`](./docs/architecture/styles.md) — SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定；动任何样式来源或加 / 删 class 时读
      - `docs/research/*.md` — 复杂功能的 pre-implementation 调研文档，从 ROADMAP 对应条目链接进入；开发该功能前读
-2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
+2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“红线 / 关键取舍”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
 
 ## 仓库速览
 
@@ -38,7 +38,7 @@
 - 改动 schema（新节点类型 / mark / attrs 语义）→ `docs/architecture/editor.md`
 - 修改数据流（`documentStore`、`lastSavedContent` / `echosToAccept` / `lastSelfEmitted` 等同步语义）→ `docs/ARCHITECTURE.md`
 - 修改 FileTree / workspace / 搜索 / 导出 / Tauri 端能力时，更新对应 `file-tree.md` / `workspace-search.md` / `export.md` / `tauri.md`
-- 修复一个"非显然"的 bug，并且对应解决方案值得作为踩坑记录沉淀 → 写进对应模块的"设计要点"或"维护者注意点"
+- 修复一个"非显然"的 bug，并且对应解决方案值得作为踩坑记录沉淀 → 写进对应模块的"红线 / 关键取舍"
 
 ### 2. ROADMAP.md — 迭代推进必须同步
 
@@ -95,7 +95,7 @@
 ## 代码修改约定
 
 - 改动尽量小而精确，不顺手重构无关代码
-- **修 bug 先看对应架构模块的"先记住 / 禁令速查"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
+- **修 bug 先看对应架构模块的"红线 / 关键取舍"**：很多看起来是 bug 的行为是有意为之（例如 mermaid 走 widget 不走 NodeView、echo 哨兵机制、写盘前推进 `lastSavedContent` 等）
 - **加注释克制**：只在"非显然的设计取舍"处写注释，不要解释代码本身在做什么
 - **测试**：开发中只跑改动相关的测试文件，尽量不主动跑全量测试
 - **类型严格**：TypeScript strict 模式；开发中不主动跑 type-check

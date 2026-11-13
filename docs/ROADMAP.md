@@ -64,19 +64,6 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] 上下文片段：每条反链展示引用处前后 N 行文本
 - [ ] 点击条目跳转到引用位置（打开目标文件 + 定位光标）
 
-
-
-
-
-### 编辑器 — 往返管线块级增量序列化 `#incremental-roundtrip` `P2` `M`
-
-> 把「每次编辑全文档 toMarkdown」改成「脏块重序列化 + 净块缓存拼回」，remark 生态与全部往返测试零改动。真实实现实测增量路径 0.40–4.13ms vs 全文档 45–501ms（111–143×，三档语料 674/3335/6811 块），输出与 `toMarkdown(doc)` 字节级相等。—— [RESEARCH](./research/incremental-roundtrip.md)
-
-- [x] 块缓存 + 增量 toMarkdown（PM 结构共享判净 + 保守邻块失效 + 全量兜底）
-- [x] 不变式测试：任意编辑序列下 incremental(doc) === toMarkdown(doc) 字节级相等（fuzz + 块边界对抗样本，64 例 / 3 seed）
-- [x] ~~Worker parse 顺带产出块缓存；canonical 双往返退役，删 ~~`CANON_SKIP_THRESHOLD`~~ 补丁~~ → `loadContentInto` 主线程顺带建块缓存（canonical 本来就要做一次全文档序列化，改逐块后成本同量级）；fs.watch 外部检测改为 disk memo 跳过重复双往返；`CANON_SKIP_THRESHOLD` 与字符实体 raw 基线保留 —— Worker 只有 parse 配置（搬 stringify 进去收益面近零），删阈值等于给大文档重新加一次主线程序列化，字符实体是保真语义不是性能补丁
-- [x] 调用点接入：EditorInner 回写 / loadContentInto / fs.watch 外部检测 / 切标签恢复校验
-
 ### 版本历史 diff — 体验增强
 
 > 双模式 diff、Block Tree Diff、语义化渲染已交付，以下是遗留与新增的体验补强。
@@ -137,17 +124,6 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
 - [ ] test：工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）
 - [ ] test：面板展示分组与徽标正确性测试（mount Sidebar + 注入缓存）
-
-
-
-### 性能 — 搜索 / 文件遍历 / Git 历史下沉 Rust `#rust-search-quickopen-git` `P2` `M`
-
-> 承接索引层调研的第一梯队结论（工作区索引短期不实现，选型见 [ADR-20261113-001](./DECISIONS.md)）。全文搜索 rayon 并行实测 ~10–19×（JS 1.6–2.6s → 0.13–0.28s）、替换 ~3×、Git 历史 git2 库化 ~60×（~1s / ~23 子进程 → 17ms / 0）、Ctrl+P 遍历收益主要在 IPC 结构（上万次往返 → 1 次 command）。
-
-- [x] Phase 1：`scan_workspace_files` 单 command 替换 quickOpenIndex 的 walkRoot（缓存 / stale 语义不动）
-- [x] Phase 2：全文搜索/替换下沉 grep-searcher + rayon + Channel 流式；regex 模式保留 JS fallback；dirty 守门与 ReplaceResult 结构对齐
-- [x] Phase 3：git.rs 三 command 换 git2 + CLI 降级；--follow 重命名跟踪 MVP 不做（面板文案注明）
-- [x] test：正则方言 / CRLF / 隐藏目录过滤 / 命中计数两侧对齐测试集（workspace.rs 22 + git.rs 7 Rust 单测；quickOpenIndex / workspaceSearchRust JS 测试）
 
 ## P3 — 远期方向
 

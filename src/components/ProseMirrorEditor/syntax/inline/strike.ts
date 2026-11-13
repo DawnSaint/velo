@@ -25,7 +25,7 @@ export const strikeSyntax: InlineSyntax = {
     tr.delete(from, to)
     tr.insertText(inner, from)
     tr.addMark(from, from + inner.length, strikeType.create())
-    // 闭合后移除 storedMark,避免继续输入继承(设计要点见 editor.md syntax 节)
+    // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(strikeType)
     return true
   },

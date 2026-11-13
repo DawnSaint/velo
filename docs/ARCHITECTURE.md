@@ -7,7 +7,7 @@
 > **先记住**:
 > - 本文件承载全局概览与数据流基础，其余长篇设计细节放在对应模块文档。
 > - 架构层变动写入对应模块；只有新增 / 删除 / 重命名模块或路由变化时才改“模块路由”。
-> - 非显然 bug 的踩坑记录沉淀到对应模块的“设计要点 / 维护者注意点”。
+> - 非显然 bug 的踩坑记录沉淀到对应模块的“红线 / 关键取舍”。
 > - 重大取舍进 `DECISIONS.md`，用户可见版本变化进 `RELEASE_NOTES.md`。
 >
 > **相关文件**: [DECISIONS](./DECISIONS.md) / [RELEASE_NOTES](./RELEASE_NOTES.md) / [测试](./architecture/testing.md)
@@ -27,6 +27,7 @@
 | HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
 | SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定 | [`architecture/styles.md`](./architecture/styles.md) |
+| 图标来源、@lucide/vue vs widgetIcons 分工、尺寸与 stroke-width | [`architecture/icons.md`](./architecture/icons.md) |
 | 测试目标、选型、目录规范、Tauri mock 边界、反过度测试 | [`architecture/testing.md`](./architecture/testing.md) |
 
 ---
@@ -58,16 +59,16 @@
 ```
 velo/
 ├── docs/                        架构文档、决策记录、变更日志
-│   └── architecture/            模块文档（editor / file-tree / export / tauri / styles / testing）
+│   └── architecture/            模块文档（editor / file-tree / export / tauri / styles / testing / find-replace / document-io / workspace-search / icons）
 ├── src/
 │   ├── App.vue                  应用根组件：顶栏 + 主体（ActivityBar + 侧栏 + 编辑器）+ 状态栏
 │   ├── main.ts                  应用入口
 │   ├── stores/                  Pinia stores（editor / document / outline / folding / workspace / recentFiles / confirm / export / persistence / versionHistory）
-│   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window / git），业务侧只 import 这里
+│   ├── tauri/                   Tauri API 薄封装层（fs / dialog / path / window / git / workspace），业务侧只 import 这里
 │   ├── lib/export/              导出管线（mdast walker + shiki / KaTeX / mermaid / DOMPurify）
 │   ├── lib/cjkFormatter/        CJK 智能排版格式化器（保护区扫描 → 分段 → 规则 → 重建 → 完整性校验）
 │   ├── utils/                   跨组件纯工具（fuzzy / commandPalette / quickOpenIndex / workspaceSearch / documentStats 等）
-│   ├── composables/             shell 层通用 composable（useContextMenu / useWorkspaceWatch / useCommandPaletteItems / useWorkspaceSearch / useGlobalKeybindings / useCrossModeSync / useStaleEntry）
+│   ├── composables/             shell 层通用 composable（useCommandPaletteItems / useContextMenu / useCrossModeSync / useGlobalKeybindings / useSettingsSearchIndex / useStaleEntry / useUpdater / useWorkspaceSearch / useWorkspaceWatch / useZoom）
 │   ├── styles/                  Tailwind + Sass partial
 │   ├── test/                    测试基建（vitest setup）
 │   └── components/
@@ -87,7 +88,8 @@ velo/
 │       ├── ActivityBar.vue      左贴边功能栏（文件 / 工作区 / 大纲 / 搜索 / 资产 / 版本历史 / 设置）
 │       ├── StatusBar.vue        底部状态栏
 │       ├── SourceModeEditor.vue 源代码模式（CodeMirror 6 + shiki 高亮）
-│       └── (其他)               Breadcrumbs / QuickCommandPanel / FileMenuButton / DiffView / VersionHistoryPanel / WelcomeDialog / WindowControls / WorkspaceSearchPanel / crossModeSync / VeloConfirmDialog
+│       ├── crossModeSync.ts     跨模式光标 / 滚动同步（WYSIWYG ↔ 源码模式）
+│       └── (其他)               ActivityBarContextMenu / TabContextMenu / ToastContainer / ZoomIndicator / Breadcrumbs / QuickCommandPanel / FileMenuButton / DiffView / WelcomeDialog / WindowControls / WorkspaceSearchPanel / VeloConfirmDialog
 └── src-tauri/
     ├── capabilities/            Tauri 权限配置
     └── src/                     Rust 端（窗口主题 / CLI / single-instance）
@@ -119,7 +121,7 @@ velo/
 
 **标签持久化**: `WorkspaceState` 增 `openTabs: string[]` + `activeTab?: string`(WORKSPACES_VERSION 4→5),数据源 `documentStore.openFilePaths`,由 App.vue watcher 自动同步(已有 deep watch 触发 500ms debounce)。启动恢复在 `loadFrom({restoreActive:true})` 命中后:有持久化标签时跳过 `startupMode='last-file'`,走两阶段恢复 —— Phase 1 `createTabsFromPaths` 立即创建全部标签条目(只设 `currentFilePath`,不读盘)让 TabBar 先显示 Tab 标题 + `tabsReady` 守门编辑器,Phase 2 `loadContentIntoTabs` fire-and-forget 并发读盘异步装载内容;无持久化标签时回退 `openPathInTab(lastFile)` / `init('')`;`setActiveRoot` 切工作区**不**应用新 workspace 的 openTabs(openTabs 是 per-workspace 记忆,切走不污染)。sidebarWidth已迁到全局 `PersistedSettings.editor`(走 `velo-settings.json`),不再 per-workspace 持久化——详见 [`architecture/file-tree.md`](./architecture/file-tree.md) 工作区段。
 
-**文件 IO / 同步 / 持久化**: 打开 / 保存、外部改动同步、崩溃恢复草稿、持久化文件,以及写盘 / echo / fs:watch 的设计取舍与维护者注意点,见 [`architecture/document-io.md`](./architecture/document-io.md)。
+**文件 IO / 同步 / 持久化**: 打开 / 保存、外部改动同步、崩溃恢复草稿、持久化文件,以及写盘 / echo / fs:watch 的红线与关键取舍,见 [`architecture/document-io.md`](./architecture/document-io.md)。
 
 ---
 

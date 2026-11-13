@@ -1,7 +1,7 @@
 // 自绘 caret 插件 —— 消除 code_block 末行 / fold_placeholder 等"非文本位置"光标
 // 明显高于文本位置光标的视觉差。
 //
-// ## 根因(见 docs/architecture/editor.md「坑续(空行/末位非文本光标"明显更高")」行 113-120)
+// ## 根因(见 docs/architecture/editor.md 关键取舍「非文本位置自绘 caret」)
 //
 // Chromium 的 `LocalCaretRect` 在两个位置分两套规则:
 //   - 文本位置 (text node offset):caret 高度 = em-square

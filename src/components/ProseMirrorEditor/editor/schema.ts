@@ -343,7 +343,7 @@ const nodes: Record<string, NodeSpec> = {
   // ============================================================
 
   // 脚注 definition 的 label 现在是 footnote_label 节点的 text content(非 attrs),
-  // 与 footnote_reference 同范式(见 editor.md 禁令速查"不要把脚注编号写回 attrs.label")。
+  // 与 footnote_reference 同范式(见 editor.md 红线「脚注编号不写回 label」)。
   // 改之前 label 在 attrs.label + NodeView 自管一个不在 contentDOM 子树里的 labelSpan
   // (input/keydown 同步),PM 看不到 labelSpan → 点击 label 时 PM 默认把光标推进
   // 到最近的 content 子树 = 描述段前,Backspace/Delete 删错位置。
@@ -400,7 +400,7 @@ const nodes: Record<string, NodeSpec> = {
       // 粘贴 <sup data-type="footnote_reference"> 时 DOMParser.matchTag 先命中
       // superscript mark(mark 规则在 schemaRules 里先于 node 插入、同优先级时
       // 排在前),脚注被吞成带 superscript mark 的普通文本,丢失 .footnote-ref-node
-      // 样式与 Ctrl+click 跳转功能。详见 editor.md 踩坑记录。
+      // 样式与 Ctrl+click 跳转功能。
       priority: 100,
     }],
     toDOM: () => [
@@ -423,8 +423,8 @@ const nodes: Record<string, NodeSpec> = {
   // 之前 `atom: true` 的设计:NodeView 自己挂 input/textarea 做编辑,blur 后销毁编辑
   // 壳重渲染 —— 用户感知"显式输入框",与"光标进入即编辑、离开即预览"的现代编辑器
   // 体验割裂;NodeView 还要自管 stopEvent / isolateInput / 异步 stale-check 一堆补丁
-  // (editor.md 旧版"NodeView 必须实现 stopEvent" / "async render stale-check"段均
-  // 服务于这个旧设计)。去 atom 后这些补丁一并消失。
+  // (editor.md 关键取舍「需逐字符编辑的 inline 节点不要做 atom + contentEditable」)。
+  // 去 atom 后这些补丁一并消失。
   //
   // 保留 `code: true` —— 选区不可"跨" math_inline(防止从外部文本选到公式中间
   // 又从公式中间选到外部文本,与 footnote_reference 同形)。

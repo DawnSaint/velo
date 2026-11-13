@@ -1,86 +1,98 @@
 # Tauri Boundary
 
-> **本文件负责**: Tauri API 封装层、capabilities、CLI/single-instance、Windows NSIS 安装器集成（文件关联 + 文件夹/md 文件右键菜单 + per-user 安装）、web-dev 降级、应用自动更新、GPU 硬件加速、Git 历史命令。
+> **本文件负责**：Tauri 边界 —— `src/tauri/*` 封装层、capabilities 权限、窗口创建与启动时序、CLI / single-instance、Windows NSIS 安装器与 shell 集成、web-dev 降级、GPU 硬件加速、Git 历史 / 工作区搜索 Rust 命令、应用自动更新。
 >
-> **何时阅读**: 改 `src/tauri/*`、`src-tauri/*` command/capability、CLI 参数、single-instance、Windows shell 集成或 NSIS 安装器 hooks、updater 配置 / CI 签名时。
+> **何时阅读**：改 `src/tauri/*`、`src-tauri/src/*`、`tauri.conf.json` / `capabilities/`、NSIS 模板、CLI 与 single-instance、Windows shell 集成、updater 配置或 CI 签名时。
 >
-> **先记住**:
-> - 业务侧只 import `src/tauri/*`，不要直 import `@tauri-apps/*`。
-> - dev web 端 Tauri API 必须用 `tauriOnly()` / `isTauri()` 守门。
-> - `capabilities/default.json` 当前 fs scope 为 `**`，这是本地编辑器的显式取舍。
-> - 文件夹右键菜单跨平台（Windows=HKCU 注册表 / Linux=action 文件），启动时 best-effort 注册，per-user，免 admin，失败仅 log 不阻塞。Windows 运行时写 HKCU 重写 exe 路径；Linux 按 `$XDG_CURRENT_DESKTOP` 写对应 action 文件。**macOS Finder 服务已移除**（v0.7.5 因 macOS 26 Tahoe ObjC 异常兼容问题持续构建/运行失败，待购入 Mac 设备后重新实现）。
-> - 文件关联（ProgID 始终注册，确保 Velo 出现在“打开方式”列表）、**Windows** 文件夹/md 文件右键菜单由 NSIS installer hooks 手动管理（非 `bundle.fileAssociations`），安装时用户可选，卸载时自动注销。Windows 的反劫持保护使程序无法通过注册表直写设定默认程序，前端可通过 Tauri command `open_default_apps_settings` 打开 `ms-settings:defaultapps` 引导用户手动完成。Linux 暂不注册 md 文件菜单。
+> **代码入口**：`src/tauri/{fs,dialog,path,window,git,workspace}.ts`、`src-tauri/src/{lib,file_assoc,folder_menu,linux_menu,gpu_accel,git,workspace,pdf,pdf_windows}.rs`、`src-tauri/nsis/{installer.nsi,installer-hooks.nsh}`。
 >
-> **相关文件**: [架构入口](../ARCHITECTURE.md) / [导出](./export.md) / [测试](./testing.md)
+> **相关文档**：[架构入口](../ARCHITECTURE.md) · [导出](./export.md) · [测试](./testing.md)
 
+## 红线
 
-## 数据流
+- **业务侧只 import `src/tauri/*`**，不直 import `@tauri-apps/*`（测试 mock 单一入口）。
+- **dev web 端 Tauri API 必须 `tauriOnly()` / `isTauri()` 守门**：纯 Vite 下调 `@tauri-apps/api/*` 会同步 throw，整条 async 链 reject。
+- **capability 只授权 `main` + `velo-window-*`**，不用 `*` —— 避免隐藏 PDF 打印窗口拿到完整编辑器权限。
+- **所有窗口一律 `visible(false)` 创建**，由前端首帧 `invoke('show_main_window')` 显示；不要改成配置驱动或可见创建（会露 WebView2 导航期白底）。
+- **新建窗口必须在 async command 内 `tauri::async_runtime::spawn`**：`WebviewWindowBuilder::build` 从同步 command / 事件 handler 调会死锁。
+- **Windows 下 spawn 外部程序前确认子进程 PE subsystem**：CUI 程序（git / where / cmd / powershell）必须 `CREATE_NO_WINDOW`，否则刷出一串 CMD 窗口。
+- **不恢复全局 `cli-args` 广播**：多窗口下广播会让所有窗口同时切工作区 / 打开文件。
+- **不改 `capabilities/default.json` 的 fs `**` scope**（本地编辑器的显式取舍，分发时收紧）。
+- **不重新引入 macOS Finder 服务旧实现**（`finder_service.rs` 那套会崩，见「关键取舍」）。
+- **NSIS 模板升级 Tauri 时必须 diff 上游默认模板合并变更**（`src-tauri/nsis/installer.nsi` 是定制副本）。
 
-**单实例 + 文件关联 + 多窗口(v0.5.6)**: 冷启动走 per-window pending payload:`setup()` 将 argv 解析结果挂到 `main` label,前端按 `getCurrentWindow().label` 调 `take_window_cli_args` 领取;二次启动仍由 `tauri-plugin-single-instance` 拦截,但不再 `app.emit("cli-args")` 广播给所有窗口,而是 async spawn 创建新的 Velo app window,并把 `{files, dirs}` 绑定到该新 window label。argv 解析(`parse_cli_args`)同时返回 `{files: .md 路径, dirs: 目录路径}`:files 路由 `documentStore.openPath`,dirs 路由 `workspaceStore.setActiveRoot`(目录与文件互不冲突,工作区根 + 当前文档各管各的)。**CLI 启动时自动展开文件树侧栏**:dirs 或 files 任一非空时,`App.vue` 启动链把 `leftPanelView` 置 `'sidebar'` + `sidebarTab` 置 `'files'`,让用户直接看到文件树而非空白未命名 Tab;files 无配套 dirs 时取文件父目录作工作区根(右键 MD 文件打开 → 父目录成工作区)。CLI 带文件时 `shouldRestoreActive` 为 false,不恢复持久化工作区 / 标签 —— 用户右键打开单个 MD 文件的意图是聚焦该文件,不是回到上次工作区。
+## 架构
 
----
+### 封装层
 
-## 设计要点
+| 模块 | 职责 |
+| --- | --- |
+| `src/tauri/fs.ts` | `plugin-fs` 薄封装 + `tauriOnly()`；`watchImmediate` 专供工作区根递归监听 |
+| `src/tauri/dialog.ts` | 只 re-export `open` / `save`；确认类 UI 走 `useConfirmStore` + `VeloConfirmDialog.vue` |
+| `src/tauri/path.ts` | `appDataDir` / `join` / `dirname` / `sep` 等常用 path API |
+| `src/tauri/window.ts` | `takeWindowCliArgs` / `newAppWindow` / `showMainWindow` / `getCurrentWindowLabel` |
+| `src/tauri/git.ts` | `git_repo_root` / `git_file_history` / `git_show_file` + snake→camel |
+| `src/tauri/workspace.ts` | `scan_workspace_files` / `search_workspace`(Channel) / `cancel_workspace_search` / `replace_workspace` |
+| `src/utils/clipboard.ts` | 唯一剪贴板写入口 `writeClipboardText`（plugin 失败回退 `navigator.clipboard`） |
 
-- **系统对话框只保留选文件 / 选保存位置**: `src/tauri/dialog.ts` 只 re-export `open` / `save`;所有二选一确认走 `useConfirmStore().ask()` + `VeloConfirmDialog.vue`(Teleport to body、Enter/Esc、焦点陷阱),封装层不掺 UI 依赖。
-- **可见 app window label 与权限**:主窗口显式 label 为 `main`,动态 app window 使用 `velo-window-{n}`;`capabilities/default.json` 只授权 `main` + `velo-window-*`,不要用 `*`,避免隐藏 PDF printer window 拿到完整编辑器权限。多窗口不是多标签:每个 WebView 拥有自己的 Pinia runtime,当前工作区 / 当前文档 / dirty prompt 都按窗口隔离。
-- **主窗口由代码创建（非 tauri.conf.json 配置驱动）**: `tauri.conf.json` 的 `app.windows` 为空数组，主窗口在 `setup()` 中通过 `create_window(handle, "main", payload)` 创建。原因：`WebviewWindowBuilder::additional_browser_args` 必须在 WebView 创建时传入（GPU 加速偏好），而 tauri.conf.json 配置驱动的窗口不支持设置 `additional_browser_args`。所有窗口（主窗口 + 动态窗口）统一走 `create_window`，共享 GPU 加速偏好注入 + 平台装饰适配逻辑。**所有窗口统一 `.visible(false)` 隐藏创建**，由前端首帧渲染完 `invoke('show_main_window')` 显示；该 command 用 Tauri 注入的调用方 `WebviewWindow`，动态新窗口自动适用，`ShownWindows` 保证每个窗口只 show 一次。`create_window` 为每个窗口注册一次 3s 兜底（动态新窗口同样覆盖），前端 JS 异常时补一次 show，避免窗口永久隐藏。早显示会露出 WebView2 导航期的默认白底（首屏白闪）。
-- **首屏零闪烁的两段时序**: ① 深浅色 —— `index.html` 在外部 CSS 之前同步加载 `public/theme-boot.js`，读 localStorage 里的 `themeMode` 镜像 + `matchMedia` 直接给 `<html>` 上 `.dark` 和与 `--surface-0` 同色的兜底背景；`editorStore` 的 `themeMode` / `systemDarkMode` 初值同源，磁盘 hydrate 成功后回写镜像，所以异步读盘不再引起整页翻面。② 窗口可见 —— 隐藏创建 + 前端首帧 show（见上一条）。首帧脚本必须是**外部同步脚本**：`tauri.conf.json` 的 CSP `script-src` 只有 `'self'`，内联 `<script>` 会被拦；脚本里的 key / 枚举 / 色值必须与 `src/utils/themeBoot.ts` 同步维护。守门期（`codeBlockReady && tabsReady`）编辑器区仍是一块纯色空容器，骨架占位属后续体验项。
-- **macOS overlay 标题栏隐藏 title 文本**: macOS `titleBarStyle: Overlay` 下,原生标题栏会居中显示窗口 title 文本(`setTitle` 设的值),与自定义 header 的菜单按钮 / tab 页重叠。`create_window` 中 builder `.title("")` 设初始空标题;前端 `documentStore.syncTitle()` 在 macOS 下 `setTitle('')` 持续保持空标题。交通灯不受影响仍正常显示。Windows / Linux 无原生装饰(`decorations: false`),标题仅供任务栏 / 窗口列表,保留完整 `xx.md • - Velo Editor` 格式。
-- **动态 app window 走 async 创建 + per-window bootstrap**:二次启动 / 顶栏新窗口入口都创建新 WebView window,启动参数先按 label 写入 pending map,前端挂载后领取。不要恢复全局 `cli-args` 广播;多窗口下广播会让所有窗口同时切工作区 / 打开文件。`WebviewWindowBuilder::build` 不要在 single-instance 同步回调里直接调用,必须 `tauri::async_runtime::spawn` 后再建,延续 PDF 窗口踩坑。
-- **"在 Velo 中打开"文件夹右键菜单 —— 跨平台，启动时 best-effort 注册，per-user，免 admin**: `setup()` 按 `cfg(target_os)` 分发到平台实现（Windows / Linux），失败仅 `log::warn` 不抛 —— 菜单是 nice-to-have，启动不该被注册故障阻塞。argv 目录路径由 `parse_cli_args` 归 `dirs` → single-instance 二次启动 → `setActiveRoot`，平台共用，仅注册菜单项本身。
-  - **Windows — HKCU 注册表 + 每启动重写**: `folder_menu::ensure_registered` 写 `HKCU\Software\Classes\Directory\shell\OpenInVelo`(verb + command 子键)。每次 `setup()` 重写而非"仅缺时写"——自动跟随 exe 路径变化(用户把 Velo 拖别处的场景),HKCU 写盘是同步快速 op。命令模板 `"<exe>" "%1"` —— `%1` 而非 `%V`(后者用于 Directory\Background\shell),引号防路径含空格拆词。偏好标志 `HKCU\Software\com.velo.editor\ShellIntegration\FolderMenu`("1"/"0",未设置→注册)。**debug 构建跳过注册表写入**(`#[cfg(debug_assertions)]` 守门):debug exe 路径(`target/debug/velo.exe`)是临时路径,写入注册表后右键菜单会启动 debug 版本 → 尝试连接 Vite dev server(5273)+ 弹终端窗口(console subsystem)。`ensure_registered` / `set_folder_menu` / `set_md_menu` 在 debug 构建中只读写偏好标志,不触碰注册表菜单树;右键菜单注册由安装器 + release 版本负责。
-  - **macOS — 已移除**: v0.7.5 曾用 NSServices + Info-Additions.plist + `finder_service.rs` (objc crate) 实现 Finder 右键菜单，但因 macOS 26 (Tahoe) ObjC 异常穿越 `extern "C"` 边界导致 `panic_cannot_unwind` → `abort()` (tao#1171, tauri#15517)，在无 Mac 设备环境下无法调试，已移除全部相关代码（`finder_service.rs`、`macos_service_helper.m`、`Info-Additions.plist`、`build.rs` cc 编译、`Cargo.toml` objc/objc_exception 依赖、`tauri.conf.json` macOS infoPlist）。待购入 Mac 设备后重新实现。`lib.rs` 中 macOS 走 `#[cfg(not(any(target_os = "windows", target_os = "linux")))]` catch-all 分支，`shell_integration_state` 返回 `false/false`，`set_shell_integration` 为 no-op；前端 `SystemGroup.vue` 在 macOS 隐藏文件夹右键菜单开关。
-  - **Linux — 桌面环境检测 + action 文件**: `linux_menu::ensure_registered()` 读 `$XDG_CURRENT_DESKTOP`,KDE 走 Dolphin ServiceMenu(`.desktop` 含 `Actions=OpenInVelo`,落到 `~/.local/share/kio/servicemenus/`,顶级菜单,文件须 chmod +x),GNOME/Nemo/Caja/MATE 其它走 Nautilus 脚本(`~/.local/share/nautilus/scripts/`，「脚本」子菜单)。`Exec=<exe> %f` 传路径 → single-instance → setActiveRoot。偏好文件 `~/.config/com.velo.editor/folder-menu`。Thunar/XFCE 无文件级机制,暂不支持。
+### 窗口与启动时序
 
-- **NSIS 安装器集成 — 文件关联 + 文件夹/md 文件右键菜单安装时可选、卸载时自动注销; `installMode: currentUser` per-user only**: Windows 安装器从 MSI(WiX)切换为 NSIS-only。NSIS 通过自定义模板 + installer hooks 实现用户可选的 shell 集成:
-  - **移除 MSI target 与 `bundle.fileAssociations`**: MSI 安装器在已安装旧版本时会弹出"更改/修复/删除"维护页面(Windows Installer 行为),阻止覆盖安装;且 MSI/WiX 无法通过 Tauri 配置注入自定义安装页面(需写 WiX UI Fragment,Tauri 2 未暴露入口)。`bundle.fileAssociations` 会让安装器无条件注册文件关联,与"用户可选"需求冲突。改为 NSIS-only + installer hooks 手动写注册表。
-  - **自定义 NSIS 模板**(`src-tauri/nsis/installer.nsi`): 基于Tauri 默认模板,插入一个自定义页面:附加任务 checkbox 页 `Page custom PageTasks LeaveTasks`。模板通过 `bundle.windows.nsis.template` 引用。**维护注意**: 升级 Tauri 版本时需 diff 默认模板,合并上游变更到自定义模板。
-  - **`allowDowngrades: true`**: 允许覆盖安装(同版本 / 降级均直接装,不强制卸载旧版)。
-  - **`installerIcon` / `uninstallerIcon`**: Tauri 的 `{{installer_icon}}` 模板变量仅在 `bundle.windows.nsis.installerIcon` 显式设置时才填充(源码 `nsis/mod.rs` 中 `if let Some(installer_icon)` 守门,无 fallback 到 `bundle.icon`)。不设置时模板渲染为空字符串,`MUI_ICON` 不被定义,NSIS 回退默认图标。需显式指定 `"installerIcon": "icons/icon.ico"` 和 `"uninstallerIcon": "icons/icon.ico"`(路径相对于 `src-tauri/`)。
-  - **`installMode: currentUser`（per-user only）**: 安装到 `$LOCALAPPDATA\Velo`，不需要 UAC 提升，**启动时不弹管理员权限**。与 VS Code / Typora / Obsidian 等现代 Windows 应用对齐。`SHCTX` 定义为 `HKCU`，所有 shell 集成项写 HKCU。偏好标志也写 HKCU。无 `MultiUser.nsh`、无延迟提权、无 `PageInstallDir` 自定义页面，使用标准 `MUI_PAGE_DIRECTORY`。
-  - **与旧版 per-machine 安装共存**: 从 per-machine 切换到 per-user only 后,新安装器不会卸载旧的全局安装。两者文件路径不同（`Program Files\Velo` vs `$LOCALAPPDATA\Velo`）不冲突;Shell 集成写 HKCU,Windows 合并 HKCU + HKLM Classes 时 HKCU 优先,新安装的行为覆盖旧的。旧的全局安装残留在"控制面板"中,用户可手动卸载。
-  - **Additional Tasks 页面(installer-hooks.nsh `PageTasks` / `LeaveTasks`)**: VS Code 风格的 checkbox 页面,位于目录选择页之后、安装页之前。两个 checkbox:①「添加“在 Velo 中打开”到文件夹右键菜单」(默认勾选)②「添加“在 Velo 中打开”到 Markdown 文件右键菜单」(默认勾选)。用户点击 Next 后,checkbox 状态存入 `$VeloOptFolderMenu` / `$VeloOptMdMenu` 变量,供 `NSIS_HOOK_POSTINSTALL` 读取。静默/被动安装模式(`/S` / `/P`)下跳过此页,默认 FolderMenu=1、MdMenu=1。用户选择写入偏好标志 `HKCU\Software\com.velo.editor\ShellIntegration\{FolderMenu,MdMenu}`("1"/"0")。
-  - **文件关联注册表布局(写 HKCU)**:
-    - ProgID `Velo.md` **始终注册**(下设 `DefaultIcon` / `shell\open\command`)。
-    - `RegisteredApplications` + `Capabilities\FileAssociations` **始终注册** —— 让 Velo 出现在 Windows "设置 > 默认应用" 列表。
-    - **不设默认程序**: Windows 10 (1703+) 引入了文件关联反劫持保护。程序通过注册表直写 `HKCU\Software\Classes\.ext` + 删除 `UserChoice` 键的方式设置默认程序,会被 Windows Explorer 自动检测并回滚——UserChoice 键被删除后,Explorer 会重新创建它并恢复之前的默认程序。`UserChoice` 中的 `Hash` 值是微软用来校验关联是否为用户主动设置的加密哈希,算法未公开且随版本变化。**不使用** `IApplicationAssociationRegistration::SetAppAsDefault` COM 接口(Windows 8+ 不支持)也不使用注册表直写。安装器不提供“设为默认”选项;前端可通过 Tauri command `open_default_apps_settings`(`file_assoc::open_settings` → `ShellExecuteW` 打开 `ms-settings:defaultapps`)引导用户到 Windows 设置手动完成。
-  - **文件夹右键菜单注册表布局(写 HKCU + 运行时 HKCU 刷新)**: `HKCU\Software\Classes\Directory\shell\OpenInVelo` 设 `(Default)` = "在 Velo 中打开"、`Icon` = `<exe>,0`;`\command` 设 `(Default)` = `<exe> "%1"`。运行时 `folder_menu::ensure_registered` 写 HKCU 刷新(重写 exe 路径)。
-  - **md 文件右键菜单注册表布局(写 HKCU + HKLM,通过 SystemFileAssociations)**: `HKCU\Software\Classes\SystemFileAssociations\.{md,markdown,mdown,mkd,mkdown,mdwn,mdtxt,mdtext}\shell\OpenInVelo` 设 `(Default)` = "在 Velo 中打开"、`Icon` = `<exe>,0`;`\command` 设 `(Default)` = `<exe> "%1"`。使用 `SystemFileAssociations` 而非 ProgID verb:这样无论该扩展名是否关联到 Velo,右键菜单都出现「在 Velo 中打开」(独立于文件关联 checkbox)。无运行时刷新(exe 路径安装后不变)。卸载器也清理 HKLM 同路径(旧 per-machine 残留,`VELO_DEL_MD_VERB` 宏双侧处理;HKLM 在非管理员下会静默跳过的 ACL 拒绝)。
-  - **卸载自动注销**: `NSIS_HOOK_PREUNINSTALL` 删除 ProgID `Velo.md`、删除 `RegisteredApplications\Velo` + `Software\Velo\Capabilities`、自底向上(`command` 子树先于 `OpenInVelo` 父键,否则残留子键会让父键删不掉)清理 HKCU + HKLM 文件夹右键菜单和全部 8 个 md 扩展名的右键菜单、调 `SHChangeNotify` 刷新 Shell、删除 HKCU 偏好标志(FolderMenu/MdMenu)。全部注册表操作在卸载器中完成,运行时无需做注销。
-  - **运行时 `folder_menu::ensure_registered` 读偏好标志**: 安装时用户选择写入 `HKCU\Software\com.velo.editor\ShellIntegration\FolderMenu`。运行时读取该标志:`"1"` → 刷新注册表(重写 exe 路径);`"0"` → 跳过(用户选择了不注册);未设置 → 照常注册(便携模式 / 旧版升级,向后兼容)。
-  - **运行时 `file_assoc` 模块**: 不再在启动时自动操作。仅提供 `open_settings()` 供 Tauri command `open_default_apps_settings` 调用,前端设置面板可通过按钮主动打开 Windows 设置 > 默认应用页面。
-  - **从旧版 MSI 升级**: NSIS 安装器内置 WiX 检测逻辑(`PageReinstall` 函数中遍历 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` 匹配 `ProductName` + `Publisher`),检测到旧版 MSI 安装会提示用户先卸载,卸载后继续正常 NSIS 安装流程。非 WiX 模式直接跳过 PageReinstall 页面(`allowDowngrades: true` 覆盖安装,无需先卸载)。
-  - **`release-please-config.json` 的 `extra-files` 配置**: Cargo.toml 必须用显式 `{"type":"toml","path":"...","jsonpath":"$.package.version"}`,不能用纯字符串 `"src-tauri/Cargo.toml"`。release-please 的 `GenericToml` updater 要求 `jsonpath` 参数,纯字符串虽检测到 `.toml` 扩展名但 `jsonpath` 为空 → JSONPath 查询返回 0 结果 → 文件不被修改。
-  - **Cargo.lock 不进 release-please 的 extra-files**: 锁文件里 velo 自己的 `[[package]]` 节在数组深层,想精准 bump 需要 filter 表达式 `$.package[?(@.name == "velo")].version`,但 `GenericToml` 底层走 `node-jsonpath`,只支持 `.` / `[*]` / `[0]`,**不支持 `?(...)`**——配了也只会静默返回 0 结果、锁文件原封不动。
-  - **`CheckIfAppIsRunning` 替换为内联代码**: Tauri 默认的 `utils.nsh` 中 `CheckIfAppIsRunning` 宏在用户点"取消"时调用 `Abort`(在 Section 中只停止当前 Section,不关闭安装器窗口 → 安装页面卡住)。替换为内联代码,取消路径改为 `Quit`(直接关闭安装器),安装在 Install 和 Uninstall 两个 Section 中各内联一份(标签前缀 `velo_` / `un_velo_` 避免冲突)。
+- `tauri.conf.json` 的 `app.windows` 为空数组；主窗口在 `setup()` 中 `create_window(handle, "main", payload)` 代码创建（原因见「关键取舍」）。
+- **per-window pending payload**：`setup()` 把 argv 解析结果按 label 挂到 pending map，前端按 `getCurrentWindow().label` 调 `take_window_cli_args` 领取；二次启动由 `tauri-plugin-single-instance` 拦截后 `new_app_window` 创建新窗口并绑定 payload。
+- **隐藏创建 + 首帧 show**：前端首帧渲染完 `invoke('show_main_window')`；`ShownWindows` 保证每窗口只 show 一次，`create_window` 另注册 3s 兜底线程防前端异常导致永久隐藏。
+- **CLI 路由**：`parse_cli_args` 把 argv 归 `{files, dirs}`；`dirs` → `workspaceStore.setActiveRoot`，`files` → `documentStore.openPathInTab`（无 dirs 时取文件父目录作工作区根）。files/dirs 任一非空时 `App.vue` 启动链置 `leftPanelView='sidebar'` + `sidebarTab='files'`，且 `shouldRestoreActive=false`（不恢复持久化工作区 / 标签）。
+- **多窗口不是多标签**：每个 WebView 有独立 Pinia runtime，工作区 / 文档 / dirty prompt 按窗口隔离。
 
-- **工作区遍历/搜索/替换命令(#rust-search-quickopen-git Phase 1+2)**: `src-tauri/src/workspace.rs` 模块,前端封装 `src/tauri/workspace.ts`(薄封装 + `tauriOnly()` 守门 + snake→camel 映射,同 git.ts 模式)。四个 command:
-  - `scan_workspace_files(root)` — walkdir 单 command 收集全量 .md 条目(`WorkspaceFileEntry{full_path,name,rel_path}`),替换 quickOpenIndex 的「按层并发 readDir + 每条目一次 join IPC」(5k 文件 ≈ 上万次往返 → 1 次)。过滤规则与前端严格对齐:只收 md/markdown/mdown(大小写不敏感)、隐藏**目录**整段跳过(隐藏**文件**不跳)、不跟随符号链接、rel_path 正斜杠。`spawn_blocking` 执行避免占 async runtime。
-  - `search_workspace(root, scopeDir, query, options, searchId, channel)` — grep-searcher(ripgrep 同款引擎)+ rayon 按文件并行,**Channel 流式回传**(禁止全量一次返回:稠密命中 74992 条 ≈ 15MB JSON 会反超扫描本身)。事件 `scanned/file/progress/done`。**嵌套 `file` 字段是 snake_case**(`WorkspaceFileEntry` 无 rename_all,不随外层事件的 camelCase 改名),封装层 `normalizeSearchEvent` 在 Channel 边界统一归一为 camelCase —— 漏映射会让面板分组标题(`group.file.relPath`)空白。命中口径与前端 `searchFileContent` 逐条对齐:逐行扫描、展示行剥 \r\n、**偏移量全 UTF-16 code unit**(中文/emoji 换算,直接喂编辑器 setSelection)、零宽匹配跳过、wholeWord 外层 \b。**自定义 Sink 从 `SinkMatch.absolute_byte_offset()` 拿真实行基址**(不能用 sinks::UTF8 手动累加 —— 非命中行不回调会漏算 → rawFrom 漂移)。正则方言差异(JS lookahead/反向引用 vs Rust regex):编译失败返回 Err,前端降级 JS 引擎。
-  - `cancel_workspace_search(searchId)` — 置位 AtomicBool 取消令牌(每文件/每命中行检查),真正即时取消。
-  - `replace_workspace(paths, plan, dirtyPaths)` — 读→替换→计数差值→写盘,dirty 守门(前端 snapshot 传入,一律跳过),返回结构与前端 ReplaceResult 对齐(fileContents 用 HashMap,前端转 Map)。替换模板归一:`$&`/`$0`→`${0}`、`$$` 字面(Rust expand 不认 `$&`)。
-  - **前端编排**:`workspaceSearch.ts` 的 `searchWorkspaceMarkdown` / `applyWorkspaceReplace` 均 Rust 优先,invoke reject(旧版后端/正则方言)时降级原 JS 路径;`quickOpenIndex.ts` 的 `walkRoot` 同款 Rust 优先 + JS BFS fallback。缓存/stale/pending 语义不变。测试 setup.ts 的 invoke stub 默认对新 command 抛错 → 现有 plugin-fs mock 测试自动走 JS fallback 不破。
-- **Git 历史命令(v0.7.12;#rust-search-quickopen-git Phase 3 改 git2 库化)**: `src-tauri/src/git.rs` 模块提供三个 `#[tauri::command]`:`git_repo_root`(判断文件是否在 Git 仓库中,返回仓库根路径)、`git_file_history`(获取文件的 commit 历史列表,含 hash / 时间 / 完整 message / 作者)、`git_show_file`(获取指定 commit 中某文件的完整内容)。**主路径走 `git2`(libgit2,静态链入)库内直读**:`Repository::discover` + `revwalk`(Sort::TIME 倒序)+ `tree.get_path` + blob-id 去重(跳过「commit 改了别的文件」),最多 100 条;`git_show_file` 读 blob。实测开一次面板从 ~23 个子进程 / ~1s 降到 0 子进程 / ~17ms(~60×),且不再依赖用户装 git。**git2 打开/读取失败时回退现有 CLI 路径**(损坏/权限/特殊 worktree),行为不回退。**MVP 不跟踪重命名**(git2 无 `--follow` 等价物,按固定路径查 tree),面板 Git 开关 tooltip 注明此限制;CLI 降级路径仍保留 `--follow`。`GitCommitEntry` 结构(snake_case serde)不变 → 前端 `src/tauri/git.ts` 的 snake→camel 映射层与 `versionHistory.ts` 零改动。**Windows 链接**:`build.rs` 显式 `cargo:rustc-link-lib=advapi32/crypt32`(libgit2 引用注册表/随机数符号,rust-lld 默认不链,实测必需)。`git2` 用 `default-features=false` 关 https/ssh 免 OpenSSL。Git 历史作为版本历史面板的额外数据源融入,不做独立 Git 面板(详见 DECISIONS ADR-20260823-001)。
-  - **所有子进程必须走 `spawn()` helper(`CREATE_NO_WINDOW`)**: `spawn(program)` 是 git.rs 内唯一的 `Command` 入口,Windows 下统一挂 `creation_flags(0x0800_0000)`。原因:release 构建是 windows subsystem(`main.rs` 的 `windows_subsystem` attr),**父进程自身没有控制台**,而 `git.exe` / `where.exe` 是控制台子系统程序——Windows 会为每个子进程新建一个控制台窗口,打开版本历史时一次性刷出几十个闪烁即消失的 CMD 窗口(`where git` + `git rev-parse` + `git log` + 20 条预加载的 `git show`,每个 command 还各跑一次 `git_available()`)。`tauri dev` 是 debug build、父进程自带控制台,子进程继承它,所以**该现象只在 build 后的安装包上出现**,极易被误判为"打包问题"。`CREATE_NO_WINDOW` 只禁止创建控制台,不影响 stdout / stderr 管道,`.output()` 照常读到输出。
-  - **`git_available()` 用 `OnceLock` 只缓存"git 可用"这一种结果**: 开一次面板要跑 `git_repo_root` + `git_file_history` + 20 次 `git_show_file`(`MAX_GIT_PRELOAD`),而每个 command 开头都探一次 `where git`,合计约 45 次进程创建。**不缓存"git 未安装"**:那只是每个 command 多 1 次 spawn 的轻路径,保持重试可以让用户装上 git 后无需重启 Velo 就生效(缓存 false 会让 git 面板在本次会话内永久降级)。
-- **GPU 硬件加速（仅 Windows WebView2）**: WebView2 默认开启 GPU 硬件加速。用户可在「设置 > 系统」关闭（类似 Chrome 的「使用图形加速功能」开关）。偏好存 `HKCU\Software\com.velo.editor\ShellIntegration\GpuAcceleration`（"1"/"0",未设置 → true 向后兼容），与 shell integration 偏好同路径。`create_window` 在创建 WebView 前调 `gpu_accel::additional_browser_args_if_disabled()`：偏好为关闭时返回 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu`（必须保留 wry 默认的 disable-features，因为用户自定义 args 会完全替换默认值），偏好为开启时返回 None（走 wry 默认路径）。**切换后需重启生效**：`additional_browser_args` 在 WebView 创建时固定，运行时无法动态修改；前端 `set_gpu_accel` command 写入注册表后 toast 提示用户重启。macOS WKWebView / Linux WebKitGTK 的 GPU 加速由系统控制，wry 未暴露等效 API，前端在非 Windows 平台隐藏开关。
-- **应用自动更新(#updater)**: Tauri 2 Updater plugin(`tauri-plugin-updater`) + Process plugin(`tauri-plugin-process`,relaunch 用)。
-  - **签名密钥**: Ed25519 自签名密钥对(`tauri signer generate` 生成),免费。私钥存 CI GitHub Secret(`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`),公钥写 `tauri.conf.json` 的 `plugins.updater.pubkey`。与 Windows 代码签名证书(Sectigo / DigiCert,需购买,消除 SmartScreen 警告)是两回事,updater 不依赖后者。
-  - **endpoint**: `https://github.com/DawnSaint/velo/releases/latest/download/latest.json`。CI 构建分两层:**Tauri CLI** 检测到 `TAURI_SIGNING_PRIVATE_KEY` 环境变量后签名更新包——Windows 直接签名 `.exe` 产出 `.exe.sig`(`createUpdaterArtifacts: true` direct 模式,不再生成 `.nsis.zip` 中间产物),macOS / Linux 签名 `.app.tar.gz` / `.AppImage.tar.gz` 产出对应 `.sig`;**tauri-action** 的 `includeUpdaterJson: true` 收集签名信息生成 `latest.json` 上传到 Release(检测到 `unzippedSigs=true` 自动优先读 `.exe.sig`)。注意 input 名是 `includeUpdaterJson` 不是 `updaterJson`(后者会被静默忽略,导致 `latest.json` 不生成)。`updaterJsonPreferNsis: true` 让 Windows 走 NSIS 格式(Velo 不打 MSI)。
-  - **前端流程**: `useUpdater` composable 封装 check / downloadAndInstall / relaunch 全流程。App.vue onMounted 10s 延迟后自动检查一次,受「设置 > 系统 > 自动更新」开关控制(`systemStore.autoUpdateEnabled`,默认开,持久化到 `velo-settings.json` 的 `system` 节);开启时有更新走**后台静默下载**,完成后 Toast 提示用户去「设置 > 系统」点「立即安装」重启(不自动安装,安装重启由用户确认),下载失败静默只记日志(大陆直连 GitHub 不稳定,启动阶段弹错误 toast 打扰用户),设置页卡片仍可手动重试。关闭开关时启动整条链路跳过(检查也不做),手动「检查更新」不受影响。SystemGroup.vue 提供「自动更新」开关 +「检查更新」按钮 + 新版本信息 + 下载进度条 + 「下载并安装」按钮。**更新卡片内容来源**:fetch GitHub raw `docs/RELEASE_NOTES.md` 全文,正则提取目标版本段落(用户手写的中文面向用户日志,非 release-please 自动生成的英文 CHANGELOG);raw fetch 失败或版本段落不存在时降级回 `release.body`(GitHub Release 页面 changelog)。dev 环境走 Vite proxy `/github-raw` 避免 CSP 跨域拦截。**更新卡片 markdown 渲染**:`SystemGroup.vue` 用 `computed` 调 `lib/renderMarkdown.ts`(`createParseProcessor()` parse → 极简同步 walker → `sanitizeHtml` DOMPurify 洗)把 release notes markdown 转 HTML,`v-html` 渲染;不走 `htmlRenderer.ts` 那套重管线(无 mermaid/shiki/katex,更新日志用不到)。
-  - **Windows NSIS 更新**: `downloadAndInstall` 内部下载签名后的 `.exe`,验证签名后静默安装(exe 替换),`relaunch` 重启新版本。macOS / Linux 更新走 `.tar.gz` / `.AppImage.tar.gz`,安装行为依赖平台。
+### capabilities / 权限
 
+`capabilities/default.json`：`windows: ["main", "velo-window-*"]`；权限含 `core:default` / `fs:default` / `dialog:default` / `clipboard-manager:default` / `shell:default` / `opener:default` / `updater:default` / `process:default`，加窗口标题 / 缩放 / 事件监听，以及 fs 全量操作的 `path: "**"`。`core:webview:allow-set-webview-zoom` 供 `useZoom` 调 `setZoom`。
 
----
+### Rust 命令清单
 
-## 维护者注意点
+| 来源 | 命令 |
+| --- | --- |
+| `lib.rs` | `take_window_cli_args` / `show_main_window` / `new_app_window` / `open_devtools` / `export_pdf` / `gpu_accel_state` / `set_gpu_accel` / `open_default_apps_settings` / `shell_integration_state` / `set_shell_integration` |
+| `git.rs` | `git_repo_root` / `git_file_history` / `git_show_file` |
+| `workspace.rs` | `scan_workspace_files` / `search_workspace` / `cancel_workspace_search` / `replace_workspace` |
+| `file_assoc.rs` | `open_settings`（被 `open_default_apps_settings` 调用） |
+| `gpu_accel.rs` | `gpu_accel_enabled` / `set_gpu_accel` / `additional_browser_args_if_disabled` |
+| `pdf.rs` / `pdf_windows.rs` | PDF 导出实现，见 [export.md](./export.md) |
 
-- **Tauri 权限**: `capabilities/default.json` fs 开 `**`(通用文本编辑器),分发时收紧
-- **Windows 下 spawn 任何外部程序都要先确认子进程的 PE subsystem**: release 构建是 windows subsystem,父进程无控制台,spawn **控制台子系统(CUI)** 程序(`git.exe` / `where.exe` / `cmd.exe` / `powershell.exe`)会被系统分配新控制台窗口 → 用户看到闪烁的 CMD 窗口。这类 spawn 必须显式 `creation_flags(CREATE_NO_WINDOW)`。spawn **GUI 子系统**程序(`ie4uinit.exe`、`explorer.exe`、NSIS 安装包)不会创建控制台,不需要加 flag。判断方法:读 PE 可选头 `Subsystem` 字段(PE32 / PE32+ 都在 `e_lfanew + 4 + 20 + 68`),`2` = GUI,`3` = CUI。dev 下父进程有控制台、子进程继承,**问题不重现**,别拿 dev 的行为当验收结论——这类 bug 只能靠 build 后跑安装包或读这段代码发现。
-- **clipboard 统一走** `@tauri-apps/plugin-clipboard-manager` 的 `writeText`
-- **dev web 端 Tauri API 必须 `isTauri()` 守门**: 纯 vite 调 `@tauri-apps/api/*` 同步 throw,单行 throw 会让 async 整条 reject。`persistence.ts` 走 `tauriOnly()`;`App.vue` 顶层 `const tauri = isTauri()`,fire-and-forget 异步 `if (tauri)` 守门,onMounted await 链路整段 `if (tauri) { ... }` 包裹
-- **PDF 走隐藏打印窗口而非主 webview**: `Navigate(data:...)` 会销毁主 webview 的 Vue 应用 + `invoke` promise 上下文,弹不出反馈且应用回不来;隐藏窗口让主应用全程不动。初始 URL 选 `about:blank`(tauri-runtime-wry 对其特判为"不设初始 URL",避免"初始页 vs data URL"两个 NavigationCompleted 竞态)。Windows: cast `ICoreWebView2_7` 拿 PrintToPdf、cast `ICoreWebView2Environment6` 拿 CreatePrintSettings(v1 环境没这方法);`SetShouldPrintBackgrounds(true)` 必开(默认不打印背景,alert SVG / 代码块底色 / 暗色底全丢)。HTML 注入靠 `navigate("data:text/html;base64,...")`(需 `webview-data-url` feature)。`PRINT_LOCK` 防并发,30s 超时兜底。**新建窗口必须在 async command 里做**(`WebviewWindowBuilder::build` 从同步 command / 事件 handler 调会死锁);**闭包不能 self-reference**(webview7/settings 必须 move 进 handler)。macOS / Linux 待实现
-- **Tauri 2 plugin-opener 只能 desktop**: `revealItemInDir` 移动端 unsupported,Velo 当前只打 desktop,future 加 mobile entry 时需自行在 capability / 调用点降级(消息弹"不支持")
-- **F12 开 DevTools + perf 打点 prod 开关**: `Cargo.toml` 开了 `devtools` feature,release 包也能开 DevTools。`App.vue` 注册 F12 → `invoke('open_devtools')`(dev 环境 Vite 自带 F12,invoke 会失败,catch 掉)。`src/utils/perf.ts` 是首屏性能打点工具(Performance API mark/measure + FCP/LCP),dev 自动启用,production 可通过 `localStorage.setItem('velo.perf','1')` + 刷新临时开启,测完 `removeItem` 关掉恢复 no-op。PerformanceObserver 必须页面早期注册才能抓 FCP/LCP,所以 flag 在模块加载时读一次,设了 flag 必须刷新才生效。埋点位置:`main.ts`(`script-start`)、`App.vue`(`settings-ready`/`code-block-ready`/`mounted`/`editor-mounted`),`editor-mounted` 时 `console.table` 输出 measure 汇总
-- **macOS 26 (Tahoe) ObjC 异常兼容（已移除）**: v0.7.5 曾为 macOS 26 Tahoe 的 ObjC 异常穿越 `extern "C"` 边界问题（tao#1171, tauri#15517）引入 `macos_service_helper.m` (ObjC @try/@catch) + `finder_service.rs` (objc crate) 方案，但因无 Mac 设备无法调试，持续构建/运行失败，已全部移除。若未来重新实现 macOS Finder 服务，需参考以下踩坑记录：macOS 26 修改了 ObjC 异常处理行为，之前能被静默忽略的 ObjC 异常现在会穿越 `extern "C"` 边界，触发 `panic_cannot_unwind` → `abort()`。**不能用 `objc_exception::r#try`**: 它内部用 `catch_unwind`，unwinder 穿越 `extern "C"` 帧时本身触发 `panic_cannot_unwind`，即 catch 机制反而成了崩溃源头。objc 0.2.7 的 `exception` 模块是私有的（`mod exception;` 而非 `pub mod`），即使启了 `exception` feature 也无法从外部访问；必须直接依赖 `objc_exception` crate (0.1.x)。objc crate 的 `class!` / `msg_send!` / `sel!` 宏内部使用已废弃的 `cfg(cargo-clippy)`，会触发 `unexpected_cfgs` 警告，需在模块级别 `#![allow(unexpected_cfgs)]` 抑制。`NSApplication` 的方法名是 `setServicesProvider:`（复数 "Services"），不是 `setServiceProvider:`。`objc_getClass` 需 `#import <objc/runtime.h>`。
+### NSIS 与 shell 集成
+
+- `bundle.windows.nsis.template` = `src-tauri/nsis/installer.nsi`（Tauri 默认模板 + 自定义 `PageTasks` / `LeaveTasks` 附加任务页），`installerHooks` = `installer-hooks.nsh`。
+- `installMode: "currentUser"`：装到 `$LOCALAPPDATA\Velo`，免 UAC，`SHCTX=HKCU`。`allowDowngrades: true` 允许同版本 / 降级覆盖安装。
+- `installerIcon` / `uninstallerIcon` 必须显式设置 —— 模板变量 `{{installer_icon}}` 无 fallback 到 `bundle.icon`，不设则 `MUI_ICON` 未定义、NSIS 回退默认图标。
+- **附加任务页**：位于目录选择页后、安装页前，两个 checkbox（文件夹菜单 / md 文件菜单）默认勾选；状态写 `HKCU\Software\com.velo.editor\ShellIntegration\{FolderMenu,MdMenu}`。被动模式（`$PassiveMode=1`）跳过该页并默认都装。
+- **注册表布局**：
+  - ProgID `Velo.md` + `RegisteredApplications` + `Capabilities\FileAssociations` **始终注册**（保证出现在「打开方式」和「默认应用」列表）。
+  - **不设默认程序**：Windows 10 1703+ 反劫持保护会回滚注册表直写 + 删 `UserChoice`；前端用 `open_default_apps_settings`（`ShellExecuteW` 打开 `ms-settings:defaultapps`）引导用户手动设。
+  - 文件夹菜单：`HKCU\Software\Classes\Directory\shell\OpenInVelo`，command `"<exe>" "%1"`（`%1` 非 `%V`，引号防路径含空格拆词）。
+  - md 菜单：`HKCU\Software\Classes\SystemFileAssociations\.{md,markdown,mdown,mkd,mkdown,mdwn,mdtxt,mdtext}\shell\OpenInVelo`（独立于文件关联 checkbox）；HKLM 同路径由卸载器清旧 per-machine 残留。
+- **卸载自动注销**：`NSIS_HOOK_PREUNINSTALL` 删 ProgID / RegisteredApplications / Capabilities，自底向上清菜单树（`command` 子树先于父键），`SHChangeNotify` 刷新 Shell，删偏好标志。
+- **运行时刷新**：`folder_menu::ensure_registered` 读偏好（`"1"` 刷新 exe 路径 / `"0"` 跳过 / 未设置 → 注册，兼容便携与旧版升级）。debug 构建 `#[cfg(debug_assertions)]` 只读写偏好不碰注册表 —— debug exe 是临时路径，写注册表会让右键菜单启动 debug 版连 Vite dev server + 弹终端窗口。
+- **Linux**：`linux_menu::ensure_registered` 按 `$XDG_CURRENT_DESKTOP` 分发 —— KDE 写 `~/.local/share/kio/servicemenus/*.desktop`（`Actions=OpenInVelo`，文件须 chmod +x），GNOME / Nemo / Caja / MATE 写 `~/.local/share/nautilus/scripts/`；偏好文件 `~/.config/com.velo.editor/folder-menu`。Thunar / XFCE 无文件级机制，不支持；Linux 不注册 md 文件菜单。
+- **macOS**：Finder 服务已移除，见「关键取舍」。
+- 安装器内置 WiX 检测（`PageReinstall` 遍历 `HKLM\...\Uninstall` 匹配旧 MSI 的 ProductName + Publisher），提示先卸载旧版。
+
+## 关键取舍
+
+- **封装层是 thin re-export，刻意不统一错误形态**：各调用方有自己的降级策略（persistence 静默默认值 / document 弹原生 message / imageStorage 透传），统一形态会破坏现有语义。存在理由是测试 mock 单一入口 + 收敛 fs 调用点。
+- **`watchImmediate` 专供工作区根**：`plugin-fs` 的 `watch()` 默认 `delayMs:2000` 走 notify-debouncer-full 分支，对整棵目录树 WalkDir 逐路径取 file id，而 `watch` 是同步 command 跑在主线程 —— 打开含 node_modules 的大目录会占死主线程。`watchImmediate` 强制 RecommendedWatcher，Windows 单句柄递归、注册 O(1)，去抖交前端 dirtyDirs + 120ms timer。单文件监听仍用 `watch({ delayMs: 100 })`。
+- **主窗口代码创建而非配置驱动**：GPU 加速偏好必须经 `WebviewWindowBuilder::additional_browser_args` 在 WebView 创建时注入，`tauri.conf.json` 配置驱动窗口不支持该 builder 方法。
+- **首屏零闪烁两段时序**：① 深浅色 —— `index.html` 在外部 CSS 前同步加载 `public/theme-boot.js`，读 localStorage `velo.theme-mode` 镜像 + `matchMedia` 给 `<html>` 上 `.dark` 与 `--surface-0` 同色兜底背景；`editorStore` 初值同源，磁盘 hydrate 后回写。外部同步脚本是硬要求（CSP `script-src` 只有 `'self'`，内联 `<script>` 会被拦），key / 枚举 / 色值必须与 `src/utils/themeBoot.ts` 同步维护。② 窗口可见 —— 隐藏创建 + 首帧 show。
+- **macOS overlay 标题栏隐藏 title**：`titleBarStyle: Overlay` 下原生标题栏居中显示窗口 title，与自定义 header 重叠；`create_window` 设 `.title("")`，`documentStore.syncTitle()` 在 macOS 持续 `setTitle('')`。交通灯不受影响。
+- **从 MSI 切到 NSIS-only**：MSI 在已装旧版时弹「更改/修复/删除」维护页阻止覆盖安装，且 WiX 无法注入自定义安装页；`bundle.fileAssociations` 无条件注册与「用户可选」冲突。
+- **Git 历史走 git2 库化**：`git2`（libgit2 静态链入）`Repository::discover` + `revwalk` + `tree.get_path` + blob-id 去重，最多 100 条；开一次面板从 ~23 子进程 / ~1s 降到 0 / ~17ms，且不再依赖用户装 git。git2 失败回退 CLI 路径（损坏 / 权限 / 特殊 worktree）。**不跟踪重命名**（git2 无 `--follow` 等价物），面板 tooltip 注明；`GitCommitEntry` snake_case serde 不变 → 前端映射层零改动。Windows 链接：`build.rs` 显式 `cargo:rustc-link-lib=advapi32/crypt32`（rust-lld 默认不链）；`git2` 用 `default-features=false` 关 https/ssh 免 OpenSSL。Git 历史作为版本历史面板数据源，不做独立面板（ADR-20260823-001）。
+- **`git_available()` 只缓存「可用」**：开面板要跑 `git_repo_root` + `git_file_history` + 20 次 `git_show_file`，每个 command 都探一次 `where git` ≈ 45 次进程创建。不缓存「未安装」—— 保持重试让用户装 git 后免重启生效。
+- **`CREATE_NO_WINDOW` 只禁控制台不影响管道**：release 是 windows subsystem，父进程无控制台；spawn CUI 程序会被系统分配新控制台窗口。GUI 子系统程序（`ie4uinit.exe` / `explorer.exe` / NSIS 包）不需要 flag。判断方法：读 PE 可选头 `Subsystem` 字段（`e_lfanew + 4 + 20 + 68`），`2`=GUI / `3`=CUI。**dev 下父进程有控制台、子进程继承，问题不重现**，别拿 dev 行为当验收结论。
+- **GPU 偏好只能在 WebView 创建时注入**：`additional_browser_args` 创建后不可改，故偏好为关时返回 `--disable-features=... --disable-gpu`（必须保留 wry 默认 disable-features —— 用户自定义 args 会完全替换默认值），为开时返回 `None`；切换后需重启生效，前端 toast 提示。仅 Windows 暴露开关，macOS / Linux wry 未暴露等效 API。
+- **应用自动更新**：`tauri-plugin-updater` + `tauri-plugin-process`（relaunch）。Ed25519 自签名密钥（私钥存 CI Secret，公钥写 `tauri.conf.json` 的 `plugins.updater.pubkey`），endpoint 指向 GitHub Release 的 `latest.json`。CI 两层：Tauri CLI 检测签名私钥后产 `.exe.sig` / `.tar.gz.sig`（`createUpdaterArtifacts: true`），tauri-action `includeUpdaterJson: true` 收集生成 `latest.json`（input 名是 `includeUpdaterJson` 不是 `updaterJson`，后者静默忽略），`updaterJsonPreferNsis: true` 走 NSIS 格式。前端 `useUpdater`：启动 10s 后自动检查一次，有更新后台静默下载 → Toast 提示去设置页手动安装；受 `systemStore.autoUpdateEnabled` 控制；release notes 取 `docs/RELEASE_NOTES.md` 目标版本段落，失败降级 `release.body`；dev 走 Vite proxy `/github-raw` 避 CSP。
+- **macOS Finder 服务已移除**：曾用 NSServices + `Info-Additions.plist` + `finder_service.rs`（objc crate），因 macOS 26 Tahoe ObjC 异常穿越 `extern "C"` 边界触发 `panic_cannot_unwind` → `abort()`（tao#1171 / tauri#15517），无 Mac 设备无法调试，已移除全部相关代码。`lib.rs` macOS 走 `#[cfg(not(any(windows, linux)))]` catch-all，`shell_integration_state` 返回 `false/false`，`set_shell_integration` no-op，前端 `SystemGroup.vue` 隐藏开关。**重新实现的坑**：不要用 `objc_exception::r#try`（内部 `catch_unwind` 穿越 `extern "C"` 帧本身触发 `panic_cannot_unwind`，catch 反成崩溃源）；objc 0.2.7 的 `exception` 模块是私有的，须直接依赖 `objc_exception` 0.1.x；`NSApplication` 方法名是 `setServicesProvider:`（复数）；`class!` / `msg_send!` / `sel!` 宏触发 `unexpected_cfgs`，需 `#![allow(unexpected_cfgs)]`。
+- **PDF 走隐藏打印窗口**：机制与平台实现见 [export.md](./export.md)「PDF 路径」。
+
+## 附录
+
+- **F12 / perf 打点 prod 开关**：`Cargo.toml` 开 `devtools` feature，release 也能开 DevTools；`App.vue` 注册 F12 → `invoke('open_devtools')`（dev 下 Vite 自带 F12，invoke 失败 catch 掉）。`src/utils/perf.ts` 首屏打点（Performance mark/measure + FCP/LCP），dev 自动启用，production 用 `localStorage.setItem('velo.perf','1')` + 刷新临时开启。PerformanceObserver 必须页面早期注册，flag 模块加载时读一次，设了必须刷新才生效。埋点：`main.ts` `script-start`、`App.vue` `settings-ready` / `code-block-ready` / `mounted` / `editor-mounted`。
+- **release-please `extra-files`**：Cargo.toml 必须用 `{"type":"toml","path":"...","jsonpath":"$.package.version"}`，纯字符串会因 `jsonpath` 为空静默不修改。`Cargo.lock` 不要进 extra-files：velo 自己的 `[[package]]` 在数组深层，`GenericToml` 底层 `node-jsonpath` 不支持 `?(...)` filter，配了也静默返回 0 结果。
+- **Tauri 2 plugin-opener 只 desktop**：`revealItemInDir` 移动端 unsupported，future 加 mobile entry 时需在 capability / 调用点降级。
