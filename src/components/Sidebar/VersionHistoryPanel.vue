@@ -207,7 +207,7 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
           :class="versionHistory.includeGit
             ? 'text-orange-500 dark:text-orange-400'
             : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'"
-          :title="versionHistory.includeGit ? '关闭 Git 历史加载' : '开启 Git 历史加载'"
+          :title="(versionHistory.includeGit ? '关闭 Git 历史加载' : '开启 Git 历史加载') + '（按当前路径查询，不跟踪文件重命名）'"
           @click="onToggleGit"
         >
           <GitBranch class="h-3 w-3" />

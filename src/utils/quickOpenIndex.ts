@@ -1,7 +1,11 @@
 // Ctrl+P 查找文件:工作区 .md 文件索引(v0.5.2)
 //
 // 一个 module-level 单例 Map<root, Entry[]>。首次 `ensureIndex(root)`
-// 触发按层并发递归 readDir 收集所有 .md 文件;后续命中缓存直接返回。
+// 触发遍历收集所有 .md 文件;后续命中缓存直接返回。
+//
+// #rust-search-quickopen-git Phase 1:遍历优先走 Rust 单 command
+// (scan_workspace_files,1 次 IPC 返回全量条目);旧版后端 / web 端 /
+// command 失败时回落原 JS 按层并发 BFS。缓存 / stale / pending 语义不变。
 //
 // 失效策略走"标记 stale 而非局部 patch":App.vue 的工作区 fs.watch 回调
 // 任何脏事件都 `invalidate(root)`,下次面板打开时重扫。简单可靠,与
@@ -13,8 +17,9 @@
 // 隐藏目录(.git/.vscode 等)跟 FileTree 一样过滤;复用 `treeUtils.isVisible`
 // 的隐藏目录约定但内联实现(本模块不需要图片过滤,只收 .md)。
 
-import { readDir } from '@/tauri/fs'
+import { readDir, tauriOnly } from '@/tauri/fs'
 import { join } from '@/tauri/path'
+import { scanWorkspaceFiles } from '@/tauri/workspace'
 import { isMarkdownPath } from '@/utils/markdownPath'
 import { mapWithConcurrency, WALK_CONCURRENCY } from '@/utils/mapWithConcurrency'
 
@@ -79,7 +84,8 @@ async function scanDir(root: string, dir: string): Promise<LevelResult> {
   return { dirs, files }
 }
 
-async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
+/** JS 按层并发 BFS —— Rust command 不可用时的 fallback(web 端 / 旧版后端)。 */
+async function walkRootJs(root: string): Promise<QuickOpenEntry[]> {
   const out: QuickOpenEntry[] = []
   let level: string[] = [root]
   while (level.length) {
@@ -93,6 +99,19 @@ async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
     level = nextLevel
   }
   return out
+}
+
+async function walkRoot(root: string): Promise<QuickOpenEntry[]> {
+  // 优先 Rust 单 command:1 次 IPC 返回全量条目(现状 BFS 每目录一次
+  // readDir + 每条目一次 join,5k 文件 ≈ 上万次往返)。
+  // 旧版后端无此 command / web 端无 Tauri → 回落 JS BFS,行为不回退。
+  if (tauriOnly()) {
+    try {
+      return await scanWorkspaceFiles(root)
+    }
+    catch { /* 回落 JS 遍历 */ }
+  }
+  return walkRootJs(root)
 }
 
 /**

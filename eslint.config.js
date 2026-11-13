@@ -20,9 +20,6 @@ export default ts.config(
       'src-tauri/target/**',
       'package-lock.json',
       'CHANGELOG.md',
-      // 本地 pre-implementation 调研脚本（已在 .gitignore，不随版本交付），
-      // 里面的 PoC 代码不按生产 lint 规则约束。
-      '.tmp-research/**',
       'docs/research/ocr-integration.md',
     ],
   },

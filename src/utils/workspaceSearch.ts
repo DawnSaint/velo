@@ -4,6 +4,13 @@ import { isMarkdownPath } from '@/utils/markdownPath'
 import { readDir, readTextFile, writeTextFile, tauriOnly } from '@/tauri/fs'
 import { join } from '@/tauri/path'
 import { mapWithConcurrency, WALK_CONCURRENCY } from '@/utils/mapWithConcurrency'
+import {
+  searchWorkspaceRust,
+  cancelWorkspaceSearch,
+  replaceWorkspaceRust,
+  type SearchEvent,
+  type SearchHitRaw,
+} from '@/tauri/workspace'
 
 type WorkspaceSearchPhase = 'idle' | 'scanning' | 'searching' | 'done' | 'canceled' | 'error'
 
@@ -58,6 +65,13 @@ export interface WorkspaceSearchCallbacks {
 export interface WorkspaceSearchController {
   cancel(): void
   readonly canceled: boolean
+  /** Rust 搜索运行期绑定的 searchId(cancel 时置位 Rust AtomicBool);JS 路径为 null */
+  readonly searchId: number | null
+}
+
+/** 内部:Rust 路径需要写入 searchId,对外只读。 */
+interface MutableSearchController extends WorkspaceSearchController {
+  searchId: number | null
 }
 
 export const initialWorkspaceSearchProgress = (): WorkspaceSearchProgress => ({
@@ -236,12 +250,113 @@ function searchFileContent(
   return hits.map(hit => ({ ...hit, fileMatchCount }))
 }
 
+let nextSearchId = 1
+
 export function createWorkspaceSearchController(): WorkspaceSearchController {
   let isCanceled = false
-  return {
-    cancel() { isCanceled = true },
+  const controller: MutableSearchController = {
+    searchId: null,
+    cancel() {
+      isCanceled = true
+      // Rust 路径:置位后端 AtomicBool,真正即时取消(每文件 / 每命中行检查)。
+      // JS 路径 searchId 为 null,canceled 在 await 间隙生效(原语义)。
+      if (controller.searchId !== null) void cancelWorkspaceSearch(controller.searchId)
+    },
     get canceled() { return isCanceled },
   }
+  return controller
+}
+
+/** Rust SearchHit → 前端 WorkspaceSearchHit:回填 id / query / options(同一 run 常量)。 */
+function hydrateHit(raw: SearchHitRaw, query: string, options: FindOptions): WorkspaceSearchHit {
+  return {
+    id: `${raw.fullPath}:${raw.lineNumber}:${raw.matchStartInLine}:${raw.matchOrdinal}`,
+    fullPath: raw.fullPath,
+    relPath: raw.relPath,
+    fileName: raw.fileName,
+    lineNumber: raw.lineNumber,
+    lineText: raw.lineText,
+    matchStartInLine: raw.matchStartInLine,
+    matchEndInLine: raw.matchEndInLine,
+    rawFrom: raw.rawFrom,
+    rawTo: raw.rawTo,
+    matchText: raw.matchText,
+    matchOrdinal: raw.matchOrdinal,
+    fileMatchCount: raw.fileMatchCount,
+    query,
+    options: cloneOptions(options),
+  }
+}
+
+/**
+ * Rust 流式搜索路径(#rust-search-quickopen-git Phase 2)。
+ * 命中按文件分批经 Channel 回传,边收边渲染;取消走后端 AtomicBool。
+ *
+ * 返回 null 表示"Rust 路径不可用,应降级 JS"(command 不存在 / 正则方言
+ * 不支持等 invoke reject);返回结果表示 Rust 已完成(含取消)。
+ * 降级判定:只要 invoke reject 且尚未产出任何命中,就回落 JS 重跑。
+ */
+async function searchWorkspaceRustPath(
+  root: string,
+  query: string,
+  options: FindOptions,
+  controller: WorkspaceSearchController,
+  callbacks: WorkspaceSearchCallbacks,
+  scopeDir: string | null,
+  progress: WorkspaceSearchProgress,
+): Promise<WorkspaceSearchResult | null> {
+  const groupsByPath = new Map<string, WorkspaceSearchGroup>()
+  let producedAny = false
+  const searchId = nextSearchId++
+  const mutable = controller as MutableSearchController
+  mutable.searchId = searchId
+
+  const onEvent = (event: SearchEvent) => {
+    if (controller.canceled && event.kind !== 'done') return
+    switch (event.kind) {
+      case 'scanned':
+        setProgress(progress, { phase: 'searching', filesFound: event.filesFound }, callbacks)
+        callbacks.onGroups?.([])
+        break
+      case 'file': {
+        producedAny = true
+        const hits = event.hits.map(h => hydrateHit(h, query, options))
+        groupsByPath.set(event.file.fullPath, { file: event.file, hits })
+        callbacks.onGroups?.(fileGroupsFrom(groupsByPath))
+        setProgress(progress, { filesSearched: event.filesSearched, hits: event.hitsTotal }, callbacks)
+        break
+      }
+      case 'progress':
+        setProgress(progress, { filesSearched: event.filesSearched, hits: event.hitsTotal }, callbacks)
+        break
+      case 'done':
+        setProgress(progress, {
+          phase: event.canceled ? 'canceled' : 'done',
+          filesSearched: event.filesSearched,
+          hits: event.hitsTotal,
+        }, callbacks)
+        break
+    }
+  }
+
+  try {
+    await searchWorkspaceRust({ root, scopeDir, query, options, searchId, onEvent })
+  }
+  catch {
+    // invoke reject:旧版后端无此 command / 正则方言不支持 / root 无效。
+    // 尚未产出命中 → 降级 JS 重跑;已有命中(罕见中途错误)→ 按取消收尾。
+    mutable.searchId = null
+    if (!producedAny) return null
+    setProgress(progress, { phase: 'canceled' }, callbacks)
+    const groups = fileGroupsFrom(groupsByPath)
+    callbacks.onGroups?.(groups)
+    return { groups, progress }
+  }
+
+  mutable.searchId = null
+  const groups = fileGroupsFrom(groupsByPath)
+  callbacks.onGroups?.(groups)
+  return { groups, progress }
 }
 
 export async function searchWorkspaceMarkdown(
@@ -267,6 +382,19 @@ export async function searchWorkspaceMarkdown(
     setProgress(progress, { phase: 'error', error: '正则表达式无效' }, callbacks)
     return { groups: [], progress }
   }
+
+  // Rust 优先:grep 引擎 + rayon 并行 + Channel 流式。不可用时降级下方 JS 路径。
+  const rustResult = await searchWorkspaceRustPath(root, trimmedQuery, options, controller, callbacks, scopeDir, progress)
+  if (rustResult) return rustResult
+  if (controller.canceled) {
+    setProgress(progress, { phase: 'canceled' }, callbacks)
+    return { groups: [], progress }
+  }
+
+  // ===== JS fallback(旧版后端 / 正则方言不支持 / web 端)=====
+  // 重置进度,Rust 路径可能已写过部分计数。
+  Object.assign(progress, initialWorkspaceSearchProgress())
+  setProgress(progress, { phase: 'scanning' }, callbacks)
 
   const startDir = scopeDir ?? root
   const files = await scanMarkdownFiles(startDir, controller, progress, callbacks)
@@ -413,13 +541,33 @@ export async function applyWorkspaceReplace(
     return result
   }
 
-  // 按 fullPath 去重
-  const uniquePaths = new Set<string>()
+  // 按 fullPath 去重(保序,与 JS 循环顺序一致)
+  const uniquePaths: string[] = []
+  const seenPath = new Set<string>()
   for (const h of hits) {
-    if (!uniquePaths.has(h.fullPath)) {
-      uniquePaths.add(h.fullPath)
+    if (!seenPath.has(h.fullPath)) {
+      seenPath.add(h.fullPath)
+      uniquePaths.push(h.fullPath)
     }
   }
+
+  // Rust 优先:读 → 替换 → 计数 → 写盘整体下沉,dirty 守门由后端执行。
+  // invoke reject(旧版后端 / 正则方言不支持)时降级下方 JS 逐文件路径。
+  try {
+    const raw = await replaceWorkspaceRust(uniquePaths, {
+      query: plan.query,
+      options: plan.options,
+      replacement: plan.replacement,
+    }, [...dirtyPaths])
+    return {
+      changedFiles: raw.changedFiles,
+      replacedCount: raw.replacedCount,
+      skippedFiles: raw.skippedFiles,
+      failedFiles: raw.failedFiles,
+      fileContents: new Map(Object.entries(raw.fileContents)),
+    }
+  }
+  catch { /* 降级 JS 逐文件替换 */ }
 
   for (const fullPath of uniquePaths) {
     if (dirtyPaths.has(fullPath)) {

@@ -34,6 +34,23 @@ log = "0.4"
 thiserror = "1"
 tokio = { version = "1", features = ["sync", "time", "rt"] }
 base64 = "0.22"
+# #rust-search-quickopen-git Phase 1:工作区遍历单 command 化(Ctrl+P 索引)。
+# Phase 2 的全文搜索复用同一 walker。
+walkdir = "2"
+# Phase 2:全文搜索/替换下沉(ripgrep 同款引擎 + rayon 按文件并行)。
+# regex 用于替换路径的 $1/$& 展开(Captures::expand);grep-regex 用于搜索。
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+regex = "1"
+rayon = "1"
+# Phase 3:Git 历史库化(libgit2 静态链入,免用户装 git)。
+# default-features=false 关掉 https/ssh(只读本地仓库,不需要网络传输),
+# 避免 OpenSSL 依赖。Windows 链接需 advapi32/crypt32(见 build.rs)。
+git2 = { version = "0.19", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
 
 # Windows PDF 导出:WebView2 ICoreWebView2_7::PrintToPdf
 # Windows 注册表(v0.5.1 注册"在 Velo 中打开"文件夹右键菜单):winreg

@@ -378,3 +378,13 @@
 - **Decision**: 选 B。磁盘配置仍是权威数据源，镜像只用于让首帧与最终主题一致、并在读盘成功后回写；窗口由 Rust 隐藏创建，前端首帧渲染完请求显示，Rust 侧兜底防前端异常导致窗口不出现。
 - **Consequences**: 首帧即最终颜色，白底帧被窗口隐藏吃掉，异步读盘不再翻面。代价是多一份需与磁盘同步的镜像（外部改动以读盘结果为准），窗口显示多等一次设置读盘；内容守门期仍是纯色空容器，骨架占位留作后续体验项。
 
+---
+
+## 未发版 — 工作区索引选型（#workspace-index 未实现）
+
+### ADR-20261113-001: 索引层 extractor 选 pulldown-cmark + rayon 下沉 Rust，不选 markdown-rs
+
+- **Context**: `#workspace-index` 索引层选型实测（2026-07-22，i5-1135G7 4C8T，release+LTO；JS 侧经 tsx 直 import 真实 `createParseProcessor()`；三方提取计数完全一致）。5k 文件全量扫描：JS 完整管线 24.5s / markdown-rs 串行 5.3s / markdown-rs+rayon 1.2s / pulldown-cmark+rayon **0.18s**；3KB 单文件增量：JS 3.7ms / markdown-rs 0.7ms / pulldown 0.013ms。markdown-rs 与 micromark 同源同算法，Rust 只带来常数级收益（2–4×），中文重度语料超线性劣化：1MB 单文件 parse 2.2s 与 JS 持平（`to_html`≈`to_mdast`，瓶颈在解析器而非 AST 构建）；pulldown 事件流（无 AST、零拷贝借用原文）1MB 6.5ms，是数量级差异的来源。
+- **Decision**: 索引层用 pulldown-cmark + rayon 下沉 Rust（全量 scan + 单文件增量 extract 两 command，walker 复用已落地的 `workspace.rs`），JS 只消费索引结果；markdown-rs 不进索引层，仅将来出现「Rust 侧完整 mdast」真实需求（导出 / lint）时重评并复跑大文件基准；编辑器 parse/serialize 保持 unified 不动（往返保真是正确性问题，不是性能问题）。
+- **Consequences**: 5k 文件索引就绪 <0.2s，「保存即索引」无需 debounce 兜底性能；代价是语法双源（索引 pulldown vs 编辑器 unified）需共享对齐测试集，pulldown 无 frontmatter/wikilink 原生支持需自写（实现要点见 ROADMAP `#workspace-index`）。实现期第一优先验证 IPC 序列化成本（5k 索引明细几 MB 可能反超解析：先回传摘要 / 增量 diff / 明细按需查询）。本 ADR 即「不选 markdown-rs」的实测证据留痕（原调研文档已删，结论与数据以本条为准）。
+

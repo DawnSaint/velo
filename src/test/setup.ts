@@ -125,8 +125,21 @@ vi.mock('@tauri-apps/api/path', () => ({
 //
 // 只暴露 persistence.ts / 其它受测代码用得到的导出;其它(convertFileSrc
 // / invoke 等)给个 stub,免得业务代码意外走到真实实现抛 "no IPC"。
+// Channel stub:构造器接收 onmessage,测试里通过 invoke mock 拿到 channel
+// 实例后手动调 onmessage 模拟 Rust 流式回传。toJSON 返回占位串(真实 Channel
+// 序列化走 __TAURI_TO_IPC_KEY__,测试不需要真实 IPC)。
+class ChannelStub<T = unknown> {
+  onmessage: (response: T) => void
+  id = 0
+  constructor(onmessage?: (response: T) => void) {
+    this.onmessage = onmessage ?? (() => {})
+  }
+  toJSON() { return '__TAURI_CHANNEL_STUB__' }
+}
+
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: vi.fn(() => true),
+  Channel: ChannelStub,
   invoke: vi.fn(async (command: string, _args?: Record<string, unknown>) => {
     if (command === 'take_window_cli_args') return { files: [], dirs: [] }
     if (command === 'new_app_window') return 'velo-window-test'
@@ -134,6 +147,12 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (command === 'git_repo_root') return null
     if (command === 'git_file_history') return []
     if (command === 'git_show_file') return ''
+    // workspace 命令默认模拟"旧版后端无此 command"→ 调用方走 JS fallback,
+    // 现有依赖 plugin-fs mock 的测试行为不变;测 Rust 路径的用例自行覆盖。
+    if (command === 'scan_workspace_files') throw new Error('command scan_workspace_files not found')
+    if (command === 'search_workspace') throw new Error('command search_workspace not found')
+    if (command === 'replace_workspace') throw new Error('command replace_workspace not found')
+    if (command === 'cancel_workspace_search') return undefined
     return undefined
   }),
   convertFileSrc: vi.fn((p: string) => p),

@@ -241,6 +241,10 @@ mod pdf;
 /// 供版本历史面板展示。非 Git 仓库 / git 未安装时静默降级。
 mod git;
 
+/// 工作区遍历/搜索(#rust-search-quickopen-git):walker 单 command 化,
+/// Ctrl+P 索引与全文搜索共用。
+mod workspace;
+
 /// 前端设置面板:读取 GPU 硬件加速启用状态。仅 Windows 有意义。
 #[cfg(target_os = "windows")]
 #[tauri::command]
@@ -384,6 +388,10 @@ pub fn run() {
             git::git_repo_root,
             git::git_file_history,
             git::git_show_file,
+            workspace::scan_workspace_files,
+            workspace::search_workspace,
+            workspace::cancel_workspace_search,
+            workspace::replace_workspace,
         ])
         .setup(|app| {
             // 首次启动:argv 解析后按 main label 暂存,等前端 onMounted 主动来拉

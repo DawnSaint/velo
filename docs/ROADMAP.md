@@ -43,9 +43,11 @@ P3  #code-signing（独立，CI 核心已通）
 
 > `→ #backlinks` `→ #wikilink` `→ #workspace-symbol` `→ #broken-link` `→ #asset-orphan`
 >
-> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md) —— [RESEARCH](./research/markdown-rs-rust-index.md)（索引层下沉 Rust 实测：推荐 pulldown-cmark + rayon，5k 文件全量扫描 24.5s → 0.18s）
+> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md) —— 索引层选型与实测数据见 [ADR-20261113-001](./DECISIONS.md)（pulldown-cmark + rayon，5k 文件全量扫描 24.5s → 0.18s；markdown-rs 大文件性能悬崖不选）
 >
 > `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新。索引层独立于 editor state，不只看当前文档。
+>
+> **实现要点（原调研沉淀，防重踩）**：① pulldown 把 `[[note-123]]` 拆成逐字符 Text 事件，需跨事件缓冲拼接匹配，缓冲无 `[[` 时必须保留尾部单个 `[`（可能是下一个 `[[` 的前半），直接 clear 永远配不上；② pulldown 无 frontmatter 支持，文件头 `---` 会被当 setext heading 下划线（每文件 headings 多 1），extractor 先剥离 YAML 头；③ fenced code block 内伪链接由 Code 事件天然跳过（JS 正则方案需状态机排除）；④ walker 复用 `workspace.rs` 的 `scan_workspace`，不重复建设；⑤ 实现期第一优先验证 IPC 序列化成本（5k 索引明细几 MB 可能反超解析：先回传摘要 / 增量 diff / 明细按需查询），第二建三方语法对齐测试集。
 
 - [ ] 工作区索引核心：扫描 `.md` 文件，提取 Markdown links + headings，生成 forwardLinks 索引
 - [ ] 增量更新：文件保存 / fs.watch 触发时刷新对应文件，非全量重扫
@@ -140,12 +142,12 @@ P3  #code-signing（独立，CI 核心已通）
 
 ### 性能 — 搜索 / 文件遍历 / Git 历史下沉 Rust `#rust-search-quickopen-git` `P2` `M`
 
-> 承接 [markdown-rs-rust-index.md](./research/markdown-rs-rust-index.md) 的第一梯队结论（工作区索引短期不实现）。全文搜索 rayon 并行实测 ~10–19×、Git 历史 git2 库化 ~60×、Ctrl+P 遍历收益主要在 IPC 结构（上万次往返 → 1 次 command）。[RESEARCH](./research/rust-search-quickopen-git.md)
+> 承接索引层调研的第一梯队结论（工作区索引短期不实现，选型见 [ADR-20261113-001](./DECISIONS.md)）。全文搜索 rayon 并行实测 ~10–19×（JS 1.6–2.6s → 0.13–0.28s）、替换 ~3×、Git 历史 git2 库化 ~60×（~1s / ~23 子进程 → 17ms / 0）、Ctrl+P 遍历收益主要在 IPC 结构（上万次往返 → 1 次 command）。
 
-- [ ] Phase 1：`scan_workspace_files` 单 command 替换 quickOpenIndex 的 walkRoot（缓存 / stale 语义不动）
-- [ ] Phase 2：全文搜索/替换下沉 grep-searcher + rayon + Channel 流式；regex 模式保留 JS fallback；dirty 守门与 ReplaceResult 结构对齐
-- [ ] Phase 3：git.rs 三 command 换 git2 + CLI 降级；--follow 重命名跟踪 MVP 不做（面板文案注明）
-- [ ] test：正则方言 / CRLF / 隐藏目录过滤 / 命中计数两侧对齐测试集
+- [x] Phase 1：`scan_workspace_files` 单 command 替换 quickOpenIndex 的 walkRoot（缓存 / stale 语义不动）
+- [x] Phase 2：全文搜索/替换下沉 grep-searcher + rayon + Channel 流式；regex 模式保留 JS fallback；dirty 守门与 ReplaceResult 结构对齐
+- [x] Phase 3：git.rs 三 command 换 git2 + CLI 降级；--follow 重命名跟踪 MVP 不做（面板文案注明）
+- [x] test：正则方言 / CRLF / 隐藏目录过滤 / 命中计数两侧对齐测试集（workspace.rs 22 + git.rs 7 Rust 单测；quickOpenIndex / workspaceSearchRust JS 测试）
 
 ## P3 — 远期方向
 
