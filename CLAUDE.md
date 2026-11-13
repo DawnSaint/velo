@@ -11,7 +11,7 @@
      - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — 当前 / 下一版本的迭代方向
      - [`docs/DECISIONS.md`](./docs/DECISIONS.md) — 重大架构决策与重大重构的 ADR
      - [`docs/RELEASE_NOTES.md`](./docs/RELEASE_NOTES.md) — 面向用户的中文版本日志
-     - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约、边界与 E2E；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 时读
+     - [`docs/architecture/testing.md`](./docs/architecture/testing.md) — 测试目标、规约与边界；动测试文件 / 测试基建（`vitest.config.ts`、`src/test/setup.ts`）或改 schema / markdownIO 时读
      - [`docs/architecture/styles.md`](./docs/architecture/styles.md) — SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定；动任何样式来源或加 / 删 class 时读
      - `docs/research/*.md` — 复杂功能的 pre-implementation 调研文档，从 ROADMAP 对应条目链接进入；开发该功能前读
 2. 当涉及 ProseMirror 插件链、数据流、NodeView/Decoration、Tauri、FileTree、导出、样式等模块时，先在 ARCHITECTURE.md 路由表中找到对应模块，再查模块顶部的“先记住 / 禁令速查”，避免踩已经记录过的坑。如果模块文档找不到时再选择查找 DECISIONS.md。
@@ -85,7 +85,7 @@
 ### 5. 测试文档 — 测试规约与现状同步
 
 **更新条件**：
-- `docs/architecture/testing.md` 是测试文档唯一 canonical source（测试目标 / 选型 / 现状快照 / Tauri 隔离层 / 目录命名 / 维护约定 / 反过度测试 / E2E）
+- `docs/architecture/testing.md` 是测试文档唯一 canonical source（测试目标 / 选型 / 现状快照 / Tauri 隔离层 / 目录命名 / 维护约定 / 反过度测试）
 - 新增 / 删除测试文件、动测试基建（`vitest.config.ts` / `src/test/setup.ts`）、测试规约本身变化时更新 `docs/architecture/testing.md`；纯加用例不触发同步，发版时更新该文件的现状快照章节
 
 维护规范（含反过度测试原则）见 `docs/architecture/testing.md`，新增测试前对照。
@@ -153,7 +153,7 @@
    - 自动 bump 版本号（`package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）
    - 自动生成根目录 `CHANGELOG.md`（从 commit summary 提取；`docs/RELEASE_NOTES.md` 不受影响，始终手动维护）
 3. 人工 review release PR → merge → release-please 自动创建 tag（`vX.Y.Z`）+ GitHub Release
-4. tag push 触发 `ci.yml`（CI 全量检查）和 `build.yml`（workflow 名 **Build**），CI 跑完后 **同时构建 Windows + macOS ARM64** 并上传到该 Release；`build.yml` 同时跑 E2E 验收门（Phase 1 `continue-on-error`，失败不阻塞发版）
+4. tag push 触发 `ci.yml`（CI 全量检查）和 `build.yml`（workflow 名 **Build**），CI 跑完后 **同时构建 Windows + macOS ARM64** 并上传到该 Release
 
 **其他平台（手动构建，不创建 Release）**：
 
@@ -181,7 +181,7 @@ npm run ci
 ### 配置文件
 
 - `.github/workflows/release-please.yml` — push 到 master 触发，管理版本号 + release PR
-- `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release + 跑 E2E（Phase 1 `continue-on-error`）；`workflow_dispatch` 手动构建指定平台（仅 artifact）或勾选 `run-e2e` 只跑 E2E
+- `.github/workflows/build.yml`（workflow 名 Build）— tag push 自动构建 Windows + macOS ARM64 上传到 Release；`workflow_dispatch` 手动构建指定平台（仅 artifact）
 - `.github/workflows/ci.yml` — `workflow_dispatch` 手动触发 + tag push（`v*`）自动触发；type-check + lint:deps + lint:console + lint:design-tokens + knip + eslint + test + build。不在每次 push master 时触发，独立开发 + AI 驱动下每次 push 跑 CI 太慢，改为发版前跑一次
 - `release-please-config.json` — release-type / extra-files
 - `.release-please-manifest.json` — 版本起点

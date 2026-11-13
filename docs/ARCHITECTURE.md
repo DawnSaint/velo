@@ -27,7 +27,7 @@
 | HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
 | SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定 | [`architecture/styles.md`](./architecture/styles.md) |
-| 测试目标、选型、目录规范、Tauri mock 边界、反过度测试、E2E | [`architecture/testing.md`](./architecture/testing.md) |
+| 测试目标、选型、目录规范、Tauri mock 边界、反过度测试 | [`architecture/testing.md`](./architecture/testing.md) |
 
 ---
 

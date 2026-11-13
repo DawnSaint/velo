@@ -1332,7 +1332,7 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- 挂载容器:ref 拿给 useProseMirror 内部 EditorView 挂 contentDOM 用 -->
-  <div ref="containerRef" class="velo-editor-mount h-full w-full" data-testid="pm-editor" />
+  <div ref="containerRef" class="velo-editor-mount h-full w-full" />
   <TableContextMenu
     v-if="showTableMenu"
     ref="tableMenuRef"

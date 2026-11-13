@@ -1538,7 +1538,6 @@ watch(editorRef, (v) => {
         v-if="leftPanelView"
         class="velo-splitter w-1 shrink-0 cursor-col-resize bg-[var(--surface-2)]"
         :class="{ 'velo-splitter-dragging': sidebarSplitter.isDragging.value }"
-        data-testid="sidebar-splitter"
         @mousedown="onSplitterMouseDown"
         @dblclick="sidebarSplitter.onSplitterDoubleClick"
       />

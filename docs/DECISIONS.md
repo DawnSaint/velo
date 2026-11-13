@@ -102,23 +102,13 @@
 
 - **Context**: 业务代码直 import `@tauri-apps/*`，测试 mock 散落各处。v0.5.x 起 fs 调用点成倍增长。
 - **Decision**: `src/tauri/{fs,dialog,path}.ts` 薄封装（re-export + `tauriOnly()` 守门），业务侧只 import 封装。封装层**不**统一错误形态——调用方各自降级（persistence 走默认值 / document.save 弹 message / imageStorage throw 透传）。
-- **Consequences**: 业务代码不再出现 `@tauri-apps/*` import；测试 mock 可收敛到单一入口；E2E 接入时横切关心集中加在 `src/tauri/*`。
+- **Consequences**: 业务代码不再出现 `@tauri-apps/*` import；测试 mock 可收敛到单一入口。
 
 ### ADR-20260623-003: capability fs scope 保持 `**`
 
 - **Context**: "是否收紧到工作区根内"的直觉反复冒出来。A 保持 `**` vs B 自写 Rust command 校验 vs C 动态 scope（Tauri 2 fs scope 是静态 glob，技术上不可行）。
 - **Decision**: 选 A。Velo 是本地单用户桌面编辑器，威胁模型是"用户主动打开的文件"，`**` 不 worsen。安全靠 UI 层 destructive op 二次确认。
 - **Consequences**: 显式 ADR 留痕，避免日后"应该收紧 scope"的直觉再次被翻出来。
-
----
-
-## v0.5.1 — E2E 启动
-
-### ADR-20260624-001: E2E 走 WebdriverIO + tauri-driver
-
-- **Context**: Playwright 只支持 CDP/BiDi，tauri-driver 是 WebDriver Classic 代理 → 协议层不兼容。跳过 E2E 无法覆盖 CLI→工作区→写盘跨进程链路。
-- **Decision**: WebdriverIO 9 + tauri-driver + msedgedriver（Tauri 官方同款），Windows-only。
-- **Consequences**: 后续 spec 复用现有 helper，不再对 WebView2 工具链做二次研究。
 
 ---
 

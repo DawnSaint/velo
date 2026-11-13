@@ -2,8 +2,7 @@
 //
 // 为什么有这一层(v0.5.0):
 //   1. 测试 mock 单一入口(后续 mock 打 `@/tauri/fs`,不再散布 `@tauri-apps/plugin-fs`)
-//   2. tauri-driver / Playwright E2E 接入时,本层是唯一的 fs 边界,可一处插桩
-//   3. 工作区时代起 fs 调用点会成倍增长(目录遍历、批量重命名、资产移动),
+//   2. 工作区时代起 fs 调用点会成倍增长(目录遍历、批量重命名、资产移动),
 //      不收敛后续返工成本高
 //
 // 当前(v0.5.0)实现策略:thin re-export + 一个 `tauriOnly` 守门 helper。

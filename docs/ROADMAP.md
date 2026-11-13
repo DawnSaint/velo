@@ -26,7 +26,7 @@ P2  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #diff-autoscroll · #diff-change-preview · #diff-ruler（独立）
 
-P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
+P3  #code-signing（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
     #theme-market · #theme-presets（独立）
 ```
@@ -72,7 +72,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 - [x] 块缓存 + 增量 toMarkdown（PM 结构共享判净 + 保守邻块失效 + 全量兜底）
 - [x] 不变式测试：任意编辑序列下 incremental(doc) === toMarkdown(doc) 字节级相等（fuzz + 块边界对抗样本，64 例 / 3 seed）
-- [x] ~~Worker parse 顺带产出块缓存；canonical 双往返退役，删&#x20;~~`CANON_SKIP_THRESHOLD`~~&#x20;补丁~~ → `loadContentInto` 主线程顺带建块缓存（canonical 本来就要做一次全文档序列化，改逐块后成本同量级）；fs.watch 外部检测改为 disk memo 跳过重复双往返；`CANON_SKIP_THRESHOLD` 与字符实体 raw 基线保留 —— Worker 只有 parse 配置（搬 stringify 进去收益面近零），删阈值等于给大文档重新加一次主线程序列化，字符实体是保真语义不是性能补丁
+- [x] ~~Worker parse 顺带产出块缓存；canonical 双往返退役，删 ~~`CANON_SKIP_THRESHOLD`~~ 补丁~~ → `loadContentInto` 主线程顺带建块缓存（canonical 本来就要做一次全文档序列化，改逐块后成本同量级）；fs.watch 外部检测改为 disk memo 跳过重复双往返；`CANON_SKIP_THRESHOLD` 与字符实体 raw 基线保留 —— Worker 只有 parse 配置（搬 stringify 进去收益面近零），删阈值等于给大文档重新加一次主线程序列化，字符实体是保真语义不是性能补丁
 - [x] 调用点接入：EditorInner 回写 / loadContentInto / fs.watch 外部检测 / 切标签恢复校验
 
 ### 版本历史 diff — 体验增强
@@ -148,12 +148,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] test：正则方言 / CRLF / 隐藏目录过滤 / 命中计数两侧对齐测试集
 
 ## P3 — 远期方向
-
-- [x] **CI E2E 验收门** `#e2e-ship-gate` `P3` `L`
-  - 消费 build.yml 构建的 Windows 产物，起 WebDriver 跑 `e2e/specs/multi-window.spec.ts`
-  - [x] Phase 1: `continue-on-error`（report 不阻塞 release attach）
-  - [ ] Phase 2: 稳定后移除 `continue-on-error`，硬门
-  - 前置：`cargo install tauri-driver` + 匹配的 `msedgedriver.exe`；appData 隔离走 `e2e/helpers/appdata.ts` 的 snapshot/restore
 
 - [ ] **AI 辅助写作** `#ai-assist` `P3` `?`
 

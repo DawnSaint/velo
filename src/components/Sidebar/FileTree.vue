@@ -656,7 +656,6 @@ function displayName(node: TreeNode): string {
               spellcheck="false"
               class="min-w-0 flex-1 rounded-sm border border-[var(--surface-border)] bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:text-gray-100"
               :title="inlineNew!.error ?? ''"
-              data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
               @keydown.esc.prevent="cancelInline"
             >
@@ -685,7 +684,6 @@ function displayName(node: TreeNode): string {
               spellcheck="false"
               class="min-w-0 flex-1 rounded-sm border border-[var(--surface-border)] bg-transparent px-1 py-1 text-gray-800 outline-none transition-colors focus:border-[var(--md-primary-color)] dark:text-gray-100"
               :title="inlineRename!.error ?? ''"
-              data-testid="inline-input"
               @keydown.enter.prevent="submitInline"
               @keydown.esc.prevent="cancelInline"
             >
@@ -702,7 +700,6 @@ function displayName(node: TreeNode): string {
               'ring-1 ring-blue-400 dark:ring-blue-500': item.node.isDir && item.node.fullPath === dragOverTarget,
             }"
             :title="item.node.fullPath"
-            :data-testid="isRootNode(item.node) ? 'workspace-root' : `file-row-${item.node.name}`"
             :data-row-depth="item.depth"
             :data-row-path="item.node.fullPath"
             :data-row-is-dir="item.node.isDir"

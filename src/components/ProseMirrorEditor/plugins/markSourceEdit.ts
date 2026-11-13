@@ -49,8 +49,9 @@ let editorView: EditorView | null = null
 // 目标 mark:strong / emphasis / highlight / underline / superscript(`^`) / subscript(`~`) / strike(`~~`) / code(行内代码;link 自有 session)。
 const TARGET_MARKS = new Set(['strong', 'emphasis', 'highlight', 'underline', 'superscript', 'subscript', 'strike_through', 'code'])
 
-// 标记嵌套顺序(开:外→内;闭:内→外)。照 markdownIO wrapWithMarks 的外→内序反转得开序,
-// 闭序为开序的反转。highlight 单独处理(其无 marker attr,且 wrapWithMarks 不含它)。
+// 标记嵌套顺序(开:外→内;闭:内→外)。与 markdownIO 的容器 mark 栈各自独立
+// (PM marks 无序,不保证与写盘源码的嵌套同序);闭序为开序的反转。highlight
+// 无 marker attr,单独处理。
 // code 排最末(最内)—— 它 excludes:'_' 独占,实际不会与其他 mark 并存,位置无副作用。
 const OPEN_ORDER = ['strong', 'emphasis', 'strike_through', 'highlight', 'underline', 'superscript', 'subscript', 'code'] as const
 const CLOSE_ORDER = [...OPEN_ORDER].reverse() as readonly string[]

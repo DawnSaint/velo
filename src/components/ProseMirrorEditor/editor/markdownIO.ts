@@ -35,7 +35,7 @@ import { createParseProcessor, preprocessSource } from './parseProcessor'
  *
  * 1. **marker 保真**:默认 handler 用全局 option(strong:'*' / emphasis:'_')决定
  *    分隔符,PM doc 中 mark.attrs.marker 记录的 `*`/`_` 在序列化时丢失。
- *    修复:wrapWithMarks 把 attrs.marker 写入 mdast 节点的 `_marker` 字段,
+ *    修复:pmInlineToMdast 把 mark.attrs.marker 写入 mdast 节点的 `_marker` 字段,
  *    handler 优先读 `node._marker`,fallback 到 state.options。
  *    这样 `*xxx*` 的 emphasis(marker='*')序列化后仍是 `*xxx*`,不再变 `_xxx_`。
  *
@@ -45,10 +45,8 @@ import { createParseProcessor, preprocessSource } from './parseProcessor'
  *
  * 3. **首尾空白移出界定符(不编码)**:CommonMark 不允许 `**foo **`(闭合界定符前
  *    紧贴空白不构成 strong)。上游 mdast-util-to-markdown 用 inside 编码把边界空格
- *    写成 `&#x20;` 保真,但 mark 碎片化(加粗夹行内代码等 atom —— code mark
- *    `excludes:'_'` 独占,wrapWithMarks 逐 span 独立包裹)会让切口空格落在
- *    strong/emphasis 首尾,频繁产出丑陋的 `&#x20;`。边界空格渲染上与普通空格无异,
- *    移到界定符外即可得到干净且等价的源码(见 wrapAttention)。
+ *    写成 `&#x20;` 保真;边界空格渲染上与普通空格无异,移到界定符外即可得到
+ *    干净且等价的源码(见 wrapAttention)。代价:round-trip 后该空格不再属于 mark run。
  *    前提:parse 侧不把 CommonMark 非法的 `** foo**` 补成 strong
  *    (`remarkCjkEmphasis` 已跳过首尾空白匹配),否则会把用户源码改写成 `**foo**`。
  */
@@ -876,7 +874,7 @@ export function toMarkdown(doc: PMNode): string {
   }
   let out = processor.stringify(tree).toString()
   // 把 text 值中的 \u0001 占位符替换回 \\（markdown 转义反斜杠）。
-  // 见 wrapWithMarks 注释：绕过 escapeBackslashes 的 round-trip bug。
+  // 见 spanToLeaf 注释：绕过 escapeBackslashes 的 round-trip bug。
   out = out.replace(/\u0001/g, '\\\\')
   return finalizeMarkdown(doc, out)
 }
@@ -1146,218 +1144,187 @@ function pmInlineToMdast(parent: PMNode): PhrasingContent[] {
     // fold_placeholder:视觉节点,不序列化到 markdown(折叠态占位符)
   })
 
-  // 第二步:提取非原生 mark run(underline / highlight),再走 wrapWithMarks。
+  // 第二步:按连续共享的外层 mark 构建容器树(见 processSpans)。
   return processSpans(spans)
 }
 
-/**
- * 把 InlineSpan 数组转成 mdast PhrasingContent 数组。
- *
- * underline / highlight 不是 GFM 原生 mark,wrapWithMarks 不知道它们,会丢 mark。
- * 所以先抽"连续 text span 都含该 mark"的 run,strip 该 mark(保留其他 mark),
- * 递归调 processSpans 处理内层(支持 underline 套 highlight 等嵌套),最后用
- * html 节点作边界包裹输出 —— mdast html 节点原样输出,不会被 escape。
- *
- * 先抽 underline(最外层,HTML 包裹语义)再抽 highlight。
- * underline+highlight 嵌套时,round-trip 后嵌套顺序可能交换(==<u>x</u>==
- * → <u>==x==</u>),但 marks 语义保留。
- *
- * 不抽 atom(image / math_inline / footnoteRef / hardbreak / html_inline):
- * 这些跨节点的 mark 在规范上本就不该支持(round-trip 后断)。
- * 实测 schema 里 underline/highlight 不带在 atom 上。
- */
-function processSpans(spans: InlineSpan[]): PhrasingContent[] {
-  const out: PhrasingContent[] = []
-  let i = 0
-  while (i < spans.length) {
-    const span = spans[i]
+// ============================================================
+//  行内 mark → mdast 容器树
+// ============================================================
 
-    // 抽 underline run(<u>text</u>)
-    if (span.kind === 'text' && span.marks.some(m => m.name === 'underline')) {
-      let end = i
-      while (
-        end < spans.length
-        && spans[end].kind === 'text'
-        && spans[end].marks.some(m => m.name === 'underline')
-      ) {
-        end++
-      }
-      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
-        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'underline') } : s
-      )
-      const inner = processSpans(innerSpans)
-      if (inner.length > 0) {
-        out.push({ type: 'html', value: '<u>' } as PhrasingContent)
-        out.push(...inner)
-        out.push({ type: 'html', value: '</u>' } as PhrasingContent)
-      }
-      i = end
-      continue
+// 容器 mark 的固定嵌套顺序(外 → 内)。PM 的 marks 是无序集合,mdast 容器有
+// 先后,序列化必须选定一个稳定顺序;与 markSourceEdit 的 OPEN_ORDER 对齐。
+// code 不在此列 —— inlineCode 是叶子节点,由 spanToLeaf 把 text 变成它,
+// 其余 mark 照常包在外面(`**a `b` c**` 里的 `b` 仍属于 strong)。
+//
+// underline / highlight / sup / sub 没有 GFM 原生 mdast 容器,用 html 边界节点
+// 输出(与 stringify handlers 同款),所以也纳入同一套 stack。
+const CONTAINER_MARK_ORDER = [
+  'underline', 'highlight', 'superscript', 'subscript',
+  'link', 'strong', 'emphasis', 'strike_through',
+] as const
+
+type ContainerMarkName = typeof CONTAINER_MARK_ORDER[number]
+type SpanMark = ReadonlyArray<{ name: string, attrs: Record<string, unknown> }>
+
+interface ContainerMark {
+  name: ContainerMarkName
+  marker?: string
+  href?: string
+  title?: string | null
+}
+
+interface MarkedLeaf {
+  leaf: PhrasingContent
+  /** 外 → 内的容器 mark 栈 */
+  stack: ContainerMark[]
+}
+
+function markFromSpan(name: ContainerMarkName, marks: SpanMark): ContainerMark | null {
+  const m = marks.find(x => x.name === name)
+  if (!m) return null
+  if (name === 'link') {
+    return {
+      name,
+      href: m.attrs.href as string,
+      title: (m.attrs.title as string | null) ?? null,
     }
+  }
+  if (name === 'strong' || name === 'emphasis') {
+    return { name, marker: (m.attrs.marker as string) || '*' }
+  }
+  return { name }
+}
 
-    // 抽 highlight run(==text==)
-    if (span.kind === 'text' && span.marks.some(m => m.name === 'highlight')) {
-      let end = i
-      while (
-        end < spans.length
-        && spans[end].kind === 'text'
-        && spans[end].marks.some(m => m.name === 'highlight')
-      ) {
-        end++
-      }
-      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
-        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'highlight') } : s
-      )
-      const inner = processSpans(innerSpans)
-      if (inner.length > 0) {
-        // 用 html 节点作 `==` 边界 —— 不会被 escape
-        out.push({ type: 'html', value: '==' } as PhrasingContent)
-        out.push(...inner)
-        out.push({ type: 'html', value: '==' } as PhrasingContent)
-      }
-      i = end
-      continue
-    }
+function sameMark(a: ContainerMark | undefined, b: ContainerMark): boolean {
+  if (!a || a.name !== b.name) return false
+  if (b.name === 'link') return a.href === b.href && a.title === b.title
+  if (b.name === 'strong' || b.name === 'emphasis') return a.marker === b.marker
+  return true
+}
 
-    // 抽 superscript run(^text^)。与 highlight 同范式,用 html 节点作 `^` 边界
-    // (防 `^` 被 remark-stringify escape)。
-    if (span.kind === 'text' && span.marks.some(m => m.name === 'superscript')) {
-      let end = i
-      while (
-        end < spans.length
-        && spans[end].kind === 'text'
-        && spans[end].marks.some(m => m.name === 'superscript')
-      ) {
-        end++
-      }
-      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
-        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'superscript') } : s
-      )
-      const inner = processSpans(innerSpans)
-      if (inner.length > 0) {
-        out.push({ type: 'html', value: '^' } as PhrasingContent)
-        out.push(...inner)
-        out.push({ type: 'html', value: '^' } as PhrasingContent)
-      }
-      i = end
-      continue
-    }
+function htmlNode(value: string): PhrasingContent {
+  return { type: 'html', value } as PhrasingContent
+}
 
-    // 抽 subscript run(~text~)。与 superscript 同范式,用 html 节点作 `~` 边界。
-    if (span.kind === 'text' && span.marks.some(m => m.name === 'subscript')) {
-      let end = i
-      while (
-        end < spans.length
-        && spans[end].kind === 'text'
-        && spans[end].marks.some(m => m.name === 'subscript')
-      ) {
-        end++
+/** 单个 span → 叶子 mdast 节点。code mark 把 text 变成 inlineCode 叶子。 */
+function spanToLeaf(span: InlineSpan): PhrasingContent {
+  switch (span.kind) {
+    case 'text':
+      if (span.marks.some(m => m.name === 'code')) {
+        return { type: 'inlineCode', value: span.value }
       }
-      const innerSpans: InlineSpan[] = spans.slice(i, end).map(s =>
-        s.kind === 'text' ? { ...s, marks: s.marks.filter(m => m.name !== 'subscript') } : s
-      )
-      const inner = processSpans(innerSpans)
-      if (inner.length > 0) {
-        out.push({ type: 'html', value: '~' } as PhrasingContent)
-        out.push(...inner)
-        out.push({ type: 'html', value: '~' } as PhrasingContent)
-      }
-      i = end
-      continue
-    }
+      // \ → \u0001 占位符,让 state.safe 不处理 \ 的转义(上游 escapeBackslashes
+      // 对连续 \\ 的转义规则 N→(N+1) 与 remark-parse 的 N→ceil(N/2) 不对称,
+      // 导致 round-trip 不 idempotent)。toMarkdown 输出后替换回 \\。
+      return { type: 'text', value: span.value.replace(/\\/g, '\u0001') }
 
-    // 非 underline/highlight span:atom 节点 + 纯文本(走 wrapWithMarks)
-    if (span.kind === 'image') {
-      out.push({
+    case 'image':
+      return {
         type: 'image',
         url: span.src,
         alt: span.alt || null,
         title: span.title || null,
-      })
-    }
-    else if (span.kind === 'break') {
-      if (span.hard) {
-        // hard break(来自 mdast break / `\\\n` / `  \n`)→ mdast break → `\\\n`
-        out.push({ type: 'break' })
-      } else {
-        // soft break(来自 text `\n`)→ text `\n` → 裸 `\n`
-        out.push({ type: 'text', value: '\n' })
       }
-    }
-    else if (span.kind === 'inlineMath') {
-      // delimiterCount 透传到 mdast 节点,由 processor.stringify 的 inlineMath
-      // handler 读取,决定输出 `$value$` 还是 `$$value$$`
-      out.push({ type: 'inlineMath', value: span.value, delimiterCount: span.delimiterCount } as PhrasingContent)
-    }
-    else if (span.kind === 'footnoteRef') {
-      out.push({
+
+    case 'break':
+      // hard break → mdast break(`\\\n`);soft break → 裸 \n
+      return span.hard ? { type: 'break' } : { type: 'text', value: '\n' }
+
+    case 'inlineMath':
+      return {
+        type: 'inlineMath',
+        value: span.value,
+        delimiterCount: span.delimiterCount,
+      } as PhrasingContent
+
+    case 'footnoteRef':
+      return {
         type: 'footnoteReference',
         identifier: span.label,
         label: span.label,
-      })
+      }
+
+    case 'htmlInline':
+      return htmlNode(span.value)
+
+    case 'emoji':
+      return htmlNode(`:${span.shortcode}:`)
+  }
+}
+
+function wrapMark(mark: ContainerMark, children: PhrasingContent[]): PhrasingContent[] {
+  switch (mark.name) {
+    case 'link':
+      return [{
+        type: 'link',
+        url: mark.href as string,
+        title: mark.title ?? null,
+        children,
+      } as PhrasingContent]
+    case 'strong':
+      return [{ type: 'strong', children, _marker: mark.marker } as PhrasingContent & { _marker: string }]
+    case 'emphasis':
+      return [{ type: 'emphasis', children, _marker: mark.marker } as PhrasingContent & { _marker: string }]
+    case 'strike_through':
+      return [{ type: 'delete', children } as PhrasingContent]
+    // 自定义 mark 没有 GFM 原生 mdast 节点 —— html 节点原样输出,不受 safe() 转义。
+    case 'underline':
+      return [htmlNode('<u>'), ...children, htmlNode('</u>')]
+    case 'highlight':
+      return [htmlNode('=='), ...children, htmlNode('==')]
+    case 'superscript':
+      return [htmlNode('^'), ...children, htmlNode('^')]
+    case 'subscript':
+      return [htmlNode('~'), ...children, htmlNode('~')]
+  }
+}
+
+/**
+ * 按「连续共享的外层 mark」把叶子分组包成容器树。
+ *
+ * 逐 span 独立包裹会把 `**a `b` c**` 切成 `**a** `b` **c**`,canonical
+ * round-trip 据此静默改写用户源码(打开文件即变、保存后写盘也是改后串)。
+ * 把共享前缀提到外层后,inlineCode / delete / link 都留在同一个容器内,
+ * 分隔符只在整段两端各出现一次。
+ *
+ * 已知限制:atom 节点(image / math_inline / footnoteRef / hardbreak)在 schema
+ * 里 marks 为空,跨 atom 的外层 mark 信息已丢失,这里无法还原。
+ */
+function buildMarkTree(leaves: MarkedLeaf[]): PhrasingContent[] {
+  const out: PhrasingContent[] = []
+  let i = 0
+  while (i < leaves.length) {
+    const first = leaves[i]
+    const mark = first.stack[0]
+    if (!mark) {
+      out.push(first.leaf)
+      i++
+      continue
     }
-    else if (span.kind === 'htmlInline') {
-      out.push({ type: 'html', value: span.value } as PhrasingContent)
-    }
-    else if (span.kind === 'emoji') {
-      // emoji → `:shortcode:`(用 html 节点防 `:` 被 remark-stringify escape)
-      out.push({ type: 'html', value: `:${span.shortcode}:` } as PhrasingContent)
-    }
-    else {
-      out.push(wrapWithMarks(span.value, span.marks))
-    }
-    i++
+    let end = i + 1
+    while (end < leaves.length && sameMark(leaves[end].stack[0], mark)) end++
+    const inner = leaves.slice(i, end).map(l => ({ leaf: l.leaf, stack: l.stack.slice(1) }))
+    const children = buildMarkTree(inner)
+    if (children.length > 0) out.push(...wrapMark(mark, children))
+    i = end
   }
   return out
 }
 
 /**
- * 把一段文本按 mark 列表层层包成 emphasis / strong / link / delete / inlineCode。
- * mark 顺序:inlineCode 最内(它本身是叶子,改文本节点为 inlineCode),
- * 其次按 strike_through → emphasis → strong → link 由内到外。
- *
- * 这只是个简单实现 —— 不试图全局重排相邻 span 共享 mark。stringify 阶段
- * mdast-util-to-markdown 会把相邻同 mark 节点合并,实测对单测试用例足够。
+ * InlineSpan[] → mdast PhrasingContent[]:每个 span 先降成叶子 + 外层 mark 栈,
+ * 再交给 buildMarkTree 合并相邻的同 mark run。
  */
-function wrapWithMarks(
-  text: string,
-  marks: ReadonlyArray<{ name: string; attrs: Record<string, unknown> }>,
-): PhrasingContent {
-  // inlineCode 是文本节点变体,不能再嵌 mark
-  const codeMark = marks.find(m => m.name === 'code')
-  if (codeMark) {
-    return { type: 'inlineCode', value: text }
-  }
-
-  // 把 \ 替换为占位符 \u0001,让 state.safe 不处理 \ 的转义(上游 escapeBackslashes
-  // 对连续 \\ 的转义规则 N→(N+1) 与 remark-parse 的 N→ceil(N/2) 不对称,导致 round-trip
-  // 不 idempotent)。占位符 \u0001 不被任何 unsafe 规则匹配,toMarkdown 输出后替换回 \\
-  // (markdown 转义反斜杠),确保每个 \ → \\,round-trip idempotent。
-  let node: PhrasingContent = { type: 'text', value: text.replace(/\\/g, '\u0001') }
-
-  // 内层 → 外层
-  const order = ['strike_through', 'emphasis', 'strong', 'link']
-  for (const name of order) {
-    const mark = marks.find(m => m.name === name)
-    if (!mark) continue
-    if (name === 'strike_through') {
-      node = { type: 'delete', children: [node] }
+function processSpans(spans: InlineSpan[]): PhrasingContent[] {
+  const leaves: MarkedLeaf[] = spans.map(span => {
+    const marks: SpanMark = span.kind === 'text' ? span.marks : []
+    return {
+      leaf: spanToLeaf(span),
+      stack: CONTAINER_MARK_ORDER
+        .map(name => markFromSpan(name, marks))
+        .filter((m): m is ContainerMark => m !== null),
     }
-    if (name === 'emphasis') {
-      node = { type: 'emphasis', children: [node], _marker: mark.attrs.marker as string } as PhrasingContent & { _marker: string }
-    }
-    else if (name === 'strong') {
-      node = { type: 'strong', children: [node], _marker: mark.attrs.marker as string } as PhrasingContent & { _marker: string }
-    }
-    else if (name === 'link') {
-      node = {
-        type: 'link',
-        url: mark.attrs.href as string,
-        title: (mark.attrs.title as string | null) ?? null,
-        children: [node as PhrasingContent],
-      }
-    }
-  }
-
-  return node
+  })
+  return buildMarkTree(leaves)
 }

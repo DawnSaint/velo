@@ -12,7 +12,7 @@
 //   `__` 形式(对称规则,inner 不含 `_`)
 // 与 emphasisStar(`*x*`)互斥靠 `(?<!\*)` 前缀 + inner `[^\n*]`(strong inner 不含 `*`,
 // 反过来 emphasisStar inner 不含 `*` 也保证不会被 strong 抢先吞)
-// marker 取值跟 toMarkdown 端 wrapWithMarks 的 marker 字段对应,保 round-trip 不串
+// marker 取值跟 toMarkdown 端容器 mark 的 `_marker` 字段对应,保 round-trip 不串
 // (`**bold**` 不会变 `__bold__`)。
 
 import type { InlineSyntax } from '../../editor/syntaxRegistry'

@@ -38,10 +38,6 @@ export const useConfirmStore = defineStore('confirm', () => {
   let resolveCurrent: ((value: boolean) => void) | null = null
 
   function ask(options: ConfirmOptions): Promise<boolean> {
-    // 与 tauri/dialog.ts 同款 E2E 钩子:WebDriver 点不到自绘弹窗,dev build 直接放行。
-    if (import.meta.env.DEV && (globalThis as { __VELO_E2E_AUTO_CONFIRM__?: boolean }).__VELO_E2E_AUTO_CONFIRM__) {
-      return Promise.resolve(true)
-    }
     if (resolveCurrent) resolveCurrent(false)
     return new Promise<boolean>((resolve) => {
       resolveCurrent = resolve

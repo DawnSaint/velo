@@ -22,7 +22,7 @@ export default defineConfig({
     port: 5273,
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**', '**/__tests__/**', '**/docs/**', '**/e2e/**', '**/scripts/**'],
+      ignored: ['**/src-tauri/**', '**/__tests__/**', '**/docs/**', '**/scripts/**'],
     },
     proxy: {
       // dev 环境代理 GitHub API,避免 WebView2 跨域/CSP/混合内容拦截

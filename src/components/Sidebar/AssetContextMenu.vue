@@ -74,7 +74,7 @@ defineExpose({ rootEl })
     <!-- 删除 -->
     <template v-if="isTauri">
       <div class="ctx-menu-separator" />
-      <button class="ctx-menu-item ctx-menu-item--danger" data-testid="ctx-delete" @click="emit('delete')">
+      <button class="ctx-menu-item ctx-menu-item--danger" @click="emit('delete')">
         删除
       </button>
     </template>
@@ -82,7 +82,7 @@ defineExpose({ rootEl })
     <!-- 在资源管理器中显示 -->
     <template v-if="isTauri">
       <div class="ctx-menu-separator" />
-      <button class="ctx-menu-item" data-testid="ctx-reveal" @click="emit('reveal')">
+      <button class="ctx-menu-item" @click="emit('reveal')">
         在资源管理器中显示
       </button>
     </template>

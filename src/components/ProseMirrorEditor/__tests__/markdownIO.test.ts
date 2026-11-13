@@ -796,22 +796,22 @@ describe('emphasis/strong marker attr round-trip', () => {
 })
 
 // strong/emphasis 内容首尾空白移出界定符(不编码成 &#x20;)。
-// 病根:code mark `excludes:'_'` 独占 + wrapWithMarks 逐 span 独立包裹,使
-// "加粗夹行内代码"被碎片化成多段 strong,切口空格落在 strong 首尾。旧实现
-// inside 编码把边界空格写成 `&#x20;` 污染源码;现移到界定符外,渲染等价、源码干净。
+// 旧实现逐 span 独立包裹 mark,「加粗夹行内代码」被碎片化成多段 strong,
+// 切口空格落在 strong 首尾;上游 inside 编码会把这些空格写成 `&#x20;` 污染源码。
+// 现行实现按连续共享 mark 构建容器树,空格留在容器内,界定符只在整段两端出现。
 describe('strong/emphasis 边界空白不编码成实体', () => {
-  it('加粗夹行内代码:边界空格移出界定符,不产生 &#x20;', () => {
+  it('加粗夹行内代码:保留单个 strong 容器,不产生 &#x20;', () => {
     const doc = fromMarkdown('**a `b` c**', schema)
     const back = toMarkdown(doc)
     expect(back).not.toContain('&#x20;')
-    expect(back.trim()).toBe('**a** `b` **c**')
+    expect(back.trim()).toBe('**a `b` c**')
   })
 
   it('标题内加粗夹行内代码(用户报告场景)不产生 &#x20;', () => {
     const md = '##### **用法 A：右栏（不传 `district`，...）**'
     const back = toMarkdown(fromMarkdown(md, schema))
     expect(back).not.toContain('&#x20;')
-    expect(back.trim()).toBe('##### **用法 A：右栏（不传** `district`**，...）**')
+    expect(back.trim()).toBe(md)
   })
 
   it('加粗夹行内代码 round-trip 字符串幂等', () => {
@@ -860,6 +860,33 @@ describe('strong/emphasis 边界空白不编码成实体', () => {
     const once = toMarkdown(fromMarkdown(md, schema))
     const twice = toMarkdown(fromMarkdown(once, schema))
     expect(twice).toBe(once)
+  })
+})
+
+// 一段连续的强调里夹行内代码 / 删除线时,PM doc 会把内容拆成多个 text span
+// (每个 span 都带完整 marks)。逐 span 独立包裹会把 `**a `b` c**` 写成
+// `**a** `b` **c**`,canonical round-trip 据此静默改写用户源码。
+// 这些用例锁定「共享外层 mark 必须合并成单个容器」。
+describe('强调内含其它行内语法:round-trip 不改写源码', () => {
+  const samples = [
+    // ROADMAP.md 里被静默改写过的两行
+    '- [ ] **工作区符号搜索（`#`模式）** `#workspace-symbol` `P2` `S` `← #workspace-index`',
+    '- [ ] **diff 视角自动跳转第一个 diff + hunk 导航 ~~+ 折叠未变更区~~** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下',
+    '**加粗`代码`结束**',
+    '**加粗~~删除~~结束**',
+    '**a `b` ~~c~~ d**',
+    '*斜体`代码`结束*',
+    '__加粗`代码`__',
+  ]
+
+  it.each(samples)('保真: %s', (md) => {
+    expect(toMarkdown(fromMarkdown(md, schema)).trim()).toBe(md)
+  })
+
+  it('两轮 round-trip 后仍等于原文', () => {
+    const md = samples[0]
+    const once = toMarkdown(fromMarkdown(md, schema))
+    expect(toMarkdown(fromMarkdown(once, schema))).toBe(once)
   })
 })
 

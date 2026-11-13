@@ -1,15 +1,14 @@
 # Testing Architecture
 
-> **本文件负责**: 测试目标 / 选型 / 现状、单测/集成规约、Tauri 测试边界、反过度测试原则与 E2E 跑法。
+> **本文件负责**: 测试目标 / 选型 / 现状、单测/集成规约、Tauri 测试边界、反过度测试原则。
 >
 > **何时阅读**: 新增 / 删除测试文件、修改测试基建、调整测试规约、发版更新测试现状，或需要判断“该不该写测试”时。
 >
 > **先记住**:
 > - 回归保护优先，不追求 100% 覆盖。
-> - 最便宜层优先，纯函数能覆盖的别上组件，组件能覆盖的别上 E2E。
+> - 最便宜层优先，纯函数能覆盖的别上组件，组件能覆盖的别上 UI。
 > - 测行为不测实现；纯展示、薄封装、样板代码通常不测。
-> - Tauri 边界一律 mock；E2E 是 WebdriverIO + tauri-driver 的单独链路。
-> - E2E Windows only，`maxInstances: 1`，跑前 snapshot appData，跑后先 kill 再 restore。
+> - Tauri 边界一律 mock；不在 Tauri runtime 里跑测试。
 >
 > **相关文件**: [架构入口](../ARCHITECTURE.md) / [Tauri 架构](./tauri.md) / [ROADMAP](../ROADMAP.md)
 
@@ -21,7 +20,7 @@
 2. **从纯函数到 UI** —— 价值密度最高的逻辑(状态机、文本解析、插件)全部与 DOM 解耦,优先用最便宜的工具覆盖。
 3. **Tauri 边界一律 mock** —— 测试不在 Tauri runtime 里跑,通过一层薄薄的 stub 把 `@tauri-apps/*` 隔在 store / 工具函数之外。
 4. **测行为不测实现** —— 断言“输入 → 用户可观察输出”,不测 class 名 / ref 名 / 内部分支 / 函数是否被调用。
-5. **最便宜层优先** —— 纯函数能覆盖的别上组件 mount,组件能覆盖的别上 E2E。
+5. **最便宜层优先** —— 纯函数能覆盖的别上组件 mount,组件能覆盖的别上完整 UI 链路。
 6. **不追求 100% 覆盖** —— 覆盖率只用来发现“哪块完全没被测过”,不用来刷分。
 
 ---
@@ -33,20 +32,17 @@
 | 单测 / 集成 | **Vitest 5.1** | Vite 原生,TypeScript + ESM + JSDOM 一把梭,极快 |
 | 组件 | **@vue/test-utils** | Vue 3 官方 |
 | 覆盖率 | **@vitest/coverage-v8 5.1** | 看个大概,不卡阈值 |
-| 端到端 | **WebdriverIO 9** + `tauri-driver` | Tauri 官方 webdriver 走 WD Classic;Playwright 仅支持 CDP/BiDi 不可用 |
 | 断言辅助 | **@testing-library/jest-dom** | 组件断言更语义化(可选) |
 
 > **版本约束** —— Vitest 5 要求 Node ≥ 22.12、Vite ≥ 6.4,且 `vite` 已成为必需 peer(本项目已显式声明)。`vitest` 与 `@vitest/coverage-v8` 必须同版本升级(coverage 的 peer 锁的是精确版本)。v5 起报告产物统一进 `.vitest/`,覆盖率报告仍在 `coverage/`,两者均已 gitignore。
 
-> **不选 Jest** —— 配 ESM + Vite alias 麻烦。**Playwright 不可用于 Tauri webview** —— `tauri-driver` 是 WebDriver Classic 代理,Playwright 只支持 CDP/BiDi;Tauri 官方 example 只给 Selenium / WebdriverIO。
+> **不选 Jest** —— 配 ESM + Vite alias 麻烦。
 
 ---
 
 ## 现状快照
 
 覆盖：纯函数(`utils/` 含 imageSrc 跨视图图片 src 解析 / lineDiff(Myers 行级算法 / 字符级 inline diff / hunk 提取 / 公共前后缀裁剪 / 快照按 D 分配))、Pinia store(`document`(openFilePaths 多标签 / 自动保存快照合并下沉磁盘:缓存为空时合并 / 一次读盘判断删旧写新修剪) / `editor`(含 zoomLevel) / `export` / `system`(自动更新开关 hydrate / snapshot) / `workspace` / `versionHistory`(本地快照 + Git 历史合并 / 异步 diff / 缓存) / `migration`(settings v1→vN / workspaces v1→v5 迁移链))、ProseMirror 核心(块级增量序列化不变式:块边界对抗样本 / 多 seed 随机编辑 fuzz / 缓存判净与 LRU / markdownIO round-trip 含 underline mark / strictMath 插件(mathFlow 围栏 `$$` 独占行匹配 + mathText 行内 `$...$` 匹配) / 语法实时转换 / 键位(Enter 链:splitInListItemNestedBlock 守卫 / liftEmptyBlock / mathBlockEnter / Shift+Enter 多场景命令链) / NodeView / 插件 / WYSIWYG diff(Myers 行级算法 / 字符级 inline diff / hunk 提取 / block 树结构比对:格式·类型变更 / 非文本节点删除 / split·merge / 空块配对退化 / 表格二维网格:删列·删行·行列同删·同页多表 / 语义化装饰:marks 区间 / 类型 tooltip / 删除片段保留结构 / 边界提示 / 视口增量构建 / 整框分组包围盒几何 / 归组 pos 边界 / 删除片段图片 src 代理 / 文本块与原子块不配对 / DiffView 双模式与异步竞态守卫) / 查找替换 / CJK 排版三件套:字间距装饰插件 / 括号自动配对插件 / 智能排版格式化器库(5 组规则 + 保护区扫描 + 完整性校验回滚 + WYSIWYG 往返) / markdownPaste 插件 / 表格列对齐 round-trip / CellSelection 拖蓝多选批量增删:矩形内右键锚定点击格、上/下插行锚定矩形外边界、左/右插列锚定矩形外边界、删行删掉矩形覆盖的所有 body 行(全删=删表)、删列删掉覆盖列(保底 1 列)、多列对齐覆盖列一起变 / CellSelection 剪贴板:content() 矩形 rows slice、clipboardTextSerializer tab 分隔文本、cut 清空选中 cell、paste 整块填充、copy→paste round-trip / 表格右键菜单 contextmenu plugin / 折叠占位符真实节点交互:点击 `...` 展开、划选覆盖高亮、foldDeleteCommand 整块删除、appendTransaction 同步 fold_placeholder 与 collapsedSet / 自绘光标(customCaret:非文本位置自绘覆盖条 / fold_placeholder 前后接管 / fallback 零高度矩形) / code header 祖先折叠跳过(isCodeBlockAncestorFolded) / 行内 HTML 点击展开源码编辑:点击 html_inline 展开 → commit 重建 / Escape 还原 / 标签平衡校验 / session 退避 / 块级 HTML 源码切换:点击按钮替换成 code_block 编辑 → 光标移出 commit 重建 / Escape 还原 / HTML 图片适配:独立 `<img>` → image 节点(htmlSource + htmlAttrs round-trip)、嵌套 img → 渲染层 proxyDomURL 代理) / emoji 短码 round-trip(`:smile:` → emoji atom 节点 → `:smile:` idempotent)+ emoji 源码编辑(光标靠近展开 `:shortcode:` / 移出 commit 重建 / Escape 还原 / 降级纯文本)+ emoji 自动补全(`:short` 输入态下拉模糊匹配 / 键盘导航 / Enter+Tab 插入 / Escape 关闭)、数学公式(strictMath 严格围栏匹配 / math_block 围栏残缺降级 / 块级公式实时语法检测 / math_block 内 Enter 行为 / 降级后光标 clamp)、导出管线(`htmlRenderer` 端到端)、跨模式光标同步、源码模式(CodeMirror 6)、diff 视图组件(DiffView 双模式 / 未保存条目 / 异步竞态守卫 / StatusBar 未保存入口)、侧边栏(ActivityBar shell 入口 / FileMenuButton 顶栏文件下拉含最近文件子菜单 / CommandPalettePanel 命令面板 / Sidebar 外部 tab 状态渲染 + settingsActive 空态 / FileTree 过滤排序 / 行内 input CRUD + FileTreeContextMenu 转发)、工作区搜索(Ctrl+P fuzzy / Ctrl+Shift+P 命令 fuzzy / Ctrl+Shift+F 全文搜索)。
-
-**E2E**: WebdriverIO 9 + tauri-driver，1 条 spec(`e2e/specs/multi-window.spec.ts`)，覆盖二次启动经 `tauri-plugin-single-instance` 路由创建独立工作区窗口。Windows only，需手动 `cargo install tauri-driver` + 装 msedgedriver；CI 挂钩走 build.yml，见 ROADMAP `#ci-pipeline`。
 
 ---
 
@@ -134,15 +130,6 @@ src/
         │   └── mathLazyRender.test.ts B3 NodeView 延迟渲染:视口外不调 katex.render / 进入视口渲染 / 滚出销毁+缓存 / 缓存同步恢复 / edit 态不销毁(fake IntersectionObserver)
         ├── plugins/__tests__/
         └── findreplace/__tests__/
-
-e2e/                                       # WebdriverIO + tauri-driver,顶层(vitest include: src/** 不会误吃)
-├── wdio.conf.ts                          # WDIO 主配置 + 进程生命周期 hook
-├── tsconfig.json
-├── README.md                             # 跑前自检 / 跑法
-├── helpers/                              # workspace tmp / killStaleVelo / selectors / platform 守门
-├── fixtures/
-└── specs/
-    └── multi-window.spec.ts              # 多窗口:二次启动创建独立工作区窗口
 ```
 
 约定:
@@ -182,7 +169,7 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 - 封装内部 import `@tauri-apps/*`
 - 测试只 mock `src/tauri/*` 即可,业务逻辑保持纯净
 
-> 阶段性升级:业务代码直接 import Tauri、mock 也直接打在 `@tauri-apps/*` 的旧写法仍允许;**后续逐步收敛**到 `src/tauri/` 封装层,方便接 E2E。**薄封装本身不写测试**——测它等于测 mock,无价值。
+> 阶段性升级:业务代码直接 import Tauri、mock 也直接打在 `@tauri-apps/*` 的旧写法仍允许;**后续逐步收敛**到 `src/tauri/` 封装层,让 fs / dialog 边界集中可控。**薄封装本身不写测试**——测它等于测 mock,无价值。
 
 ---
 
@@ -209,90 +196,11 @@ e2e/                                       # WebdriverIO + tauri-driver,顶层(v
 
 ---
 
-## E2E 跑前自检(Windows only)
-
-E2E 走 WebdriverIO + `tauri-driver` + `msedgedriver`(WebView2 后端),需手动准备:
-
-```bash
-# 1. 装 tauri-driver
-cargo install tauri-driver --locked
-
-# 2. 装与本机 Edge 匹配的 msedgedriver.exe
-cargo install --git https://github.com/chippers/msedgedriver-tool
-msedgedriver-tool             # 下载 msedgedriver.exe 到当前目录,放进 $PATH
-
-# 3. 跑
-npm run test:e2e              # onPrepare 自动 tauri:build:debug + killStaleVelo
-```
-
-**约束**:
-
-- **Windows only**;`e2e/helpers/platform.ts` 非 Windows 平台 `process.exit(0)` 不报错
-- **不并行**:`tauri-plugin-single-instance` 让多 session 互相路由,`maxInstances: 1` 是硬约束;`taskkill /F /IM velo.exe /T` 在 `onPrepare` / `afterSession` / `onComplete` 三处兜底清残留
-- **CI 挂钩走 build.yml**:tag push 自动触发 `e2e` job(Windows),`workflow_dispatch` 勾选 `run-e2e` 手动触发;CI 中构建 release 裸 binary(`tauri build --no-bundle`),通过 `VELO_E2E_BINARY` 环境变量传给 wdio;Phase 1 `continue-on-error`,失败不阻塞 release attach
-- **本地构建走 debug profile**(`tauri build --debug --no-bundle`):无需 installer,Cargo 增量后续秒级;CI 走 release profile 更接近用户产物
-
----
-
-## 测试钩子约定
-
-### `data-testid` 钩子
-
-E2E spec 不依赖 class 名(Tailwind utility,改起来频)。**所有 E2E 选择器走 `data-testid`**,常量集中在 `e2e/helpers/selectors.ts`。当前钩子:
-
-- `src/components/Sidebar/FileTree.vue`:
-  - 工作区根 row:`data-testid="workspace-root"`
-  - 普通文件 / 目录 row:`data-testid="file-row-${node.name}"`
-  - 行内 input(新建 / 重命名共用):`data-testid="inline-input"`
-- `src/components/Sidebar/FileTreeContextMenu.vue`:每个菜单项 `data-testid="ctx-{action}"`(`ctx-new-file` / `ctx-new-dir` / `ctx-rename` / `ctx-delete` / `ctx-reveal` / `ctx-open-in-editor` / `ctx-open-as-workspace`)
-- `src/components/ProseMirrorEditor/EditorInner.vue`:PM 挂载容器 `data-testid="pm-editor"`
-- `src/components/StatusBar.vue`:工作区 label:`data-testid="status-workspace-label"`
-
-新增 E2E 触达元素时同步加 `data-testid` + 更新 `e2e/helpers/selectors.ts` 常量。**不写 testid 钩子 + 不更新常量 = 后续 spec 写不下去**。
-
-### `__VELO_E2E_AUTO_CONFIRM__` window flag
-
-自绘确认框是 DOM,WebDriver 本来就能点;但删除链路这类 spec 可用一次性 flag 跳过全部二选一确认:
-
-- `src/stores/confirm.ts` 的 `ask` 包了 `import.meta.env.DEV` 守门:dev build 下若 `globalThis.__VELO_E2E_AUTO_CONFIRM__ === true`,直接 resolve `true`
-- release build 经 esbuild 把 `if (import.meta.env.DEV && ...)` dead-code-eliminate,行为不变
-- 需要时在 spec 的 `before()` 里 `browser.execute(() => { window.__VELO_E2E_AUTO_CONFIRM__ = true })` 打开(当前唯一 spec `multi-window.spec.ts` 不涉及删除,未启用)
-
-> 该 flag 不影响 `open` / `save` 的系统对话框。不走 Rust 端 `#[cfg(debug_assertions)]` invoke 拦截:前端守门等效但实施代价 10× 低,且不涉及 Cargo 重建。如未来要支持系统 message / save dialog 同款绕开,继续走前端 flag 模式即可。
-
-### WebView2 + msedgedriver 交互层兜底
-
-WebView2 backend 下 msedgedriver 的 WebDriver Actions / interactability 检查与标准 Chrome 不一致,踩了三个坑,统一在 spec 顶部 helper 绕开:
-
-- **右键不触发 `contextmenu`**:Actions API 的 `click({ button: 'right' })` 在 WebView2 里只发 `mousedown` / `mouseup`,DOM 上的 `contextmenu` 事件不发火 → Vue `@contextmenu` 监听静默不触发。**绕开**:`rightClick(selector)` 走 `browser.execute` 派发 `new MouseEvent('contextmenu')`,bubbles 到 Vue 监听等价。
-- **`.click()` / `.setValue()` 偶发 `not interactable`**:虚拟列表里的 row 或刚 mount 的 `<input>`(Vue `nextTick` 异步 focus),msedgedriver 的 visibility 检查比浏览器实际渲染保守,看不见 → 直接报 `element not interactable`。**绕开**:`jsClick(selector)` 派发 `MouseEvent('click')`;`setInlineValue(text)` 直接写 `input.value` + 派发 `Event('input')` 触发 Vue v-model。
-
-> 这些只对**已知工具链限制**绕,不是给业务代码留口。新增 spec 若用 native `.click()` / `.setValue()` 跑通,就保留原写法。
-
-### CLI argv 容错(`--` 前缀剥离)
-
-E2E 用 `tauri:options.args = [tmpWs]` 注入工作区路径,但 tauri-driver 在 Windows 上把每个 arg 映射进 `ms:edgeOptions.args`,msedgedriver 当成 Chrome flag **强制加 `--` 前缀**,velo.exe 收到的是 `--C:\Users\...\velo-e2e-XXX`。`PathBuf::from("--C:\\...")` 既不是 file 也不是 dir → CliArgsPayload 空 → 持久化的工作区赢。
-
-**修法**:`parse_cli_args` 容忍单层 `--` 前缀(`a.strip_prefix("--").unwrap_or(a)`)。真实 CLI 不受影响:用户传 `--help` 在 strip 后还是 `is_file=false` / `is_dir=false`,本来就会被过滤。
-
-### appData 持久化文件快照/还原
-
-debug binary 跟 dev / release 共用 `%APPDATA%/com.velo.editor/`。E2E spec `setActiveRoot(tempWs)` 触发 App.vue debounce watch 落盘 `velo-workspaces.json`,**永久污染用户数据**(active 指向已删的 tempWs)。v0.7.15 起启动期会对恢复出来的 active root 做一次静默 `exists` 校验并清掉死路径,不再出现“读取目录失败”,但脏 `active` 字段仍会写入、仍需靠快照还原兜底。
-
-**修法**:`e2e/helpers/appdata.ts` 提供 `snapshotAppData()` / `restoreAppData()`:
-- `before()`:把 `velo-workspaces.json` / `velo-outline-state.json` / `velo-settings.json` 三份整体备份到 `tmpdir()/velo-e2e-appdata-snapshot/`,原本不存在的文件留一个 `.missing` 标记
-- `after()`:**先 killStaleVelo 再 restore**(Velo 还活着 → debounce watch 会再写一次)。备份存在 → 字节级回写;有 `.missing` 标记 → 删 E2E 残留
-
-> 不走 product name 拆 debug appDataDir 的路径:那要改 `tauri.conf.json`,代价高且影响 `npm run tauri:dev` 的真实数据隔离语义。spec 层备份还原最小侵入,跑完 `diff` 字节级一致。
-
----
-
 ## CI 集成
 
 - GitHub Actions `.github/workflows/ci.yml` 走 `workflow_dispatch`（手动触发）+ tag push（`v*`）触发;步骤 checkout → setup-node → `npm ci` → type-check → lint:deps(dependency-cruiser) → lint:console → lint:design-tokens → knip(死码检测) → eslint --quiet(仅卡 error) → `npm test`(vitest,ubuntu) → `npm run build`。不在每次 push master 时触发——独立开发 + AI 驱动下每次 push 跑 CI 太慢，改为发版前手动触发或 tag push 自动触发
 - 不挂覆盖率阈值,只挂"测试通过"门
 - ESLint 仅卡 error（`--quiet`），warnings 不阻断 CI；存量 warnings 通过 CLAUDE.md 约定引导 coding agent 在接触文件时顺手修复
-- **E2E 挂钩 build.yml**:vitest 单测是发版前的廉价门,而 E2E 是真二进制冷启动 / WebView2 / fs round-trip 集成链,跑不快且只需验一次 → `build.yml` 的 `e2e` job 在 tag push 时自动跑,`workflow_dispatch` 可手动触发;Phase 1 `continue-on-error` 不阻塞发版,稳定后改为硬门
 
 ---
 

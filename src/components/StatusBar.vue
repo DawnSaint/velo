@@ -105,7 +105,7 @@ onBeforeUnmount(() => {
         @click="toggleWorkspaceMenu"
       >
       <span>工作区</span>
-      <span data-testid="status-workspace-label" class="truncate tabular-nums">{{ workspaceLabel }}</span>
+      <span class="truncate tabular-nums">{{ workspaceLabel }}</span>
     </button>
     <div
       v-if="workspaceMenuOpen"

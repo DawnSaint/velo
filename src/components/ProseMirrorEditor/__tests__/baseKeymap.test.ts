@@ -11,7 +11,6 @@
 //  - 必须在 plugins 数组里 keymap(baseKeymap) 了一次
 //
 // 这是个粗糙的合约(文本匹配),但能挡住"忘了装 baseKeymap"这种回归。
-// 真正的 E2E(模拟键盘事件)留到 v0.5.x 端到端测试阶段。
 
 import { describe, expect, it } from 'vitest'
 // vite 解析 ?raw:把文件内容作为字符串 default 导出

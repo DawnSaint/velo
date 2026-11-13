@@ -62,10 +62,10 @@ defineExpose({ rootEl })
   <ContextMenuShell ref="shellRef" :x="x" :y="y" data-tree-context-menu>
     <!-- 文件:在编辑器中打开 / 目录:在新窗口中打开(顶部组) -->
     <template v-if="showOpenInEditor || showOpenAsWorkspace">
-      <button v-if="showOpenInEditor" class="ctx-menu-item" data-testid="ctx-open-in-editor" @click="emit('open-in-editor')">
+      <button v-if="showOpenInEditor" class="ctx-menu-item" @click="emit('open-in-editor')">
         在编辑器中打开
       </button>
-      <button v-if="showOpenAsWorkspace" class="ctx-menu-item" data-testid="ctx-open-as-workspace" @click="emit('open-as-workspace')">
+      <button v-if="showOpenAsWorkspace" class="ctx-menu-item" @click="emit('open-as-workspace')">
         在新窗口中打开
       </button>
       <button v-if="showSearchInFolder" class="ctx-menu-item" data-testid="ctx-search-in-folder" @click="emit('search-in-folder')">
@@ -74,10 +74,10 @@ defineExpose({ rootEl })
       <div class="ctx-menu-separator" />
     </template>
 
-    <button class="ctx-menu-item" data-testid="ctx-new-file" @click="emit('new-file')">
+    <button class="ctx-menu-item" @click="emit('new-file')">
       新建文件
     </button>
-    <button class="ctx-menu-item" data-testid="ctx-new-dir" @click="emit('new-dir')">
+    <button class="ctx-menu-item" @click="emit('new-dir')">
       新建文件夹
     </button>
     <button v-if="canPaste" class="ctx-menu-item" data-testid="ctx-paste" @click="emit('paste')">
@@ -90,16 +90,16 @@ defineExpose({ rootEl })
         复制
       </button>
       <div class="ctx-menu-separator" />
-      <button class="ctx-menu-item" data-testid="ctx-rename" @click="emit('rename')">
+      <button class="ctx-menu-item" @click="emit('rename')">
         重命名
       </button>
-      <button class="ctx-menu-item ctx-menu-item--danger" data-testid="ctx-delete" @click="emit('delete')">
+      <button class="ctx-menu-item ctx-menu-item--danger" @click="emit('delete')">
         删除
       </button>
     </template>
     <template v-if="showReveal">
       <div class="ctx-menu-separator" />
-      <button class="ctx-menu-item" data-testid="ctx-reveal" @click="emit('reveal')">
+      <button class="ctx-menu-item" @click="emit('reveal')">
         在资源管理器中显示
       </button>
     </template>

@@ -7,7 +7,7 @@
 //    —— 这是本插件最非显然的契约,删了会让 PM 抢滚动产生抖动,留防回归
 // 3. view.update() 在 enabled 下 dispatch 选区变化 tr 不抛
 //
-// 居中滚动的真实行为(光标恒在视口中线)依赖 WebView2 布局,归手动 / E2E 验证。
+// 居中滚动的真实行为(光标恒在视口中线)依赖 WebView2 布局,归手动验证。
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EditorState, TextSelection } from 'prosemirror-state'
