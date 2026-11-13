@@ -35,6 +35,8 @@ import { saveImageAsset } from '@/utils/imageStorage'
 import type { CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromMarkdown, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { attachVeloScroll, detachVeloScroll } from '@/directives/veloScroll'
+import { measureSync } from '@/utils/perf'
+import { cmDocChangeExtension } from '@/components/ProseMirrorEditor/findreplace/cmDocChange'
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -92,7 +94,7 @@ const shikiExts = shikiExtensions({
 // echo 哨兵:自身 emit 的回写不要再当外部 modelValue 处理(对照 documentStore
 // 的 lastSelfEmitted 语义)。CM6 docChanged 时记下本次发出去的串,外部 watch
 // 拿到 modelValue 若等于它,跳过同步。
-let lastSelfEmitted = ''
+let lastSelfEmitted: string | null = null
 // 切标签恢复期间(tabSwitchToken watch 调 view.setState(cachedState) 后)置 true,
 // 让同 tick 的 modelValue watch 跳过全量替换 dispatch —— 否则缓存恢复的 undo
 // 历史被一次全量 tr 污染(undo 会跨标签回退)。
@@ -100,6 +102,51 @@ let pendingTabRestore = false
 // 跟踪上一个活动标签 id,切标签时据此把旧标签的 CM6 state + scrollTop
 // 同步写回 store(flush:'sync' watch 里,view 仍持有旧标签的 state)。
 let prevActiveId = ''
+
+// ---- 回写 debounce(对齐 EditorInner.vue 的 150ms 语义)----
+// 源码模式本身不需要序列化,但 content 是唯一数据源:每次按键同步回写会让
+// 状态栏统计(全文 5 次扫描)/ 大纲 parseHeadings / autoSave / 草稿 / props
+// 回传整条 Vue 链路跟着抖。连续打字期间只排 timer,不物化整篇 doc ——
+// flush 时才取一次 doc.toString(),顺带重算面包屑标题链。
+// - 切标签 / 卸载 / 切模式前 flush,防止最后一次编辑丢失
+// - 外部 modelValue 变化 cancel,防止旧串覆盖新文档
+// - pendingContentDocId 记录发出编辑的标签,flush 时按 id 写,不串标签
+let contentTimer: ReturnType<typeof setTimeout> | null = null
+let pendingContentDocId: string | null = null
+const CONTENT_DEBOUNCE_MS = 150
+
+function cancelPendingContent(): void {
+  if (contentTimer !== null) {
+    clearTimeout(contentTimer)
+    contentTimer = null
+  }
+  pendingContentDocId = null
+}
+
+function flushPendingContent(): void {
+  if (contentTimer === null) return
+  clearTimeout(contentTimer)
+  contentTimer = null
+  const view = viewRef.value
+  const docId = pendingContentDocId ?? documentStore.activeId
+  pendingContentDocId = null
+  if (!view) return
+  const next = view.state.doc.toString()
+  if (docId === documentStore.activeId) {
+    lastSelfEmitted = next
+    emit('update:modelValue', next)
+    emitHeadingContext(view, next)
+  }
+  else {
+    documentStore.setContentForDoc(docId, next)
+  }
+}
+
+function scheduleContentEmit(): void {
+  cancelPendingContent()
+  pendingContentDocId = documentStore.activeId
+  contentTimer = setTimeout(flushPendingContent, CONTENT_DEBOUNCE_MS)
+}
 
 // 打字机模式开关镜像(组件级,不进 CM6 state —— typewriter 无 decoration,
 // updateListener 闭包读这个布尔即可,无需 focusMode 那种 StateField)。
@@ -115,10 +162,10 @@ function emitCursorPosition(view: EditorView) {
   })
 }
 
-function emitHeadingContext(view: EditorView) {
+function emitHeadingContext(view: EditorView, content?: string) {
   const head = view.state.selection.main.head
   const line = view.state.doc.lineAt(head)
-  emit('heading-context-change', headingChainFromMarkdown(view.state.doc.toString(), line.number))
+  emit('heading-context-change', headingChainFromMarkdown(content ?? view.state.doc.toString(), line.number))
 }
 
 /** 把光标所在行滚到 scrollDOM(cm-scroller)垂直中线 —— 镜像 PM 侧
@@ -391,27 +438,29 @@ function createView(): EditorView {
       cmFocusModeTailDeco,
       // 只读 facet:editable=false 时 CM6 内部拦截所有 doc-changing dispatch
       editableCompartment.of(EditorView.editable.of(!props.readOnly)),
-      // docChanged → 回写 documentStore.content;doc/selection 变化 → 上报光标位置
+      // 查找面板打开期间订阅 doc 变化 → 重算 matches(带 debounce,见 cmDocChange.ts)
+      cmDocChangeExtension,
+      // docChanged → 延迟回写 content;doc/selection 变化 → 上报光标位置
       EditorView.updateListener.of((u) => {
-        if (u.docChanged) {
-          const next = u.state.doc.toString()
-          lastSelfEmitted = next
-          emit('update:modelValue', next)
-        }
-        if (u.docChanged || u.selectionSet) {
-          emitCursorPosition(u.view)
-          emitHeadingContext(u.view)
-        }
-        // Step 3: 缓存活动标签的 CM6 state + 滚动位,切回时 setState 恢复(保 undo / 滚动 / 光标)
-        if (u.docChanged || u.selectionSet || u.viewportChanged) {
-          const scroller = u.view.scrollDOM
-          documentStore.captureActiveCmState(u.view.state, scroller.scrollTop)
-        }
-        // 打字机模式:选区 / 文档变化后把光标拉回视口中线。defer 到 rAF 跑在
-        // CM6 更新之后(见 centerCursorCm 注释),同步调会被 CM6 自身 scrollIntoView 覆盖。
-        if (cmTypewriterEnabled && (u.docChanged || u.selectionSet)) {
-          scheduleCenterCm(u.view)
-        }
+        measureSync('source-input', () => {
+          // 输入同步路径只排 timer,不物化整篇 doc、不跑 shiki
+          if (u.docChanged) scheduleContentEmit()
+          if (u.docChanged || u.selectionSet) {
+            emitCursorPosition(u.view)
+            // 纯光标移动即时更新标题链;打字期间的全文 split 合并进回写 debounce
+            if (!u.docChanged) emitHeadingContext(u.view)
+          }
+          // Step 3: 缓存活动标签的 CM6 state + 滚动位,切回时 setState 恢复(保 undo / 滚动 / 光标)
+          if (u.docChanged || u.selectionSet || u.viewportChanged) {
+            const scroller = u.view.scrollDOM
+            documentStore.captureActiveCmState(u.view.state, scroller.scrollTop)
+          }
+          // 打字机模式:选区 / 文档变化后把光标拉回视口中线。defer 到 rAF 跑在
+          // CM6 更新之后(见 centerCursorCm 注释),同步调会被 CM6 自身 scrollIntoView 覆盖。
+          if (cmTypewriterEnabled && (u.docChanged || u.selectionSet)) {
+            scheduleCenterCm(u.view)
+          }
+        })
       }),
     ],
   })
@@ -435,6 +484,8 @@ watch(
     if (!view) return
     // 自身刚 emit 的回写,跳过(避免光标被重置)
     if (next === lastSelfEmitted) return
+    // 外部内容变化(切文件 / fs:watch):丢掉尚未回写的本地编辑,避免旧串覆盖新文档
+    cancelPendingContent()
     if (next === view.state.doc.toString()) return
     // 替换 doc,尽量保留光标(若越界则夹到末尾)
     const oldSel = view.state.selection.main
@@ -462,6 +513,10 @@ watch(
   () => {
     const view = viewRef.value
     if (!view) return
+    // debounce 未到期就切标签:先按旧标签 id 回写(此时 view 仍持有旧 state,
+    // 晚于 setState 就取不到旧内容了)。echo 哨兵跨标签失效,一并清掉。
+    flushPendingContent()
+    lastSelfEmitted = null
     // 同步捕获即将离开的标签的 state + 滚动位
     if (prevActiveId && prevActiveId !== documentStore.activeId) {
       documentStore.captureCmStateForDoc(prevActiveId, view.state, view.scrollDOM.scrollTop)
@@ -571,6 +626,8 @@ emitHeadingContext(view)
 })
 
 onBeforeUnmount(() => {
+  // flush 最后一次编辑:切模式 / 切标签 / 关闭窗口都不能丢 debounce 里的尾字
+  flushPendingContent()
   if (cmRafId !== null) {
     cancelAnimationFrame(cmRafId)
     cmRafId = null

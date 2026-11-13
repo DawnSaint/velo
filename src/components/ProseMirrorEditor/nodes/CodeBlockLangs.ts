@@ -321,6 +321,8 @@ export function getTokensSync(
   lang: string,
   lightTheme: string,
   darkTheme: string,
+  /** 视口高亮用:视口之前的文本,只参与 grammar 推断、不进输出(token.offset 仍相对 code)。 */
+  grammarContextCode?: string,
 ): { tokens: ThemedTokenWithVariants[][] } | null {
   if (!hl || !lang) return null
   // 「无主题」哨兵:light 或 dark 任一为空 → 跳过 shiki 渲染,代码块显示纯文本
@@ -342,6 +344,7 @@ export function getTokensSync(
     const tokens = hl.codeToTokensWithThemes(code, {
       lang: id as any,
       themes: { light: lightTheme as BundledTheme, dark: darkTheme as BundledTheme },
+      ...(grammarContextCode ? { grammarContextCode } : {}),
     })
     return { tokens }
   }

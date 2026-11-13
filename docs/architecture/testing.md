@@ -136,7 +136,7 @@ src/
 
 约定:
 - 单测放 `__tests__/` 子目录,后缀 `.test.ts`(`vitest.config.ts` 已配 include)
-- 基准测试放 `src/bench/`,后缀 `.bench.ts`(`vitest.config.ts` 的 `benchmark.include` 已配),跑 `npm run bench`;Vitest 5 起 `bench` 不再是顶层导出,而是 test context fixture:`test(name, async ({ bench }) => { await bench(name, fn).run() })`
+- 基准测试放 `src/bench/`,后缀 `.bench.ts`(`vitest.config.ts` 的 `benchmark.include` 已配),跑 `npm run bench`;Vitest 5 起 `bench` 不再是顶层导出,而是 test context fixture:`test(name, async ({ bench }) => { await bench(name, fn).run() })`;带时间预算时 options 是**第二参**(`bench(name, { time, warmupTime }, fn)`),传第三参会直接抛错。现有 `markdown.bench.ts`(parse / serialize / round-trip)与 `source-mode-input.bench.ts`(源码模式输入路径:全文 tokenize 对照 / 视口重建 / CM6 单字符 dispatch,复用 `src/bench/corpus/` 三档语料,验收线为单次输入同步路径 < 16.7ms)
 - 一个源文件一个对应测试文件,集成场景加 `.integration.test.ts` 后缀
 - 描述用 `it('写盘失败时 lastSavedContent 回滚, dirty 恢复', ...)` 这种“行为 + 期望”句式,不要 `it('test save')`
 

@@ -9,6 +9,9 @@
 //   - scroll:PM 焦点在 find 输入里时 tr.scrollIntoView 早退 → 手动 coordsAtPos +
 //     祖先 scrollBy;CM6 的 scrollIntoView effect 不依赖焦点,直接 dispatch 即居中。
 //   - selection / replaceRange / getRangeText:各自原生 API。
+//   - onDocChange:两侧都订阅 doc 变化 → 面板打开期间重算 matches。PM 走
+//     subscribeFindDocChange(微任务合并同 tick),CM6 走 subscribeCmDocChange
+//     (120ms trailing debounce,避免逐键全文正则扫描)。见各自模块。
 //   - PM 侧特有:markSourceEdit 会把行内 code / strong 等 mark 临时换成 markdown
 //     源码字面量(改 doc),FindReplace 缓存的 matches 坐标因此会整体漂移。
 //     findMatches 前先 flush 会话、面板打开期间冻结这类插件、doc 变化后重算,
@@ -23,6 +26,7 @@ import { EditorSelection as CmEditorSelection } from '@codemirror/state'
 import { findMatchesInDoc, buildPattern, type FindOptions, type Match } from './findMatches'
 import { findHighlightKey, subscribeFindDocChange } from './findHighlight'
 import { cmFindHighlightEffect } from './cmFindHighlight'
+import { subscribeCmDocChange } from './cmDocChange'
 import { flushMarkSourceEdit } from '../plugins/markSourceEdit'
 import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
 
@@ -211,10 +215,12 @@ export function createCmBackend(view: CmEditorView): FindReplaceBackend {
       view.dispatch({ effects: cmFindHighlightEffect.of({ matches: [], currentIndex: 0 }) })
     },
     // CM6 的文档就是原始 markdown,没有「渲染态 ↔ 源码态」的瞬时切换,无需冻结;
-    // 装饰也由 cmFindHighlightField 的 deco.map(tr.changes) 自行跟住文档变化。
+    // 但面板打开期间用户继续输入会让缓存的 matches 坐标陈旧 —— cmFindHighlightField
+    // 的 deco.map(tr.changes) 只让高亮视觉跟住,坐标仍要重算。故订阅 doc 变化,
+    // 经 120ms debounce 通知 FindReplace 重算(见 cmDocChange.ts)。
     setFindActive(_active) {},
-    onDocChange(_cb) {
-      return () => {}
+    onDocChange(cb) {
+      return subscribeCmDocChange(view, cb)
     },
     replaceRange(from, to, newText) {
       view.dispatch({

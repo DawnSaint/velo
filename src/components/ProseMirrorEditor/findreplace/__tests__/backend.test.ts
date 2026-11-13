@@ -3,7 +3,8 @@
 // 关注点:同一份 FindReplaceBackend 接口,两个实现(PM prose 文本 / CM6 raw markdown)
 // 行为对仗 —— findMatches / setHighlight / selectMatch 落点 / replaceCurrent /
 // replaceAll / getSelectionText 都按各自编辑器坐标正确工作。CM6 高亮 StateField
-// 装进 state 才能收 effect,故 makeCmView 带 cmFindHighlightField。
+// 装进 state 才能收 effect,故 makeCmView 带 cmFindHighlightField;带
+// cmDocChangeExtension 才能让 subscribeCmDocChange 收到 docChanged 通知。
 
 import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { EditorView as CmView } from '@codemirror/view'
@@ -14,6 +15,7 @@ import { schema } from '../../editor/schema'
 import { fromMarkdown } from '../../editor/markdownIO'
 import { createPmBackend, createCmBackend } from '../backend'
 import { cmFindHighlightField } from '../cmFindHighlight'
+import { cmDocChangeExtension } from '../cmDocChange'
 import { findHighlight, findHighlightKey } from '../findHighlight'
 import { mermaidDecoration, mermaidDecoKey } from '../../nodes/MermaidDecoration'
 import { markSourceEditPlugin, markSourceEditKey } from '../../plugins/markSourceEdit'
@@ -36,7 +38,8 @@ function makePmView(md: string, plugins: Plugin[] = [findHighlight]): PmView {
 function makeCmView(md: string): CmView {
   const container = document.createElement('div')
   document.body.appendChild(container)
-  const state = CmState.create({ doc: md, extensions: [cmFindHighlightField] })
+  // cmDocChangeExtension 必须装进 state,否则 subscribeCmDocChange 收不到 docChanged 通知
+  const state = CmState.create({ doc: md, extensions: [cmFindHighlightField, cmDocChangeExtension] })
   return new CmView({ state, parent: container })
 }
 
@@ -453,6 +456,55 @@ describe('CM6 后端', () => {
     expect(field.size).toBe(2)
     be.clearHighlight()
     expect(view.state.field(cmFindHighlightField).size).toBe(0)
+    view.destroy()
+  })
+
+  // 回归:面板打开时用户继续输入,缓存的 matches 坐标会整体漂移(旧坐标指向
+  // 插入内容之后),必须经 doc 变化订阅重算 findMatches 才能与 getRangeText 对齐。
+  // 120ms trailing debounce:advanceTimersByTime 之前不通知,推进后恰好通知一次。
+  it('onDocChange:match 前插入字符致坐标漂移 → 推进 120ms 重算后坐标对齐', () => {
+    const view = makeCmView(CM_MD)
+    const be = createCmBackend(view)
+    const matches = be.findMatches('world', opt())
+    expect(matches).toHaveLength(1)
+    expect(be.getRangeText(matches[0].from, matches[0].to)).toBe('world')
+
+    let notified = 0
+    const off = be.onDocChange(() => { notified++ })
+
+    // 在 match 起点前插入一个字符 → 'world' 整体右移一位
+    view.dispatch({ changes: { from: matches[0].from, insert: 'X' } })
+    // 旧坐标已错位(指向 'Xwor')
+    expect(be.getRangeText(matches[0].from, matches[0].to)).not.toBe('world')
+    // trailing debounce:推进前还不该通知
+    expect(notified).toBe(0)
+
+    vi.advanceTimersByTime(120)
+    expect(notified).toBe(1)
+
+    // 重算后的坐标落回真实 'world'
+    const fresh = be.findMatches('world', opt())
+    expect(fresh).toHaveLength(1)
+    expect(be.getRangeText(fresh[0].from, fresh[0].to)).toBe('world')
+    off()
+    view.destroy()
+  })
+
+  // 120ms 窗口内连续两次 docChanged 只通知一次(debounce 合并,避免逐键全文扫描)。
+  it('onDocChange:连续两次 dispatch 经 debounce 只通知一次', () => {
+    const view = makeCmView(CM_MD)
+    const be = createCmBackend(view)
+    let notified = 0
+    const off = be.onDocChange(() => { notified++ })
+
+    const at = CM_MD.indexOf('world')
+    view.dispatch({ changes: { from: at, insert: 'A' } })
+    view.dispatch({ changes: { from: at, insert: 'B' } })
+    expect(notified).toBe(0)
+
+    vi.advanceTimersByTime(120)
+    expect(notified).toBe(1)
+    off()
     view.destroy()
   })
 })

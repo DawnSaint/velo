@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { Text } from '@codemirror/state'
 import { useEditorStore } from '@/stores/editor'
 
 // ============================================================
@@ -38,23 +39,33 @@ import { useEditorStore } from '@/stores/editor'
 
 const pendingEnsure: Array<{ themeId: string, resolve: () => void }> = []
 
+/** 记录每次 tokenize 的输入串,供输入延迟回归断言(输入路径不跑 shiki / 视口化)。 */
+const tokenizeCalls: string[] = []
+
 /** 假 hl:loadedThemes 记录 ensureTheme resolve 进来的主题 id 集合。 */
 const fakeHl = {
   loadedThemes: new Set<string>(),
   loadedLanguages: new Set<string>(['markdown']),
 }
 
-/** mock shiki 的 tokenize 输出。theme 未登记 → '#not-loaded';已登记 → '#loaded-{theme}'。 */
+/** mock shiki 的 tokenize 输出。theme 未登记 → '#not-loaded';已登记 → '#loaded-{theme}'。
+ *  offset 按行累加(对齐真实 shiki 的全局偏移语义),避免多行 decoration 全落在同一点。 */
 function fakeTokenize(code: string, lightTheme: string, _darkTheme: string) {
+  tokenizeCalls.push(code)
   const lightLoaded = fakeHl.loadedThemes.has(lightTheme)
-  const lines = code.split('\n').map((line) => [{
-    content: line,
-    offset: 0,
-    variants: {
-      light: { color: lightLoaded ? `#loaded-${lightTheme}` : '#not-loaded-light' },
-      dark: { color: '#not-loaded-dark-stub' },
-    },
-  }])
+  let offset = 0
+  const lines = code.split('\n').map((line) => {
+    const token = [{
+      content: line,
+      offset,
+      variants: {
+        light: { color: lightLoaded ? `#loaded-${lightTheme}` : '#not-loaded-light' },
+        dark: { color: '#not-loaded-dark-stub' },
+      },
+    }]
+    offset += line.length + 1
+    return token
+  })
   return { tokens: lines }
 }
 
@@ -104,6 +115,7 @@ vi.mock('@/components/ProseMirrorEditor/nodes/CodeBlockLangs', async (importOrig
 // ============================================================
 
 import SourceModeEditor from '../SourceModeEditor.vue'
+import { buildShikiDecorationsForRange } from '../ProseMirrorEditor/nodes/shikiCmPlugin'
 
 // ============================================================
 //  工具
@@ -149,6 +161,7 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     pendingEnsure.length = 0
+    tokenizeCalls.length = 0
     fakeHl.loadedThemes.clear()
     // 默认主题('one-light' / 'one-dark-pro')在 production 是 bootstrap 期
     // App.vue codeBlockReady 已 ensure 过。测试里也预装,模拟"初始挂载时主题已可用"。
@@ -163,6 +176,7 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     wrapper?.unmount()
     wrapper = null
     pendingEnsure.length = 0
+    tokenizeCalls.length = 0
     fakeHl.loadedThemes.clear()
     fakeHl.loadedLanguages.clear()
   })
@@ -282,5 +296,85 @@ describe('SourceModeEditor 代码块主题切换 (CM6)', () => {
     await flushAll()
 
     expect(wrapper.emitted('cursor-position-change')?.at(-1)).toEqual([{ line: 2, column: 3 }])
+  })
+
+  // ---- 输入延迟回归 ----
+  // 旧实现每次 docChanged 都全文 tokenize + 同步 emit content,单次按键 26–697ms。
+  // 新实现:输入同步路径只平移 decoration + 排 timer,content 回写 150ms debounce。
+
+  it('回写 debounce:连续输入只在停顿 150ms 后 emit 一次,内容为最新 doc', async () => {
+    vi.useFakeTimers()
+    try {
+      wrapper = mount(SourceModeEditor, { props: { modelValue: 'one\ntwo' } })
+      await nextTick()
+      await Promise.resolve()
+      const view = (wrapper.vm as unknown as { view: import('@codemirror/view').EditorView }).view
+      view.dispatch({ changes: { from: 0, insert: 'A' } })
+      view.dispatch({ changes: { from: 0, insert: 'B' } })
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      vi.advanceTimersByTime(149)
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      vi.advanceTimersByTime(1)
+
+      const emitted = wrapper.emitted('update:modelValue')
+      expect(emitted).toHaveLength(1)
+      expect(emitted?.[0]).toEqual(['BAone\ntwo'])
+    }
+    finally { vi.useRealTimers() }
+  })
+
+  it('输入同步路径不跑 shiki:docChanged 只平移装饰,停顿后才 tokenize', async () => {
+    vi.useFakeTimers()
+    try {
+      wrapper = mount(SourceModeEditor, { props: { modelValue: '# hello' } })
+      // 等 onMounted 的 ensureMarkdownGrammar + setShikiTheme 首帧 build 落地
+      for (let i = 0; i < 5; i++) {
+        await nextTick()
+        await Promise.resolve()
+      }
+      const before = tokenizeCalls.length
+      const view = (wrapper.vm as unknown as { view: import('@codemirror/view').EditorView }).view
+
+      view.dispatch({ changes: { from: 0, insert: 'X' } })
+      expect(tokenizeCalls.length).toBe(before)
+
+      vi.advanceTimersByTime(140)
+      expect(tokenizeCalls.length).toBe(before + 1)
+    }
+    finally { vi.useRealTimers() }
+  })
+
+  it('卸载前 flush 最后一次编辑,不丢 debounce 里的尾字', async () => {
+    vi.useFakeTimers()
+    try {
+      wrapper = mount(SourceModeEditor, { props: { modelValue: 'abc' } })
+      await nextTick()
+      const view = (wrapper.vm as unknown as { view: import('@codemirror/view').EditorView }).view
+      view.dispatch({ changes: { from: 0, insert: 'Z' } })
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+      wrapper.unmount()
+      expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['Zabc'])
+      wrapper = null
+    }
+    finally { vi.useRealTimers() }
+  })
+
+  it('视口高亮只 tokenize 可见范围 + buffer,不吞全文档', () => {
+    tokenizeCalls.length = 0
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i} some **bold** text`)
+    const doc = Text.of(lines)
+    const fullLength = lines.join('\n').length
+    const mid = doc.line(2000)
+
+    buildShikiDecorationsForRange(
+      doc,
+      { lightTheme: 'one-light', darkTheme: 'one-dark-pro' },
+      { from: mid.from, to: mid.to },
+    )
+
+    expect(tokenizeCalls).toHaveLength(1)
+    expect(tokenizeCalls[0].length).toBeLessThan(fullLength / 20)
   })
 })

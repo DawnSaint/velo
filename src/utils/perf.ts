@@ -64,6 +64,68 @@ export function measure(name: string, start: string, end: string): void {
   catch { /* start/end 还没 mark,忽略 */ }
 }
 
+// ============================================================
+//  输入路径打点(与首屏打点正交)
+// ============================================================
+//
+// 首屏 mark/measure 测的是「页面到可编辑」,看不到每次按键的同步开销。
+// 编辑器输入链路上用 measureSync 包住昂贵段:dev / flag 开启时记一条
+// User Timing measure(DevTools Performance 面板可见)+ 内存样本,
+// production 默认整段 no-op,不写控制台、不写盘。
+
+const INPUT_SAMPLE_CAP = 200
+const inputSamples = new Map<string, number[]>()
+
+/** 包一段同步工作,记录其耗时。ENABLED=false 时退化为直接调用 fn。 */
+export function measureSync<T>(name: string, fn: () => T): T {
+  if (!ENABLED) return fn()
+  const start = performance.now()
+  try {
+    return fn()
+  }
+  finally {
+    const end = performance.now()
+    const duration = end - start
+    let samples = inputSamples.get(name)
+    if (!samples) {
+      samples = []
+      inputSamples.set(name, samples)
+    }
+    samples.push(duration)
+    if (samples.length > INPUT_SAMPLE_CAP) samples.shift()
+    try {
+      const m = `${PREFIX}:measure:input:${name}`
+      // 固定名字 + 先清后建:避免每键生成一条 entry 把 performance buffer 撑爆
+      performance.clearMeasures(m)
+      performance.measure(m, { start, end })
+    }
+    catch { /* User Timing L3 options 不可用,样本仍保留 */ }
+  }
+}
+
+interface InputPerfStat {
+  count: number
+  last: number
+  max: number
+  avg: number
+}
+
+/** DevTools Console 查输入延迟用:report 之外的独立快照。 */
+function inputPerfSnapshot(): Record<string, InputPerfStat> {
+  const out: Record<string, InputPerfStat> = {}
+  for (const [name, samples] of inputSamples) {
+    if (!samples.length) continue
+    const sum = samples.reduce((a, b) => a + b, 0)
+    out[name] = {
+      count: samples.length,
+      last: Math.round(samples[samples.length - 1] * 100) / 100,
+      max: Math.round(Math.max(...samples) * 100) / 100,
+      avg: Math.round((sum / samples.length) * 100) / 100,
+    }
+  }
+  return out
+}
+
 // FCP/LCP 抓取 —— 立即注册 observer,在 report 时读出。
 let fcpTime: number | null = null
 let lcpTime: number | null = null
@@ -125,6 +187,12 @@ export function report(label = 'current'): PerfSnapshot | null {
   console.info('marks  :', snap.marks)
   console.groupEnd()
   return snap
+}
+
+// DevTools Console 查输入延迟:__veloInputPerf() → { 'source-input': {last,max,avg,count}, ... }
+if (ENABLED && typeof window !== 'undefined') {
+  const debugWindow = window as Window & { __veloInputPerf?: () => Record<string, InputPerfStat> }
+  debugWindow.__veloInputPerf = inputPerfSnapshot
 }
 
 // 自动在 load 后 200ms 触发一次 report。
