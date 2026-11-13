@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.15](https://github.com/DawnSaint/velo/compare/v0.7.14...v0.7.15) (2026-11-13)
+
+
+### Features
+
+* **app:** add in-app confirm dialog and prune stale recent entries ([9d6d200](https://github.com/DawnSaint/velo/commit/9d6d200a23cf21abdd96eb57815395b0cb8fb8c0))
+* **app:** replace remaining native confirm dialogs with in-app confirmations ([efc3aec](https://github.com/DawnSaint/velo/commit/efc3aecad53d3b72d79696af5fbca90c23155931))
+* **editor:** preserve character entities in wysiwyg and make search hits navigable ([c460fa4](https://github.com/DawnSaint/velo/commit/c460fa4f5e1c69eff56b13fdbe5169d8d4401d28))
+* **editor:** unify broken-image fallback across editor and diff previews ([9d82dc7](https://github.com/DawnSaint/velo/commit/9d82dc7c09bb2d5d46a5efeb0b19c3ccfd249b29))
+
+
+### Bug Fixes
+
+* **app:** eliminate large-folder startup hangs and first-paint flashes ([089fb46](https://github.com/DawnSaint/velo/commit/089fb46ca3cc2c3a8bd29e52a0102d73e854d6a7))
+* **editor:** decolorize inline code and keep find matches aligned with the rendered doc ([4179b60](https://github.com/DawnSaint/velo/commit/4179b60c1f170d7ec98cb8b6126542e58bad594b))
+* **editor:** keep outline in sync with content and refine WYSIWYG diff markers ([32e78e0](https://github.com/DawnSaint/velo/commit/32e78e0722d14fd4d75cbe32241e3db72d516271))
+* **editor:** stop character-entity pollution, preserve legacy docs, and fix paste and code headers ([7dd84bc](https://github.com/DawnSaint/velo/commit/7dd84bc0b95c6b2f10ef50d0c61473a7e0c3dec8))
+
+
+### Performance Improvements
+
+* **editor:** keep source mode input off full-document highlighting ([384603a](https://github.com/DawnSaint/velo/commit/384603a858a88b11f36af172dac914f83de5d337))
+* **editor:** serialize markdown incrementally by top-level block ([c213093](https://github.com/DawnSaint/velo/commit/c213093f9d776f5d53c578bcd5d096b064fa995d))
+* **tauri:** sink workspace search, quick-open scan and git history into rust ([946079c](https://github.com/DawnSaint/velo/commit/946079c28cf3e993a3e9f0dbdb90c9fb52b5cfe4))
+
 ## [0.7.14](https://github.com/DawnSaint/velo/compare/v0.7.13...v0.7.14) (2026-11-07)
 
 
