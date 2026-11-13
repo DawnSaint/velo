@@ -114,14 +114,57 @@
 // 须同时作用于 PM(.velo-editor 内)与 CM6(.velo-cm-source 内)。
 // ::selection 只在选区处于焦点元素时绘制——焦点在 find 输入里时 ::selection
 // 不会画,所以必须用 Decoration 才能在用户 navigate 时持续看到高亮。
+// 底色 / 描边同时下沉成自定义属性:实体命中装饰与高亮装饰被 PM 合并到同一枚
+// span 时(font-size:0),要把高亮挪到 ::after 伪元素上,见下方 .velo-char-ref-inline。
 .velo-find-match {
-  background-color: rgba(255, 215, 0, 0.35);
+  --velo-find-bg: rgba(255, 215, 0, 0.35);
+  background-color: var(--velo-find-bg);
   border-radius: 2px;
 }
 .velo-find-current {
-  background-color: rgba(255, 165, 0, 0.6);
+  --velo-find-bg: rgba(255, 165, 0, 0.6);
+  --velo-find-ring: 0 0 0 1px rgba(255, 140, 0, 0.7);
+  background-color: var(--velo-find-bg);
   border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.7);
+  box-shadow: var(--velo-find-ring);
+}
+
+// 字符实体源码态:&#x20; 等字面量临时替换解码字符时的浅灰提示色。
+// 用 --editor-text-muted(亮 #888 / 暗 #aaa,由 index.scss 随主题翻面),
+// 不叠底色 —— 与正文只做字色区分,不打断阅读节奏。
+.velo-char-ref-source {
+  color: var(--editor-text-muted);
+}
+
+// 查找面板打开期间不改 doc(matches 坐标会漂移),用纯装饰把命中的解码字符
+// 原位显示成实体字面量:font-size:0 收掉解码字符的宽度,::after 里的字面量
+// 顶上它的位置。PM 会把同区间的 findHighlight deco 与本 deco 合并成一枚 span,
+// 此时 font-size:0 让高亮背景塌成基线上的一条细线(实测),故把底色/描边挪到
+// ::after;若两枚 deco 嵌套(高亮在外),外层 span 正常覆盖伪元素,不会叠加双底色。
+.velo-char-ref-inline {
+  font-size: 0;
+
+  &::after {
+    content: attr(data-char-ref);
+    font-size: var(--md-font-size, 16px);
+    color: var(--editor-text-muted);
+  }
+
+  &.velo-find-current,
+  &.velo-find-match {
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  &.velo-find-current::after,
+  &.velo-find-match::after {
+    background-color: var(--velo-find-bg);
+    border-radius: 2px;
+  }
+
+  &.velo-find-current::after {
+    box-shadow: var(--velo-find-ring);
+  }
 }
 
 // ProseMirror drop-cursor:拖动时在落点画一条光标线(类似 Typora)

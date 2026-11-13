@@ -693,6 +693,17 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ tag: 'sub' }],
     toDOM: () => ['sub', 0],
   },
+
+  // 字符实体引用(&#x20; / &nbsp; ...)。PM text 存解码后的字符,segments 记原文的
+  // 实体字面量,让 toMarkdown 原样写回、查找能命中字面量、源码态能临时显示字面量。
+  // inclusive:false —— 边界打字不继承,新字符不会被误当实体的一部分。
+  char_ref: {
+    attrs: {
+      segments: { default: [] as { raw: string, text: string }[] },
+    },
+    inclusive: false,
+    toDOM: () => ['span', 0],
+  },
 }
 
 // ============================================================

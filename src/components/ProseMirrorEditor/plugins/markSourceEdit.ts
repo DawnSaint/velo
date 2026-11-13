@@ -34,6 +34,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { Mark, Node as PMNode } from 'prosemirror-model'
 
 import { fromMarkdown } from '../editor/markdownIO'
+import { getCharRefSegments, expandCharRefText } from '../editor/charRef'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
@@ -193,7 +194,12 @@ function buildMarkSource(doc: PMNode, from: number, to: number): string {
         out += markerText(m)?.open ?? ''
       }
     }
-    out += node.isText ? (node.text ?? '') : ''
+    // char_ref text 节点存的是解码字符;源码态要显示实体字面量,否则 commit
+    // 重解析后实体会退化成普通空格(与写盘源码脱节)。
+    const segments = getCharRefSegments(node)
+    out += node.isText
+      ? (segments ? expandCharRefText(segments) : (node.text ?? ''))
+      : ''
     prevMarks = cur
   }
   // 闭尾:所有还开着的 mark

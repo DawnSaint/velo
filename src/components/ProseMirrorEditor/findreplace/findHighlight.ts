@@ -12,9 +12,10 @@
 //   - 插件 props.decorations 用 state 构造 DecorationSet,ProseMirror 自动渲染
 //
 // 与 source edit 插件的契约(2026-11 修「搜索定位错位」时建立):
-//   - active 表示查找面板打开。markSourceEdit / emojiSourceEdit 这类插件会把
-//     *视图状态* 写进 doc(行内 code mark → 字面量 "`code`",净 +2),doc 坐标系
-//     跟渲染态不通用;面板打开时它们靠 isFindReplaceActive() 退避,不再改 doc。
+//   - active 表示查找面板打开。markSourceEdit / emojiSourceEdit / charRefSourceEdit
+//     这类插件会把 *视图状态* 写进 doc(行内 code mark → 字面量 "`code`",净 +2;
+//     char_ref → "&#x20;",净 +5),doc 坐标系跟渲染态不通用;面板打开时它们靠
+//     isFindReplaceActive() 退避,不再改 doc(charRef 改用纯 decoration 显示命中)。
 //   - 兜底:doc 真的变了(键入 / 别的插件 / 外部替换)时 view.update 通过
 //     subscribeFindDocChange 异步通知 FindReplace 重算 matches,而不是只靠 map。
 

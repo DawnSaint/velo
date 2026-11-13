@@ -445,10 +445,10 @@ export const useDocumentStore = defineStore('document', () => {
       const pmDoc = fromMarkdown(c, pmSchema)
       d.pendingPmDoc = markRaw(pmDoc)
       // 正文含字符实体(&#x20; / &nbsp; 等)的文档:打开保留 raw,不做 canonical
-      // round-trip。toMarkdown 会把实体解码成字符再规范化掉,若塞进 content /
-      // lastSavedContent 会静默改写磁盘内容、且因两者相等不显示 dirty —— 用户看到
-      // "编辑器里实体没了但盘上还在"。这类文档以 raw 作基线:源码模式逐字节保真、
-      // 搜得到实体,打开不 dirty;真正编辑时仍走 toMarkdown(不自动添加实体)。
+      // round-trip。char_ref mark 已让对齐过的实体原样写回,但标注对齐失败 / CRLF
+      // 场景仍会被 canonical 改写,塞进 content / lastSavedContent 就会静默改写
+      // 磁盘内容、且因两者相等不显示 dirty —— 用户看到"编辑器里实体没了但盘上还在"。
+      // 这类文档以 raw 作基线:源码模式逐字节保真、搜得到实体,打开不 dirty。
       // 代价:实体文档 type+delete 不归零(与 >2000 行大文档同款取舍)。
       // 代码块 / 行内代码里的字面实体不会被解码,照旧 canonical。
       if (hasCharRefOutsideCode(c)) {

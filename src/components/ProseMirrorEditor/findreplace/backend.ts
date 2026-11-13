@@ -15,7 +15,9 @@
 //   - PM 侧特有:markSourceEdit 会把行内 code / strong 等 mark 临时换成 markdown
 //     源码字面量(改 doc),FindReplace 缓存的 matches 坐标因此会整体漂移。
 //     findMatches 前先 flush 会话、面板打开期间冻结这类插件、doc 变化后重算,
-//     三条一起保证坐标唯一(见 findHighlight.ts 顶部注释)。
+//     三条一起保证坐标唯一(见 findHighlight.ts 顶部注释)。charRef 源码态同理
+//     (1 个解码字符 → 6 个字符);面板活跃期间它不改 doc,改用纯装饰显示命中
+//     实体,关闭时 clearHighlight 顺带 recheckCharRefReveal 按选区重判。
 //
 // Match.from/to 是编辑器本地坐标(PM pos / CM6 offset),FindReplace 不感知差异。
 
@@ -28,6 +30,7 @@ import { findHighlightKey, subscribeFindDocChange } from './findHighlight'
 import { cmFindHighlightEffect } from './cmFindHighlight'
 import { subscribeCmDocChange } from './cmDocChange'
 import { flushMarkSourceEdit } from '../plugins/markSourceEdit'
+import { flushCharRefReveal, recheckCharRefReveal } from '../plugins/charRefSourceEdit'
 import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
 
 export interface FindReplaceBackend {
@@ -102,6 +105,9 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       // 稳定的渲染态坐标上。flush 是同步 dispatch,view.state.doc 随即更新;
       // 没有 session(或没装该插件)时返回 null,零副作用。
       flushMarkSourceEdit(view)
+      // 实体源码态同样会改 doc 长度(解码字符 → 实体字面量),先还原再算坐标。
+      // 工作区搜索点击结果走 findMatches → setSelection → 重新进入源码态,无副作用。
+      flushCharRefReveal(view)
       return findMatchesInDoc(view.state.doc, query, options)
     },
     setSelection(from, to) {
@@ -135,6 +141,10 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
     },
     clearHighlight() {
       view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: false }))
+      // 面板关闭(findOpen → false)时焦点已经还给编辑器:解除退避后按当前选区
+      // 重判一次实体源码态 —— 命中停在实体上就继续显示字面量,否则空操作。
+      // 工作区搜索跳转也走这里,此时选区就在刚展开的实体内,sync 会保持原状。
+      recheckCharRefReveal(view)
     },
     setFindActive(active) {
       if (active) {
@@ -142,6 +152,7 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
         // 的「纯选区变化」守卫误判成又一次 enter。
         view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: true }))
         flushMarkSourceEdit(view)
+        flushCharRefReveal(view)
       } else {
         view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: false }))
       }

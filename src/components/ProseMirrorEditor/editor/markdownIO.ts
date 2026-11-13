@@ -12,12 +12,14 @@
 // MermaidDecoration widget 叠加 SVG 预览)。`mermaid` atom 节点已废弃。
 
 import remarkStringify from 'remark-stringify'
-import type { Schema, Node as PMNode, MarkType } from 'prosemirror-model'
+import type { Schema, Node as PMNode, Mark, MarkType } from 'prosemirror-model'
 import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingContent, Table, ListItem } from 'mdast'
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
 import type { FrontmatterLang } from '../syntax/block/frontmatter'
 import { createParseProcessor, preprocessSource } from './parseProcessor'
+import { CHAR_REF_MARK, scanCharRefs } from './charRef'
+import type { CharRefAt, CharRefSegment } from './charRef'
 // remark-parse 实际解析的是 preprocessSource(md)（空行 → `<br />`、URL 空格 →
 // %20 两次改写之后），mdast 的 position.offset 也是相对这份字符串；
 // annotateEmphasisMarker / annotateMathDelimiterCount 用 offset 回查源文本，
@@ -208,6 +210,11 @@ const processor = createParseProcessor()
         const url = /\s/.test(rawUrl) ? `<${rawUrl}>` : rawUrl
         return `![${alt}](${url}${title})`
       },
+      // 字符实体:原样输出字面量,不走 state.safe(它会把 & 转义成 \&,
+      // 写盘后实体就变成了普通文本)。
+      charRef(node: { value?: string }) {
+        return node.value || ''
+      },
     },
     // `highlight` 是自定义 mdast 节点,Options 类型联合里没有 —— 用 any 绕过
   } as any)
@@ -225,6 +232,7 @@ const processor = createParseProcessor()
 function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
   annotateMathDelimiterCount(tree, md)
   annotateEmphasisMarker(tree, md)
+  annotateCharRefs(tree, md)
   const blocks = tree.children.flatMap(n => mdastBlockToPM(n, schema))
   if (blocks.length === 0) {
     return schema.node('doc', null, [schema.node('paragraph')])
@@ -402,6 +410,87 @@ function annotateEmphasisMarker(tree: Root, md: string): void {
   }
   visit(tree)
 }
+
+/**
+ * 给 mdast text 节点标注字符实体位置(_charRefs)。
+ *
+ * remark-parse 已把实体解码进 node.value,字面量只剩在原文里。用 node.position.offset
+ * 回查 preprocessSource 后的 md,模拟一遍解码得到「解码串下标 → 实体字面量」。
+ * 与 annotateEmphasisMarker 同范式,只标能严格对齐的节点。
+ */
+interface MdastLike {
+  type?: string
+  value?: unknown
+  position?: { start?: { offset?: number }, end?: { offset?: number } }
+  children?: MdastLike[]
+  _charRefs?: CharRefAt[]
+}
+
+function annotateCharRefs(tree: Root, md: string): void {
+  const visit = (node: MdastLike): void => {
+    // 不能用 node.value.includes('&') 过滤:实体解码后往往正好不含 &,
+    // 纯实体文本(首尾&#x20;&#8203;相邻 / **&#x20; ... **)会被整段漏掉。
+    if (node.type === 'text' && typeof node.value === 'string') {
+      const start = node.position?.start?.offset
+      const end = node.position?.end?.offset
+      if (typeof start === 'number' && typeof end === 'number' && end <= md.length) {
+        const refs = scanCharRefs(md.slice(start, end), node.value)
+        if (refs?.length) node._charRefs = refs
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const c of node.children) visit(c)
+    }
+  }
+  visit(tree as unknown as MdastLike)
+}
+
+/**
+ * 带实体标注的 mdast text → PM inline 节点。
+ * 连续实体合成一个 text 节点(char_ref mark 带 segments),其余区间照旧拆 soft break。
+ */
+function charRefTextToPM(
+  value: string,
+  refs: CharRefAt[],
+  marks: readonly Mark[],
+  schema: Schema,
+): PMNode[] {
+  const charRefType = schema.marks[CHAR_REF_MARK]
+  const out: PMNode[] = []
+  let i = 0
+  let refIdx = 0
+  while (i < value.length) {
+    if (refIdx < refs.length && refs[refIdx].at === i) {
+      const segments: CharRefSegment[] = []
+      let cursor = i
+      while (refIdx < refs.length && refs[refIdx].at === cursor) {
+        const r = refs[refIdx]
+        segments.push({ raw: r.raw, text: r.text })
+        cursor += r.text.length
+        refIdx++
+      }
+      out.push(schema.text(
+        segments.map(s => s.text).join(''),
+        marks.concat(charRefType.create({ segments })),
+      ))
+      i = cursor
+      continue
+    }
+    let end = i
+    while (end < value.length && value[end] !== '\n'
+      && !(refIdx < refs.length && refs[refIdx].at === end)) end++
+    if (end > i) out.push(schema.text(value.slice(i, end), marks))
+    if (end < value.length && value[end] === '\n') {
+      out.push(schema.node('hardbreak'))
+      i = end + 1
+    }
+    else {
+      i = end
+    }
+  }
+  return out
+}
+
 // ============================================================
 //
 // 给 shiki 预装 grammar 用。doc 里出现的 lang 在 App.vue 启动期装进
@@ -711,6 +800,11 @@ function inlineNodeToPM(
   switch (n.type) {
     case 'text': {
       if (!n.value) return []
+      // 字符实体:优先按标注切成「普通文本 / char_ref mark 文本」两套节点。
+      const refs = n._charRefs as CharRefAt[] | undefined
+      if (refs?.length && schema.marks[CHAR_REF_MARK]) {
+        return charRefTextToPM(n.value, refs, marks, schema)
+      }
       // CommonMark soft break(\n)在 mdast text 里是字面 \n,但 PM text 节点不应
       // 含 \n —— CSS pre-wrap 会渲染它,但 PM 的 DOM ↔ doc 同步在编辑时可能
       // 把 \n 拆成 <br>,导致结构突变(toMarkdown 输出变化 → 触发 reload)。
@@ -1213,6 +1307,16 @@ function spanToLeaf(span: InlineSpan): PhrasingContent {
     case 'text':
       if (span.marks.some(m => m.name === 'code')) {
         return { type: 'inlineCode', value: span.value }
+      }
+      // char_ref mark 的 text 节点只含实体解码字符 —— 原样写回实体字面量。
+      // segments 与文本对不上(用户在 mark 内编辑过)时退回普通 text,不写坏源码。
+      {
+        const refMark = span.marks.find(m => m.name === CHAR_REF_MARK)
+        const segments = refMark?.attrs.segments as CharRefSegment[] | undefined
+        if (Array.isArray(segments) && segments.length
+          && segments.map(s => s.text).join('') === span.value) {
+          return { type: 'charRef', value: segments.map(s => s.raw).join('') } as unknown as PhrasingContent
+        }
       }
       // \ → \u0001 占位符,让 state.safe 不处理 \ 的转义(上游 escapeBackslashes
       // 对连续 \\ 的转义规则 N→(N+1) 与 remark-parse 的 N→ceil(N/2) 不对称,

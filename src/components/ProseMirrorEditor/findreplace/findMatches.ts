@@ -6,6 +6,11 @@
 // 零宽匹配(整个 regex 是 anchor)会推进 lastIndex,避免死循环。
 
 import type { Node } from 'prosemirror-model'
+import {
+  buildCharRefIndexMap,
+  expandCharRefText,
+  getCharRefSegments,
+} from '../editor/charRef'
 
 export interface FindOptions {
   caseSensitive: boolean
@@ -58,22 +63,42 @@ export function findMatchesInDoc(doc: Node, query: string, options: FindOptions)
   const result: Match[] = []
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return
-    const text = node.text
-    pat.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = pat.exec(text)) !== null) {
-      if (m[0].length === 0) {
-        // 零宽匹配 → 必须手动推进,否则 lastIndex 不动 → 死循环
-        pat.lastIndex++
-        continue
+    // char_ref 节点在 doc 里只有一个解码字符,但源码里是整串实体字面量。
+    // 两种文本各搜一遍:解码文本保住「搜空格」等原有语义,展开文本让
+    // 工作区全文搜索的 `&#x20;` 命中能落到 PM 坐标上(点击跳转)。
+    const segments = getCharRefSegments(node)
+    const variants: Array<{ text: string, map: number[] | null }> = [
+      { text: node.text, map: null },
+    ]
+    if (segments) {
+      variants.push({ text: expandCharRefText(segments), map: buildCharRefIndexMap(segments) })
+    }
+    const seen = new Set<string>()
+    for (const v of variants) {
+      pat.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = pat.exec(v.text)) !== null) {
+        if (m[0].length === 0) {
+          // 零宽匹配 → 必须手动推进,否则 lastIndex 不动 → 死循环
+          pat.lastIndex++
+          continue
+        }
+        let from = v.map ? v.map[m.index] : m.index
+        let to = v.map ? v.map[m.index + m[0].length] : m.index + m[0].length
+        // 命中只覆盖实体字面量的一部分时两端会落在同一个解码字符上。
+        // 实体是 doc 里的最小可选单位,夹到整个节点而不是产出零宽区间。
+        if (to <= from) {
+          from = Math.min(from, node.nodeSize - 1)
+          to = node.nodeSize
+        }
+        const key = `${from}:${to}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push({ from: pos + from, to: pos + to })
       }
-      result.push({
-        from: pos + m.index,
-        to: pos + m.index + m[0].length,
-      })
     }
   })
-  return result
+  return result.sort((a, b) => a.from - b.from || a.to - b.to)
 }
 
 /**

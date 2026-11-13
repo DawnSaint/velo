@@ -1,7 +1,7 @@
 // 源码编辑 session 检测 —— 供 onChange 判断"当前是否处于
 // image/link/mark/html 源码编辑中间态",以决定是否对源码文本做转义补偿。
 //
-// 五个 session 插件(imageEdit / linkClick / markSourceEdit / htmlSourceEdit / emojiSourceEdit)共享同一范式:
+// 六个 session 插件(imageEdit / linkClick / markSourceEdit / htmlSourceEdit / emojiSourceEdit / charRefSourceEdit)共享同一范式:
 //   - 进入编辑态:把渲染节点替换为纯文本源码(`![alt](src)` / `[text](url)` / `**bold**` / `<sup>2</sup>`),
 //     trigger 事务挂 SKIP_CONTENT_EMIT 跳过回写
 //   - 用户键入:普通事务,不挂 SKIP_CONTENT_EMIT → onChange 触发 toMarkdown →
@@ -18,6 +18,7 @@ import { markSourceEditKey } from '../plugins/markSourceEdit'
 import { imageEditKey } from '../image/imageEditPlugin'
 import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 import { emojiSourceEditKey } from '../plugins/emojiSourceEdit'
+import { charRefSourceEditKey } from '../plugins/charRefSourceEdit'
 
 /** 获取所有活跃 session 的文本范围(绝对位置),用于 toMarkdown 占位符替换。 */
 export function getSourceEditRanges(state: EditorState): { from: number; to: number }[] {
@@ -32,5 +33,10 @@ export function getSourceEditRanges(state: EditorState): { from: number; to: num
   if (htmlSession) ranges.push({ from: htmlSession.editFrom, to: htmlSession.editTo })
   const emojiSession = emojiSourceEditKey.getState(state)?.session
   if (emojiSession) ranges.push({ from: emojiSession.editFrom, to: emojiSession.editTo })
+  // 实体源码态:doc 里是 '&#x20;' 纯文本(无 mark),toMarkdown 会把 & 转义成
+  // \&,必须同样走占位符还原,否则展开期间键入会把 content 写成 \&#x20;。
+  for (const r of charRefSourceEditKey.getState(state)?.revealed ?? []) {
+    ranges.push({ from: r.from, to: r.to })
+  }
   return ranges
 }

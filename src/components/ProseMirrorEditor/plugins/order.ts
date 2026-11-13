@@ -53,6 +53,7 @@ export const CANONICAL_PLUGIN_ORDER: readonly string[] = [
   'htmlSourceEditEscape',
   'emojiSourceEdit',
   'emojiSourceEditEscape',
+  'charRefSourceEdit', // must back off when other source edit sessions are active
 
   // ── Syntax & Input ──────────────────────────────────────────────────
   'syntaxAutoFormat',

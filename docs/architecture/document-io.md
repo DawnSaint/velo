@@ -59,7 +59,8 @@
 
 ## 设计要点
 
-- **canonical 基线顺带建块缓存**: `loadContentInto` 的小文档路径本来就要 `toMarkdown(pmDoc)` 取 canonical 基线,`serializeDocIncremental` 用同一次逐块序列化同时产出基线串与块缓存,首次编辑即可命中增量路径;逐块 stringify 与全量同量级(小文档约 +20ms),换来的是首次编辑不必再全量重建。大文档(`> CANON_SKIP_THRESHOLD` 行)与含字符实体的文档仍用 raw 基线且不建缓存,首次编辑全量兜底 —— 阈值不是可随手删的性能补丁(删掉等于给大文档重新加一次主线程序列化),字符实体 raw 是保真语义,两者都保留
+- **canonical 基线顺带建块缓存**: `loadContentInto` 的小文档路径本来就要 `toMarkdown(pmDoc)` 取 canonical 基线,`serializeDocIncremental` 用同一次逐块序列化同时产出基线串与块缓存,首次编辑即可命中增量路径;逐块 stringify 与全量同量级(小文档约 +20ms),换来的是首次编辑不必再全量重建。大文档(`> CANON_SKIP_THRESHOLD` 行)与含字符实体的文档仍用 raw 基线且不建缓存,首次编辑全量兜底 —— 阈值不是可随手删的性能补丁(删掉等于给大文档重新加一次主线程序列化),字符实体 raw 是保真语义,两者都保留。`char_ref` mark 落地后 `toMarkdown` 已能把对齐过的实体原样写回(见 [编辑器](./editor.md)),但 raw 基线**不因此退役**:`scanCharRefs` 与 mdast 解码串对不上时该处仍是普通文本、含 CRLF 的实体文档还需逐字节保真,raw 基线是这两类场景的唯一兜底
+
 - **外部检测的 canonicalize 有 disk memo**: `checkExternalChange` 每次 focus 兜底检查都要把 disk 过一遍 `toMarkdown(fromMarkdown(disk))` 才能与 canonical 基线比;`DocState.externalCanonicalCache` 以磁盘原文为 key 缓存结果,磁盘未变时整趟双往返直接跳过。key 是磁盘原文而非基线,所以 `save` / `saveAs` / 草稿恢复推进 `lastSavedContent` 时不需要同步这个缓存,换路径也不会串味
 - **自家写盘不打扰**: `save()` 写盘前推进 `lastSavedContent`,自己触发的 fs:watch 被 `disk === lastSavedContent` 短路。
 - **`checkExternalChange` canonical 比对**: `lastSavedContent` 是 canonical 形式(`loadContentInto` 过了一遍 markdownIO),但磁盘原文可能与 canonical 不字节相等(多余空行 / whitespace normalize)。save() 写 canonical → 写完后 fast path 命中;未保存时 disk 是 raw → exact match 失败后把 disk 也 canonicalize 再比,避免非 canonical 文件编辑后切窗口 focus 误报"外部修改"。
