@@ -18,6 +18,7 @@ import {
 import { useWorkspaceStore } from './workspace'
 import { useVersionHistoryStore } from './versionHistory'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
+import { invalidateBlockCache, serializeDocIncremental } from '@/components/ProseMirrorEditor/editor/blockSerializer'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 import { formatError } from '@/utils/formatError'
 
@@ -62,6 +63,13 @@ interface DocState {
    * markRaw 包裹;consume 后置 undefined。
    */
   pendingPmDoc?: unknown
+  /**
+   * 外部修改检测的「磁盘原文 → canonical」memo。
+   * checkExternalChange 每次都要把 disk 过一遍 fromMarkdown + toMarkdown 才能与
+   * canonical 基线比,而 window focus 兜底检查时磁盘通常没变 —— 命中即省掉整趟
+   * 双往返。key 是 disk 原文,与基线推进无关,不需要在各保存入口同步。
+   */
+  externalCanonicalCache?: { raw: string; canonical: string }
 }
 
 let docIdSeq = 0
@@ -292,7 +300,15 @@ export const useDocumentStore = defineStore('document', () => {
       // 写完后 disk === lastSavedContent 走上面的 fast path;但**未保存**时
       // disk 是 raw 原文,lastSavedContent 是 canonical → 直接比会误判"外部修改"。
       // 解法:exact match 失败后,把 disk 也 canonicalize 再比一次。
-      const canonicalDisk = toMarkdown(fromMarkdown(disk, pmSchema))
+      // 双往返(full parse + full stringify)是这条路径的主要开销,disk 未变时
+      // 直接复用上次的 canonical 结果 —— 典型场景是窗口 focus 兜底检查。
+      let canonicalDisk: string
+      if (d.externalCanonicalCache?.raw === disk) {
+        canonicalDisk = d.externalCanonicalCache.canonical
+      } else {
+        canonicalDisk = toMarkdown(fromMarkdown(disk, pmSchema))
+        d.externalCanonicalCache = { raw: disk, canonical: canonicalDisk }
+      }
       if (canonicalDisk === d.lastSavedContent) return
       // 磁盘内容已经和编辑器里的一致（比如别人重写为同样内容）：只刷新基线
       // raw match（disk 与 content 字节相等）或 canonical match（disk 非 canonical
@@ -409,6 +425,9 @@ export const useDocumentStore = defineStore('document', () => {
     d.virtualFileName = null
     d.readOnlyLocked = readOnlyLocked_
     d.userReadOnly = false
+    // 内容整体替换:旧块缓存的 node 引用全部失效,外部检测的 disk memo 也换了基线。
+    invalidateBlockCache(d.id)
+    d.externalCanonicalCache = undefined
 
     // C0: fromMarkdown 只调一次,PM Node 存入 pendingPmDoc 供 EditorInner 消费,
     //     跳过 modelValue watch / useProseMirror 里的第二次 fromMarkdown。
@@ -443,7 +462,9 @@ export const useDocumentStore = defineStore('document', () => {
         // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
         // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
         // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
-        const canonical = toMarkdown(pmDoc)
+        // 顺带产出块缓存:canonical 本来就要做一次全文档序列化,走增量路径
+        // 成本持平,但首次编辑即可命中缓存,不必再全量重建一次。
+        const canonical = serializeDocIncremental(pmDoc, d.id)
         d.content = canonical
         d.lastSavedContent = canonical
       }
@@ -1248,7 +1269,10 @@ export const useDocumentStore = defineStore('document', () => {
       return { state: d.pmState, scrollTop: d.scrollTop }
     }
     try {
-      const md = toMarkdown((d.pmState as { doc: unknown }).doc as Parameters<typeof toMarkdown>[0])
+      const md = serializeDocIncremental(
+        (d.pmState as { doc: unknown }).doc as Parameters<typeof toMarkdown>[0],
+        d.id,
+      )
       if (md !== d.content) return null // stale(外部改动 / saveAs 换内容)
     }
     catch {

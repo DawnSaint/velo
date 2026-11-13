@@ -1,36 +1,17 @@
 # Velo Roadmap
 
-> Velo 的迭代规划：功能 backlog、工程化、已知问题统一在此追踪。
->
 > **维护规范**:
+>
 > - 每条 `- [ ]` 完成后改 `- [x]`，不要删除条目
 > - 实现过程中发现原计划无法落地或方案改了 → 用删除线 + `→` 注明实际走法
 >
 > **调研文档**（`docs/research/`）:
+>
 > - **如何引用**: 在对应功能条目末尾加 `—— [RESEARCH](./research/xxx.md)` 链接，ROADMAP 是调研文档的唯一入口
 > - **文件命名**: `docs/research/<feature-name>.md`，一个功能一篇，不设总索引文件
 > - **写什么**: 候选方案对比、第三方依赖评估、与现有架构的结合点、风险点、推荐路线；不写实现步骤（实现后进 architecture docs）
 
 
-
-## 图例
-
-> 每条功能标注优先级、复杂度、依赖关系，便于排期决策。实际以调研结论为准。
-
-| 标记 | 含义 |
-|------|------|
-| `P0` | 阻塞分发或核心地基 — 必须最先做 |
-| `P1` | 核心差异化方向 — 高优先 |
-| `P2` | 体验增强 — 中优先，按需排期 |
-| `P3` | 远期方向 / 低频需求 |
-| `S` | 轻量 — 单文件 / 单模块，路径明确 |
-| `M` | 中等 — 跨 2-3 模块，路径清晰但需分步实现 + 验证 |
-| `L` | 重型 — 跨子系统或需 PoC 验证，需多轮迭代实现 |
-| `XL` | 超大 — 大功能集，需调研 + 实现 + 回归 |
-| `?` | 方案未定 — 需先调研 / PoC 验证才能确定实现路径；与复杂度标记正交 |
-| `← #id` | 依赖前置条目完成 |
-| `→ #id` | 阻塞后续条目 |
-| `↔ #id` | 共享数据层 / 协同实现 |
 
 
 
@@ -39,13 +20,12 @@
 > 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
 
 ```
-P1  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
-                                                                │
-P2  #system-tray ──→ #daily-note
+P2  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
+    #system-tray ──→ #daily-note
     #wikilink ──→ #go-to-def · #find-refs
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #diff-autoscroll · #diff-change-preview · #diff-ruler（独立）
-                                                                │
+
 P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
     #theme-market · #theme-presets（独立）
@@ -53,17 +33,17 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 ## 已知问题
 
-> 已发布功能中待修复的缺陷 / 限制 / 平台缺口。
+暂无
 
 
 
-## P1 — 核心功能
+## P2 — 体验增强
 
 ### 知识库 — 工作区索引 `#workspace-index` `P1` `L`
 
 > `→ #backlinks` `→ #wikilink` `→ #workspace-symbol` `→ #broken-link` `→ #asset-orphan`
 >
-> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md)
+> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md) —— [RESEARCH](./research/markdown-rs-rust-index.md)（索引层下沉 Rust 实测：推荐 pulldown-cmark + rayon，5k 文件全量扫描 24.5s → 0.18s）
 >
 > `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新。索引层独立于 editor state，不只看当前文档。
 
@@ -84,7 +64,16 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 
 
-## P2 — 体验增强
+
+
+### 编辑器 — 往返管线块级增量序列化 `#incremental-roundtrip` `P2` `M`
+
+> 把「每次编辑全文档 toMarkdown」改成「脏块重序列化 + 净块缓存拼回」，remark 生态与全部往返测试零改动。真实实现实测增量路径 0.40–4.13ms vs 全文档 45–501ms（111–143×，三档语料 674/3335/6811 块），输出与 `toMarkdown(doc)` 字节级相等。—— [RESEARCH](./research/incremental-roundtrip.md)
+
+- [x] 块缓存 + 增量 toMarkdown（PM 结构共享判净 + 保守邻块失效 + 全量兜底）
+- [x] 不变式测试：任意编辑序列下 incremental(doc) === toMarkdown(doc) 字节级相等（fuzz + 块边界对抗样本，64 例 / 3 seed）
+- [x] ~~Worker parse 顺带产出块缓存；canonical 双往返退役，删&#x20;~~`CANON_SKIP_THRESHOLD`~~&#x20;补丁~~ → `loadContentInto` 主线程顺带建块缓存（canonical 本来就要做一次全文档序列化，改逐块后成本同量级）；fs.watch 外部检测改为 disk memo 跳过重复双往返；`CANON_SKIP_THRESHOLD` 与字符实体 raw 基线保留 —— Worker 只有 parse 配置（搬 stringify 进去收益面近零），删阈值等于给大文档重新加一次主线程序列化，字符实体是保真语义不是性能补丁
+- [x] 调用点接入：EditorInner 回写 / loadContentInto / fs.watch 外部检测 / 切标签恢复校验
 
 ### 版本历史 diff — 体验增强
 
@@ -93,8 +82,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] **diff 视角自动跳转第一个 diff + hunk 导航 ~~+ 折叠未变更区~~** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下
   - 选中版本条目进入 diff 视图时，自动滚动到第一处变更（源码 / 预览双模式）
   - 「上一处 / 下一处」导航按钮 + `n/N` 计数（`Alt+↑` / `Alt+↓`）：源码模式用 `extractHunks(displayRows)` 定位行 DOM，预览模式用变更锚点（doc pos）经子组件跳转
-  - ~~折叠未变更区域（默认折叠，对齐飞书「默认折叠无关内容」）：预览模式隐藏未变更 block 连续段中段（两侧各留 1 个上下文 block）+ 可点击展开的「⋯ N 段未修改」折叠条；源码模式把远离变更的连续 unchanged 行折叠为「⋯ N 行未修改」可展开行；无变更时不折叠~~ → 不实现，预览 diff 保持全文渲染
-  - ~~**回退说明（当前状态：未完成）**：三项曾落地后主动回退，重做时按上述设计重新落地~~ → 代码已全部移除且不再重做：`DiffView.vue` 全量渲染、`DiffPlan` 无 `folds` / `hunks`、`WysiwygDiffView` 不 expose `scrollToChange` / 不 emit `change-count`、`_editor-diff.scss` 无折叠相关 class
 
 - [ ] **修改预览** `#diff-change-preview` `P2` `M` `?`
   - 痛点：预览 diff 的格式 / 节点类型变更只用琥珀色下划虚线提示「这里有变更」，看不出具体改了什么（加粗 → 斜体、段落 → 标题 2、链接地址变化等），用户必须切到源码模式看 markdown 原文才明白
@@ -108,9 +95,11 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 源码模式按行号映射、预览模式按 block 位置映射；无变更时不显示 ruler
   - 方案未定，开发前先在 `docs/research/` 写调研文档并由本条目链接进入
 
+
+
 ### 知识库 — 双链扩展
 
-- [ ] **`[[wikilink]]` 语法** `#wikilink` `P2` `XL` `← #workspace-index` `→ #go-to-def` `→ #find-refs`
+- [ ] `[[wikilink]]`**语法** `#wikilink` `P2` `XL` `← #workspace-index` `→ #go-to-def` `→ #find-refs`
   - schema + remark 插件 + syntax/inline 注册 + NodeView（hover 显示目标文件预览，点击跳转）
   - 尽量复用 linkClickPlugin 的源码编辑态语义，避免又做一套交互
   - 按新增语法 checklist 走全流程（schema / markdownIO / syntax / test）
@@ -122,7 +111,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] **Find References** `#find-refs` `P2` `S` `← #backlinks`
   - Shift+F12 列出当前文件被工作区内哪些 .md 引用（反向链接的单点入口）
 
-- [ ] **工作区符号搜索（`#` 模式）** `#workspace-symbol` `P2` `S` `← #workspace-index`
+- [ ] **工作区符号搜索（`#`模式）** `#workspace-symbol` `P2` `S` `← #workspace-index`
   - 命令面板 `#` 前缀：跨文件搜索所有标题，选中后打开目标文件并跳转
   - 与 `@`（当前文档标题）、`:`（行号）、`>`（命令）并列，共用前缀分发机制
   - 数据来源复用 `#workspace-index` 的 headings 索引，零额外数据层
@@ -136,7 +125,6 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - 引用计数为 0 的本地资产标灰（孤儿候选）
 
 
-### 通知与反馈
 
 ### 资产面板工程级未引用 `#asset-orphan` `P2` `M` `← #workspace-index`
 
@@ -149,6 +137,15 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] test：面板展示分组与徽标正确性测试（mount Sidebar + 注入缓存）
 
 
+
+### 性能 — 搜索 / 文件遍历 / Git 历史下沉 Rust `#rust-search-quickopen-git` `P2` `M`
+
+> 承接 [markdown-rs-rust-index.md](./research/markdown-rs-rust-index.md) 的第一梯队结论（工作区索引短期不实现）。全文搜索 rayon 并行实测 ~10–19×、Git 历史 git2 库化 ~60×、Ctrl+P 遍历收益主要在 IPC 结构（上万次往返 → 1 次 command）。[RESEARCH](./research/rust-search-quickopen-git.md)
+
+- [ ] Phase 1：`scan_workspace_files` 单 command 替换 quickOpenIndex 的 walkRoot（缓存 / stale 语义不动）
+- [ ] Phase 2：全文搜索/替换下沉 grep-searcher + rayon + Channel 流式；regex 模式保留 JS fallback；dirty 守门与 ReplaceResult 结构对齐
+- [ ] Phase 3：git.rs 三 command 换 git2 + CLI 降级；--follow 重命名跟踪 MVP 不做（面板文案注明）
+- [ ] test：正则方言 / CRLF / 隐藏目录过滤 / 命中计数两侧对齐测试集
 
 ## P3 — 远期方向
 
@@ -183,8 +180,9 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 - [ ] **ESLint warning 逐步清理** `#eslint-ci` `P3` `M` `← #eslint-setup`
   - 0.7.10 收敛后 0 error / 180 warning；CI 仅卡 error（`--quiet`），warnings 不阻断
   - `no-console` 已关闭（由 `lint:console` 专用脚本管 `console.log` / `debug`，`warn` / `error` 合理保留）
-  - 剩余构成：~100 `no-non-null-assertion` / ~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
+  - 剩余构成：\~100 `no-non-null-assertion` / \~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
   - 策略：coding agent 在接触文件时顺手修复该文件中的 warnings（CLAUDE.md 约定），逐步收敛至 0
+
 
 
 - [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`
@@ -192,6 +190,7 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
   - [ ] **插入时选 MxN 尺寸**:当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
 
   - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
+
 - [ ] **AI Coherence Layer 共享版本数据层** `#coherence-layer` `P3` `L` `← #local-timeline`
   - 在本地版本时间线基础上抽象出统一的版本数据层，供未来 AI 集成消费
   - 提供结构化的版本 diff API（不只是行级，需理解 markdown 语义）
@@ -200,5 +199,4 @@ P3  #code-signing · #e2e-ship-gate（独立，CI 核心已通）
 
 - [ ] **Stryker 变异测试** `#stryker` `P2` `L`
   - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
-  - 先对核心模块（`markdownIO` / `documentStore` / schema）开
-  - 发版前跑，不进每次 commit 路径
+  - 先对核心模块（`markdownIO` / `documentStore` / schema）

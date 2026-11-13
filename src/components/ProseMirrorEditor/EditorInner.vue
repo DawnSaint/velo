@@ -23,6 +23,7 @@ import { schema, type VeloSchema } from './editor/schema'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import { fromMarkdown, fromMarkdownAsync, toMarkdown } from './editor/markdownIO'
+import { invalidateBlockCache, serializeDocIncremental } from './editor/blockSerializer'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
@@ -881,9 +882,11 @@ const docLoading = ref(false)
 // 每次 watch 递增 token,await 返回后检查 token 是否仍是最新,否则放弃结果。
 let parseToken = 0
 
-// ---- toMarkdown debounce ----
-// 大文档下 toMarkdown 序列化耗时数十毫秒,每次按键同步执行会拖慢输入。
-// debounce 150ms:连续打字期间不序列化,停顿后才触发。
+// ---- 回写 debounce ----
+// 序列化已走块级增量(亚毫秒),这里保留 150ms 不是为了省 toMarkdown,
+// 而是给下游(content watcher / 大纲 / 状态栏统计 / 自动保存 / 版本快照)节流:
+// 每次按键都回写会让整条 UI 链路跟着抖。
+// debounce 150ms:连续打字期间不回写,停顿后才触发。
 // - lastSelfEmitted 仍在 emit 时设置(与 modelValue watch 的 echo 检测同步)
 // - 组件卸载 / 切标签时 flush,防止丢失最后一次编辑
 // - 外部 modelValue 变化(切文件 / fs:watch)时 cancel,防止旧 doc 序列化结果覆盖新内容
@@ -915,12 +918,18 @@ function flushPendingEmit(): void {
   }
 }
 
-/** toMarkdown 序列化(源码编辑 session 活跃时做占位符转义补偿)。 */
-function serializeDoc(doc: PMNode): string {
+/**
+ * 序列化当前 doc。
+ * - 常规路径走块级增量(脏块重序列化 + 净块缓存拼回),与 toMarkdown 字节级等价。
+ * - 源码编辑 session 活跃时占位符补偿发生在全文档坐标系(tr.doc 与 view doc 不同),
+ *   必须走全量 toMarkdown 并让缓存失效,否则占位符还原后的串会污染净块缓存。
+ */
+function serializeDoc(doc: PMNode, docId: string): string {
   const view = getView()
-  if (!view) return toMarkdown(doc)
+  if (!view) return serializeDocIncremental(doc, docId)
   const ranges = getSourceEditRanges(view.state)
-  if (ranges.length === 0) return toMarkdown(doc)
+  if (ranges.length === 0) return serializeDocIncremental(doc, docId)
+  invalidateBlockCache(docId)
   // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
   // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
   // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
@@ -944,7 +953,7 @@ function serializeDoc(doc: PMNode): string {
 
 /** 回写 content。切标签后才 flush 的编辑属于旧标签,按 id 写入而不是 emit。 */
 function commitDoc(doc: PMNode, docId: string): void {
-  const md = serializeDoc(doc)
+  const md = serializeDoc(doc, docId)
   lastSelfEmitted = md
   lastSelfEmittedDocId = docId
   if (docId === documentStore.activeId) emit('update:modelValue', md)
@@ -984,6 +993,9 @@ watch(() => props.modelValue, async (newVal) => {
   // 外部 modelValue 变化(切文件 / fs:watch / CLI 打开):cancel pending debounce,
   // 防止旧 doc 的序列化结果在 150ms 后覆盖新内容。
   cancelPendingEmit()
+  // 外部替换会重新 fromMarkdown 出全新 doc,旧缓存的 node 引用全部失效 ——
+  // 显式清空让首次编辑走一次干净的全量重建,而不是逐块误判脏再连带邻块重算。
+  invalidateBlockCache(documentStore.activeId)
   const view = getView()
   if (!view) return
 

@@ -842,6 +842,33 @@ function inlineNodeToPM(
 //  toMarkdown:ProseMirror Node → string
 // ============================================================
 
+/**
+ * 文档级收尾:尾部空段补偿 + 空文档特例。
+ *
+ * mdast-util-to-markdown 强制文档以单个 \n 收尾并吃掉尾部空段,但 PM doc 里
+ * 这些空段是活的(preprocessBlankLines 注入的 <br /> 占位转成的空 paragraph)。
+ * 按 doc 尾部连续空段数 K 补 \n,使 toMarkdown(fromMarkdown(x)) 对尾部空行
+ * 严格 idempotent:K=1 → 补 3 个 \n,K=2 → 补 5 个 \n(2K+1);K=0 → 单 \n。
+ * 边界:恰好 1 个尾部空行(X\n\n)CommonMark 不可表示,fromMarkdown 不产空段,
+ * 与 VSCode/Typora 同行为。
+ *
+ * 块级增量序列化(blockSerializer.ts)拼回全文后也调这里 —— 文档级后处理
+ * 只有一份实现,避免两处补偿公式漂移。
+ */
+export function finalizeMarkdown(doc: PMNode, body: string): string {
+  let k = 0
+  for (let i = doc.childCount - 1; i >= 0; i--) {
+    const c = doc.child(i)
+    if (c.type.name === 'paragraph' && c.childCount === 0) k++
+    else break
+  }
+  // 唯一空段是 schema 'block+' 强制的占位段 —— 那才是真空文档,canonical 为 '';
+  // 空文档里按 Enter 造出的多个空段是用户有意留的空行,必须走 2K+1 补偿,
+  // 否则整篇空行塌缩成 '' → content 永远等于 lastSavedContent → 不 dirty。
+  if (k === doc.childCount && k <= 1) return ''
+  return body.replace(/\n*$/, '') + (k > 0 ? '\n'.repeat(2 * k + 1) : '\n')
+}
+
 export function toMarkdown(doc: PMNode): string {
   const tree: Root = {
     type: 'root',
@@ -851,33 +878,7 @@ export function toMarkdown(doc: PMNode): string {
   // 把 text 值中的 \u0001 占位符替换回 \\（markdown 转义反斜杠）。
   // 见 wrapWithMarks 注释：绕过 escapeBackslashes 的 round-trip bug。
   out = out.replace(/\u0001/g, '\\\\')
-  // 尾部空行补偿。mdast-util-to-markdown 按 CommonMark 规范强制文档以单个
-  // \n 收尾并吃掉尾部空段 —— 但 PM doc 里这些空段是活的(preprocessBlankLines
-  // 注入的 <br /> 占位转成了空 paragraph)。这里按 doc 尾部连续空段数把 \n 补
-  // 回来,让 toMarkdown(fromMarkdown(x)) 对尾部空行严格 idempotent:
-  //   K=1 空段 → 补到 ...¶¶¶ (N=3) → fromMarkdown 重建 1 空段
-  //   K=2 空段 → 补到 ...¶¶¶¶¶ (N=5) → fromMarkdown 重建 2 空段
-  // 规则:strip 尾部所有 \n 后补 2K+1 个 \n(K≥1);K=0 时不动,保留 stringify 的单 \n。
-  // 边界:恰好 1 个尾部空行(X¶¶,N=2)CommonMark 无法表示,fromMarkdown 不产空段,
-  // 这里也无法重建 —— 该场景塌缩成 0,与 VSCode/Typora 一致。
-  let k = 0
-  for (let i = doc.childCount - 1; i >= 0; i--) {
-    const c = doc.child(i)
-    if (c.type.name === 'paragraph' && c.childCount === 0) k++
-    else break
-  }
-  // 只有 doc 里"唯一"的那个空段是 schema 'block+' 强制的占位段 —— 那种才是
-  // 真空文档,canonical 为 ''(补成 '\n\n\n' 会让源码模式显示 4 行空行,与
-  // WYSIWYG 的 1 行对不上)。空文档里按 Enter 造出的**多个**空段是用户有意留的
-  // 空行,必须走下面的 2K+1 补偿:否则整篇空行塌缩成 '' → content 永远等于
-  // lastSavedContent → 不 dirty、Ctrl+S 存盘后重开还是空白(空行静默丢失)。
-  if (k === doc.childCount && k <= 1) {
-    return ''
-  }
-  if (k > 0) {
-    out = out.replace(/\n*$/, '') + '\n'.repeat(2 * k + 1)
-  }
-  return out
+  return finalizeMarkdown(doc, out)
 }
 
 function pmBlocksToMdast(parent: PMNode): RootContent[] {
