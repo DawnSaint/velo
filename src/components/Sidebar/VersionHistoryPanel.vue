@@ -14,8 +14,8 @@
 //
 // 由 ActivityBar「版本历史」入口驱动(App.vue showSidebarTab('history'))。
 
-import { computed, ref, watch } from 'vue'
-import { History, GitBranch, GitCommit, RefreshCw, Loader2 } from '@lucide/vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { History, GitBranch, GitCommit, RefreshCw, Loader2, Check } from '@lucide/vue'
 import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { useDocumentStore } from '@/stores/document'
 import { diffLines } from '@/utils/lineDiff'
@@ -30,8 +30,21 @@ const selectedId = computed<string | null>(() => versionHistory.selectedEntryId)
 /** Git 仓库状态:undefined=未检测, null=非 git 仓库, string=仓库根 */
 const gitRepoStatus = computed(() => versionHistory.currentFileGitRoot)
 
-/** Git 历史正在加载 */
+/** Git 历史正在加载(仅首次检测;刷新不置位,避免已有列表被 loading 占位替换) */
 const gitLoading = computed(() => versionHistory.gitLoading)
+
+/** 刷新按钮状态:idle → refreshing(旋转)→ success(✓)→ idle
+ *  与 FileTree 的根行刷新按钮同一套交互语言 */
+type RefreshState = 'idle' | 'refreshing' | 'success'
+const refreshState = ref<RefreshState>('idle')
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelRefreshTimer() {
+  if (refreshTimer !== null) {
+    clearTimeout(refreshTimer)
+    refreshTimer = null
+  }
+}
 
 /** Git 条目 hover tooltip 状态 */
 const hoveredGitEntry = ref<TimelineEntry | null>(null)
@@ -159,12 +172,31 @@ function onToggleGit() {
   versionHistory.includeGit = !versionHistory.includeGit
 }
 
-/** 刷新当前文件的 Git 历史 */
+/** 刷新当前文件的 Git 历史。
+ *
+ *  交互:按钮转圈 → 完成后闪 ✓(1.2s)→ 复位;期间列表与 diff 视图保持原样,
+ *  新数据到位后增量更新,不重建整块列表 / EditorView(避免界面闪烁)。 */
 async function onRefreshGit() {
   const path = documentStore.currentFilePath
-  if (!path) return
-  versionHistory.invalidateGit(path)
-  await versionHistory.loadGitHistory(path)
+  if (!path || refreshState.value !== 'idle') return
+  cancelRefreshTimer()
+  refreshState.value = 'refreshing'
+  try {
+    // force:true —— 无条件重拉 commit 列表 + 重新预加载 content。
+    // 旧条目在重拉期间保留在列表中(增量更新),不被 loading 占位替换,
+    // diff 视图的 EditorView 也不会因数据清空而重建。
+    await versionHistory.loadGitHistory(path, { force: true })
+    refreshState.value = 'success'
+    refreshTimer = setTimeout(() => {
+      refreshState.value = 'idle'
+      refreshTimer = null
+    }, 1200)
+  }
+  catch (e) {
+    console.error('刷新 Git 历史失败', e)
+    // 失败也回到 idle(不假报成功);错误细节交给 console,不打断用户
+    refreshState.value = 'idle'
+  }
 }
 
 // 切换文件时重新加载快照 + Git 历史
@@ -185,11 +217,15 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
   }
   // 竞态检查:如果期间又切换了文件,放弃本次加载
   if (token !== loadToken) return
-  // Git 历史未检测则加载
+  // Git 历史未检测则加载(loadGitHistory 内部对已加载文件直接返回,
+  // 切回已看过的文件时不会重复拉取)
   if (versionHistory.currentFileGitRoot === undefined) {
     await versionHistory.loadGitHistory(path)
   }
 }, { immediate: true })
+
+// 组件卸载时清掉刷新按钮的 ✓ 复位定时器
+onBeforeUnmount(cancelRefreshTimer)
 </script>
 
 <template>
@@ -213,12 +249,18 @@ watch(() => documentStore.currentFilePath, async (path, oldPath) => {
           <GitBranch class="h-3 w-3" />
         </button>
         <button
-          class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
-          :disabled="gitLoading"
-          title="刷新 Git 历史"
+          class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+          :class="{ 'text-green-600 dark:text-green-400': refreshState === 'success' }"
+          :title="refreshState === 'success' ? '已刷新' : '刷新 Git 历史'"
+          :disabled="refreshState !== 'idle'"
           @click="onRefreshGit"
         >
-          <RefreshCw class="h-3 w-3" :class="{ 'animate-spin': gitLoading }" />
+          <Check v-if="refreshState === 'success'" class="h-3 w-3" :stroke-width="2.5" />
+          <RefreshCw
+            v-else
+            class="h-3 w-3"
+            :class="{ 'animate-spin': refreshState === 'refreshing' }"
+          />
         </button>
       </div>
     </div>

@@ -271,8 +271,15 @@ function planGroupIds(ops: ReturnType<typeof diffBlocks>['ops']): (string | null
  * 说明还有删除片段、字符级修改或留存内容,提升会把它们吞掉。
  */
 function isWholeBlockInsert(oldBlock: BlockEntry, newBlock: BlockEntry): boolean {
-  // 表格走二维网格 diff,单容器 block 走字符级 diff,都不该提升
-  if (oldBlock.node.type.name === 'table' || newBlock.node.type.name === 'table') return false
+  // 表格 ↔ 表格走二维网格 diff(tableDiff),不能提升 —— 提升会吞掉幽灵列 /
+  // 幽灵行与单元格内字符级 diff。
+  if (oldBlock.node.type.name === 'table' && newBlock.node.type.name === 'table') return false
+  // 非表格旧块 ↔ 新表格(如 hr / 段落换成整张表):旧块没有任何留存内容,
+  // 整张表都是新增。若仍按 pair 走 buildGroupedPairDecorations,会把每个单元格
+  // 段落单独标成不带 groupId 的 velo-diff-added,渲染成逐 cell 的独立小绿框,
+  // 且无法与上方连续新增段落合并成一个整框。提升为顶层 insert 后整表进整框组。
+  // (新块是表格、旧块非表格时,旧块 groups 为空或与新表文本完全不同,下面的
+  //  全 insert 判定天然成立;反向「表格 → 非表格」新块非表格,不受此分支影响。)
   if (oldBlock.groups.length <= 1 && newBlock.groups.length <= 1) return false
   if (oldBlock.text === newBlock.text) return false
   const ops = alignSequence(oldBlock.groups.map(g => g.text), newBlock.groups.map(g => g.text))

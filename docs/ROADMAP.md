@@ -31,6 +31,8 @@ P3  #code-signing（独立，CI 核心已通）
     #theme-market · #theme-presets（独立）
 ```
 
+
+
 ## 已知问题
 
 暂无
@@ -54,6 +56,8 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] 路径解析规则：标准 link 按当前文件目录相对解析；`[[wikilink]]` 按 basename 匹配（含 `/` 时按 workspace-relative）
 - [ ] test：工作区索引增量更新逻辑单元测试（不走 PM，纯函数测试）
 
+
+
 ### 知识库 — 反向链接面板 `#backlinks` `P1` `M`
 
 > `← #workspace-index`
@@ -63,6 +67,8 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] 反向链接面板 UI：Sidebar 新增 tab，展示当前文档的被引用列表
 - [ ] 上下文片段：每条反链展示引用处前后 N 行文本
 - [ ] 点击条目跳转到引用位置（打开目标文件 + 定位光标）
+
+
 
 ### 版本历史 diff — 体验增强
 
@@ -125,6 +131,8 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] test：工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）
 - [ ] test：面板展示分组与徽标正确性测试（mount Sidebar + 注入缓存）
 
+
+
 ## P3 — 远期方向
 
 - [ ] **AI 辅助写作** `#ai-assist` `P3` `?`
@@ -155,20 +163,13 @@ P3  #code-signing（独立，CI 核心已通）
   - 剩余构成：\~100 `no-non-null-assertion` / \~30 `no-explicit-any` / 少量 `no-useless-escape` / `no-control-regex`
   - 策略：coding agent 在接触文件时顺手修复该文件中的 warnings（CLAUDE.md 约定），逐步收敛至 0
 
-
-
-- [ ] **表格增强二期** `#table-enhance-2` `P3` `M` `← #table-enhance`
-
-  - [ ] **插入时选 MxN 尺寸**:当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
-
-  - [ ] **表头行开关(header toggle)**:当前 schema 强制带首行 header,无法创建无头表、也无法把已有表头行去掉。效果 = 右键菜单"切换表头行":表头行与正文行整行互换(内容保留),表体增删 / 对齐 / 移动逻辑不受影响。
-
+- [ ] **表格插入时选 MxN 尺寸** `#table-enhance-2` `P3` `M` `← #table-enhance`
+  - 当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
 - [ ] **AI Coherence Layer 共享版本数据层** `#coherence-layer` `P3` `L` `← #local-timeline`
   - 在本地版本时间线基础上抽象出统一的版本数据层，供未来 AI 集成消费
   - 提供结构化的版本 diff API（不只是行级，需理解 markdown 语义）
   - 版本数据可被 AI 用于上下文重建、变更意图推断、多文件一致性检查
   - 依赖 #local-timeline 的快照存储管线已就绪，此条目聚焦数据层抽象与 AI 消费接口
-
 - [ ] **Stryker 变异测试** `#stryker` `P2` `L`
   - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
   - 先对核心模块（`markdownIO` / `documentStore` / schema）

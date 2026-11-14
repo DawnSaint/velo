@@ -131,6 +131,38 @@ async function loadDiff() {
     return
   }
 
+  // 内容已在内存(本地快照 / 已预加载的 Git content):同步计算,不进 loading
+  const cachedNew = entry.source === 'git'
+    ? (versionHistory.gitContentCache.get(entry.id) ?? entry.content)
+    : entry.content
+  if (cachedNew !== undefined && cachedNew !== null) {
+    const oldRaw = versionHistory.diffOldContentAsyncSync(entry.id)
+    if (oldRaw !== null) {
+      diffResult.value = diffLines(oldRaw, cachedNew)
+      newContent.value = cachedNew
+      oldContent.value = oldRaw
+      return
+    }
+    // 前一版本是 Git 条目且未加载 —— 走异步路径
+    loading.value = true
+    try {
+      const r = await versionHistory.diffOldContentAsync(entry.id)
+      if (seq !== loadSeq) return
+      diffResult.value = diffLines(r.content ?? '', cachedNew)
+      newContent.value = cachedNew
+      oldContent.value = r.content ?? ''
+    }
+    catch (e) {
+      if (seq !== loadSeq) return
+      console.error('loadDiff 失败', e)
+    }
+    finally {
+      if (seq === loadSeq) loading.value = false
+    }
+    return
+  }
+
+  // Git content 尚未加载(未预加载到的旧 commit,或刚刷新完还没预加载好)
   loading.value = true
   try {
     let newContentRaw: string
@@ -170,8 +202,8 @@ watch(() => versionHistory.selectedEntryId, () => {
 }, { immediate: true })
 
 // Git content 缓存变化时重新加载(gitContentCache 写入后 displayEntries 重算,
-// selectedEntry 可能拿到新对象。但此时 loading 为 true 的会被跳过,
-// 等 loadDiff 完成后 loading 变 false,如果 content 变了再触发一次)
+// selectedEntry 可能拿到新对象)。loading 期间跳过,等 loadDiff 完成后
+// loading 变 false;若此时 content 已变再触发一次,把新内容渲染上去。
 watch(() => selected.value?.content, (newVal, oldVal) => {
   if (!loading.value && newVal !== oldVal) loadDiff()
 })

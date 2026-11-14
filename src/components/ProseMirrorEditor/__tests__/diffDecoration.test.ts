@@ -611,6 +611,58 @@ describe('DiffGroup 整框分组', () => {
     expect(getDiffGroups(narrow)).toEqual(getDiffGroups(full))
     expect(getDiffGroups(narrow).length).toBe(1)
   })
+
+  // 回归(#diff-wysiwyg):旧块是 hr / 段落等非表格块、新块是整张表格时,两者被
+  // 配成 pair。旧实现把「任一侧是 table」一律排除在整块提升之外,于是表格走
+  // buildGroupedPairDecorations,每个单元格段落单独加不带 groupId 的
+  // velo-diff-added —— 渲染成逐 cell 的独立小绿框,且无法与上方连续新增段落
+  // 合并成一个整框。修复后整表提升为顶层 insert,与相邻新增块同组、只画一个框。
+  const NEW_TABLE = '| mdast node | 输出 |\n| --- | --- |\n| `code` | `shikiHtml` |\n| `math` | `katexHtml` |\n| `html` | `sanitizeHtml` |'
+
+  it('非表格旧块 → 整张新表:提升为顶层 insert,整表带 groupId 而非逐 cell 标记', () => {
+    const plan = buildDiffPlan(makeDoc(`# T\n\n---\n\n${NEW_TABLE}`), makeDoc('# T\n\n---'))
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    // 整表是一个带 groupId 的 added node,而不是 N 个单元格段落
+    const addedNodes = plan.entries.flatMap(e => e.decos)
+      .filter(d => (d as any).type?.attrs?.class === 'velo-diff-added')
+    expect(addedNodes.length).toBe(1)
+    expect((addedNodes[0] as any).type.attrs['data-diff-group-id']).toBe(added[0].id)
+    // 没有任何落在单元格内部的 added 装饰(逐 cell 绿框的根因)
+    const tableEntry = plan.entries.find(e => e.decos.includes(addedNodes[0]))!
+    expect(tableEntry.decos.length).toBe(1)
+  })
+
+  it('新增段落 + 新增表格(旧块为 hr)→ 段落与表格合并进同一个整框组', () => {
+    const plan = buildDiffPlan(
+      makeDoc(`# T\n\n---\n\n新增段落一\n\n新增段落二\n\n${NEW_TABLE}`),
+      makeDoc('# T\n\n---'),
+    )
+    const added = plan.groups.filter(g => g.kind === 'added')
+    expect(added.length).toBe(1)
+    expect(added[0].entries.length).toBe(3) // 两段 + 整表
+    expect(new Set(groupIdsIn(plan)).size).toBe(1)
+    const addedNodes = plan.entries.flatMap(e => e.decos)
+      .filter(d => (d as any).type?.attrs?.class === 'velo-diff-added')
+    expect(addedNodes.length).toBe(3)
+  })
+
+  it('表格 ↔ 表格仍走二维网格 diff,不被整块提升吞掉幽灵列 / 单元格标记', () => {
+    // 删一列:必须保留幽灵列 widget,而不是把整表标成 added
+    const plan = buildDiffPlan(makeDoc(TABLE_DEL_MID), makeDoc(TABLE_3COL))
+    expect(plan.groups.filter(g => g.kind === 'added').length).toBe(0)
+    const ghosts = widgetDoms(plan.entries.flatMap(e => e.decos))
+      .filter(d => d.classList.contains('velo-diff-removed-cell'))
+    expect(ghosts.length).toBe(3)
+    // 新增一列:单元格级 added-cell 标记保留
+    const addCol = buildDiffPlan(
+      makeDoc('| A | B |\n| --- | --- |\n| a1 | b1 |'),
+      makeDoc('| A |\n| --- |\n| a1 |'),
+    )
+    const addedCells = addCol.entries.flatMap(e => e.decos)
+      .filter(d => (d as any).type?.attrs?.class === 'velo-diff-added-cell')
+    expect(addedCells.length).toBe(2)
+  })
 })
 
 // ========== 删除片段里的图片 src ==========

@@ -103,8 +103,13 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
   const gitContentLoaded = ref(true)
 
   /** Git 历史是否正在加载(gitRepoRoot → gitFileHistory → Promise.all 预加载全程)。
-   *  UI 据此显示 loading spinner。 */
+   *  仅用于**首次检测**(Git 仓库状态未知)时全屏显示"正在加载版本历史";
+   *  刷新按钮的旋转 / ✓ 反馈走面板本地的 refreshState。 */
   const gitLoading = ref(false)
+
+  /** 本文件是否已检测过 Git 历史。用于区分「首次加载」(应显示全屏 loading)
+   *  与「刷新」(已有列表,只转按钮 + 增量更新)。 */
+  const gitLoadedByFile = ref<Set<string>>(new Set())
 
   /** diff 视图是否激活(编辑器区显示 DiffView 而非编辑器) */
   const diffViewActive = ref(false)
@@ -122,11 +127,14 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     return snapshotsByFile.value.get(path) ?? null
   })
 
-  /** 当前文件的 Git commit 列表(从缓存或 null) */
+  /** Git commit 列表(已按文件缓存)。null = 未加载;[] = 已加载但无条目 */
   const currentFileGitEntries = computed<GitCommitEntry[] | null>(() => {
     const path = documentStore.currentFilePath
     if (!path) return null
-    return gitEntriesByFile.value.get(path) ?? null
+    const cached = gitEntriesByFile.value.get(path)
+    // Map.get 的 undefined 表示 key 不存在;这里统一转成 null,
+    // 避免「未加载」与「已加载为空」在 allEntries 中被区别对待
+    return cached ?? null
   })
 
   /** 当前文件的 Git 仓库根(从缓存;undefined=未检测, null=非 git 仓库, string=仓库根) */
@@ -366,6 +374,31 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     }
   }
 
+  /** diffOldContentAsync 的同步快路径:前一版本 content 已在内存(本地快照 /
+   *  已预加载的 Git content)时直接返回;否则返回 null,调用方转异步路径。
+   *
+   *  目的:选中「已预加载」条目时不走 async loading(避免 DiffView 闪一下 loading
+   *  占位再换内容),只有真正需要 git show 时才进 loading。 */
+  function diffOldContentAsyncSync(entryId: string): string | null {
+    const list = allEntries.value
+    if (!list) return ''
+
+    if (entryId === UNSAVED_ID) {
+      const snaps = currentFileSnapshots.value
+      return snaps && snaps.length > 0 ? snaps[0].content : documentStore.lastSavedContent
+    }
+
+    const idx = list.findIndex(e => e.id === entryId)
+    if (idx === -1) return ''
+    if (idx + 1 >= list.length) return ''
+
+    const prev = list[idx + 1]
+    if (prev.content !== null) return prev.content
+    // Git 条目:先看 content 缓存(gitToEntry 已把缓存填进 content,这里再兜一层)
+    const cached = gitContentCache.value.get(prev.id)
+    return cached ?? null
+  }
+
   // ========== 加载 / 缓存管理 ==========
 
   /** 懒加载某文件的版本快照到缓存。返回快照数组。 */
@@ -382,73 +415,95 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     return loadSnapshots(path)
   }
 
-  /** 检测并加载 Git 历史。
-   *  始终加载 Git 数据到缓存(includeGit 只控制 displayEntries 的筛选,
-   *  不影响 diff 基准——allEntries 始终包含 Git 条目)。
+  /** 加载(或刷新)当前文件的 Git 历史。
    *
-   *  加载完成后预加载前 MAX_PRELOAD 条 Git 条目的 content(git show),
-   *  使列表中可见范围内的 +/- 统计不跳变。
-   *  超出预加载范围的条目在选中时再懒加载。
+   *  force=true 时无条件从 libgit2 / CLI 重拉(commit 列表 + 前 MAX_PRELOAD
+   *  条 content);false 时若该文件已有缓存则直接返回(切文件时的常规路径)。
    *
-   *  内部用 gitLoadToken 防竞态:快速切换文件时,上一次 loadGitHistory
-   *  检测到 token 变化后提前返回,不再操作 gitContentLoaded。 */
+   *  loading 语义分两条独立通道:
+   *  - gitLoading:仅「首次检测」置位(Git 仓库状态未知),UI 据此全屏显示
+   *    "正在加载版本历史"。刷新时不置位,避免已有列表被 loading 占位替换。
+   *  - gitRefreshing / gitRefreshSuccess:刷新按钮的旋转 / ✓ 反馈,由调用方
+   *    (onRefreshGit)管理计时器与置位,store 只读不写。
+   *
+   *  commit 列表一到位就写入缓存(UI 立刻看到),content 预加载随后静默完成;
+   *  旧条目在重拉期间保留在列表里,新数据 Map.set 覆盖 —— 增量更新,不重建。 */
   const MAX_GIT_PRELOAD = 20
   let gitLoadToken = 0
 
-  async function loadGitHistory(filePath: string): Promise<void> {
+  async function loadGitHistory(filePath: string, options?: { force?: boolean }): Promise<void> {
+    if (!options?.force && gitLoadedByFile.value.has(filePath)) return
+
     const token = ++gitLoadToken
-    gitLoading.value = true
-    // 检测是否在 git 仓库中
-    const repoRoot = await gitRepoRoot(filePath)
-    if (token !== gitLoadToken) return // 已被新调用取代
-    gitRootByFile.value.set(filePath, repoRoot)
-    if (!repoRoot) {
-      gitEntriesByFile.value.set(filePath, [])
+    // 只有「该文件尚未检测过 Git 历史」才走全屏 loading;
+    // 已加载过的文件再进入(含刷新)只转按钮,不占位替换列表。
+    if (!gitLoadedByFile.value.has(filePath)) gitLoading.value = true
+    try {
+      const repoRoot = await gitRepoRoot(filePath)
+      if (token !== gitLoadToken) return // 已被新调用取代
+      gitRootByFile.value.set(filePath, repoRoot)
+
+      if (!repoRoot) {
+        // 非 git 仓库:清空该文件的 Git 条目与 content 缓存
+        gitEntriesByFile.value.set(filePath, [])
+        for (const key of [...gitContentCache.value.keys()]) {
+          if (key.endsWith(':' + filePath)) gitContentCache.value.delete(key)
+        }
+        for (const key of [...gitDiffStats.value.keys()]) {
+          if (key.endsWith(':' + filePath)) gitDiffStats.value.delete(key)
+        }
+        gitContentLoaded.value = true
+        gitLoadedByFile.value.add(filePath)
+        return
+      }
+
+      const entries = await gitFileHistory(filePath)
+      if (token !== gitLoadToken) return
+      // commit 列表一旦到位立即写入,UI 可马上看到增量更新的结果;
+      // 不再等前 N 条 content 预加载完才更新列表。
+      gitEntriesByFile.value.set(filePath, entries)
+      gitLoadedByFile.value.add(filePath)
+
+      // 本地快照尚未加载时无从构建完整序列(diff old 基准),先跳过预加载,
+      // 等 snapshots 就绪后由调用方再次触发(见 VersionHistoryPanel watch)。
+      const snaps = snapshotsByFile.value.get(filePath) ?? null
+      if (snaps === null) {
+        gitContentLoaded.value = true
+        return
+      }
+
+      const gitEntries: TimelineEntry[] = entries.map(g => gitToEntry(g, filePath))
+      const toPreload = gitEntries.filter(e => e.content === null)
+      if (toPreload.length === 0) {
+        gitContentLoaded.value = true
+        return
+      }
+
+      gitContentLoaded.value = false
+      // 预加载前 MAX_PRELOAD 条(最新的 N 个 commit),其余选中时懒加载。
+      // 预加载期间不写空占位 content,避免脏数据污染 git show 失败时的兜底逻辑。
+      const toPreloadSlice = toPreload.slice(0, MAX_GIT_PRELOAD)
+      await Promise.all(toPreloadSlice.map(e => loadGitContent(e)))
+      if (token !== gitLoadToken) return // 已被取代,不再操作 gitContentLoaded
+
+      // 所有预加载 content 到位后,统一计算 Git 条目的 diff 统计
+      // (在 Promise.all 期间 prev 的 content 可能还没加载完,统一计算避免竞态)
+      // 用传入的 filePath 构建完整条目列表(本地快照 + Git 条目),不依赖 allEntries computed
+      const allSnaps = snaps.map(snapshotToEntry)
+      const allGitEntries = entries.map(g => gitToEntry(g, filePath))
+      const all = [...allSnaps, ...allGitEntries]
+      all.sort((a, b) => b.timestamp - a.timestamp)
+      for (const e of all) {
+        if (e.source !== 'git') continue
+        const content = gitContentCache.value.get(e.id)
+        if (content !== undefined) computeGitDiffStats(e.id, content, all)
+      }
       gitContentLoaded.value = true
-      gitLoading.value = false
-      return
     }
-
-    const entries = await gitFileHistory(filePath)
-    if (token !== gitLoadToken) return
-    gitEntriesByFile.value.set(filePath, entries)
-
-    // 直接用传入的 filePath 构建 Git 条目,不依赖 allEntries computed
-    // (allEntries 依赖 documentStore.currentFilePath,在竞态场景下可能返回旧文件的条目)
-    const snaps = snapshotsByFile.value.get(filePath) ?? null
-    if (snaps === null) {
-      gitContentLoaded.value = true
-      gitLoading.value = false
-      return
+    finally {
+      // 过期请求无权改动 loading 态 —— 新请求可能仍在加载
+      if (token === gitLoadToken) gitLoading.value = false
     }
-    const gitEntries: TimelineEntry[] = entries.map(g => gitToEntry(g, filePath))
-    const toPreload = gitEntries.filter(e => e.content === null)
-    if (toPreload.length === 0) {
-      gitContentLoaded.value = true
-      gitLoading.value = false
-      return
-    }
-
-    gitContentLoaded.value = false
-    // 预加载前 MAX_PRELOAD 条(最新的 N 个 commit),其余选中时懒加载
-    const toPreloadSlice = toPreload.slice(0, MAX_GIT_PRELOAD)
-    await Promise.all(toPreloadSlice.map(e => loadGitContent(e)))
-    if (token !== gitLoadToken) return // 已被取代,不再操作 gitContentLoaded
-
-    // 所有预加载 content 到位后,统一计算 Git 条目的 diff 统计
-    // (在 Promise.all 期间 prev 的 content 可能还没加载完,统一计算避免竞态)
-    // 用传入的 filePath 构建完整条目列表(本地快照 + Git 条目),不依赖 allEntries computed
-    const allSnaps = snaps.map(snapshotToEntry)
-    const allGitEntries = entries.map(g => gitToEntry(g, filePath))
-    const all = [...allSnaps, ...allGitEntries]
-    all.sort((a, b) => b.timestamp - a.timestamp)
-    for (const e of all) {
-      if (e.source !== 'git') continue
-      const content = gitContentCache.value.get(e.id)
-      if (content !== undefined) computeGitDiffStats(e.id, content, all)
-    }
-    gitContentLoaded.value = true
-    gitLoading.value = false
   }
 
   /** 使某文件的缓存失效(下次 load 会从磁盘重读) */
@@ -456,25 +511,11 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     snapshotsByFile.value.delete(filePath)
     gitEntriesByFile.value.delete(filePath)
     gitRootByFile.value.delete(filePath)
+    gitLoadedByFile.value.delete(filePath)
     gitContentLoaded.value = true
     gitLoading.value = false
     // 清除该文件对应的 gitContentCache / gitDiffStats 条目
     // (id 格式 git:<hash>:<filePath>,按 filePath 后缀匹配)
-    for (const key of [...gitContentCache.value.keys()]) {
-      if (key.endsWith(':' + filePath)) gitContentCache.value.delete(key)
-    }
-    for (const key of [...gitDiffStats.value.keys()]) {
-      if (key.endsWith(':' + filePath)) gitDiffStats.value.delete(key)
-    }
-  }
-
-  /** 仅使某文件的 Git 缓存失效(保留本地快照缓存)。
-   *  用于刷新按钮:重新拉取 Git 历史,不影响本地快照列表。 */
-  function invalidateGit(filePath: string): void {
-    gitEntriesByFile.value.delete(filePath)
-    gitRootByFile.value.delete(filePath)
-    gitContentLoaded.value = true
-    gitLoading.value = false
     for (const key of [...gitContentCache.value.keys()]) {
       if (key.endsWith(':' + filePath)) gitContentCache.value.delete(key)
     }
@@ -519,6 +560,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     gitRootByFile.value.clear()
     gitContentCache.value.clear()
     gitDiffStats.value.clear()
+    gitLoadedByFile.value.clear()
     gitContentLoaded.value = true
     gitLoading.value = false
   }
@@ -602,6 +644,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     selectedEntry,
     diffOldContent,
     diffOldContentAsync,
+    diffOldContentAsyncSync,
     gitContentLoaded,
     gitLoading,
     loadGitContent,
@@ -614,7 +657,6 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     upsertSnapshot,
     removeSnapshot,
     invalidate,
-    invalidateGit,
     invalidateAll,
     openVersionHistory,
     openUnsavedDiff,
