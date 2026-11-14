@@ -43,6 +43,7 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "docx": "^9.15.4",
     "dompurify": "^3.4.10",
     "katex": "^0.18.5",
     "mdast-util-math": "^3.0.0",

@@ -24,7 +24,7 @@
 | Ctrl+F / Ctrl+H、PM/CM6 查找后端、查找高亮、mermaid 源码定位 | [`architecture/find-replace.md`](./architecture/find-replace.md) |
 | Sidebar、工作区、FileTree CRUD、文件树拖拽、TreeNode 复用、工作区根 watch、侧栏宽度持久化、auto-collapse、ActivityBar 排序/隐藏持久化、资产面板 | [`architecture/file-tree.md`](./architecture/file-tree.md) |
 | Ctrl+P 快速打开、Ctrl+Shift+P 命令面板、Ctrl+Shift+F 全文搜索、fuzzy、最近文件 | [`architecture/workspace-search.md`](./architecture/workspace-search.md) |
-| HTML/PDF 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
+| HTML/PDF/DOCX 导出、mdast walker、DOMPurify、KaTeX、PrintToPDF | [`architecture/export.md`](./architecture/export.md) |
 | Tauri 封装层、capabilities、CLI/single-instance、Windows 文件夹右键菜单 | [`architecture/tauri.md`](./architecture/tauri.md) |
 | SCSS / Tailwind / scoped style / TS 行内样式分工、暗色模式、CSS 变量、class 命名约定 | [`architecture/styles.md`](./architecture/styles.md) |
 | 图标来源、@lucide/vue vs widgetIcons 分工、尺寸与 stroke-width | [`architecture/icons.md`](./architecture/icons.md) |

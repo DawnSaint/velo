@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 
 import { useExportStore } from '../export'
@@ -146,5 +146,59 @@ describe('useExportStore.exportDocument', () => {
     expect(second).toBe(false)
     resolveSave(null)
     await first
+  })
+})
+
+describe('useExportStore 内置导出面板', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.resetAllMocks()
+    vi.mocked(isTauri).mockReturnValue(true)
+    vi.mocked(invoke).mockResolvedValue(undefined)
+  })
+
+  it('openExportPanel seeds filename (without ext) and defaults to PDF', () => {
+    const docStore = useDocumentStore()
+    docStore.content = '# hi'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const store = useExportStore()
+    store.openExportPanel()
+    expect(store.panelOpen).toBe(true)
+    expect(store.selectedType).toBe('pdf')
+    // currentFilePath 派生 fileName('/tmp/foo.md' → 'foo.md')→ 面板去掉 .md
+    expect(store.panelFileName).toBe('foo')
+  })
+
+  it('openExportPanel refuses outside Tauri (browser dev web)', () => {
+    vi.mocked(isTauri).mockReturnValue(false)
+    const store = useExportStore()
+    store.openExportPanel()
+    expect(store.panelOpen).toBe(false)
+  })
+
+  it('confirmExportPanel closes panel and locks saveDialog filter to selected type', async () => {
+    vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/out.docx')
+    vi.mocked(writeFile).mockResolvedValueOnce()
+    const docStore = useDocumentStore()
+    docStore.content = '# hi'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const editorStore = useEditorStore()
+    editorStore.themeMode = 'light'
+    editorStore.primaryColor = '#000'
+    editorStore.latinFont = 'georgia'
+    editorStore.cjkFont = 'sourcehans'
+    editorStore.fontSize = '14px'
+    editorStore.codeLightTheme = 'github-light'
+    editorStore.codeDarkTheme = 'github-dark'
+    const store = useExportStore()
+    store.openExportPanel()
+    store.selectExportType('docx')
+    await store.confirmExportPanel()
+    expect(store.panelOpen).toBe(false)
+    expect(saveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ name: 'Word', extensions: ['docx'] }],
+      defaultPath: 'foo.docx',
+    }))
+    expect(writeFile).toHaveBeenCalledTimes(1)
   })
 })

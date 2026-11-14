@@ -54,10 +54,12 @@ import {
   DEFAULT_DARK_THEME,
 } from '@/components/ProseMirrorEditor/nodes/CodeBlockLangs'
 import { extractLangsFromDoc } from '@/components/ProseMirrorEditor/editor/markdownIO'
-import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { resolveImageAssetAbsPath, extFromFileName, extToMime } from '@/utils/imagePath'
+import { readFile } from '@/tauri/fs'
 
 import { renderKatexHtml } from './katexHtml'
 import { renderMermaidSvg, mermaidErrorHtml } from './mermaidHtml'
+import { rasterizeSvgToPngDataUri } from './svgRaster'
 import { renderCodeBlockHtml, codeBlockFallbackHtml } from './shikiHtml'
 import { sanitizeHtml } from './sanitizeHtml'
 import { get as emojiGet, has as emojiHas } from 'node-emoji'
@@ -89,6 +91,19 @@ export interface ExportOptions {
   lightTheme: string
   /** 编辑器用户选的 dark 主题;settings.codeDarkTheme 兜底。 */
   darkTheme: string
+  /**
+   * 是否把本地资源内联成 data URI / PNG(自包含)。默认 false。
+   *
+   * - **DOCX 导出要 true** —— `htmlToContent` 不下载任何图片(`asset://` 在它
+   *   眼里就是 missing-image,直接丢),必须自包含。同时把 mermaid 内联 SVG
+   *   光栅化成 PNG(docx 给 SVG 的 PNG fallback 是 1×1 透明占位,不光栅化,
+   *   见 svgRaster.ts)。
+   * - **HTML 导出保持 false** —— 文件小,且 `asset://` 在 Tauri webview 内可解析。
+   *
+   * 读文件 / 光栅化失败时降级(回 `convertFileSrc` / 内联 SVG)+ warnings,
+   * 不中断导出。
+   */
+  inlineAssets?: boolean
 }
 
 export interface ExportResult {
@@ -107,6 +122,22 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+/**
+ * Uint8Array → base64。分块 `String.fromCharCode` 避免大图片一次性展开
+ * 撑爆 call stack(`apply` 的参数上限 ~65535)。
+ *
+ * 只在 Tauri webview / 浏览器里跑,用全局 `btoa`;不引 Buffer(那是 Node 专有,
+ * 会让 Vite 需要 node polyfill —— 见 docs/research/export-more.md 2.3)。
+ */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
 }
 
 // ========== 主入口 ==========
@@ -154,6 +185,7 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
     darkTheme,
     warnings,
     tocTree,
+    inlineAssets: opts.inlineAssets ?? false,
   })
 
   // 4) 组装完整 HTML 文档
@@ -246,6 +278,8 @@ interface WalkContext {
   warnings: string[]
   /** 预扫整篇 doc 得到的 heading 树 —— 给 [TOC] 段落渲染用。 */
   tocTree: TocTreeNode[]
+  /** 本地资源内联(图片 data URI / mermaid SVG 光栅化),见 ExportOptions.inlineAssets。 */
+  inlineAssets: boolean
 }
 
 async function mdastToHtml(nodes: RootContent[], ctx: WalkContext): Promise<string> {
@@ -301,6 +335,16 @@ async function mdastNodeToHtml(node: RootContent | any, ctx: WalkContext): Promi
       if (lang === 'mermaid') {
         const { svg, error } = await renderMermaidSvg(value)
         if (svg) {
+          // DOCX 模式:docx 给 SVG 的 PNG fallback 是 1×1 透明占位(它自己
+          // 不光栅化),WPS 等查看器会看到空白。光栅化成真 PNG 再进 docx。
+          // 失败降级回内联 SVG(Word 仍能显示)。
+          if (ctx.inlineAssets) {
+            const png = await rasterizeSvgToPngDataUri(svg)
+            if (png) {
+              return `<div class="velo-mermaid-block"><img src="${escapeHtml(png)}" alt="mermaid diagram" /></div>`
+            }
+            ctx.warnings.push('mermaid SVG 光栅化失败:降级为内联 SVG(WPS 等不支持 SVG 的查看器可能显示空白)')
+          }
           return `<div class="velo-mermaid-block">${svg}</div>`
         }
         if (error) ctx.warnings.push(`mermaid 块解析失败: ${error}`)
@@ -526,17 +570,32 @@ async function inlineNodeToHtml(node: PhrasingContent | any, ctx: WalkContext): 
       return `<a href="${escapeHtml(href)}"${title}>${inner}</a>`
     }
     case 'image': {
+      const alt = escapeHtml(node.alt ?? '')
+      const title = node.title ? ` title="${escapeHtml(node.title)}"` : ''
+      const isRemote = /^(https?:|data:|asset:|tauri:|file:)/i.test(node.url)
+      // DOCX 导出路径:htmlToContent 不下载图片,asset:// 会当 missing-image 丢。
+      // 读文件转 data URI 自包含(同 KaTeX 字体内联的取舍);失败降级回 asset://
+      // + warning,不中断导出。HTML 导出默认不内联(见 ExportOptions.inlineAssets)。
+      if (ctx.inlineAssets && !isRemote) {
+        const abs = resolveImageAssetAbsPath(node.url, ctx.currentFilePath)
+        try {
+          const bytes = await readFile(abs)
+          const mime = extToMime(extFromFileName(node.url))
+          const dataUri = `data:${mime};base64,${uint8ToBase64(bytes)}`
+          return `<img src="${escapeHtml(dataUri)}" alt="${alt}"${title} />`
+        }
+        catch (e) {
+          ctx.warnings.push(`图片内嵌失败(${node.url}):${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
       let src = node.url
       // 跟 editor 内 proxyDomURL 一致:有 currentFilePath 时把相对路径走
       // convertFileSrc 转成 asset://;无 currentFilePath 走原值(可能已
       // 是 http(s):// / data: / 等)
-      if (ctx.currentFilePath) {
+      if (ctx.currentFilePath && !isRemote) {
         const abs = resolveImageAssetAbsPath(node.url, ctx.currentFilePath)
-        const isRemote = /^(https?:|data:|asset:|tauri:|file:)/i.test(node.url)
-        if (!isRemote) src = convertFileSrc(abs)
+        src = convertFileSrc(abs)
       }
-      const alt = escapeHtml(node.alt ?? '')
-      const title = node.title ? ` title="${escapeHtml(node.title)}"` : ''
       return `<img src="${escapeHtml(src)}" alt="${alt}"${title} />`
     }
     case 'break':

@@ -135,11 +135,11 @@ export function useCommandPaletteItems(opts: {
         title: exportStore.exporting ? '导出中…' : '导出',
         shortcut: 'Ctrl+Shift+E',
         group: 'app',
-        keywords: ['export', 'html', 'pdf'],
+        keywords: ['export', 'html', 'pdf', 'word', 'docx'],
         disabled: exportStore.exporting,
         disabledReason: '导出中…',
         hidden: !hasDoc,
-        run: () => exportStore.exportDocument(),
+        run: () => exportStore.openExportPanel(),
       },
       {
         id: 'edit.find',

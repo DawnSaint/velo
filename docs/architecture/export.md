@@ -1,10 +1,10 @@
 # Export Architecture
 
-> **本文件负责**：HTML / PDF 导出管线、mdast walker、DOMPurify、KaTeX 字体、shiki / mermaid 导出与 Tauri PrintToPDF。
+> **本文件负责**：HTML / PDF / DOCX 导出管线、mdast walker、DOMPurify、KaTeX 字体、shiki / mermaid 导出、SVG 光栅化与 Tauri PrintToPDF。
 >
 > **何时阅读**：改 `lib/export/*`、`stores/export.ts`、PDF Rust command、导出样式或新增 mdast node 输出时。
 >
-> **代码入口**：`src/lib/export/{htmlRenderer,katexHtml,mermaidHtml,shikiHtml,sanitizeHtml,katexCss,fontFaceCss}.ts`、`src/lib/export/exportStyles.scss`、`src/stores/export.ts`、`src-tauri/src/{pdf,pdf_windows}.rs`。
+> **代码入口**：`src/lib/export/{htmlRenderer,docxRenderer,svgRaster,katexHtml,mermaidHtml,shikiHtml,sanitizeHtml,katexCss,fontFaceCss}.ts`、`src/lib/export/exportStyles.scss`、`src/components/ExportPanel.vue`、`src/stores/export.ts`、`src-tauri/src/{pdf,pdf_windows}.rs`。
 >
 > **相关文档**：[架构入口](../ARCHITECTURE.md) · [编辑器](./editor.md) · [Tauri 架构](./tauri.md)
 
@@ -31,12 +31,12 @@
 
 | mdast node | 输出 |
 | --- | --- |
-| `code` (lang=mermaid) | `mermaidHtml`（失败降级原文） |
+| `code` (lang=mermaid) | `mermaidHtml`（失败降级原文）；`inlineAssets` 时 `svgRaster` 光栅化 SVG→PNG（docx 的 SVG PNG fallback 是 1×1 占位，失败降级回内联 SVG + warning） |
 | `code` (其他) | `shikiHtml`（复用 `CodeBlockLangs` 的 `getHighlighterSync` / `getTokensSync`，与编辑器 `CodeHighlightWidget` 同套 API） |
 | `math` | `katexHtml`（失败降级 `<span class="math-error">`） |
 | `html` | `sanitizeHtml`（DOMPurify，配置与 `HtmlNodeView.ts` 同步） |
 | 行内 html | 先 `mergeHtmlInlineRunsMdast` 合并再 sanitize |
-| `image` | `convertFileSrc` 转 `asset://`（外部浏览器不解析 —— 已知限制） |
+| `image` | 默认 `convertFileSrc` 转 `asset://`（外部浏览器不解析 —— 已知限制）；`inlineAssets` 时读文件转 data URI（DOCX 自包含，失败降级 + warning） |
 | `list` | 抽首段 paragraph 解包，避免 `<li><p>` 割裂 |
 | `alert` | `<div class="velo-alert velo-alert-{variant}">`（对齐 schema toDOM，不包 blockquote） |
 | `[TOC]` 独占段落 | `<div class="velo-toc">` 嵌套目录（headings 整篇预扫，`<a href="#slug">` 走原生锚点） |
@@ -55,9 +55,26 @@
 
 **为什么走隐藏窗口而非主 webview**：`Navigate(data:...)` 会销毁主 webview 的 Vue 应用 + `invoke` promise 所在 JS 上下文，弹不出反馈且应用回不来。初始 URL 选 `about:blank` —— tauri-runtime-wry 对其特判为「不设初始 URL」，避免「初始页 vs data URL」两个 NavigationCompleted 竞态。
 
-### store
+### DOCX 路径
 
-`stores/export.ts` 的 `exportDocument()` 调 `saveDialog` 多 filter（HTML / PDF，PDF 排第一 → 默认选 PDF），按扩展名 dispatch：`.html` → `buildExportHtml` + `writeTextFile`；`.pdf` → `invoke('export_pdf', { outputPath, html })`。**reentrant 守门**（`exporting.value` 期间第二次调用立刻返回）；成功 / 失败弹原生 `message`（故 Rust 端走隐藏打印窗口保主 webview 活着）；**不**改 `currentFilePath` / `lastSavedContent` / `fs:watch` —— 导出是「产出一份静态文件」，与「切换到那个文件继续编辑」是不同语义（见 DECISIONS ADR-20260621-004）。
+`docxRenderer.ts` 的 `buildExportDocx` 复用 `buildExportHtml`（`inlineAssets: true`）拿到自包含 HTML，再喂 `docx` 的 `htmlToContent`（`docx/html` 子路径）转 OOXML，`Packer.toBlob` 出字节。选它的理由是实测保真度最高（见 `docs/research/export-more.md` §1.3 / §2.8）：`htmlToContent` 读 `<style>` 与内联 `style`，CSS 变量 `var(--x, fallback)` 也能解析（取第一个可用值），Velo 导出 HTML 的 shiki 高亮 / alert 底纹边框 / KaTeX OMML / 脚注 / 内部锚点都能带过去。
+
+**`inlineAssets` 的两个适配**（`ExportOptions.inlineAssets`，默认 false）：
+
+- **图片**：`htmlToContent` 不下载任何图片，`asset://` 在它眼里就是 missing-image 直接丢。DOCX 模式下读本地文件转 `data:{mime};base64`；失败降级回 `convertFileSrc` + warning。远程 URL（`http(s)` / `data:`）不动。
+- **mermaid**：Velo 输出内联 SVG，`htmlToContent` 会写成 `image1.svg` + 一个 PNG fallback —— 但那个 PNG 是 **1×1 透明占位符**（docx 的 `TRANSPARENT_PIXEL`，它自己不做光栅化）。Word 能显示 SVG，WPS 等不支持 SVG 的查看器打开就是空白。`svgRaster.ts` 在 DOCX 模式用 canvas 把 SVG 光栅化成真 PNG（2× 缩放，白底，`--pele-*` 变量固定取 light 值）；失败降级回内联 SVG + warning。
+
+**懒加载**：`docx` 是 20MB 级包，`stores/export.ts` 用 `loadExportDocx()` 动态 import 推迟到首次导出，不进主 bundle。
+
+### store 与内置导出面板
+
+`stores/export.ts` 的 `openExportPanel()` 打开内置 `ExportPanel`（`src/components/ExportPanel.vue`，App.vue 挂载）：用户先选类型（PDF / Word / HTML）+ 确认文件名，确认后 `confirmExportPanel()` → `exportDocument(type, name)`。这样**类型选择内置化**，系统 `saveDialog` 只负责「存哪」，不再兼管「存成什么」（原先要先开系统框才能切 filter）。
+
+`exportDocument(type, name)` 按类型锁死 `saveDialog` filter、默认路径后缀与类型一致，再按扩展名 dispatch：`.html` → `buildExportHtml` + `writeTextFile`；`.docx` → `buildExportDocx` + `writeFile`（二进制）；`.pdf` → `invoke('export_pdf', { outputPath, html })`。程序化调用仍可直接 `exportDocument(type)`（默认 pdf），面板只是 UI 前置。
+
+**入口三处统一走面板**：顶栏「文件」菜单的导出项、命令面板「导出」、快捷键 `Ctrl+Shift+E` 都调 `openExportPanel()`（不再各自直接导出）。HTML / DOCX 走 `loadExportHtml` / `loadExportDocx` 懒加载模块（katex 字体 ~845KB + docx 包不常驻主 bundle）。**reentrant 守门**（`exporting.value` 期间第二次调用立刻返回）；成功 / 失败弹原生 `message`（故 Rust 端走隐藏打印窗口保主 webview 活着）；**不**改 `currentFilePath` / `lastSavedContent` / `fs:watch` —— 导出是「产出一份静态文件」，与「切换到那个文件继续编辑」是不同语义（见 DECISIONS ADR-20260621-004）。
+
+**面板分期**：当前只做类型 + 文件名；PDF 的页边距 / 字号 / 页眉页脚与「分页预览」留到 `#pdf-preview` 落地，在类型分段下方加参数区即可（`EXPORT_TYPES` 的 PDF 项是天然挂载点）。
 
 ## 关键取舍
 
@@ -70,6 +87,8 @@
 - **导出 KaTeX 字体必须 inline**：`katex.min.css` 里 `@font-face` 引用 `url(fonts/KaTeX_*.{woff2,woff,ttf})`，编辑器侧 Vite side-effect import 会改写 `url()`；但**导出走 `?inline` 拿 CSS 原文，Vite 不改 `url()`**，导出旁无 `fonts/` → 字体回退。`katexCss.ts` 顶层 `import.meta.glob` 拿 20 个 woff2 base64 data URI，`inlineKatexWoff2Fonts` 把每条 `@font-face` 的 src 改写成单条 woff2 data URI 并 strip woff / ttf（现代浏览器含 WebView2 首选 woff2；只 inline woff2 压到 ~340KB 而非全部 60 文件 ~1.3MB）。vitest 走纯函数 `inlineKatexWoff2Fonts(css, fontMap)` 验转换逻辑（`?inline` 在 vitest 与 prod build 行为不一致返回空）。
 - **新增暗色规则要两处同步**：editor 走 `_editor-dark.scss` 的 `:is(.dark .velo-editor, .velo-editor.dark)`（Vue 控制 `<html class="dark">`），export 走 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)`（**自写副本，不 forward `_editor-dark.scss`**，导出 HTML 无 `.velo-editor.dark` 依赖）。两套语义不等价：导出只跟系统暗色偏好走，不能跟应用内 toggle 走。
 - **Windows PDF 必须开 `SetShouldPrintBackgrounds(true)`**：WebView2 `ICoreWebView2_7::PrintToPdf` 默认 `ShouldPrintBackgrounds=false`，不打印任何 `background-color` / `background-image`（alert `::before` SVG 图标、shiki 代码块底色、表格条纹、暗色底全丢）。`CreatePrintSettings()` 后必须调该 setter；设置失败不致命，best-effort `let _ =` 忽略。导出 task list `<li>` 挂 `class="velo-task-item"`（`exportStyles.scss` 给 `list-style:none`）去默认 disc 圆点 —— editor 侧靠 `li[data-item-type="task"]` 去圆点，导出走 native `<input type="checkbox">`，用 class 单独兜。
+- **DOCX 选 `htmlToContent` 而非 mdast2docx**：后者架构更纯粹（mdast 直出、不依赖 HTML），但**丢失全部 CSS 样式**（颜色 / 底纹 / 边框 / 语法高亮全无）；`htmlToContent` 复用 Velo 已有的高质量 HTML，实测保真度最高。代价是 DOCX 质量与 `htmlRenderer` 输出强耦合 —— 改导出 HTML 的 DOM / class / CSS 会同时影响 DOCX，两类导出的样式回归要一起看。
+- **DOCX 的 SVG 必须自己光栅化**：`htmlToContent` 对 SVG 的 PNG fallback 是 1×1 透明占位符（docx 无光栅化能力），WPS 打开空白。Velo 主要用户在中文环境、WPS 占比高，所以 DOCX 模式用 canvas 把 mermaid SVG 转真 PNG。光栅化固定走 light 主题（DOCX 通常白底查看，暗色图在 Word 里是黑块），`--pele-*` 变量在 `<img>` 里取不到外部 CSS，需先写进 SVG 根 style。
 
 ## 附录
 

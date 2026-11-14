@@ -74,7 +74,7 @@ P3  #code-signing（独立，CI 核心已通）
 
 > 双模式 diff、Block Tree Diff、语义化渲染已交付，以下是遗留与新增的体验补强。
 
-- [ ] **diff 视角自动跳转第一个 diff + hunk 导航 ~~+ 折叠未变更区~~** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下
+- [ ] **diff 视角自动跳转第一个 diff + hunk 导航** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下
   - 选中版本条目进入 diff 视图时，自动滚动到第一处变更（源码 / 预览双模式）
   - 「上一处 / 下一处」导航按钮 + `n/N` 计数（`Alt+↑` / `Alt+↓`）：源码模式用 `extractHunks(displayRows)` 定位行 DOM，预览模式用变更锚点（doc pos）经子组件跳转
 
@@ -146,9 +146,8 @@ P3  #code-signing（独立，CI 核心已通）
   - 除当前两套外增加更多内置主题
   - 与主题市场共享主题数据格式
 
-- [ ] **导出更多格式** `#export-more` `P3` `M` `?`
-  - DOCX / EPUB
-  - 建议走 pandoc 桥接（一行命令多格式），比自写 walker 高效
+- [x] **导出更多格式** `#export-more` `P3` `M` `?` —— [RESEARCH](./research/export-more.md)
+  - ~~建议走 pandoc 桥接（一行命令多格式），比自写 walker 高效~~ → 复核：pandoc 非唯一解；实测 `docx.js` 的 `htmlToContent`（复用现有导出 HTML）保真度最高（保留 CSS／语法高亮／alert／公式），`mdast2docx` 为无样式退路；Rust 系实测：ferrodoc 缺公式/自定义语法（不适合），knit-md-docx 功能全但需进 src-tauri（列长期架构选项）
 
 - [ ] **导出 PDF 分页预览** `#pdf-preview` `P3` `M` `?`
   - 导出 PDF 前提供分页预览，可调整页边距 / 字号 / 页眉页脚
@@ -165,6 +164,7 @@ P3  #code-signing（独立，CI 核心已通）
 
 - [ ] **表格插入时选 MxN 尺寸** `#table-enhance-2` `P3` `M` `← #table-enhance`
   - 当前 `Mod-t` 只能插 2 × 2 表,扩展为插入前让用户选行数 × 列数,支持右键菜单与快捷键触发;编辑后光标落到新表首 cell。
+
 - [ ] **AI Coherence Layer 共享版本数据层** `#coherence-layer` `P3` `L` `← #local-timeline`
   - 在本地版本时间线基础上抽象出统一的版本数据层，供未来 AI 集成消费
   - 提供结构化的版本 diff API（不只是行级，需理解 markdown 语义）

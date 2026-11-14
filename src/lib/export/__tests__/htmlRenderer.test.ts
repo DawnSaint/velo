@@ -6,10 +6,18 @@
 // 3) html_block / html_inline 走 DOMPurify 清洗
 // 4) 完整 HTML 文档结构(<!DOCTYPE html><head><style>...</style><body>)
 
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
+import { readFile } from '@/tauri/fs'
 import { buildExportHtml, resolveExportThemes } from '../htmlRenderer'
+import { rasterizeSvgToPngDataUri } from '../svgRaster'
+
+// svgRaster 依赖 Image + canvas(jsdom 两者都不完整),整体 mock;
+// 成功/失败路径由 svgRaster.test.ts 覆盖,这里只验 htmlRenderer 的调用与降级。
+vi.mock('../svgRaster', () => ({
+  rasterizeSvgToPngDataUri: vi.fn(async () => null),
+}))
 
 // 用于 SCSS 源读取:vitest 跑 `?inline` / `?raw` 对 .scss 都返回空(同 katex
 // woff2 测试,见 katexCss.ts 注释)。直接从 fs 读 SCSS 源更可靠。
@@ -445,5 +453,50 @@ describe('htmlRenderer', () => {
   it('returns warnings array (empty when all renders succeed)', async () => {
     const { warnings } = await buildExportHtml(baseOpts('# h\n\np'))
     expect(warnings).toEqual([])
+  })
+
+  describe('inlineAssets (DOCX 自包含)', () => {
+    const opts = (content: string, currentFilePath: string | null = '/docs/test.md') =>
+      resolveExportThemes({
+        ...baseOpts(content),
+        currentFilePath,
+        inlineAssets: true,
+      })
+
+    beforeEach(() => {
+      vi.mocked(readFile).mockReset()
+      vi.mocked(rasterizeSvgToPngDataUri).mockReset()
+    })
+
+    it('inlines a local image as a data URI', async () => {
+      vi.mocked(readFile).mockResolvedValue(new Uint8Array([1, 2, 3]))
+      const { html } = await buildExportHtml(opts('![pic](assets/pic.png)'))
+      // base64([1,2,3]) === 'AQID'
+      expect(html).toContain('data:image/png;base64,AQID')
+    })
+
+    it('degrades to a file path with a warning when the image cannot be read', async () => {
+      vi.mocked(readFile).mockRejectedValue(new Error('ENOENT'))
+      const { html, warnings } = await buildExportHtml(opts('![pic](assets/pic.png)'))
+      expect(warnings.some(w => w.includes('图片内嵌失败'))).toBe(true)
+      // 降级路径:convertFileSrc 在测试里恒等,src 为算出的绝对路径
+      expect(html).toContain('/docs/assets/pic.png')
+    })
+
+    it('keeps remote image URLs untouched', async () => {
+      const { html } = await buildExportHtml(opts('![pic](https://example.com/a.png)'))
+      expect(html).toContain('src="https://example.com/a.png"')
+      expect(readFile).not.toHaveBeenCalled()
+    })
+
+    it('degrades mermaid SVG with a warning when rasterization fails', async () => {
+      vi.mocked(rasterizeSvgToPngDataUri).mockResolvedValue(null)
+      const { html, warnings } = await buildExportHtml(
+        opts('```mermaid\ngraph TD; A-->B;\n```'),
+      )
+      expect(warnings.some(w => w.includes('光栅化'))).toBe(true)
+      // 降级回内联 SVG
+      expect(html).toContain('<svg')
+    }, 20000)
   })
 })

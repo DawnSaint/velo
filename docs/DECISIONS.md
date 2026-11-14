@@ -388,3 +388,23 @@
 - **Decision**: 索引层用 pulldown-cmark + rayon 下沉 Rust（全量 scan + 单文件增量 extract 两 command，walker 复用已落地的 `workspace.rs`），JS 只消费索引结果；markdown-rs 不进索引层，仅将来出现「Rust 侧完整 mdast」真实需求（导出 / lint）时重评并复跑大文件基准；编辑器 parse/serialize 保持 unified 不动（往返保真是正确性问题，不是性能问题）。
 - **Consequences**: 5k 文件索引就绪 <0.2s，「保存即索引」无需 debounce 兜底性能；代价是语法双源（索引 pulldown vs 编辑器 unified）需共享对齐测试集，pulldown 无 frontmatter/wikilink 原生支持需自写（实现要点见 ROADMAP `#workspace-index`）。实现期第一优先验证 IPC 序列化成本（5k 索引明细几 MB 可能反超解析：先回传摘要 / 增量 diff / 明细按需查询）。本 ADR 即「不选 markdown-rs」的实测证据留痕（原调研文档已删，结论与数据以本条为准）。
 
+---
+
+## 未发版 — DOCX 导出选型
+
+### ADR-20261114-001: DOCX 导出走 docx.js `htmlToContent`，不引入 pandoc / mdast2docx
+
+- **Context**: Velo 需要 DOCX 导出（`#export-more`）。候选实测：pandoc CLI（约 150MB × 三平台，与轻量定位冲突）、mdast2docx（mdast 直出、架构纯粹，但丢失全部 CSS 样式）、docx.js `htmlToContent`（复用现有 HTML，保真最高）、ferrodoc（公式与 Velo 自定义语法缺失）、knit-md-docx（功能全但需进 `src-tauri` 且依赖 fork）。
+- **Decision**: 用 `docx` + `htmlToContent`，复用 `htmlRenderer` 的 HTML + 内联 CSS，新增「自包含」模式（图片读成 data URI、mermaid SVG 用 canvas 光栅化成 PNG）；store 增加 Word filter 与写盘分支。
+- **Consequences**: 零外接二进制，保真度最高（CSS / 语法高亮 / alert / 公式 / 脚注 / 内部锚点都保留）。代价：DOCX 质量与导出 HTML 强耦合，样式回归要两类导出一起看；docx 包体积大需懒加载；docx 对 SVG 的 PNG fallback 是 1×1 透明占位且自身不光栅化，故 WPS 场景必须自光栅化。mdast2docx 作为 HTML 路线遇阻时的次选保留；Rust 系仅当 DOCX 下沉为 Tauri command 时重评。
+
+---
+
+## 未发版 — 导出类型选择
+
+### ADR-20261114-002: 导出类型选择走内置面板，系统框只负责路径
+
+- **Context**: 导出类型（PDF / Word / HTML）原先只能靠系统保存框的 filter 切换，用户必须先打开系统框才能选类型；且 `#pdf-preview` 需要页边距 / 字号 / 页眉页脚参数与分页预览入口，系统框承载不了。
+- **Decision**: 新增内置 `ExportPanel`（Teleport 弹层），先选类型 + 文件名，确认后按类型锁死 `saveDialog` filter 再选路径；文件菜单、命令面板、快捷键三处统一走面板。
+- **Consequences**: 类型选择可见、可预期，系统框回归单一职责，并为 `#pdf-preview` 预留参数区。代价是多一个全局弹层及其键盘 / 焦点管理；程序化导出保留 `exportDocument(type)` 直连路径，测试与脚本不受影响。
+

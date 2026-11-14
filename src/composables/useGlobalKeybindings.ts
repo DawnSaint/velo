@@ -150,7 +150,7 @@ export function useGlobalKeybindings(opts: {
       // 导出(Ctrl/Cmd+Shift+E):走原生 saveDialog 多 filter(HTML / PDF)
       e.preventDefault()
       e.stopPropagation()
-      void exportStore.exportDocument()
+      void exportStore.openExportPanel()
     }
     else if (k === 'p' && e.shiftKey) {
       // Ctrl+Shift+P 命令模式(v0.6.2):已开在同模式 → 关,否则切到 '>' 命令模式
