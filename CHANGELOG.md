@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.16](https://github.com/DawnSaint/velo/compare/v0.7.15...v0.7.16) (2026-11-14)
+
+
+### Bug Fixes
+
+* **sidebar:** refresh git history without rebuilding the diff list ([e4e5035](https://github.com/DawnSaint/velo/commit/e4e5035b605bdb1f70f5aba623f76bd1241cc1ed))
+
 ## [0.7.15](https://github.com/DawnSaint/velo/compare/v0.7.14...v0.7.15) (2026-11-13)
 
 
