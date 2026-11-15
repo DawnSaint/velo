@@ -27,7 +27,14 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-import { chevronDownSvg, chevronUpSvg, trashSvg } from '@/components/icons/widgetIcons'
+import { useNotifyStore } from '@/stores/notify'
+import {
+  chevronDownSvg,
+  chevronUpSvg,
+  checkSvg,
+  copySvg,
+  trashSvg,
+} from '@/components/icons/widgetIcons'
 import { isMermaidFolded, foldKey } from './FoldDecoration'
 import { scanDoc } from './docScanCache'
 import { getViewport, isInViewport, viewportKey } from './viewportPlugin'
@@ -225,7 +232,7 @@ function buildDecosForMermaidBlock(
   const widgetPos = pos + node.nodeSize
   // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
   // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
-  const widget = makeMermaidWidget(source, deco, absolutePos, isEditing, node)
+  const widget = makeMermaidWidget(source, deco, absolutePos, isEditing)
   decos.push(Decoration.widget(widgetPos, widget, {
     block: true,
     side: -2,
@@ -283,7 +290,6 @@ function makeMermaidWidget(
   deco: MermaidDecoState,
   pos: number,
   isEditing: boolean,
-  node: PMNode,
 ): HTMLElement {
   const dom = document.createElement('div')
   dom.className = 'mermaid-node mermaid-widget'
@@ -302,7 +308,8 @@ function makeMermaidWidget(
   //   - 展开态:chevron-up(向上)→ 点击收起 code block
   // (避免叉号容易被误认为删除;未来要做可缩放/拖动,这是唯一入口)
   toolbar.appendChild(makeToggleBtn(pos, isEditing))
-  toolbar.appendChild(makeDeleteBtn(pos, node))
+  toolbar.appendChild(makeCopyBtn(svgArea))
+  toolbar.appendChild(makeDeleteBtn(pos))
   dom.appendChild(toolbar)
 
   // v0.4.6+:SVG 区域不再响应 click(避免与后续 zoom/pan 拖动手势冲突);
@@ -341,6 +348,31 @@ function makeMermaidWidget(
 
 // ========== Toolbar 按钮工厂 ==========
 
+/** 展开 / 收起源码态。pos 是 absolutePos(content 起点),与 editNodeSet 同坐标系。
+ *  toolbar 与右键菜单共用;只读模式不响应(见 editor.md 只读模式红线)。 */
+export function toggleMermaidSourceAt(view: EditorView, pos: number): void {
+  if (!view.editable || view.isDestroyed) return
+  view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: pos }))
+}
+
+/** 删除整段 mermaid code_block。toolbar 与右键菜单共用。
+ *  widget 收的 pos = descendant pos + 1(open token 之后、content 起点),删整段
+ *  必须回退到 open token 之前:[pos - 1, pos - 1 + node.nodeSize)。直接 delete
+ *  (pos, pos + nodeSize) 会跨过 close token 吃进下一个 paragraph 的 open token,
+ *  残留的 code_block open token 把后续段落吞进去(表现:清空 code block 且删不掉)。
+ *  反向断言见 __tests__/mermaidDecoration.test.ts。 */
+export function deleteMermaidBlockAt(view: EditorView, pos: number): void {
+  if (!view.editable || view.isDestroyed) return
+  const blockStart = pos - 1
+  const node = view.state.doc.nodeAt(blockStart)
+  if (!node || node.type.name !== 'code_block') return
+  const tr = view.state.tr.delete(blockStart, blockStart + node.nodeSize)
+  // 顺手清 editNodeSet,避免悬挂状态
+  tr.setMeta(mermaidDecoKey, { toggleEditAt: -1 })
+  view.dispatch(tr)
+  view.focus()
+}
+
 function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
@@ -360,14 +392,143 @@ function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
     e.stopPropagation()
     const view = currentView
     if (!view || view.isDestroyed) return
-    // 阅读模式:不展开源码(保持 SVG 渲染态)
-    if (!view.editable) return
-    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: pos }))
+    toggleMermaidSourceAt(view, pos)
   })
   return btn
 }
 
-function makeDeleteBtn(pos: number, node: PMNode): HTMLElement {
+function makeCopyBtn(svgArea: HTMLElement): HTMLElement {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'velo-icon-btn mermaid-btn mermaid-btn-copy'
+  btn.title = '复制为图片'
+  btn.setAttribute('aria-label', '复制为图片')
+  btn.innerHTML = copySvg(14)
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  btn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    void copyMermaidAsImage(svgArea)
+      .then(() => {
+        btn.title = '已复制图片'
+        btn.setAttribute('aria-label', '已复制图片')
+        btn.innerHTML = checkSvg(14)
+        btn.classList.add('velo-copy-flash-ok')
+        window.setTimeout(() => {
+          btn.title = '复制为图片'
+          btn.setAttribute('aria-label', '复制为图片')
+          btn.innerHTML = copySvg(14)
+          btn.classList.remove('velo-copy-flash-ok')
+        }, 1500)
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        useNotifyStore().error(`复制 Mermaid 图片失败：${message}`)
+      })
+  })
+  return btn
+}
+
+/** 把当前 SVG 序列化为自包含 SVG 源码(CSS 变量已内联),供「复制 SVG 代码」/
+ *  「另存为 SVG」与 PNG 光栅化共用。 */
+export function mermaidStandaloneSvg(svgArea: HTMLElement): string {
+  const svg = svgArea.querySelector('svg')
+  if (!(svg instanceof SVGElement)) {
+    throw new Error('图表尚未渲染完成')
+  }
+  return serializeStandaloneSvg(svg, getComputedStyle(svg))
+}
+
+/** 当前图表 → 2× PNG Blob。CSS 变量内联 + 铺底色,避免脱离编辑器 DOM 后掉色。 */
+export async function mermaidPngBlob(svgArea: HTMLElement, scale = 2): Promise<Blob> {
+  const svg = svgArea.querySelector('svg')
+  if (!(svg instanceof SVGElement)) {
+    throw new Error('图表尚未渲染完成')
+  }
+  const computed = getComputedStyle(svg)
+  const standaloneSvg = serializeStandaloneSvg(svg, computed)
+  const dimensions = getSvgDimensions(svg)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.ceil(dimensions.width * scale)
+  canvas.height = Math.ceil(dimensions.height * scale)
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('无法创建图片画布')
+
+  const background = computed.getPropertyValue('--pele-bg').trim()
+  if (background) {
+    context.fillStyle = background
+    context.fillRect(0, 0, canvas.width, canvas.height)
+  }
+
+  const objectUrl = URL.createObjectURL(
+    new Blob([standaloneSvg], {
+      type: 'image/svg+xml',
+    }),
+  )
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('无法读取图表图片'))
+      image.src = objectUrl
+    })
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) resolve(result)
+        else reject(new Error('无法生成 PNG 图片'))
+      }, 'image/png')
+    })
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/** 复制为图片(toolbar 按钮 + 右键菜单共用)。 */
+export async function copyMermaidAsImage(svgArea: HTMLElement): Promise<void> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('当前环境不支持图片剪贴板')
+  }
+  const blob = await mermaidPngBlob(svgArea)
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+}
+
+function serializeStandaloneSvg(svg: SVGElement, computed: CSSStyleDeclaration): string {
+  const variables = new Map<string, string>()
+  for (let i = 0; i < computed.length; i++) {
+    const name = computed.item(i)
+    if (name.startsWith('--')) variables.set(name, computed.getPropertyValue(name).trim())
+  }
+  let markup = new XMLSerializer().serializeToString(svg)
+  markup = markup.replace(
+    /var\((--[\w-]+)(?:,\s*([^)]*))?\)/g,
+    (match, name: string, fallback?: string) => {
+      return variables.get(name) || fallback?.trim() || match
+    },
+  )
+  if (!markup.includes('xmlns=')) {
+    markup = markup.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
+  }
+  return markup
+}
+
+function getSvgDimensions(svg: SVGElement): { width: number; height: number } {
+  const viewBox = svg.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
+  if (viewBox && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+    return { width: viewBox[2], height: viewBox[3] }
+  }
+  const width = Number.parseFloat(svg.getAttribute('width') ?? '')
+  const height = Number.parseFloat(svg.getAttribute('height') ?? '')
+  if (width > 0 && height > 0) return { width, height }
+  const rect = svg.getBoundingClientRect()
+  if (rect.width > 0 && rect.height > 0) return { width: rect.width, height: rect.height }
+  throw new Error('无法确定图表尺寸')
+}
+
+function makeDeleteBtn(pos: number): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'velo-icon-btn velo-icon-btn--danger mermaid-btn mermaid-btn-delete'
@@ -380,20 +541,7 @@ function makeDeleteBtn(pos: number, node: PMNode): HTMLElement {
     e.stopPropagation()
     const view = currentView
     if (!view || view.isDestroyed) return
-    // 整段 code_block 删除(走 tr.delete,跟 imageKeymap 的"选中即删"同一机制)。
-    // 注意:widget 工厂收的 `pos` 是 absolutePos = descendant pos + 1,在
-    // code_block **内部** (open token 之后、content 起点)。要删整段必须
-    // 回退到 open token 之前的边界 (pos - 1) 到 close token 之后 (pos - 1 + node.nodeSize)。
-    // 否则范围越界 1 位,跨过 close token 吃进下一个 paragraph 的 open token →
-    // 残留的 code_block open token 把后续 paragraph 内容"吞"进 code_block,
-    // 表现为"清空 code block + 把后面段落移进去,mermaid 删不掉"。
-    const blockStart = pos - 1
-    const blockEnd = blockStart + node.nodeSize
-    const tr = view.state.tr.delete(blockStart, blockEnd)
-    // 顺手把 editNodeSet 清掉,避免悬挂状态
-    tr.setMeta(mermaidDecoKey, { toggleEditAt: -1 } as any)
-    view.dispatch(tr)
-    view.focus()
+    deleteMermaidBlockAt(view, pos)
   })
   return btn
 }
@@ -414,8 +562,9 @@ function fillWidget(
     renderSvg(dom, cached.svg)
     return
   }
-  if (deco.errorCache.has(source)) {
-    renderError(dom, deco.errorCache.get(source)!)
+  const cachedError = deco.errorCache.get(source)
+  if (cachedError) {
+    renderError(dom, cachedError)
     return
   }
   if (!hasOldSvg) {

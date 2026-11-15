@@ -9,7 +9,7 @@
 // - modelValue 外部变化时(切文件 / CLI 打开 / fs:watch 同步)→ 直接 view.updateState
 //   重置 EditorState,无需销毁重建整个 EditorView(等价语义,plugin state 自然清零)
 
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { EditorState, Plugin, PluginKey, TextSelection } from 'prosemirror-state'
 import { inputRules, ellipsis } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
@@ -79,6 +79,8 @@ const moveRowDown = () => cmdMoveRow(1)
 const moveColLeft = () => cmdMoveColumn(-1)
 const moveColRight = () => cmdMoveColumn(1)
 import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
+import { createMermaidContextMenuPlugin, type MermaidContextTarget } from './plugins/mermaidContextMenu'
+import { runMermaidMenuAction, type MermaidMenuAction } from './nodes/mermaidContextActions'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 import { createTableInsertHandlePlugin } from './plugins/tableInsertHandle'
 import { createTableCellInputGuardPlugin } from './plugins/tableCellInputGuard'
@@ -173,6 +175,24 @@ function computeTableMenuHideMoveColumn(anchorPos: number): boolean {
   return true
 }
 
+// ============ Mermaid 预览节点右键菜单状态 + handler ============
+// 上下文里带 DOM(svgArea),用 shallowRef 避免 Vue 把 HTMLElement 深度代理。
+const showMermaidMenu = ref(false)
+const mermaidMenuCtx = shallowRef<MermaidContextTarget | null>(null)
+
+function onMermaidContextMenu(target: MermaidContextTarget) {
+  // 两个编辑器内右键菜单互斥
+  showTableMenu.value = false
+  mermaidMenuCtx.value = target
+  showMermaidMenu.value = true
+}
+
+function onMermaidMenuAction(action: MermaidMenuAction) {
+  const ctx = mermaidMenuCtx.value
+  if (!ctx) return
+  void runMermaidMenuAction(getView(), ctx, action)
+}
+
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
 import { syntaxAutoFormatPlugin } from './plugins/syntaxAutoFormat'
 import { markSourceEditPlugin, markSourceEditEscapeKeymap, flushMarkSourceEdit } from './plugins/markSourceEdit'
@@ -201,6 +221,7 @@ import './syntax' // 触发 syntax registry 注册副作用(block + inline 全�
 import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/h/k/0~6/t 等)
 import { buildShortcutKeymap } from './editor/shortcuts'
 import TableContextMenu from './TableContextMenu.vue'
+import MermaidContextMenu from './MermaidContextMenu.vue'
 import { useDocumentStore } from '@/stores/document'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { resolveImageSrc } from '@/utils/imageSrc'
@@ -743,6 +764,8 @@ const pluginEntries: PluginEntry[] = [
     id: 'tableContextMenu',
     plugin: createTableContextMenuPlugin({
       onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
+        // 两个编辑器内右键菜单互斥
+        showMermaidMenu.value = false
         tableMenuAnchorPos.value = clickCellPos
         tableMenuInHeader.value = inHeader
         tableMenuIsCellSelection.value = isCellSelection
@@ -813,6 +836,12 @@ const pluginEntries: PluginEntry[] = [
   // ── Math & Mermaid ────────────────────────────────────────────────
   { id: 'mathEdit', plugin: mathEditPlugin },
   { id: 'mermaidDecoration', plugin: mermaidDecoration },
+  // 右键拦截在 CANONICAL_PLUGIN_ORDER 里排在 tableContextMenu **之前**
+  // (物理顺序无关):SVG foreignObject 里万一出现 td,也先由 mermaid 菜单接管。
+  {
+    id: 'mermaidContextMenu',
+    plugin: createMermaidContextMenuPlugin({ onMermaidContextMenu }),
+  },
 
   // ── Misc Decorations ──────────────────────────────────────────────
   { id: 'taskList', plugin: taskListPlugin },
@@ -1309,24 +1338,30 @@ function focusEditor() {
 
 defineExpose({ focusEditor, getEditorView: getView, containerRef })
 
-// 表格右键菜单:点击外部/滚动时关闭
+// 编辑器内右键菜单(表格 / mermaid):点击外部、Escape、滚动时关闭。
+// 两个菜单互斥,共用一份 document listener 即可。
 const tableMenuRef = ref<InstanceType<typeof TableContextMenu> | null>(null)
+const mermaidMenuRef = ref<InstanceType<typeof MermaidContextMenu> | null>(null)
 useContextMenu({
-  isOpen: () => showTableMenu.value,
-  getMenuEl: () => tableMenuRef.value?.rootEl ?? null,
-  close: () => { showTableMenu.value = false },
+  isOpen: () => showTableMenu.value || showMermaidMenu.value,
+  getMenuEl: () => tableMenuRef.value?.rootEl ?? mermaidMenuRef.value?.rootEl ?? null,
+  close: () => {
+    showTableMenu.value = false
+    showMermaidMenu.value = false
+  },
 })
 
-// 滚动/滚轮时关闭表格菜单(避免菜单与表格脱节)
-function closeTableMenuOnScroll() {
-  if (showTableMenu.value) showTableMenu.value = false
+// 滚动/滚轮时关闭菜单(避免菜单与节点脱节)
+function closeEditorMenusOnScroll() {
+  showTableMenu.value = false
+  showMermaidMenu.value = false
 }
 onMounted(() => {
   // 监听编辑器根容器的 wheel/scroll 事件,滚动时关闭菜单
   const el = containerRef.value
   if (el) {
-    el.addEventListener('wheel', closeTableMenuOnScroll, { passive: true })
-    el.addEventListener('scroll', closeTableMenuOnScroll, { passive: true })
+    el.addEventListener('wheel', closeEditorMenusOnScroll, { passive: true })
+    el.addEventListener('scroll', closeEditorMenusOnScroll, { passive: true })
   }
 })
 onBeforeUnmount(() => {
@@ -1336,8 +1371,8 @@ onBeforeUnmount(() => {
   if (pendingFoldRestoreRAF != null) cancelAnimationFrame(pendingFoldRestoreRAF)
   const el = containerRef.value
   if (el) {
-    el.removeEventListener('wheel', closeTableMenuOnScroll)
-    el.removeEventListener('scroll', closeTableMenuOnScroll)
+    el.removeEventListener('wheel', closeEditorMenusOnScroll)
+    el.removeEventListener('scroll', closeEditorMenusOnScroll)
   }
   unregisterTableEditorView()
   // useProseMirror 内部已 destroy
@@ -1357,5 +1392,15 @@ onBeforeUnmount(() => {
     :hide-move-column="tableMenuHideMoveColumn"
     @action="onTableMenuAction"
     @close="showTableMenu = false"
+  />
+  <MermaidContextMenu
+    v-if="showMermaidMenu && mermaidMenuCtx"
+    ref="mermaidMenuRef"
+    :x="mermaidMenuCtx.x"
+    :y="mermaidMenuCtx.y"
+    :is-editing="mermaidMenuCtx.isEditing"
+    :editable="mermaidMenuCtx.editable"
+    @action="onMermaidMenuAction"
+    @close="showMermaidMenu = false"
   />
 </template>
