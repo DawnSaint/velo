@@ -61,6 +61,8 @@
 
 段内有硬依赖：`tableColumnResizing` / `tableCellInputGuard` 在 `tableEditing` 之前；Source Edit 段在 `syntaxAutoFormat` 之前；`viewport` 在所有读视口的装饰插件之前。
 
+表格列宽自适应不新增插件：`tableColumnResizing` 的 `View` 指向 `editor/tableAutoWidth.ts` 的 `AutoWidthTableView`（继承官方 `TableView`），默认 `table-layout: auto`，在 rAF 同帧内实测列宽、写 `<colgroup>` 的 px 列宽并切 `locked`。锁定态**始终保持 fixed**，不随 hover / 拖拽切换布局（否则列边界位移会让 `columnResizing` 的 5px hover 判定自激反转）；表格用 `width: max-content` 让总宽跟随列宽之和（`auto` 在 Chromium 下仍会把表钳在容器宽度内按比例缩放，拖拽 override 不跟手），列宽一律 px（与拖拽预览的 px override 同单位，否则 fixed 布局会重新平衡导致首次拖拽不跟手）；有手动 `colwidth` 时自动列保持基准宽度、总宽允许超出容器由 `.tableWrapper` 横向滚动，避免 mouseup 后其它列被压扁；`columnWidthBudget()` 扣掉折叠边框的 1px，使初始表格正好铺满、不给每个表格挂常驻滚动条；宽度另存 `--velo-col-width` 由 CSS 兜底，抵抗官方 `updateColumnsOnResize` 清空 inline width。列宽是纯视图态，不 dispatch、不写回 doc / markdown；详见 `docs/DECISIONS.md` 的 ADR-20261115-001。
+
 ### 解析管线
 
 `createParseProcessor()`（`editor/parseProcessor.ts`）是主线程与 Worker 共用的 parse 配置：

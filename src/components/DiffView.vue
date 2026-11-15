@@ -122,12 +122,16 @@ let loadSeq = 0
 
 async function loadDiff() {
   const seq = ++loadSeq
+  // 新一轮请求一律先清掉上一轮的 loading:旧请求可能永远卡在 await(Git 慢),
+  // 若新条目走「内容已在内存」的同步快路径就直接 return,残留的 true 会让
+  // spinner 一直盖住已经算好的 diff。下面两条异步路径会在同一同步执行段内
+  // 重新置 true,Vue 批处理不会产生中间帧,也不影响「过期请求无权清 loading」。
+  loading.value = false
   const entry = selected.value
   if (!entry) {
     diffResult.value = []
     newContent.value = ''
     oldContent.value = ''
-    loading.value = false
     return
   }
 

@@ -20,6 +20,7 @@ import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { sinkListItem, liftListItem, splitListItem } from 'prosemirror-schema-list'
 import { baseKeymap, chainCommands, liftEmptyBlock, selectAll, splitBlock } from 'prosemirror-commands'
 import { schema, type VeloSchema } from './editor/schema'
+import { AutoWidthTableView } from './editor/tableAutoWidth'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
 import { fromMarkdown, fromMarkdownAsync, toMarkdown } from './editor/markdownIO'
@@ -707,7 +708,16 @@ const pluginEntries: PluginEntry[] = [
   //   tableEditing 的 handlePaste 被试:HTML 路径粘贴时 DOMParser 用 table_cell
   //   context 剥离 <tr>/<td> → pastedCells 返回 null → tableEditing 走 1×1 fallback
   //   → 行列错乱;guard 检测到无表格结构时从 clipboard text 重建 TSV slice 再委托)。
-  { id: 'tableColumnResizing', plugin: columnResizing({ handleWidth: 5, cellMinWidth: 24, lastColumnResizable: false }) },
+  // defaultCellMinWidth 显式化(上游默认 100px 会把窄列顶得过宽);
+  // View 换成本地 AutoWidthTableView:默认 auto 自适应,rAF 同帧实测并锁定 px 列宽。
+  // 仍是同一个 columnResizing 插件,不改 allPlugins 顺序、不写 doc。
+  { id: 'tableColumnResizing', plugin: columnResizing({
+    handleWidth: 5,
+    cellMinWidth: 24,
+    defaultCellMinWidth: 48,
+    View: AutoWidthTableView,
+    lastColumnResizable: false,
+  }) },
   { id: 'tableCellInputGuard', plugin: createTableCellInputGuardPlugin() },
   { id: 'tableEditing', plugin: tableEditing(), requires: ['tableColumnResizing', 'tableCellInputGuard'] },
   { id: 'tableResizeCursor', plugin: createTableResizeCursorPlugin() },

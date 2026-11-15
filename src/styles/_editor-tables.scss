@@ -1,6 +1,8 @@
 // 表格 —— 极淡边框 / 白底 / 灰 hover / 选中态蓝遮罩。
-// 布局走 table-layout: fixed + width: 100%(内联在 <table> 上由 columnResizing 的
-// TableView 设置),横向溢出交给外层 .tableWrapper 滚动,不撑开编辑器视区。
+// 列宽自适应:未锁定态走 table-layout: auto(浏览器按内容分配);锁定态由
+// AutoWidthTableView 把实测列宽写成 <colgroup> 的 px 后切 fixed。导出 HTML
+// 没有 NodeView,天然停在 auto 态。锁定态用 width: max-content 让总宽跟随列宽
+// 之和,横向溢出交给外层 .tableWrapper 滚动,不撑开编辑器视区。
 
 .velo-editor {
   // 表格滚动外壳(columnResizing 的 TableView 渲染时自动创建)
@@ -34,11 +36,39 @@
 
   table {
     border-collapse: collapse;
-    table-layout: fixed;
+    // 默认 / 测量态:首个可见态就是内容自适应,不存在「先均分再跳变」的一帧。
+    table-layout: auto;
     width: 100%;
     overflow: hidden;
     margin: 0; // 由 .tableWrapper 接管 margin
     word-break: break-word;
+  }
+
+  // 锁定态:colgroup 里全是 px 列宽(按 auto 实测宽度加权算出)。
+  // 必须始终 fixed,不能因 hover / 拖拽预览切回 auto:布局一变列边界就位移,
+  // columnResizing 的 5px hover 命中判定随即反转,会形成
+  // 「切 auto → hover 失效 → 切回 fixed → 又命中」的自激闪烁循环。
+  //
+  // width 用 max-content 而非 100% / auto:表格总宽 = colgroup 的 px 列宽之和。
+  // - 100%:拖宽一列时 fixed 布局在固定表格宽度下重新平衡,override 增量被吃掉;
+  // - auto:Chromium 仍把表格限制在容器宽度内并按比例缩放列宽(实测 930 容器下
+  //   override 105→370 只变成 105→285),同样不跟手;
+  // - max-content:表格宽度跟随列宽之和(实测 370 → 1195,730 → 1555),override
+  //   精确生效,其余列保持各自 px;超出容器部分由 .tableWrapper 横向滚动。
+  // 初始 sum(px) 从 auto 实测算出 = 容器宽度 - 1px(折叠边框占的 1px,
+  // 由 tableAutoWidth.ts 的 columnWidthBudget 扣除),所以仍然正好铺满、零跳变,
+  // 且不会因为表格边框盒宽出 1px 而给每个表格挂一条常驻横向滚动条。
+  table[data-velo-widths='locked'] {
+    table-layout: fixed;
+    width: max-content;
+  }
+
+  // columnResizing 的 updateColumnsOnResize 每次(含 PM 的 view.update、拖拽
+  // 预览)都会把没有 colwidth 的列 inline width 清成 ''。自适应宽度另外存一份
+  // 在自定义属性里兜底:inline 被清空后本规则仍生效;拖拽 override 列写的
+  // inline px 优先级更高,自然覆盖兜底值。
+  table[data-velo-widths='locked'] colgroup > col {
+    width: var(--velo-col-width, auto);
   }
 
   th,
