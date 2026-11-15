@@ -11,37 +11,36 @@
 //! - 全部 COM 调用都是 `unsafe fn`,必须 unsafe 块
 //!
 //! 链路:
-//!   Navigate(data_url) → NavigationCompleted 事件 → PrintToPdf → PrintToPdfCompleted
+//!   Navigate(asset_url) → NavigationCompleted 事件 → PrintToPdf → PrintToPdfCompleted
 //!   由于 `with_webview` 闭包不能阻塞主线程,且不能 self-reference,
 //!   webview7 / settings 必须提前 clone 出去给两个 handler 共享。
 
 use std::sync::{Arc, Mutex};
 
-use base64::Engine;
 use tokio::sync::oneshot;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2_7, ICoreWebView2Environment, ICoreWebView2Environment6,
-    ICoreWebView2NavigationCompletedEventArgs, ICoreWebView2PrintSettings,
+    ICoreWebView2, ICoreWebView2Environment, ICoreWebView2Environment6,
+    ICoreWebView2NavigationCompletedEventArgs, ICoreWebView2PrintSettings, ICoreWebView2_7,
 };
 use webview2_com::{NavigationCompletedEventHandler, PrintToPdfCompletedHandler};
 use windows::core::{Interface, PCWSTR};
 
 use super::PdfError;
 
-/// 把 HTML 字符串导出成 PDF,写到 `output_path`。
+/// 把导出 HTML(asset 协议 URL)导出成 PDF,写到 `output_path`。
 ///
 /// 流程:
 /// 1. controller.CoreWebView2() 拿 ICoreWebView2,cast 到 ICoreWebView2_7
 /// 2. environment cast 到 ICoreWebView2Environment6,CreatePrintSettings 拿 settings
-/// 3. encode HTML 成 data URL
-/// 4. 注册 NavigationCompleted handler,在 handler 内调 PrintToPdf
+/// 3. 注册 NavigationCompleted handler,在 handler 内调 PrintToPdf
 ///    (webview7 / settings 通过 Arc 共享,因为 COM interface 引用计数 + Send)
-/// 5. Navigate(data_url) 触发 HTML 加载
-/// 6. PrintToPdf completion handler 通过 oneshot 回传最终结果
+/// 4. Navigate(asset_url) 触发 HTML 加载 —— 走本地临时文件 + asset 协议,
+///    不再用 data: URL(WebView2 对 data: 主文档有 ~2MB 上限,导出 HTML 内联字体后超限)
+/// 5. PrintToPdf completion handler 通过 oneshot 回传最终结果
 pub(super) fn print(
     controller: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
     environment: ICoreWebView2Environment,
-    html: &str,
+    asset_url: &str,
     output_path: &str,
     tx: oneshot::Sender<Result<(), PdfError>>,
 ) {
@@ -94,13 +93,14 @@ pub(super) fn print(
     // (最坏退化成无底色 PDF),best-effort 忽略错误。
     let _ = unsafe { settings.SetShouldPrintBackgrounds(true) };
 
-    // step 4: encode HTML 成 data URL
-    let encoded = base64::engine::general_purpose::STANDARD.encode(html.as_bytes());
-    let data_url = format!("data:text/html;base64,{encoded}");
-    let data_url_h = match windows::core::HSTRING::try_from(data_url.as_str()) {
+    // step 4: asset URL 转 HSTRING
+    // asset_url 形如 `http://asset.localhost/<percent-encoded-path>`,
+    // 由 wry 的 custom protocol workaround 拦截并 revert 回真实路径后交给
+    // tauri asset handler 读盘。
+    let asset_url_h = match windows::core::HSTRING::try_from(asset_url) {
         Ok(h) => h,
         Err(e) => {
-            let _ = tx.send(Err(PdfError::Platform(format!("HSTRING data_url: {e}"))));
+            let _ = tx.send(Err(PdfError::Platform(format!("HSTRING asset_url: {e}"))));
             return;
         }
     };
@@ -183,8 +183,8 @@ pub(super) fn print(
         return;
     }
 
-    // step 6: navigate 触发 HTML 加载
-    if let Err(e) = unsafe { webview2.Navigate(PCWSTR(data_url_h.as_ptr())) } {
+    // step 6: navigate 触发 HTML 加载(asset 协议 URL)
+    if let Err(e) = unsafe { webview2.Navigate(PCWSTR(asset_url_h.as_ptr())) } {
         // 卸载 handler,免得泄漏 token
         let _ = unsafe { webview2.remove_NavigationCompleted(nav_token) };
         let _ = tx_slot

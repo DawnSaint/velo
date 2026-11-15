@@ -744,12 +744,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data-url"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
-
-[[package]]
 name = "dbus"
 version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4109,7 +4103,6 @@ dependencies = [
  "anyhow",
  "bytes",
  "cookie",
- "data-url",
  "dirs",
  "dunce",
  "embed_plist",
@@ -5043,7 +5036,6 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "velo"
 version = "0.7.15"
 dependencies = [
- "base64 0.22.1",
  "git2",
  "grep-matcher",
  "grep-regex",

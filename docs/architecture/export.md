@@ -17,6 +17,7 @@
 - **导出 DOM class 名必须与 editor NodeView verbatim 一致**，否则 `@forward` 进来的样式落空。
 - **PDF 新建窗口必须在 async command 里做**；闭包不能 self-reference（webview7 / settings 必须 move 进 handler）。
 - **Windows PDF 必须 `SetShouldPrintBackgrounds(true)`**，否则 alert SVG / 代码块底色 / 暗色底全丢。
+- **PDF 的 HTML 必须走本地文件 + asset 协议，不能走 data URL**：WebView2/Chromium 对 data: URL 主文档有 ~2MB 上限，导出 HTML 内联字体后必然超限（`Navigate` 报 `0x80070057`）。asset 协议三处配置必须一致 —— config `assetProtocol.enable` + `scope: ["**"]`、CSP 含 `http://asset.localhost`、Rust 侧按 `convertFileSrc` 同构规则拼 URL；少一处就静默 403 / 拒绝访问。
 - **导出内部锚点 fragment 必须与 heading id 同源 `slugify()`**，外部 URL fragment 不动。
 - **KaTeX 字体必须 inline base64**，导出环境无 `fonts/` 目录。
 - **新增暗色规则 editor / export 两处同步**（编辑器走 class，导出走 `@media (prefers-color-scheme: dark)`）。
@@ -45,15 +46,20 @@
 
 - **降级**：mermaid / katex / shiki 任一失败 → 原文 / `math-error` + 收进 `warnings`，不中断。
 - **dual theme token** 仍写双 hex，dark 靠 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)` 接管（同 GitHub README 自适应）；`@media print` 强制 light 给 PDF 用。
-- **CSS 来源**：`exportStyles.scss` `@forward` 编辑器 `_editor-*.scss` partials + `buildAllFontFaceCss()`。
+- **CSS 来源**：`exportStyles.scss` `@forward` 编辑器 `_editor-*.scss` partials + `buildFontFaceCss()`。
+- **内嵌字体按需内联（v0.7.16）**：`buildFontFaceCss(fontFamily, fontMono)` 只内联两个 font-family 栈里实际命中的内嵌字体族（`resolveBundledFamilies` 从逗号分隔的 CSS 栈解析，大小写敏感匹配 `BUNDLED_FONTS` 注册名）。原先 `buildAllFontFaceCss()` 无条件内联全部 8 款（~5.2MB base64），用户没选中的字体纯属浪费；典型场景降到 ~0.5MB。`buildAllFontFaceCss()` 保留作测试对照基准与未来「全量内联」选项的挂载点。**已知取舍**：HTML 导出换一台没装该字体的机器打开会回退到系统字体（原先全量内联保证跨机器一致）。PDF / DOCX 不受影响 —— PDF 渲染的就是用户本机；DOCX 的 `htmlToContent` 显式丢弃 `@font-face`（见 `docx/dist/html.mjs` 注释），本来只用 font-family 名字。
 
 ### PDF 路径
 
 不走 `iframe + window.print()` 弹系统对话框，改走 Tauri `with_webview` 调平台原生 PrintToPDF（Typora / Obsidian 同款静默写盘 UX）。
 
-链路：前端 `invoke('export_pdf', { outputPath, html })` → Rust `pdf::export_pdf`（`src-tauri/src/pdf.rs`）新建 `visible(false)` 隐藏打印窗口（label `velo-pdf-printer-<n>`）→ `with_webview` 拿平台 handle → **Windows（完整实现，`pdf_windows.rs`）** cast `ICoreWebView2_7::PrintToPdf` + `ICoreWebView2Environment6::CreatePrintSettings`，NavigationCompleted 后发起 PrintToPdf，`oneshot` 桥接 async；**macOS / Linux** 当前返回 `PdfError::Unsupported`。HTML 靠 `navigate("data:text/html;base64,...")`（需 tauri `webview-data-url` feature）；`PRINT_LOCK` 全局 `tokio::Mutex` 防并发，30s 超时兜底；打印完 `printer.close()`。
+链路：前端 `invoke('export_pdf', { outputPath, html })` → Rust `pdf::export_pdf`（`src-tauri/src/pdf.rs`）把 HTML 写到 `app_cache_dir/velo-export/<label>.html`，转成 `http://asset.localhost/<percent-encoded-path>` 后 `Navigate` 进新建的 `visible(false)` 隐藏打印窗口（label `velo-pdf-printer-<n>`）→ `with_webview` 拿平台 handle → **Windows（完整实现，`pdf_windows.rs`）** cast `ICoreWebView2_7::PrintToPdf` + `ICoreWebView2Environment6::CreatePrintSettings`，NavigationCompleted 后发起 PrintToPdf，`oneshot` 桥接 async；**macOS / Linux** 当前返回 `PdfError::Unsupported`。`PRINT_LOCK` 全局 `tokio::Mutex` 防并发，30s 超时兜底；打印完 `printer.close()` + 删临时 HTML。
 
-**为什么走隐藏窗口而非主 webview**：`Navigate(data:...)` 会销毁主 webview 的 Vue 应用 + `invoke` promise 所在 JS 上下文，弹不出反馈且应用回不来。初始 URL 选 `about:blank` —— tauri-runtime-wry 对其特判为「不设初始 URL」，避免「初始页 vs data URL」两个 NavigationCompleted 竞态。
+**为什么走隐藏窗口而非主 webview**：`Navigate(asset:...)` 会销毁主 webview 的 Vue 应用 + `invoke` promise 所在 JS 上下文，弹不出反馈且应用回不来。初始 URL 选 `about:blank` —— tauri-runtime-wry 对其特判为「不设初始 URL」，避免「初始页 vs asset URL」两个 NavigationCompleted 竞态。
+
+**为什么 HTML 必须走本地文件 + asset 协议，不能用 data URL**：WebView2/Chromium 对 **data: URL 主文档有 ~2MB 上限**（`NavigateToString` 明确 2MB），而导出 HTML 内联了 KaTeX（~340KB b64）+ 8 款内嵌字体（~5MB b64，见 `_fonts.scss`），必然超限 —— 早期实现用 `Navigate("data:text/html;base64,...")`，实测直接报 `Navigate: 拒绝访问 (0x80070057)`。asset 协议走 wry 的 custom protocol workaround：`http://asset.localhost/<encoded-path>` 被 `WebResourceRequested` filter 拦截 → revert 回真实路径 → tauri asset handler `File::open` 读盘，无大小限制。前置条件三处一致（见红线）：config `assetProtocol.enable` + `scope: ["**"]`、CSP 含 `http://asset.localhost`、Rust 侧按前端 `convertFileSrc` 同构规则构造 URL。
+
+**临时文件落 cache 目录而非系统 temp**：`app_cache_dir/velo-export/` 随应用卸载 / 用户清缓存自然回收，不污染文档目录；asset scope 是 `**`，cache 目录天然在授权范围内。每次导出写 `<label>.html`（label 自增唯一），导出结束（成败都）`remove_file`，失败静默（缓存目录有系统兜底）。
 
 ### DOCX 路径
 
@@ -87,6 +93,8 @@
 - **导出 KaTeX 字体必须 inline**：`katex.min.css` 里 `@font-face` 引用 `url(fonts/KaTeX_*.{woff2,woff,ttf})`，编辑器侧 Vite side-effect import 会改写 `url()`；但**导出走 `?inline` 拿 CSS 原文，Vite 不改 `url()`**，导出旁无 `fonts/` → 字体回退。`katexCss.ts` 顶层 `import.meta.glob` 拿 20 个 woff2 base64 data URI，`inlineKatexWoff2Fonts` 把每条 `@font-face` 的 src 改写成单条 woff2 data URI 并 strip woff / ttf（现代浏览器含 WebView2 首选 woff2；只 inline woff2 压到 ~340KB 而非全部 60 文件 ~1.3MB）。vitest 走纯函数 `inlineKatexWoff2Fonts(css, fontMap)` 验转换逻辑（`?inline` 在 vitest 与 prod build 行为不一致返回空）。
 - **新增暗色规则要两处同步**：editor 走 `_editor-dark.scss` 的 `:is(.dark .velo-editor, .velo-editor.dark)`（Vue 控制 `<html class="dark">`），export 走 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)`（**自写副本，不 forward `_editor-dark.scss`**，导出 HTML 无 `.velo-editor.dark` 依赖）。两套语义不等价：导出只跟系统暗色偏好走，不能跟应用内 toggle 走。
 - **Windows PDF 必须开 `SetShouldPrintBackgrounds(true)`**：WebView2 `ICoreWebView2_7::PrintToPdf` 默认 `ShouldPrintBackgrounds=false`，不打印任何 `background-color` / `background-image`（alert `::before` SVG 图标、shiki 代码块底色、表格条纹、暗色底全丢）。`CreatePrintSettings()` 后必须调该 setter；设置失败不致命，best-effort `let _ =` 忽略。导出 task list `<li>` 挂 `class="velo-task-item"`（`exportStyles.scss` 给 `list-style:none`）去默认 disc 圆点 —— editor 侧靠 `li[data-item-type="task"]` 去圆点，导出走 native `<input type="checkbox">`，用 class 单独兜。
+- **PDF 的 HTML 不能走 data URL**：WebView2/Chromium 对 data: URL 主文档有 ~2MB 上限（`NavigateToString` 明确 2MB），而导出 HTML 内联字体后远超此限（改按需内联前是 ~5.2MB b64），`Navigate` 直接返回 `0x80070057`（E_INVALIDARG），表现为「导出失败:PrintToPdf failed: Navigate: 拒绝访问」。修法：HTML 写 `app_cache_dir/velo-export/<label>.html`，用 `http://asset.localhost/<percent-encoded-path>` 导航。wry 在 Windows 上把自定义 scheme 改写成 `{scheme}://{protocol}.localhost/...`，并用 `WebResourceRequested` filter 拦截后 revert 回真实路径交给 tauri asset handler `File::open`。三处配置必须一致（config `assetProtocol.enable` + `scope: ["**"]`、CSP 含 `http://asset.localhost`、Rust 侧按 `convertFileSrc` 同构规则拼 URL），少一处就静默 403 / 拒绝访问。**排查同类问题先看报错里的 HRESULT**：`0x80070057` = E_INVALIDARG（参数超限），不是权限问题。
+- **内嵌字体按需内联而非全量**：`buildFontFaceCss(fontFamily, fontMono)` 只内联实际命中的族。全量内联 8 款约 5.2MB base64，其中 Noto Sans SC 一款占 3MB —— 用户没选它纯属浪费。**注意 bundle 体积不会因此变小**：`woff2DataUris` 是模块顶层 eager glob，所有字体仍进导出 chunk；按需减少的是导出 HTML 产物体积。真要减 bundle 得改惰性 fetch（每次导出多 20+ 次 fetch + 转码，取舍见 `katexCss.ts` 同段说明）。匹配逻辑放 `fontFaceCss.ts` 内部而非复用 `utils/fontStacks.ts`：后者是 UI 层，`src/lib/export/` 是叶模块，dep-cruiser `leaf-no-upper` 禁止反向依赖。
 - **DOCX 选 `htmlToContent` 而非 mdast2docx**：后者架构更纯粹（mdast 直出、不依赖 HTML），但**丢失全部 CSS 样式**（颜色 / 底纹 / 边框 / 语法高亮全无）；`htmlToContent` 复用 Velo 已有的高质量 HTML，实测保真度最高。代价是 DOCX 质量与 `htmlRenderer` 输出强耦合 —— 改导出 HTML 的 DOM / class / CSS 会同时影响 DOCX，两类导出的样式回归要一起看。
 - **DOCX 的 SVG 必须自己光栅化**：`htmlToContent` 对 SVG 的 PNG fallback 是 1×1 透明占位符（docx 无光栅化能力），WPS 打开空白。Velo 主要用户在中文环境、WPS 占比高，所以 DOCX 模式用 canvas 把 mermaid SVG 转真 PNG。光栅化固定走 light 主题（DOCX 通常白底查看，暗色图在 Word 里是黑块），`--pele-*` 变量在 `<img>` 里取不到外部 CSS，需先写进 SVG 根 style。
 
