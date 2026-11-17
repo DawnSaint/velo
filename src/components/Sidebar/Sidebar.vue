@@ -102,7 +102,7 @@ function onReorganizeAsset(payload: { oldAbsPath: string; newSrc: string; mode: 
        overflow-hidden 防止拖到接近 200px 时内部滚动容器溢出。 -->
   <div class="flex h-full min-w-0 flex-col overflow-hidden">
     <!-- 互斥内容:设置激活时资产面板显示空态(无文档上下文,不挂载
-         AssetPanel 孤儿扫描);outline 空态由 EditorOutline 自身 props.settingsActive
+         AssetPanel 失效检测);outline 空态由 EditorOutline 自身 props.settingsActive
          接管。files / search 正常渲染(设置保持激活,用户可浏览文件树 / 搜索)。 -->
     <div class="min-h-0 flex-1">
       <!-- 设置激活时 assets 显示空态 -->

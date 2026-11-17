@@ -1,34 +1,33 @@
 <script setup lang="ts">
-// 图片资产面板(v0.6.4):
+// 图片资产面板:
 //  - 扫描当前文档 markdown 中的所有 image 引用 `![alt](src "title")`
-//  - 分组:本地图片(相对/绝对路径)/ 外链(http/https/data:)
-//  - 点击文档图片条目 → emit('locate-image', src, occurrence) → App.vue
+//  - 分组:失效引用(本地文件不存在/无法加载)/ 本地图片 / 外链(http/https/data:)
+//  - 点击条目 → emit('locate-image', src, occurrence) → App.vue
 //    走 PM doc NodeSelection + scrollIntoView 定位
-//  - 未被引用的图片文件:扫描 <docDir>/assets/ 下的图片文件,文档未引用的标灰展示
-//    扩展名过滤:8 种标准图片 + 'bin'(当前版本 paste 兜底) + '(null)'(旧版字面量)
-//    src 归一化:scanMarkdownImages 正则提取后走 unescapeMdUrl 剥转义反斜杠,
-//    避免与孤儿磁盘路径(无转义)比对时误判为未引用
-//  - 右键本地图片/孤儿条目 → 复制/移动到工作区 assets/<docName>/,编辑器引用路径同步重写
+//  - 失效引用:fs.exists 判定文件缺失(Tauri),缩略图加载失败兜底(web dev /
+//    文件损坏);右键 → 重新链接(选新文件改写 src)/ 移除引用(删 image 节点)
+//  - 右键本地图片 → 预览(lightbox)/ 复制/移动到工作区 assets/<docName>/,
+//    编辑器引用路径同步重写;双击条目直接预览
 //
 // 扫描走 markdown 字符串正则(非 PM doc),因为 Sidebar 不可达 PM view;
 // 点击定位时 App.vue 负责在 PM doc 里按 src + occurrence 匹配节点。
 //
-// 未被引用图片扫描走 Tauri fs.readDir,dev web 端降级为只显示文档图片。
+// 不做"未被引用图片"统计:跨文档引用判定不可靠(引用式链接/HTML/工作区外
+// 文档都会误报),且低频清理需求不值得常驻扫描。工作区图片浏览走文件树预览。
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { Image as ImageIcon, ImageOff, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
-import { writeImage } from '@tauri-apps/plugin-clipboard-manager'
-import { Image as TauriImage } from '@tauri-apps/api/image'
-import { readDir, readFile, remove, copyFile, tauriOnly } from '@/tauri/fs'
-import { save as dialogSave } from '@/tauri/dialog'
-import { resolveImageAssetAbsPath, dirnameSync, isImageExt } from '@/utils/imagePath'
+import { exists, remove, copyFile, tauriOnly } from '@/tauri/fs'
+import { open as dialogOpen, save as dialogSave } from '@/tauri/dialog'
+import { resolveImageAssetAbsPath, dirnameSync, IMAGE_EXTS } from '@/utils/imagePath'
 import { reorganizeAsset, docNameFromPath, isPathInRoot } from '@/utils/assetReorganize'
-import { writeClipboardText } from '@/utils/clipboard'
+import { writeClipboardText, writeClipboardImage } from '@/utils/clipboard'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useNotifyStore } from '@/stores/notify'
 import { useConfirmStore } from '@/stores/confirm'
+import { useImagePreviewStore } from '@/stores/imagePreview'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import { ASSET_IMAGE_MIME } from '@/components/ProseMirrorEditor/image/treeDrop'
 import { basename as basenameSync } from './treeUtils'
@@ -63,12 +62,6 @@ interface ImageEntry {
   absPath: string | null
   /** 展示名:basename(src) 或截断的 URL */
   label: string
-}
-
-interface OrphanEntry {
-  fileName: string
-  absPath: string
-  displayUrl: string
 }
 
 // ============================================================
@@ -190,101 +183,71 @@ const allImages = computed<ImageEntry[]>(() => {
 const localImages = computed(() => allImages.value.filter((e) => e.absPath !== null))
 const externalImages = computed(() => allImages.value.filter((e) => e.absPath === null))
 
-/** 本地图片的 absPath 集合(去重),用于孤儿判定 */
-const referencedAbsPaths = computed(() => {
-  const set = new Set<string>()
-  for (const img of localImages.value) {
-    if (img.absPath) set.add(img.absPath.replace(/\\/g, '/'))
-  }
-  return set
-})
-
 // ============================================================
-//  孤儿检测
+//  失效引用检测
 // ============================================================
 
-const orphans = ref<OrphanEntry[]>([])
-const orphanLoading = ref(false)
-let orphanScanTimer: ReturnType<typeof setTimeout> | null = null
+/** fs.exists 确认不存在的本地 absPath 集合 */
+const missingPaths = ref(new Set<string>())
+/** 缩略图加载失败的 displayUrl 集合(web dev 降级 + 文件损坏兜底) */
+const brokenThumbs = ref(new Set<string>())
 
-async function scanOrphans() {
-  if (!tauriOnly() || !props.filePath) {
-    orphans.value = []
-    return
-  }
+let existCheckTimer: ReturnType<typeof setTimeout> | null = null
+let existCheckToken = 0
 
-  const docDir = dirnameSync(props.filePath)
-  if (!docDir) {
-    orphans.value = []
-    return
-  }
-
-  const assetsDir = `${docDir}/assets`
-  orphanLoading.value = true
-
-  try {
-    const entries = await readDir(assetsDir)
-    const referenced = referencedAbsPaths.value
-    const found: OrphanEntry[] = []
-
-    for (const entry of entries) {
-      if (entry.isDirectory) continue
-      if (!entry.name) continue
-      const dot = entry.name.lastIndexOf('.')
-      if (dot === -1 || dot === entry.name.length - 1) continue
-      const ext = entry.name.slice(dot + 1).toLowerCase()
-      // paste 时若 file.type 为空 / 未知 MIME,旧版会把 ext 字面写成 '(null)';
-      // 当前版本已改为 'bin'(imageStorage.saveImageAsset → mimeToExt 默认 'bin')。
-      // 这三类都是实际图片,不能被孤儿过滤挡掉
-      if (ext !== 'bin' && ext !== '(null)' && !isImageExt(ext)) continue
-
-      const absPath = `${assetsDir}/${entry.name}`.replace(/\\/g, '/')
-      if (referenced.has(absPath)) continue
-
-      found.push({
-        fileName: entry.name,
-        absPath,
-        displayUrl: convertFileSrc(absPath),
-      })
+async function checkExistence() {
+  if (!tauriOnly()) return
+  const token = ++existCheckToken
+  const paths = [...new Set(localImages.value.flatMap((e) => e.absPath ? [e.absPath] : []))]
+  const next = new Set<string>()
+  await Promise.all(paths.map(async (p) => {
+    try {
+      if (!(await exists(p))) next.add(p)
     }
-
-    // 按文件名排序
-    found.sort((a, b) => a.fileName.localeCompare(b.fileName, 'zh'))
-    orphans.value = found
-  }
-  catch {
-    // assets 目录不存在或读取失败 → 无孤儿
-    orphans.value = []
-  }
-  finally {
-    orphanLoading.value = false
-  }
+    catch { /* 查不到状态 ≠ 不存在,不误报 */ }
+  }))
+  if (token === existCheckToken) missingPaths.value = next
 }
 
-function scheduleOrphanScan() {
-  if (orphanScanTimer) clearTimeout(orphanScanTimer)
-  orphanScanTimer = setTimeout(() => {
-    orphanScanTimer = null
-    void scanOrphans()
+function scheduleExistenceCheck() {
+  if (existCheckTimer) clearTimeout(existCheckTimer)
+  existCheckTimer = setTimeout(() => {
+    existCheckTimer = null
+    void checkExistence()
   }, 300)
 }
 
-// 监听 filePath + 文档本地图片集合变化 → debounced 重新扫描孤儿
 watch(
-  () => [props.filePath, JSON.stringify(localImages.value.map((e) => e.absPath))] as const,
-  () => scheduleOrphanScan(),
+  () => [props.filePath, localImages.value.map((e) => e.absPath).join('|')] as const,
+  () => scheduleExistenceCheck(),
 )
 
 onMounted(() => {
-  void scanOrphans()
+  void checkExistence()
 })
+
+function isBroken(e: ImageEntry): boolean {
+  return e.absPath !== null
+    && (missingPaths.value.has(e.absPath) || brokenThumbs.value.has(e.displayUrl))
+}
+
+function brokenReason(e: ImageEntry): string {
+  return e.absPath !== null && missingPaths.value.has(e.absPath) ? '文件不存在' : '无法加载'
+}
+
+const brokenImages = computed(() => localImages.value.filter(isBroken))
+const okLocalImages = computed(() => localImages.value.filter((e) => !isBroken(e)))
+
+function onThumbError(src: string) {
+  brokenThumbs.value.add(src)
+}
 
 // ============================================================
 //  折叠状态
 // ============================================================
 
 const docImagesCollapsed = ref(false)
-const unreferencedCollapsed = ref(false)
+const brokenCollapsed = ref(false)
 
 // ============================================================
 //  交互
@@ -292,6 +255,22 @@ const unreferencedCollapsed = ref(false)
 
 function onImageClick(entry: ImageEntry) {
   emit('locate-image', entry.src, entry.occurrence)
+}
+
+/** 预览:文档内所有未失效图片(去重)作为一组,lightbox ←→ 切换 */
+function openPreview(entry: ImageEntry) {
+  const seen = new Set<string>()
+  const list = allImages.value.filter((e) => {
+    if (isBroken(e) || seen.has(e.displayUrl)) return false
+    seen.add(e.displayUrl)
+    return true
+  })
+  const idx = list.findIndex((e) => e.displayUrl === entry.displayUrl)
+  if (idx === -1) return
+  useImagePreviewStore().open(
+    list.map((e) => ({ url: e.displayUrl, name: e.label, absPath: e.absPath })),
+    idx,
+  )
 }
 
 // ============================================================
@@ -302,8 +281,10 @@ interface ContextMenuState {
   x: number
   y: number
   absPath: string
-  /** 文档图片的 src（用于路径重写 / 复制相对路径）；孤儿为 null */
+  /** 文档图片的 src（用于路径重写 / 复制相对路径） */
   src: string | null
+  /** 失效引用条目:菜单换成 重新链接 / 移除引用 */
+  broken: boolean
 }
 
 const contextMenu = ref<ContextMenuState | null>(null)
@@ -329,9 +310,9 @@ const contextMenuDocName = computed(() => {
   return props.filePath ? docNameFromPath(props.filePath) : ''
 })
 
-function onContextMenu(event: MouseEvent, absPath: string, src: string | null) {
+function onContextMenu(event: MouseEvent, absPath: string, src: string | null, broken = false) {
   const { x, y } = clampToViewport(event.clientX, event.clientY, 220, 340)
-  contextMenu.value = { x, y, absPath, src }
+  contextMenu.value = { x, y, absPath, src, broken }
 }
 
 /** 当前右键选中的资产绝对路径，用于高亮选中态 */
@@ -341,6 +322,16 @@ function closeContextMenu() {
   contextMenu.value = null
 }
 
+// ========== 预览 ==========
+
+function onPreviewFromMenu() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  const entry = allImages.value.find((e) => e.absPath === absPath && !isBroken(e))
+  if (entry) openPreview(entry)
+}
+
 // ========== 剪贴板操作 ==========
 
 async function onCopyImage() {
@@ -348,28 +339,11 @@ async function onCopyImage() {
   const { absPath } = contextMenu.value
   closeContextMenu()
   try {
-    const bytes = await readFile(absPath)
-    // writeImage 直接传 raw bytes 会被 Rust 当作 RGBA 像素数据，报
-    // "expected RGBA image data, found raw bytes"。需要先用 canvas 解码
-    // 图片文件为 RGBA 像素，再构造 Tauri Image 对象传给 writeImage。
-    const blob = new Blob([bytes])
-    const bitmap = await createImageBitmap(blob)
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')!
-    ctx.drawImage(bitmap, 0, 0)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    bitmap.close()
-    const img = await TauriImage.new(
-      new Uint8Array(imageData.data.buffer),
-      canvas.width,
-      canvas.height,
-    )
-    await writeImage(img)
+    await writeClipboardImage(absPath)
   }
   catch (e) {
     console.error('复制图片失败', e)
+    notify.error(`复制图片失败:${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -394,6 +368,40 @@ async function onCopyRelativePath() {
   }
 }
 
+// ========== 失效引用:重新链接 / 移除引用 ==========
+
+/** 选一张新图片,把文档中所有引用旧 absPath 的 image 节点 src 改写过去。
+ *  新文件在 docDir 下 → 相对路径;否则绝对路径(跨盘符也能解析)。 */
+async function onRelink() {
+  if (!contextMenu.value || !props.filePath) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  try {
+    const picked = await dialogOpen({
+      multiple: false,
+      filters: [{ name: '图片', extensions: [...IMAGE_EXTS] }],
+    })
+    if (!picked || typeof picked !== 'string') return
+    const newAbs = picked.replace(/\\/g, '/')
+    const docDir = dirnameSync(props.filePath).replace(/\\/g, '/')
+    const newSrc = newAbs.startsWith(docDir + '/') ? newAbs.slice(docDir.length + 1) : newAbs
+    emit('reorganize-asset', { oldAbsPath: absPath, newSrc, mode: 'copy' })
+    scheduleExistenceCheck()
+  }
+  catch (e) {
+    notify.error(`重新链接失败:${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+/** 只删文档里的 image 节点,不动磁盘文件(文件本就缺失/损坏);可 Ctrl+Z 撤销 */
+function onRemoveReference() {
+  if (!contextMenu.value) return
+  const { absPath } = contextMenu.value
+  closeContextMenu()
+  emit('reorganize-asset', { oldAbsPath: absPath, newSrc: '', mode: 'move' })
+  scheduleExistenceCheck()
+}
+
 // ========== 重新组织到工作区 ==========
 
 async function onCopyToWorkspace() {
@@ -410,7 +418,7 @@ async function onCopyToWorkspace() {
     if (src !== null && result.moved) {
       emit('reorganize-asset', { oldAbsPath: absPath, newSrc: result.newSrc, mode: 'copy' })
     }
-    scheduleOrphanScan()
+    scheduleExistenceCheck()
   }
   catch (e) {
     console.error('复制资产失败', e)
@@ -431,7 +439,7 @@ async function onMoveToWorkspace() {
     if (src !== null && result.moved) {
       emit('reorganize-asset', { oldAbsPath: absPath, newSrc: result.newSrc, mode: 'move' })
     }
-    scheduleOrphanScan()
+    scheduleExistenceCheck()
   }
   catch (e) {
     console.error('移动资产失败', e)
@@ -479,7 +487,7 @@ async function onDelete() {
     if (src !== null) {
       emit('reorganize-asset', { oldAbsPath: absPath, newSrc: '', mode: 'move' })
     }
-    scheduleOrphanScan()
+    scheduleExistenceCheck()
   }
   catch (e) {
     notify.error(`删除失败:${e instanceof Error ? e.message : String(e)}`)
@@ -501,24 +509,8 @@ async function onReveal() {
 }
 
 // ============================================================
-//  缩略图错误兜底
-// ============================================================
-
-const brokenThumbs = ref(new Set<string>())
-
-function onThumbError(src: string) {
-  brokenThumbs.value.add(src)
-}
-
-// ============================================================
 //  拖拽源:图片条目 → 编辑器
 // ============================================================
-
-/** 孤儿图片的 markdown src:孤儿扫描自 <docDir>/assets/,相对路径即 assets/<fileName>。
- *  无 filePath(理论不会出现,孤儿扫描需 filePath)时回退绝对路径。 */
-function orphanToSrc(orphan: OrphanEntry): string {
-  return props.filePath ? `assets/${orphan.fileName}` : orphan.absPath
-}
 
 /** 把图片条目拖到编辑器:写入 ASSET_IMAGE_MIME(JSON { src, alt }),编辑器侧
  *  直接插 image 节点 / markdown 文本,不落盘(图片已在磁盘上 / 是外链 URL)。
@@ -537,7 +529,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
     <div v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
       <!-- 空态 -->
       <div
-        v-if="allImages.length === 0 && orphans.length === 0 && !orphanLoading"
+        v-if="allImages.length === 0"
         class="flex h-full flex-col items-center justify-center gap-2 px-4 text-gray-400 dark:text-gray-600"
       >
         <ImageIcon :size="32" :stroke-width="1.2" />
@@ -545,8 +537,46 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
       </div>
 
       <template v-else>
+        <!-- ========== 失效引用 ========== -->
+        <div v-if="brokenImages.length > 0" class="asset-section">
+          <button
+            type="button"
+            class="asset-section__header asset-section__header--warn"
+            data-testid="broken-section-header"
+            @click="brokenCollapsed = !brokenCollapsed"
+          >
+            <ChevronRight
+              :size="12"
+              class="asset-section__chevron"
+              :style="{ transform: brokenCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }"
+            />
+            <Unlink :size="12" />
+            <span>失效引用</span>
+            <span class="asset-section__count asset-section__count--warn">{{ brokenImages.length }}</span>
+          </button>
+          <div v-if="!brokenCollapsed" class="asset-subgroup">
+            <div
+              v-for="img in brokenImages"
+              :key="`broken-${img.occurrence}-${img.src}`"
+              :class="['asset-item', 'asset-item--broken', { 'asset-item--selected': selectedAbsPath === img.absPath }]"
+              :title="img.src"
+              data-testid="broken-item"
+              @click="onImageClick(img)"
+              @contextmenu.prevent="onContextMenu($event, img.absPath!, img.src, true)"
+            >
+              <div class="asset-item__thumb asset-item__thumb--broken">
+                <ImageOff :size="14" class="text-amber-500" />
+              </div>
+              <div class="asset-item__info">
+                <span class="asset-item__name">{{ img.label }}</span>
+                <span class="asset-item__alt asset-item__alt--warn">{{ brokenReason(img) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- ========== 文档图片 ========== -->
-        <div v-if="allImages.length > 0" class="asset-section">
+        <div v-if="okLocalImages.length > 0 || externalImages.length > 0" class="asset-section">
           <button
             type="button"
             class="asset-section__header"
@@ -559,21 +589,22 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
             />
             <ImageIcon :size="12" />
             <span>文档图片</span>
-            <span class="asset-section__count">{{ allImages.length }}</span>
+            <span class="asset-section__count">{{ okLocalImages.length + externalImages.length }}</span>
           </button>
 
           <template v-if="!docImagesCollapsed">
             <!-- 本地图片 -->
-            <div v-if="localImages.length > 0" class="asset-subgroup">
-              <div class="asset-subgroup__label">本地 ({{ localImages.length }})</div>
+            <div v-if="okLocalImages.length > 0" class="asset-subgroup">
+              <div class="asset-subgroup__label">本地 ({{ okLocalImages.length }})</div>
               <button
-                v-for="img in localImages"
+                v-for="img in okLocalImages"
                 :key="`local-${img.occurrence}-${img.src}`"
                 type="button"
                 draggable="true"
                 :class="['asset-item', { 'asset-item--selected': selectedAbsPath === img.absPath }]"
                 :title="img.src + (img.alt ? ` — ${img.alt}` : '')"
                 @click="onImageClick(img)"
+                @dblclick="openPreview(img)"
                 @contextmenu.prevent="onContextMenu($event, img.absPath!, img.src)"
                 @dragstart="onAssetDragStart($event, img.src, img.alt)"
               >
@@ -609,6 +640,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
                 class="asset-item"
                 :title="img.src + (img.alt ? ` — ${img.alt}` : '')"
                 @click="onImageClick(img)"
+                @dblclick="openPreview(img)"
                 @dragstart="onAssetDragStart($event, img.src, img.alt)"
               >
                 <div class="asset-item__thumb">
@@ -630,55 +662,6 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
             </div>
           </template>
         </div>
-
-        <!-- ========== 未被引用的图片文件 ========== -->
-        <div v-if="orphans.length > 0" class="asset-section">
-          <button
-            type="button"
-            class="asset-section__header"
-            @click="unreferencedCollapsed = !unreferencedCollapsed"
-          >
-            <ChevronRight
-              :size="12"
-              class="asset-section__chevron"
-              :style="{ transform: unreferencedCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }"
-            />
-            <Unlink :size="12" />
-            <span>未被引用的图片文件</span>
-            <span class="asset-section__count">{{ orphans.length }}</span>
-          </button>
-          <div v-if="!unreferencedCollapsed" class="asset-subgroup">
-            <div
-              v-for="orphan in orphans"
-              :key="orphan.absPath"
-              draggable="true"
-              :class="['asset-item', { 'asset-item--selected': selectedAbsPath === orphan.absPath }]"
-              :title="orphan.fileName"
-              @contextmenu.prevent="onContextMenu($event, orphan.absPath, null)"
-              @dragstart="onAssetDragStart($event, orphanToSrc(orphan), orphan.fileName)"
-            >
-              <div class="asset-item__thumb">
-                <img
-                  v-if="!brokenThumbs.has(orphan.displayUrl)"
-                  :src="orphan.displayUrl"
-                  :alt="orphan.fileName"
-                  loading="lazy"
-                  class="asset-item__img"
-                  @error="onThumbError(orphan.displayUrl)"
-                >
-                <ImageOff v-else :size="14" class="text-gray-400" />
-              </div>
-              <div class="asset-item__info">
-                <span class="asset-item__name">{{ orphan.fileName }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 未被引用图片扫描中 -->
-        <div v-if="orphanLoading && orphans.length === 0" class="px-3 py-2 text-[10px] text-gray-400">
-          扫描资产目录...
-        </div>
       </template>
     </div>
     <!-- 右键上下文菜单 -->
@@ -691,9 +674,14 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
       :doc-name="contextMenuDocName"
       :is-tauri="isTauri"
       :has-src="!!props.filePath"
+      :broken="contextMenu.broken"
+      :can-preview="!contextMenu.broken"
+      @preview="onPreviewFromMenu"
       @copy-image="onCopyImage"
       @copy-path="onCopyPath"
       @copy-relative-path="onCopyRelativePath"
+      @relink="onRelink"
+      @remove-reference="onRemoveReference"
       @copy-to-workspace="onCopyToWorkspace"
       @move-to-workspace="onMoveToWorkspace"
       @save-as="onSaveAs"
@@ -736,6 +724,14 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   background: rgb(31 41 55 / 0.5); /* gray-800/50 */
 }
 
+.asset-section__header--warn {
+  color: rgb(180 83 9); /* amber-700 */
+}
+
+.dark .asset-section__header--warn {
+  color: rgb(251 191 36); /* amber-400 */
+}
+
 .asset-section__chevron {
   flex-shrink: 0;
   transition: transform 120ms ease;
@@ -759,6 +755,16 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 .dark .asset-section__count {
   background: rgb(55 65 81); /* gray-700 */
   color: var(--chrome-text-secondary);
+}
+
+.asset-section__count--warn {
+  background: rgb(254 243 199); /* amber-100 */
+  color: rgb(180 83 9); /* amber-700 */
+}
+
+.dark .asset-section__count--warn {
+  background: rgb(120 53 15 / 0.4); /* amber-900/40 */
+  color: rgb(251 191 36); /* amber-400 */
 }
 
 .asset-subgroup {
@@ -809,7 +815,6 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   background: rgb(31 41 55 / 0.5); /* gray-800/50 */
 }
 
-
 .asset-item__thumb {
   display: flex;
   flex-shrink: 0;
@@ -824,6 +829,14 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 
 .dark .asset-item__thumb {
   background: var(--chrome-text-active);
+}
+
+.asset-item__thumb--broken {
+  background: rgb(254 243 199); /* amber-100 */
+}
+
+.dark .asset-item__thumb--broken {
+  background: rgb(120 53 15 / 0.3); /* amber-900/30 */
 }
 
 .asset-item__img {
@@ -861,5 +874,13 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 
 .dark .asset-item__alt {
   color: var(--chrome-text-secondary);
+}
+
+.asset-item__alt--warn {
+  color: rgb(180 83 9); /* amber-700 */
+}
+
+.dark .asset-item__alt--warn {
+  color: rgb(251 191 36); /* amber-400 */
 }
 </style>

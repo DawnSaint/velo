@@ -53,6 +53,7 @@ import WindowControls from '@/components/WindowControls.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import VeloConfirmDialog from '@/components/VeloConfirmDialog.vue'
+import ImagePreviewLightbox from '@/components/ImagePreviewLightbox.vue'
 import ExportPanel from '@/components/ExportPanel.vue'
 import ZoomIndicator from '@/components/ZoomIndicator.vue'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
@@ -1663,6 +1664,9 @@ watch(editorRef, (v) => {
 
     <!-- 通用确认弹窗：Teleport 到 body，承载全站二选一确认 -->
     <VeloConfirmDialog />
+
+    <!-- 图片预览 lightbox：文件树点击图片 / 资产面板右键预览共用 -->
+    <ImagePreviewLightbox />
 
     <!-- 内置导出面板：先选类型 + 文件名，确认后才走系统 saveDialog 选路径 -->
     <ExportPanel />

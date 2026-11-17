@@ -87,6 +87,6 @@
 
 ## 附录
 
-- **模式前缀**：`''` file / `>` command（Ctrl+Shift+P）/ `@` symbol / `:` line；`#` workspace-symbol 暂缓。
+- **模式前缀**：`''` file / `>` command（Ctrl+Shift+P）/ `@` symbol / `:` line。
 - **面板根选择器**：`data-quick-command-panel` / `data-workspace-search-panel`。
 - **Rust 下沉**：遍历 / 搜索 / 替换已下沉 `src-tauri/src/workspace.rs`，JS 旧路径保留为 fallback；详见 [tauri.md](./tauri.md)。

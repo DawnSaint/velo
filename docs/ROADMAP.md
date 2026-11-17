@@ -20,11 +20,9 @@
 > 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
 
 ```
-P2  #workspace-index ──→ #backlinks · #wikilink · #workspace-symbol · #broken-link · #asset-orphan
-    #system-tray ──→ #daily-note
-    #wikilink ──→ #go-to-def · #find-refs
+P2  #system-tray ──→ #daily-note
     #block-drag · #table-enhance · #md-lint · #changelog-popup
-    #diff-autoscroll · #diff-change-preview · #diff-ruler（独立）
+    #diff-autoscroll · #diff-change-preview · #diff-ruler · #asset-orphan（独立）
 
 P3  #code-signing（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
@@ -40,35 +38,6 @@ P3  #code-signing（独立，CI 核心已通）
 
 
 ## P2 — 体验增强
-
-### 知识库 — 工作区索引 `#workspace-index` `P1` `L`
-
-> `→ #backlinks` `→ #wikilink` `→ #workspace-symbol` `→ #broken-link` `→ #asset-orphan`
->
-> 把工作区里的 .md 文件相互关联起来的地基。Velo 从"批量编辑 .md"上升到"知识库"的第一步。[RESEARCH](./research/knowledge-graph.md) —— 索引层选型与实测数据见 [ADR-20261113-001](./DECISIONS.md)（pulldown-cmark + rayon，5k 文件全量扫描 24.5s → 0.18s；markdown-rs 大文件性能悬崖不选）
->
-> `workspaceStore` 维护 `Map<filePath, { headings, outgoingLinks }>`，文件变动时增量更新。索引层独立于 editor state，不只看当前文档。
->
-> **实现要点（原调研沉淀，防重踩）**：① pulldown 把 `[[note-123]]` 拆成逐字符 Text 事件，需跨事件缓冲拼接匹配，缓冲无 `[[` 时必须保留尾部单个 `[`（可能是下一个 `[[` 的前半），直接 clear 永远配不上；② pulldown 无 frontmatter 支持，文件头 `---` 会被当 setext heading 下划线（每文件 headings 多 1），extractor 先剥离 YAML 头；③ fenced code block 内伪链接由 Code 事件天然跳过（JS 正则方案需状态机排除）；④ walker 复用 `workspace.rs` 的 `scan_workspace`，不重复建设；⑤ 实现期第一优先验证 IPC 序列化成本（5k 索引明细几 MB 可能反超解析：先回传摘要 / 增量 diff / 明细按需查询），第二建三方语法对齐测试集。
-
-- [ ] 工作区索引核心：扫描 `.md` 文件，提取 Markdown links + headings，生成 forwardLinks 索引
-- [ ] 增量更新：文件保存 / fs.watch 触发时刷新对应文件，非全量重扫
-- [ ] 路径解析规则：标准 link 按当前文件目录相对解析；`[[wikilink]]` 按 basename 匹配（含 `/` 时按 workspace-relative）
-- [ ] test：工作区索引增量更新逻辑单元测试（不走 PM，纯函数测试）
-
-
-
-### 知识库 — 反向链接面板 `#backlinks` `P1` `M`
-
-> `← #workspace-index`
->
-> 当前文档被工作区内哪些 .md 引用，侧栏分组展示 + 上下文片段。这是知识库日常使用中 80% 的价值来源，优先于图谱可视化。
-
-- [ ] 反向链接面板 UI：Sidebar 新增 tab，展示当前文档的被引用列表
-- [ ] 上下文片段：每条反链展示引用处前后 N 行文本
-- [ ] 点击条目跳转到引用位置（打开目标文件 + 定位光标）
-
-
 
 ### 版本历史 diff — 体验增强
 
@@ -90,42 +59,11 @@ P3  #code-signing（独立，CI 核心已通）
   - 源码模式按行号映射、预览模式按 block 位置映射；无变更时不显示 ruler
   - 方案未定，开发前先在 `docs/research/` 写调研文档并由本条目链接进入
 
-
-
-### 知识库 — 双链扩展
-
-- [ ] `[[wikilink]]`**语法** `#wikilink` `P2` `XL` `← #workspace-index` `→ #go-to-def` `→ #find-refs`
-  - schema + remark 插件 + syntax/inline 注册 + NodeView（hover 显示目标文件预览，点击跳转）
-  - 尽量复用 linkClickPlugin 的源码编辑态语义，避免又做一套交互
-  - 按新增语法 checklist 走全流程（schema / markdownIO / syntax / test）
-  - test：`[[link]]` 语法 round-trip 测试（含 alias / heading / missing / 路径变体）
-
-- [ ] **Go to Definition** `#go-to-def` `P2` `S` `← #wikilink`
-  - 在 `[[wikilink]]` / markdown 链接上 Ctrl+Click / F12 跳目标文件
-
-- [ ] **Find References** `#find-refs` `P2` `S` `← #backlinks`
-  - Shift+F12 列出当前文件被工作区内哪些 .md 引用（反向链接的单点入口）
-
-- [ ] **工作区符号搜索（`#`模式）** `#workspace-symbol` `P2` `S` `← #workspace-index`
-  - 命令面板 `#` 前缀：跨文件搜索所有标题，选中后打开目标文件并跳转
-  - 与 `@`（当前文档标题）、`:`（行号）、`>`（命令）并列，共用前缀分发机制
-  - 数据来源复用 `#workspace-index` 的 headings 索引，零额外数据层
-
-- [ ] **损坏链接检测** `#broken-link` `P2` `M` `← #workspace-index`
-  - 索引时标记指向不存在文件的 `[[link]]`，编辑器内 Decoration 标红 + tooltip 提示
-
-- [ ] **链接资产面板** `#link-assets` `P2` `M`
-  - 扫描当前文档所有 `link` 节点，列出本地路径 + 外链分组
-  - 点击条目把光标定位到引用位置（PM `view.dispatch + scrollIntoView`）
-  - 引用计数为 0 的本地资产标灰（孤儿候选）
-
-
-
-### 资产面板工程级未引用 `#asset-orphan` `P2` `M` `← #workspace-index`
+### 资产面板工程级未引用 `#asset-orphan` `P2` `M`
 
 > 把 v0.6.4 资产面板的孤儿判定从「本 markdown 没引用过」升级为「整个工作区没被任何 markdown 引用过」，避免用户误以为其他文档仍引用的图片是孤儿而误删。
 
-- [x] [RESEARCH](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案，与知识图谱调研合并索引层讨论
+- [x] [RESEARCH](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案
 - [ ] 模块级索引缓存：维护 `Map<assetAbsPath, Set<absPathMd>>`，每次 markdown 文件保存 / fs.watch 触发时增量刷新该文件的引用集合
 - [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
 - [ ] test：工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）

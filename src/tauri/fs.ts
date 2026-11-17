@@ -26,6 +26,7 @@ import {
   remove as _remove,
   rename as _rename,
   copyFile as _copyFile,
+  stat as _stat,
   watch as _watch,
   watchImmediate as _watchImmediate,
   type UnwatchFn,
@@ -55,6 +56,8 @@ export const remove = _remove
 export const rename = _rename
 /** 单文件复制(二进制安全,不走文本编解码)。目录复制需上层递归 readDir + copyFile 拼。 */
 export const copyFile = _copyFile
+/** 文件元信息(size / mtime)。图片预览展示文件大小用,失败由调用方降级。 */
+export const stat = _stat
 export const watch = _watch
 
 /**

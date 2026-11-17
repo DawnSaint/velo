@@ -11,11 +11,13 @@ import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useImagePreviewStore } from '@/stores/imagePreview'
 import Sidebar from '../Sidebar/Sidebar.vue'
 import WorkspaceSearchPanel from '../WorkspaceSearchPanel.vue'
 import AssetPanel from '../Sidebar/AssetPanel.vue'
 import EditorOutline from '../Sidebar/EditorOutline.vue'
-import { readDir } from '@tauri-apps/plugin-fs'
+import { exists, readDir } from '@tauri-apps/plugin-fs'
+import { open as dialogOpen } from '@tauri-apps/plugin-dialog'
 import * as workspaceSearch from '@/utils/workspaceSearch'
 
 vi.mock('@/utils/workspaceSearch', async (importOriginal) => {
@@ -103,12 +105,9 @@ describe('Sidebar', () => {
   // paste 时若 file.type 为空 / 未知 MIME,旧版会把 ext 字面写成 '(null)';
   // 源码里 src 被 escapeMdUrl 写成 `\(null\)`(避免括号破坏 markdown 语法)。
   // 面板正则提取 src 后必须剥掉转义反斜杠,否则算出的 absPath 与磁盘真实路径
-  // (无转义)对不上,会被 referencedAbsPaths 误判为未引用。
-  it(' AssetPanel:转义括号 src 能归一化到磁盘路径,不被误判为未引用', async () => {
-    // 模拟孤儿扫描时 readDir 返回的磁盘文件(无转义)
-    vi.mocked(readDir).mockResolvedValue([
-      { name: '(null)-20250717165607855.(null)', isFile: true, isDirectory: false },
-    ] as any)
+  // (无转义)对不上,exists 检查会误报失效。
+  it('AssetPanel:转义括号 src 能归一化到磁盘路径,不误报失效', async () => {
+    vi.mocked(exists).mockResolvedValue(true)
 
     const md = [
       '# test',
@@ -120,16 +119,104 @@ describe('Sidebar', () => {
     const wrapper = mount(AssetPanel, {
       props: { modelValue: md, filePath: 'C:/Users/foo/note.md' },
     })
-    await nextTick()
-    // 等 debounce 300ms + 异步 readDir 完成
-    await new Promise(r => setTimeout(r, 500))
+    await new Promise(r => setTimeout(r, 0))
     await nextTick()
 
     const vm = wrapper.vm as any
-    // 直接断言响应式数据,定位路径匹配差异
-    const ref = [...vm.referencedAbsPaths]
-    const orphanPaths = vm.orphans.map((o: any) => o.absPath)
-    expect({ ref, orphanPaths }).toEqual({ ref: ['C:/Users/foo/assets/(null)-20250717165607855.(null)'], orphanPaths: [] })
+    expect(vm.allImages[0].absPath).toBe('C:/Users/foo/assets/(null)-20250717165607855.(null)')
+    expect(wrapper.text()).toContain('本地 (1)')
+    expect(wrapper.text()).not.toContain('失效引用')
+  })
+
+  it('AssetPanel:文件不存在的本地图片进入失效引用分组,点击仍可定位', async () => {
+    // gone.png 不存在,ok.png 存在
+    vi.mocked(exists).mockImplementation(async (p: any) => String(p).endsWith('ok.png'))
+
+    const md = '![gone](assets/gone.png)\n\n![ok](assets/ok.png)'
+    const wrapper = mount(AssetPanel, {
+      props: { modelValue: md, filePath: 'C:/Users/foo/note.md' },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+
+    expect(wrapper.text()).toContain('失效引用')
+    expect(wrapper.text()).toContain('文件不存在')
+    expect(wrapper.text()).toContain('本地 (1)')
+
+    await wrapper.find('[data-testid="broken-item"]').trigger('click')
+    expect(wrapper.emitted('locate-image')?.[0]).toEqual(['assets/gone.png', 0])
+  })
+
+  it('AssetPanel:失效引用右键 → 重新链接改写 src / 移除引用删节点', async () => {
+    vi.mocked(exists).mockResolvedValue(false)
+    vi.mocked(dialogOpen).mockResolvedValue('C:/Users/foo/pics/new.png')
+
+    const wrapper = mount(AssetPanel, {
+      props: { modelValue: '![gone](assets/gone.png)', filePath: 'C:/Users/foo/note.md' },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+
+    // 重新链接:菜单 Teleport 到 body,用 document 查
+    await wrapper.find('[data-testid="broken-item"]').trigger('contextmenu', { clientX: 10, clientY: 10 })
+    await nextTick()
+    ;(document.querySelector('[data-testid="ctx-relink"]') as HTMLElement).click()
+    await new Promise(r => setTimeout(r, 0))
+    expect(wrapper.emitted('reorganize-asset')?.[0]).toEqual([
+      { oldAbsPath: 'C:/Users/foo/assets/gone.png', newSrc: 'pics/new.png', mode: 'copy' },
+    ])
+
+    // 移除引用:newSrc 空串 → App.vue 删 image 节点
+    await wrapper.find('[data-testid="broken-item"]').trigger('contextmenu', { clientX: 10, clientY: 10 })
+    await nextTick()
+    ;(document.querySelector('[data-testid="ctx-remove-reference"]') as HTMLElement).click()
+    await nextTick()
+    expect(wrapper.emitted('reorganize-asset')?.[1]).toEqual([
+      { oldAbsPath: 'C:/Users/foo/assets/gone.png', newSrc: '', mode: 'move' },
+    ])
+  })
+
+  it('AssetPanel:不再扫描 assets 目录(孤儿分组已移除)', async () => {
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readDir).mockResolvedValue([
+      { name: 'unused.png', isFile: true, isDirectory: false },
+    ] as any)
+
+    const wrapper = mount(AssetPanel, {
+      props: { modelValue: '![img](assets/a.png)', filePath: 'C:/Users/foo/note.md' },
+    })
+    // 超过旧孤儿扫描的 300ms debounce 窗口
+    await new Promise(r => setTimeout(r, 400))
+    await nextTick()
+
+    expect(readDir).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('未被引用')
+    expect(wrapper.text()).not.toContain('unused.png')
+  })
+
+  it('FileTree:点击图片行 → lightbox 预览(同目录图片成组)', async () => {
+    vi.mocked(readDir).mockResolvedValue([
+      { name: 'pic.png', isFile: true, isDirectory: false },
+      { name: 'other.jpg', isFile: true, isDirectory: false },
+      { name: 'note.md', isFile: true, isDirectory: false },
+    ] as any)
+
+    const workspace = useWorkspaceStore()
+    workspace.setActiveRoot('/test/ws')
+    workspace.setSidebarTab('files')
+
+    const wrapper = mount(Sidebar, {
+      props: { modelValue: '', filePath: null },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+
+    await wrapper.find('[data-row-path="/test/ws/pic.png"]').trigger('click')
+    const preview = useImagePreviewStore()
+    expect(preview.isOpen).toBe(true)
+    expect(preview.images.map(i => i.name)).toEqual(['other.jpg', 'pic.png'])
+    expect(preview.index).toBe(1)
+    expect(preview.images[1].absPath).toBe('/test/ws/pic.png')
   })
 
   it('outline tab 时 refreshDir 不抛错(FileTree 未挂载)', () => {

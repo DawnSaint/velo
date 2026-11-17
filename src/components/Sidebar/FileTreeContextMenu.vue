@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import ContextMenuShell from '../ContextMenuShell.vue'
-import { MD_EXT_RE } from './treeUtils'
+import { MD_EXT_RE, isImageName } from './treeUtils'
 
 interface ContextMenuNode {
   name: string
@@ -26,6 +26,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** .md 文件:在编辑器中打开(顶部新增项,与 onFileClick 同语义) */
   (e: 'open-in-editor'): void
+  /** 图片文件:lightbox 预览(与单击图片行同语义) */
+  (e: 'preview'): void
   /** 目录:在新窗口中把该目录作为工作区根打开(顶部新增项) */
   (e: 'open-as-workspace'): void
   /** 目录:在该目录子树里打开工作区搜索(把该目录设为 scope)。仅非根目录显示 */
@@ -45,8 +47,9 @@ const emit = defineEmits<{
 /** 是否允许粘贴:需 clipboard 非空(rootContext 与 节点右键一致,都要求 canPaste)。 */
 const canPaste = computed(() => !!props.canPaste)
 
-/** .md 文件才显示"在编辑器中打开" —— 图片 row 不挂(图片打开语义模糊,留给"拖入"路径). */
+/** .md 文件才显示"在编辑器中打开";图片显示"预览"(lightbox)。 */
 const showOpenInEditor = computed(() => !props.rootContext && !props.node.isDir && MD_EXT_RE.test(props.node.name))
+const showPreview = computed(() => !props.rootContext && !props.node.isDir && isImageName(props.node.name))
 const showOpenAsWorkspace = computed(() => !props.rootContext && props.node.isDir)
 const showSearchInFolder = computed(() => !props.rootContext && props.node.isDir)
 const showRenameAndDelete = computed(() => !props.rootContext)
@@ -60,10 +63,13 @@ defineExpose({ rootEl })
 
 <template>
   <ContextMenuShell ref="shellRef" :x="x" :y="y" data-tree-context-menu>
-    <!-- 文件:在编辑器中打开 / 目录:在新窗口中打开(顶部组) -->
-    <template v-if="showOpenInEditor || showOpenAsWorkspace">
+    <!-- 文件:在编辑器中打开 / 图片:预览 / 目录:在新窗口中打开(顶部组) -->
+    <template v-if="showOpenInEditor || showPreview || showOpenAsWorkspace">
       <button v-if="showOpenInEditor" class="ctx-menu-item" @click="emit('open-in-editor')">
         在编辑器中打开
+      </button>
+      <button v-if="showPreview" class="ctx-menu-item" data-testid="ctx-preview-image" @click="emit('preview')">
+        预览
       </button>
       <button v-if="showOpenAsWorkspace" class="ctx-menu-item" @click="emit('open-as-workspace')">
         在新窗口中打开

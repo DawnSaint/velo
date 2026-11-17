@@ -7,6 +7,7 @@
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch, type CSSProperties } from 'vue'
 import { ChevronRight, File, Image, Loader2 } from '@lucide/vue'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { remove as fsRemove } from '@/tauri/fs'
 import { join, sep } from '@/tauri/path'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
@@ -17,6 +18,7 @@ import { useRecentFilesStore } from '@/stores/recentFiles'
 import { useDocumentStore } from '@/stores/document'
 import { useNotifyStore } from '@/stores/notify'
 import { useConfirmStore } from '@/stores/confirm'
+import { useImagePreviewStore } from '@/stores/imagePreview'
 import { useContextMenu, clampToViewport } from '@/composables/useContextMenu'
 import FileTreeContextMenu from './FileTreeContextMenu.vue'
 import RootActionButtons from './RootActionButtons.vue'
@@ -174,18 +176,36 @@ async function onFileClick(node: TreeNode) {
     await toggleDir(node)
     return
   }
+  if (isImageName(node.name)) {
+    openImagePreview(node)
+    return
+  }
   if (!MD_EXT_RE.test(node.name)) return
   const ok = await documentStore.openPathInTab(node.fullPath)
   if (!ok) return
   workspace.setLastFile(node.fullPath)
 }
 
+/** 点击图片 → lightbox 预览。同目录已加载的图片兄弟作为一组,←→ 可切换;
+ *  父目录未加载(理论上不可能,被点的行必然可见)时退化为单图。 */
+function openImagePreview(node: TreeNode) {
+  const parent = dirIndex.get(parentDirOfPath(node.fullPath))
+  const siblings = (parent?.children ?? [node]).filter(c => !c.isDir && isImageName(c.name))
+  const list = siblings.map(c => ({
+    url: convertFileSrc(c.fullPath),
+    name: c.name,
+    absPath: c.fullPath,
+  }))
+  const idx = siblings.findIndex(c => c.fullPath === node.fullPath)
+  useImagePreviewStore().open(list, Math.max(0, idx))
+}
+
 /** 文件行中键点击(auxclick.middle):与 click 不同,**始终**在新标签打开 —— 即便该
  *  path 已被打开过也强制再开一个标签(VSCode 资源管理器中键行为)。允许同一文件
  *  在多个标签中并存,各自独立 undo / 滚动 / 光标(每标签 EditorState 缓存)。
  *
- *  - 目录 / 非 .md 文件 / 根行:no-op(目录不存在"打开新标签"语义;图片打开走拖拽
- *    到编辑器或 ImagePastePlugin,不在这里重复实现)。
+ *  - 目录 / 非 .md 文件 / 根行:no-op(目录不存在"打开新标签"语义;图片单击走
+ *    lightbox 预览,插入编辑器走拖拽或 ImagePastePlugin,不在这里重复实现)。
  *  - 与 click 同款 setLastFile:打开仍是"用户意图最近"信号,工作区重开恢复最近文件
  *    不区分开标签方式,避免 click / middle-click 之间产生"最近"分歧。 */
 async function onRowAuxClick(node: TreeNode) {
@@ -799,6 +819,7 @@ function displayName(node: TreeNode): string {
     :root-context="contextMenu.rootContext"
     :can-paste="clipboard !== null"
     @open-in-editor="openInEditor(contextMenu.node)"
+    @preview="openImagePreview(contextMenu.node)"
     @open-as-workspace="openAsWorkspace(contextMenu.node)"
     @search-in-folder="onSearchInFolder(contextMenu.node)"
     @new-file="openInlineNew(targetDirForNew(contextMenu.node), 'newFile')"

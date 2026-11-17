@@ -4,7 +4,6 @@
 > **缘起**：v0.6.4 资产面板的「未被引用图片文件」当前只对比 assets/ 目录下的文件与**当前文档** `markdown` 里的 image src 列表，导致被其他工作区文档引用的图片在本 markdown 下被显示为孤儿，易引发误删。
 > **对应 ROADMAP**：「资产面板工程级未引用」章节。
 > **调研日期**：2026-07-08。
-> **当前状态**：初版，与知识图谱索引层（`docs/Research/knowledge-graph.md` 第 1.4 / 3.3 / 6 节）共用数据层讨论。
 
 ---
 
@@ -76,7 +75,7 @@ const assetRefCount = new Map<string, Set<string>>()
 
 - **单例缓存**：组件 ref 随销毁丢失，`watch` 重扫开销又大。
 - **事件与文件树 / workspace 多绑定**：模块级 store 能订阅 App.vue 已有的 `fs.watch` 信号。
-- **知识图谱基础设施复用**：0.5.x 之后要做 `[[wikilink]]` 时，`knowledge-graph.md 6.1` 的 `GraphNode / GraphEdge` 设计天然覆盖"文件-引用"关系。当前 v0.6.x 阶段只索引 image，保留 `GraphNode` 字段即可后续合并。
+- **索引层复用**：当前阶段只索引 image；若将来重做知识库索引层，再评估是否合并。
 
 ### 3.4 扫描开销
 
@@ -97,25 +96,17 @@ const assetRefCount = new Map<string, Set<string>>()
 | 大 workspace 并发 | Node 主线程足够,Worker 按需 | `rayon` 真并行,但工程 <10K .ms 文件用不上 |
 | 字符串 IPC 边界 | `string` + serde(默认),零拷贝 | 仍走 serde_json 或 IPC frame,无优势 |
 | 代码量 | 单 store ~200 行 TS | command + serde + TS 三份改动 ~600 行 |
-| 与现有索引层共享 | 复用 `documentStore.content`、`markdownIO` | 独立维护一份文件内容 + 解析规则 |
+| 与编辑态共享数据 | 复用 `documentStore.content`、`markdownIO` | 独立维护一份文件内容 + 解析规则 |
 
 Rust 仅在真正大文件(>1MB)/工程 10K+ .ms 文件/要求亚 ms 增量响应时考虑。当前 Velo 体量 JS 完全够，**未来**若做持久化全工程全文索引（+ SQLite）再迁 Rust。
 
 ---
 
-## 5. 与知识图谱索引层合并
+## 5. 索引层归属
 
-`knowledge-graph.md` 第 1.4（索引与更新）/ 3.3（性能）/ 6.4（复用与新增点）已经规划了扫全工程 + 事件驱动 + 模块级缓存维护的索引层：
+知识库 / 知识图谱方向已于 2026-11-16 移出 ROADMAP，`knowledge-graph.md` 调研文档同步删除。本项不再等待合并进 `KnowledgeGraphStore`，按独立 `assetRefGraph` store 自持索引；若将来重做知识库索引层，再评估是否合并。
 
-| 知识图谱章节 | 资产索引对接 |
-|---|---|
-| §1.4 索引更新：workspace scan / per-file refresh / fs.watch | 资产索引相同事件 -> 同一份代码 |
-| §3.3 性能：打开 workspace 扫一次 + 增量 + 持久化 | 资产扫描复用同份机制 |
-| §6.4 表格「切换 workspace」「fs.watch」「保存后刷新」 | 资产同触发路径 |
-
-**建议**：v0.6.x 阶段先用 TS 模块 store 实现资产引用图（`assetRefGraph`），作为「全工程索引」的一个 MVP 输出；0.5.x 做 Wikilink 时再合并成完整的 `KnowledgeGraphStore`。这样双链设计时不用另建一套缓存基础设施。
-
-**当前(0.6.x)阶段不合并的原因**：知识图谱更复杂（[[wikilink]] / heading anchor / alias），工作量远大于单一 image src 索引；资产工程级未引用是独立可交付的小功能，先做小步快跑。
+**当前阶段不合并的原因**：资产索引只处理 image src，工作量远小于完整链接索引（`[[wikilink]]` / heading anchor / alias）；资产工程级未引用是独立可交付的小功能，先做小步快跑。
 
 ---
 
@@ -177,7 +168,7 @@ clear(): void  // workspace 切换时
 
 - **缓存失效**：外部进程改 .md（git checkout 等）通过 fs.watch 刷新，延迟 ≤ 120 ms debounce，可接受。
 - **文件名大小写**：Windows 路径大小写不敏感，引用计算需 `path.toLowerCase()` 归一（所有读写 assetRefGraph 都归一）。
-- **本 markdown 脏内容未保存**：`documentStore.save()` 后才刷新，编辑态中途引用不计入（与知识图谱章节 3.3 同款取舍）。
+- **本 markdown 脏内容未保存**：`documentStore.save()` 后才刷新，编辑态中途引用不计入（索引类功能的通用取舍）。
 - **`markdown` 参数可选**：默认从 `documentStore.content` 取；若 store 还没，fallback readFile（仅当 fs.watch 触发外部进程改且本 md 未打开时）。
 
 ---
@@ -187,7 +178,7 @@ clear(): void  // workspace 切换时
 ### ROADMAP 待完成项
 
 - 输出本调研 ✅（本节 9 完成）
-- `assetRefGraph` 模块实现（待 0.5.x 双链之前）
+- `assetRefGraph` 模块实现（独立条目 `#asset-orphan`，不再依赖索引层）
 - UI 三维度分组（同上）
 
 ---

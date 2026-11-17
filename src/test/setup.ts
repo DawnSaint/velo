@@ -47,6 +47,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   remove: vi.fn(),
   // copyFile 给潜在的图片复制场景备用
   copyFile: vi.fn(),
+  // 图片预览 lightbox 展示文件大小用
+  stat: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
