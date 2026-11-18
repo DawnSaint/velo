@@ -14,7 +14,6 @@
 
 
 
-
 ## 依赖链速览
 
 > 关键路径：核心功能到远期方向的解锁顺序。横向 `→` 表示阻塞，纵向表示优先级递减。
@@ -22,7 +21,7 @@
 ```
 P2  #system-tray ──→ #daily-note
     #block-drag · #table-enhance · #md-lint · #changelog-popup
-    #diff-autoscroll · #diff-change-preview · #diff-ruler · #asset-orphan（独立）
+    #diff-autoscroll · #diff-change-preview · #diff-ruler
 
 P3  #code-signing（独立，CI 核心已通）
     #ai-assist · #export-more · #pdf-preview · #bookmark（独立）
@@ -58,16 +57,6 @@ P3  #code-signing（独立，CI 核心已通）
   - 点击 / 拖动色块跳转到对应变更，与 `#diff-autoscroll` 的 hunk 导航共用同一套变更锚点，避免维护两份定位数据
   - 源码模式按行号映射、预览模式按 block 位置映射；无变更时不显示 ruler
   - 方案未定，开发前先在 `docs/research/` 写调研文档并由本条目链接进入
-
-### 资产面板工程级未引用 `#asset-orphan` `P2` `M`
-
-> 把 v0.6.4 资产面板的孤儿判定从「本 markdown 没引用过」升级为「整个工作区没被任何 markdown 引用过」，避免用户误以为其他文档仍引用的图片是孤儿而误删。
-
-- [x] [RESEARCH](./research/asset-panel-global-orphan.md)：对比 rust / JS 增量索引层方案
-- [ ] 模块级索引缓存：维护 `Map<assetAbsPath, Set<absPathMd>>`，每次 markdown 文件保存 / fs.watch 触发时增量刷新该文件的引用集合
-- [ ] 资产面板 UI 分三维度展示：本 markdown 引用 / 其他 markdown 引用（带「N 个其他文件引用」标签）/ 真正未引用（孤儿候选）
-- [ ] test：工程维度缓存命中与增量更新正确性测试（3 文件 2 资产的简单工作区 fixture）
-- [ ] test：面板展示分组与徽标正确性测试（mount Sidebar + 注入缓存）
 
 
 

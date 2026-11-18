@@ -12,8 +12,9 @@
 // 扫描走 markdown 字符串正则(非 PM doc),因为 Sidebar 不可达 PM view;
 // 点击定位时 App.vue 负责在 PM doc 里按 src + occurrence 匹配节点。
 //
-// 不做"未被引用图片"统计:跨文档引用判定不可靠(引用式链接/HTML/工作区外
-// 文档都会误报),且低频清理需求不值得常驻扫描。工作区图片浏览走文件树预览。
+// 面板只覆盖「当前文档」:跨文档引用判定不可靠(引用式链接 / HTML / 工作区外
+// 文档都会误报),且常驻扫描工作区所有 markdown 代价不划算;工作区范围的图片
+// 浏览走文件树(lightbox 预览)。
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { Image as ImageIcon, ImageOff, ExternalLink, Unlink, ChevronRight } from '@lucide/vue'

@@ -45,7 +45,7 @@
 | Suggest | `codeBlockLangSuggest`、`emojiSuggest` |
 | Keymap | `keymap.backspaceDeleteSelectAll`、`keymap.undoRedo`、`keymap.enter`、`keymap.base`、`tabIndent`、`dollarEnterToMathBlock`、`imageKeymap` |
 | Cursor & History | `dropCursor`、`gapCursor`、`history` |
-| Context Menus | `mermaidContextMenu` |
+| Context Menus | `mermaidContextMenu`、`imageContextMenu` |
 | Table | `tableColumnResizing`、`tableCellInputGuard`、`tableEditing`、`tableResizeCursor`、`tableInsertHandle`、`tableContextMenu` |
 | Paste & Upload | `imageUpload`、`markdownPaste` |
 | Link & Image Edit | `linkClick`、`linkEditEscape`、`imageEdit`、`imageEditEscape` |
@@ -60,7 +60,7 @@
 | CJK | `cjkLetterSpacing`、`cjkAutoFormat`、`autoPair` |
 | Tail | `inputRules`、`shortcutKeymap` |
 
-段内有硬依赖：`tableColumnResizing` / `tableCellInputGuard` 在 `tableEditing` 之前；Source Edit 段在 `syntaxAutoFormat` 之前；`viewport` 在所有读视口的装饰插件之前。右键拦截型插件必须早于其它 `handleDOMEvents` 消费者（ProseMirror 的 `someProp` 遇返回 `true` 的 handler 即停），所以 `mermaidContextMenu` 排在 `tableContextMenu` 之前。
+段内有硬依赖：`tableColumnResizing` / `tableCellInputGuard` 在 `tableEditing` 之前；Source Edit 段在 `syntaxAutoFormat` 之前；`viewport` 在所有读视口的装饰插件之前。右键拦截型插件必须早于其它 `handleDOMEvents` 消费者（ProseMirror 的 `someProp` 遇返回 `true` 的 handler 即停），所以 `mermaidContextMenu` 排在 `tableContextMenu` 之前，`imageContextMenu` 排最后（图片 NodeView 内不含表格 / mermaid，顺序只影响「同时命中」时的归属）。
 
 表格列宽自适应不新增插件：`tableColumnResizing` 的 `View` 指向 `editor/tableAutoWidth.ts` 的 `AutoWidthTableView`（继承官方 `TableView`），默认 `table-layout: auto`，在 rAF 同帧内实测列宽、写 `<colgroup>` 的 px 列宽并切 `locked`。锁定态**始终保持 fixed**，不随 hover / 拖拽切换布局（否则列边界位移会让 `columnResizing` 的 5px hover 判定自激反转）；表格用 `width: max-content` 让总宽跟随列宽之和（`auto` 在 Chromium 下仍会把表钳在容器宽度内按比例缩放，拖拽 override 不跟手），列宽一律 px（与拖拽预览的 px override 同单位，否则 fixed 布局会重新平衡导致首次拖拽不跟手）；有手动 `colwidth` 时自动列保持基准宽度、总宽允许超出容器由 `.tableWrapper` 横向滚动，避免 mouseup 后其它列被压扁；`columnWidthBudget()` 扣掉折叠边框的 1px，使初始表格正好铺满、不给每个表格挂常驻滚动条；宽度另存 `--velo-col-width` 由 CSS 兜底，抵抗官方 `updateColumnsOnResize` 清空 inline width。列宽是纯视图态，不 dispatch、不写回 doc / markdown；详见 `docs/DECISIONS.md` 的 ADR-20261115-001。
 
@@ -133,6 +133,7 @@ remarkParse → preserveEmptyLine → encodeLinkUrls → remarkSupSub
 - **wrap / 行号是 per-block 运行时视图态**：`codeWrapPlugin`（默认开启，跟踪的是"已关闭"集合）与 `codeLineNumberPlugin`（默认关闭）都用 `Set<number>` 挂 pos，不持久化、不进 schema / markdownIO。
 - **Mermaid 图片复制走浏览器图片剪贴板**：复制按钮与右键菜单共用同一条 `SVG → 内联主题变量 → canvas → PNG Blob` 管线；不支持图片剪贴板或渲染未完成时通过 Toast 明确报错。
 - **Mermaid 右键菜单按 DOM 反查节点位置**：widget 是 `Decoration.widget`，`DecorationSet.map` 平移时复用 widget DOM 但 `code_block` 的 pos 已变，任何写在 DOM 上的位置缓存都会 stale。拦截插件改用 widget 前面的 `pre` 与 `view.nodeDOM(pos)` 逐一比对，拿到当前文档坐标；删除 / 展开 / 复制等命令执行前再校验一次（菜单打开期间文档可能变化）。复制整块写带围栏的 markdown，复制 Mermaid 代码写纯源码；另存为在 Tauri 走系统 save dialog + fs，dev web 端降级为浏览器下载。
+- **图片右键菜单与 mermaid / table 同范式**：`plugins/imageContextMenu.ts` 拦截 `.velo-image-inline` 内的 `contextmenu`（编辑按钮、失败占位都算节点内），同样用 `view.nodeDOM(pos) === wrapper` 反查当前位置，空 `src` 的占位节点不接管。命令侧 `nodes/imageContextActions.ts` 复用现成能力：复制图片 / 文本走 `utils/clipboard`，另存为走 Tauri save dialog + `copyFile`（dev web 降级浏览器下载），编辑源码直接调 `imageEditPlugin` 的 `triggerImageEdit`。「删除图片文件」= `fs.remove` + 倒序删掉文档中所有同 `absPath` 的 image 节点（含引用式链接等不可靠判定的取舍：以解析后的绝对路径比对，宁可少删不误删），破坏性操作二次走 `useConfirmStore`。三个编辑器内右键菜单互斥，共用一份 `useContextMenu` 外部点击 / Escape / 滚动关闭。
 
 ### 性能
 

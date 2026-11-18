@@ -80,7 +80,7 @@ composable 之间通过回调参数解耦（`closeContextMenu` / `cancelInline` 
 
 - **设置分组可注册**：`settings/registry.ts` 的 `registerSettingsGroup({ id, title, icon, order, component })`，新分组加一行即可；设置页本身不硬编码分组，分组包 `div[data-group-id]` + `scroll-mt-6` 供 scroll-spy / `scrollToGroup` 定位。
 - **设置搜索要求全量挂载**：`SettingsPage` 用 `v-show` 切换分组可见性（非 `v-if`），搜索索引才能覆盖未激活分组；`<SettingsItem>` 在 mount 时经 provide/inject 自动注册 label + keywords 到 `useSettingsSearchIndex`，新增设置项无需维护元数据。
-- **资产面板**：扫当前文档 markdown 里的 `![alt](src)`（跳过围栏代码块 + 行内 code），按本地 / 外链分组；点击定位用 `NodeSelection.create` + `scrollIntoView` + `focus`，`occurrence` 区分同 src 多次出现；孤儿检测 debounce 300ms 扫 `<docDir>/assets/` 取差集。「重新组织到工作区 `assets/<docName>/`」成功后单事务批量 `setNodeMarkup` 改 src 并触发 autosave。拖入编辑器走独立 MIME `application/x-velo-asset-image`，不写 `text/plain`。
+- **资产面板**：扫当前文档 markdown 里的 `![alt](src)`（跳过围栏代码块 + 行内 code），按本地 / 外链分组；点击定位用 `NodeSelection.create` + `scrollIntoView` + `focus`，`occurrence` 区分同 src 多次出现；失效引用用 `fs.exists`（debounce 300ms）判定本地文件是否存在，缩略图 `@error` 兜底 web dev / 文件损坏。工作区范围的「未引用图片」不做：跨文档引用判定不可靠且需常驻扫描。「重新组织到工作区 `assets/<docName>/`」成功后单事务批量 `setNodeMarkup` 改 src 并触发 autosave。拖入编辑器走独立 MIME `application/x-velo-asset-image`，不写 `text/plain`。
 - **`EditorOutline` 的 `settingsActive` prop**：设置激活时跳过 scroll-spy 并显示自身空态，`Sidebar.vue` 不再需要 outline 专属空态分支。
 
 ### 标签恢复

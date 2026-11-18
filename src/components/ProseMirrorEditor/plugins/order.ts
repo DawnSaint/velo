@@ -31,8 +31,10 @@ export const CANONICAL_PLUGIN_ORDER: readonly string[] = [
   // ── Context Menus ──────────────────────────────────────────────────
   // 右键拦截必须早于其它 handleDOMEvents 消费者:PM 的 someProp 遇到返回
   // true 的 handler 即停止遍历。mermaid 菜单排在 tableContextMenu 之前,
-  // SVG foreignObject 里万一出现 td 也不会被表格菜单抢走。
+  // SVG foreignObject 里万一出现 td 也不会被表格菜单抢走;image 菜单排最后,
+  // 图片 NodeView 内不含表格 / mermaid,顺序只影响「同时命中」时的归属。
   'mermaidContextMenu',
+  'imageContextMenu',
 
   // ── Table ───────────────────────────────────────────────────────────
   'tableColumnResizing', // must precede tableEditing (resize handles first)

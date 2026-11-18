@@ -81,6 +81,12 @@ const moveColRight = () => cmdMoveColumn(1)
 import { createTableContextMenuPlugin } from './plugins/tableContextMenu'
 import { createMermaidContextMenuPlugin, type MermaidContextTarget } from './plugins/mermaidContextMenu'
 import { runMermaidMenuAction, type MermaidMenuAction } from './nodes/mermaidContextActions'
+import {
+  createImageContextMenuPlugin,
+  type ImageContextTarget,
+  isLocalImageSrc,
+} from './plugins/imageContextMenu'
+import { runImageMenuAction, type ImageMenuAction } from './nodes/imageContextActions'
 import { createTableResizeCursorPlugin } from './plugins/tableResizeCursor'
 import { createTableInsertHandlePlugin } from './plugins/tableInsertHandle'
 import { createTableCellInputGuardPlugin } from './plugins/tableCellInputGuard'
@@ -181,8 +187,9 @@ const showMermaidMenu = ref(false)
 const mermaidMenuCtx = shallowRef<MermaidContextTarget | null>(null)
 
 function onMermaidContextMenu(target: MermaidContextTarget) {
-  // 两个编辑器内右键菜单互斥
+  // 三个编辑器内右键菜单互斥
   showTableMenu.value = false
+  showImageMenu.value = false
   mermaidMenuCtx.value = target
   showMermaidMenu.value = true
 }
@@ -191,6 +198,34 @@ function onMermaidMenuAction(action: MermaidMenuAction) {
   const ctx = mermaidMenuCtx.value
   if (!ctx) return
   void runMermaidMenuAction(getView(), ctx, action)
+}
+
+// ============ 图片节点右键菜单状态 + handler ============
+// 上下文里带 DOM(wrapper),用 shallowRef 避免 Vue 把 HTMLElement 深度代理。
+const showImageMenu = ref(false)
+const imageMenuCtx = shallowRef<ImageContextTarget | null>(null)
+
+/** 菜单侧只读:src → 磁盘绝对路径。外链 / data: / 无文档路径返回 null。 */
+function resolveImageAbsPath(src: string): string | null {
+  if (!isLocalImageSrc(src)) return null
+  const docPath = useDocumentStore().currentFilePath
+  // 无文档路径(untitled)时 src 本身即绝对路径,直接可用
+  if (!docPath) return src
+  return resolveImageAssetAbsPath(src, docPath)
+}
+
+function onImageContextMenu(target: ImageContextTarget) {
+  // 三个编辑器内右键菜单互斥
+  showTableMenu.value = false
+  showMermaidMenu.value = false
+  imageMenuCtx.value = target
+  showImageMenu.value = true
+}
+
+function onImageMenuAction(action: ImageMenuAction) {
+  const ctx = imageMenuCtx.value
+  if (!ctx) return
+  void runImageMenuAction(getView(), ctx, action, useDocumentStore().currentFilePath)
 }
 
 import { linkClickPlugin, linkEditEscapeKeymap } from './plugins/linkClick'
@@ -222,9 +257,12 @@ import './editor/shortcuts' // 触发 shortcut registry 注册副作用(Mod-b/i/
 import { buildShortcutKeymap } from './editor/shortcuts'
 import TableContextMenu from './TableContextMenu.vue'
 import MermaidContextMenu from './MermaidContextMenu.vue'
+import ImageContextMenu from './ImageContextMenu.vue'
 import { useDocumentStore } from '@/stores/document'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { resolveImageSrc } from '@/utils/imageSrc'
+import { resolveImageAssetAbsPath } from '@/utils/imagePath'
+import { isTauri } from '@tauri-apps/api/core'
 import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromDoc, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { getSourceEditRanges } from './editor/sourceEditSession'
@@ -764,8 +802,9 @@ const pluginEntries: PluginEntry[] = [
     id: 'tableContextMenu',
     plugin: createTableContextMenuPlugin({
       onTableContextMenu: (clickCellPos, inHeader, isCellSelection, x, y) => {
-        // 两个编辑器内右键菜单互斥
+        // 三个编辑器内右键菜单互斥
         showMermaidMenu.value = false
+        showImageMenu.value = false
         tableMenuAnchorPos.value = clickCellPos
         tableMenuInHeader.value = inHeader
         tableMenuIsCellSelection.value = isCellSelection
@@ -841,6 +880,14 @@ const pluginEntries: PluginEntry[] = [
   {
     id: 'mermaidContextMenu',
     plugin: createMermaidContextMenuPlugin({ onMermaidContextMenu }),
+  },
+  // 图片菜单同样只按 CANONICAL_PLUGIN_ORDER 定位;拦截命中 .velo-image-inline。
+  {
+    id: 'imageContextMenu',
+    plugin: createImageContextMenuPlugin({
+      onImageContextMenu,
+      resolveAbsPath: resolveImageAbsPath,
+    }),
   },
 
   // ── Misc Decorations ──────────────────────────────────────────────
@@ -1338,16 +1385,19 @@ function focusEditor() {
 
 defineExpose({ focusEditor, getEditorView: getView, containerRef })
 
-// 编辑器内右键菜单(表格 / mermaid):点击外部、Escape、滚动时关闭。
-// 两个菜单互斥,共用一份 document listener 即可。
+// 编辑器内右键菜单(表格 / mermaid / 图片):点击外部、Escape、滚动时关闭。
+// 三个菜单互斥,共用一份 document listener 即可。
 const tableMenuRef = ref<InstanceType<typeof TableContextMenu> | null>(null)
 const mermaidMenuRef = ref<InstanceType<typeof MermaidContextMenu> | null>(null)
+const imageMenuRef = ref<InstanceType<typeof ImageContextMenu> | null>(null)
 useContextMenu({
-  isOpen: () => showTableMenu.value || showMermaidMenu.value,
-  getMenuEl: () => tableMenuRef.value?.rootEl ?? mermaidMenuRef.value?.rootEl ?? null,
+  isOpen: () => showTableMenu.value || showMermaidMenu.value || showImageMenu.value,
+  getMenuEl: () =>
+    tableMenuRef.value?.rootEl ?? mermaidMenuRef.value?.rootEl ?? imageMenuRef.value?.rootEl ?? null,
   close: () => {
     showTableMenu.value = false
     showMermaidMenu.value = false
+    showImageMenu.value = false
   },
 })
 
@@ -1355,6 +1405,7 @@ useContextMenu({
 function closeEditorMenusOnScroll() {
   showTableMenu.value = false
   showMermaidMenu.value = false
+  showImageMenu.value = false
 }
 onMounted(() => {
   // 监听编辑器根容器的 wheel/scroll 事件,滚动时关闭菜单
@@ -1402,5 +1453,16 @@ onBeforeUnmount(() => {
     :editable="mermaidMenuCtx.editable"
     @action="onMermaidMenuAction"
     @close="showMermaidMenu = false"
+  />
+  <ImageContextMenu
+    v-if="showImageMenu && imageMenuCtx"
+    ref="imageMenuRef"
+    :x="imageMenuCtx.x"
+    :y="imageMenuCtx.y"
+    :editable="imageMenuCtx.editable"
+    :has-abs-path="imageMenuCtx.absPath !== null"
+    :is-tauri="isTauri()"
+    @action="onImageMenuAction"
+    @close="showImageMenu = false"
   />
 </template>
