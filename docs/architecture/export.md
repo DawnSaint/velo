@@ -80,7 +80,33 @@
 
 **入口三处统一走面板**：顶栏「文件」菜单的导出项、命令面板「导出」、快捷键 `Ctrl+Shift+E` 都调 `openExportPanel()`（不再各自直接导出）。HTML / DOCX 走 `loadExportHtml` / `loadExportDocx` 懒加载模块（katex 字体 ~845KB + docx 包不常驻主 bundle）。**reentrant 守门**（`exporting.value` 期间第二次调用立刻返回）；成功 / 失败弹原生 `message`（故 Rust 端走隐藏打印窗口保主 webview 活着）；**不**改 `currentFilePath` / `lastSavedContent` / `fs:watch` —— 导出是「产出一份静态文件」，与「切换到那个文件继续编辑」是不同语义（见 DECISIONS ADR-20260621-004）。
 
-**面板分期**：当前只做类型 + 文件名；PDF 的页边距 / 字号 / 页眉页脚与「分页预览」留到 `#pdf-preview` 落地，在类型分段下方加参数区即可（`EXPORT_TYPES` 的 PDF 项是天然挂载点）。
+**面板范围**：四项 —— `PDF` / `Word` / `HTML` / `PDF 预览`。前三项仍是「类型 + 文件名 → `saveDialog` 选路径」。第四项 `pdf-preview` 不是格式而是入口：确认后打开 `PdfPreviewPanel`，页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式参数在预览面板自己的侧栏，调完点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`。旧 `PDF` 项保持 PrintToPdf 纯导出语义，不受影响。决策与实测见 `docs/research/pdf-preview.md` 附录 C / D。
+
+## PDF 预览 / 导出（Display List 双后端）
+
+`src/lib/export/pdfPreview/` 是一条与 PrintToPdf **并行**的链路：纯 TS 布局，不调 Rust、不依赖 WebView2 / Chromium 打印，三平台行为一致。
+
+```
+markdown ─ unified(runSync) ─ mdast
+   ├─ buildFontSet()    文档字符集 → wawoff2 解压 → hb-subset(wasm) → opentype.js
+   │                    → 三套子集 TTF + 运行时 fontmap（installFontSet 注入）
+   ├─ buildFragments()  KaTeX / mermaid / shiki / 图片 / raw HTML → RichFragment
+   └─ buildBlocks()     块级 IR（行内 run 序列，尚未断行）
+            │
+        relayout(opts)  ← 同步，改边距 / 字号 / 行距只走这一步
+            │
+        PdfDocument.pages: PdfPage[]  (DisplayOp[])
+            ├─ previewRenderer.ts  → 绝对定位 DOM（分页画布）
+            └─ pdfWriter.ts        → PDF 内容流 + CIDFontType2 字体
+```
+
+- **一致性来源是同一棵布局树**，不是同一个慢引擎。预览与导出消费完全相同的 `PdfPage.ops`。
+- **两段式**：`buildPdf()` 只做一次（解析 mdast + 异步渲染富片段），按内容 hash 缓存最多 4 份；`relayout()` 是同步纯计算，实测 sample.md 首次布局 ~8ms、改边距 + 字号重排 ~4–5ms、DOM 绘制 ~17ms（`renderAllPages` 一次画**全部页**，未做可见页虚拟化）。dev 下 `buildPdf()` ~1.65s（shiki / KaTeX 模块加载 + 公式位图化）、`serializePdf()` ~257ms；正文变化才重新 `buildPdf()`（180ms 防抖）。
+- **字体（运行时子集化，`fontSubset.ts`）**：无 Python 脚本、无提交的静态字体资产。`buildPdf()` 阶段从文档全文 + 版式字面量收集字符集，走 `项目自带 woff2 → wawoff2(wasm 解压) → hb-subset(wasm 子集化) → opentype.js 解析` 生成三套子集 TTF + 运行时 fontmap（`installFontSet` 注入 `tokens.ts`）。**生僻字不再缺字**（字符集随文档走，不再焊死 GB2312 一级）；fontmap 是子集 TTF 的派生数据，不存在人工同步漂移。子集结果按字符集 hash 缓存 4 份；完整 woff2 解压只做一次。**两处 wasm 堆约束**：wawoff2 是单实例共享堆，三套解压必须**串行**且每套完成后立刻 `slice()` 出独立副本（并行会让先完成者的输出缓冲区被后续调用覆盖，实测首套 sfnt 头部变垃圾数据）；hb-subset 同理三套串行子集化，`heap()` 视图在 `malloc` 之后现取（ALLOW_MEMORY_GROWTH 下 malloc 可能 detach 旧 ArrayBuffer）。**wawoff2 加载不走官方 `decompress.js` 包装**（`woff2Decode.ts`）：其 emscripten binding 只在 `ENVIRONMENT_IS_NODE` 分支写 `module.exports = Module`，Vite 预构建按浏览器环境执行时返回空 exports，包装把 `onRuntimeInitialized` 注册到空对象上 → runtimeInit 永久悬挂 → 面板卡「重排中…」（dev / 生产构建都会踩）。修法：`?raw` 拿 binding 源码用 `new Function` 受控执行，Module 对象身份自持 + 执行后立即注册回调（`calledRun` 兜底同步完成、15s 超时兜底异常）。实测（Node spike）：3888 字全流程首次 ~250ms / 热态 ~130ms，gid / 字宽 / ascent / descent 与 fontTools 产物完全一致。回归测试 `pdfPreview/__tests__/fontSubset.test.ts` 在 vitest 里跑**真实 wasm**（mock 的只是 ?url 资产 fetch）：字符集收集 / 子集自洽 / 生僻字覆盖 / 回退链 / 缓存 / writePdf 字节同源与 ToUnicode 可逆，16 例。PDF 侧仍是 `Type0 / Identity-H` + `CIDFontType2` + `/W` + `/CIDToGIDMap /Identity` + `FontFile2` + `ToUnicode CMap`，文字是 PDF text 算子，可选中 / 可搜索 / 可复制。**文本测量不用 `measureText`**，布局查运行时 fontmap 字形宽度表（纯计算，三平台一致）。预览 `@font-face` 指向子集 TTF 的 blob URL，与 PDF `FontFile2` 嵌入**同一份字节**。新增依赖：`harfbuzzjs`（取 hb-subset.wasm ~668KB，?url 懒加载）+ `wawoff2`（wasm base64 内嵌 ~315KB）+ `opentype.js`（~516KB），全部在 pdfPreview 懒加载 chunk 内，不进主 bundle；hb-subset 胶水自写 ~80 行（`subset-font` 包协议同款，但该包依赖 node:fs 不能进浏览器）。**顺序约束**：`buildFragments` 里 mermaid 的 `svgToPdf` 会调 `glyph()`，必须先 `installFontSet` 再渲染富片段；多文档 IR 缓存命中时 `relayout` 前重新 install 对应字体集，防度量串台。
+- **富片段三档**：mermaid SVG 走 B 档 `svgToPdf()` 转矢量（图内文字仍是 text 算子，可搜索）；shiki 代码块走 C 档按 token 颜色出 TextOp（文本层 100% 保留）；KaTeX / 块级 raw HTML 走 A 档 `foreignObject` 位图。图片走 `/Image XObject` + `/DCTDecode`。
+- **A 档在 `buildPdf()` 阶段一次完成，预览直接显示同一张位图**：宽松画布（四周 40px bleed、2× 物理像素）渲染后扫描非背景像素求真实包围盒并裁剪，`previewEl` 就是该 JPEG 的 `<img>`，`RichFragment.image` 是同一份字节，导出不再二次光栅化。原因是 KaTeX 的 `.pstrut` / `.strut` 是零宽零高却落在 `top:-40~-60px` 的纯布局撑杆，隐藏 MathML 与 SVG `<path>` 又各自带回几千 px 的假矩形，叠加 base64 字体异步加载让测量量到 fallback 字宽 —— 靠「后代 `getBoundingClientRect()` 并集」推断视觉盒会同时**虚增高度、算小宽度**，导致预览和导出各自裁掉不同部分（行内公式缺 `mc²`、块级公式末行被切）。`foreignObject` 不可用时才退回惰性光栅化 + DOM 预览兜底。
+- **坐标系**：DisplayOp 统一用「页面左上角原点、y 向下」的 pt；`pdfWriter` 做 `pageHeight - y` 翻转，`previewRenderer` 直接当 CSS 坐标。B 档内容流在 `svgToPdf` 内已翻成 y 向上，外层只需正缩放 `q sx 0 0 sy x y cm` —— 负 d 会把文字整体镜像，是 SVG→PDF 最容易踩的坑。
+- **已知差异（放宽约束后允许）**：与 `buildExportHtml` 的分页位置、行盒细节不完全一致；KaTeX / raw HTML 位图放大有损且公式文字不可选中（公式改矢量的可行性评估见 `docs/research/pdf-katex-vector-spike.md`，结论：可做但独立排期，未实施）；图内文字用子集字体度量，与浏览器字形宽度有细微差别。缺字回退：任务勾选符等先走同形替换（`☑→✓` 等，mono），其余按首选字体 → sans → mono，仍缺则 `?` 并进面板的「字库缺字」列表（运行时子集化后，缺字只剩「三套字库本身都没有的字符」，如部分 emoji）。**暗色限制**：build 缓存 key 不含 `dark`，KaTeX / raw HTML 位图按首次 build 时的主题烘焙，面板内切「暗色版式」只翻转文本 / 线条令牌，位图片段不重渲染。禁则（避头尾）、`break-inside: avoid`、orphans/widows 未实现；pdfPreview 已有字体链路回归测试（`fontSubset.test.ts`），布局 / 富片段 / 逐页对照仍无测试。
 
 ## 关键取舍
 

@@ -10,7 +10,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, writeFile } from '@tauri-apps/plugin-fs'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 
-import { useExportStore } from '../export'
+import { EXPORT_TYPES, useExportStore } from '../export'
 import { useDocumentStore } from '../document'
 import { useEditorStore } from '../editor'
 import { useNotifyStore } from '../notify'
@@ -200,5 +200,24 @@ describe('useExportStore 内置导出面板', () => {
       defaultPath: 'foo.docx',
     }))
     expect(writeFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('confirmExportPanel with pdf-preview opens the preview panel instead of saveDialog', async () => {
+    const store = useExportStore()
+    store.openExportPanel()
+    store.panelFileName = 'report'
+    store.selectExportType('pdf-preview')
+    await store.confirmExportPanel()
+    expect(store.panelOpen).toBe(false)
+    expect(store.previewOpen).toBe(true)
+    expect(store.previewFileName).toBe('report')
+    expect(saveDialog).not.toHaveBeenCalled()
+    store.closePdfPreview()
+    expect(store.previewOpen).toBe(false)
+  })
+
+  it('EXPORT_TYPES exposes exactly 4 options with pdf-preview last', () => {
+    expect(EXPORT_TYPES.map(t => t.type)).toEqual(['pdf', 'docx', 'html', 'pdf-preview'])
+    expect(EXPORT_TYPES[3].ext).toBe('pdf')
   })
 })

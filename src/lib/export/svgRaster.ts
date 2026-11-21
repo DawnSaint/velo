@@ -12,7 +12,7 @@
 // （DOCX 通常白底查看，暗色图在 Word 里是一块黑底，不合适）。
 
 /** pele light 主题变量，对齐 `styles/_mermaid.scss` 的 `.velo-mermaid-block`。 */
-const PELE_LIGHT_VARS: Readonly<Record<string, string>> = {
+export const PELE_LIGHT_VARS: Readonly<Record<string, string>> = {
   '--pele-bg': '#ffffff',
   '--pele-fg': '#1f1f1f',
   '--pele-fg-on-light': '#1f1f1f',

@@ -39,7 +39,7 @@ fontDirs.forEach(dir => {
     let deletedCount = 0;
     
     files.forEach(file => {
-      // 删除 woff, ttf, eot，只保留 woff2
+      // 删除 woff, ttf, eot，只保留 woff2。
       if (file.match(/\.(woff|ttf|eot)$/i)) {
         fs.unlinkSync(path.join(dir, file));
         deletedCount++;

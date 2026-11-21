@@ -55,6 +55,7 @@ import ToastContainer from '@/components/ToastContainer.vue'
 import VeloConfirmDialog from '@/components/VeloConfirmDialog.vue'
 import ImagePreviewLightbox from '@/components/ImagePreviewLightbox.vue'
 import ExportPanel from '@/components/ExportPanel.vue'
+import PdfPreviewPanel from '@/components/PdfPreviewPanel.vue'
 import ZoomIndicator from '@/components/ZoomIndicator.vue'
 import { DEFAULT_CURSOR_POSITION, type CursorPosition } from '@/utils/editorCursor'
 import type { HeadingBreadcrumb } from '@/utils/breadcrumbs'
@@ -1670,6 +1671,9 @@ watch(editorRef, (v) => {
 
     <!-- 内置导出面板：先选类型 + 文件名，确认后才走系统 saveDialog 选路径 -->
     <ExportPanel />
+
+    <!-- PDF 分页预览面板：导出面板选「PDF 预览」后打开，与导出共用 Display List -->
+    <PdfPreviewPanel />
 
     <!-- Zoom 指示器：快捷键缩放时底部居中弹出，显示百分比 + 滑块 + 重置按钮 -->
     <ZoomIndicator />

@@ -8,3 +8,4 @@ src-tauri/target/
 .workbuddy/
 .codebuddy/
 src/bench/corpus/
+.pdfbench/

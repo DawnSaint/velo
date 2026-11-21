@@ -87,6 +87,7 @@
 - **Context**: 四条 PDF 路径：html2pdf.js（新依赖 + CJK 字体配置）、iframe + `window.print()`（UX 差）、Tauri `printToPdf` API（不存在）、平台原生 PrintToPDF（Typora/Obsidian 同款方案）。
 - **Decision**: HTML 走 mdast walker 复用 shiki/KaTeX/mermaid/DOMPurify 渲染管线；PDF 走 Tauri `with_webview` 调平台原生 PrintToPDF（Windows `ICoreWebView2_7::PrintToPdf`，macOS/Linux 待补）。
 - **Consequences**: 前端零新依赖；PDF 静默写盘无对话框，与 Typora 同款 UX。HTML image 走 `asset://`，外部浏览器打开破图（已知限制）。
+- **后续更新（未发版）**: 需求方放宽「必须与编辑器 / DOC / HTML 完全一致」的约束，改为「允许细微差异 + 不依赖 WebView2 + 三平台 + 体积可控」，因此**新增一条并行的** `pdf-preview` 链路：前端轻量布局器产出共享 Display List，预览直接画 DOM、导出直接序列化 PDF（`src/lib/export/pdfPreview/`），不经过 Rust / PrintToPdf。**本 ADR 的 PrintToPdf 路径继续作为默认 `PDF` 导出保留**，两者互不替代 —— 旧路径版式与编辑器最一致（Windows），新路径快、跨平台、可实时调参。取舍与实测见 `docs/research/pdf-preview.md` 附录 C / D；macOS / Linux 的默认 PDF 导出仍是 `PdfError::Unsupported`，但可从「PDF 预览」面板导出。
 
 ---
 
@@ -404,9 +405,10 @@
 
 ### ADR-20261114-002: 导出类型选择走内置面板，系统框只负责路径
 
-- **Context**: 导出类型（PDF / Word / HTML）原先只能靠系统保存框的 filter 切换，用户必须先打开系统框才能选类型；且 `#pdf-preview` 需要页边距 / 字号 / 页眉页脚参数与分页预览入口，系统框承载不了。
+- **Context**: 导出类型（PDF / Word / HTML）原先只能靠系统保存框的 filter 切换，用户必须先打开系统框才能选类型；当时在规划中的 `#pdf-preview` 也需要页边距 / 字号 / 页眉页脚参数与分页预览入口，系统框承载不了。
 - **Decision**: 新增内置 `ExportPanel`（Teleport 弹层），先选类型 + 文件名，确认后按类型锁死 `saveDialog` filter 再选路径；文件菜单、命令面板、快捷键三处统一走面板。
-- **Consequences**: 类型选择可见、可预期，系统框回归单一职责，并为 `#pdf-preview` 预留参数区。代价是多一个全局弹层及其键盘 / 焦点管理；程序化导出保留 `exportDocument(type)` 直连路径，测试与脚本不受影响。
+- **Consequences**: 类型选择可见、可预期，系统框回归单一职责；程序化导出保留 `exportDocument(type)` 直连路径，测试与脚本不受影响。代价是多一个全局弹层及其键盘 / 焦点管理。
+- **后续更新（未发版）**: 面板从三项扩为四项，新增「PDF 预览」。它是**入口而非格式**：确认后不打 `saveDialog`，改为打开 `PdfPreviewPanel`，页边距 / 字号 / 行距 / 页眉页脚参数放在预览面板自己的侧栏；用户调完再点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`。这样既保留面板「先选类型 + 文件名」的语义，又不必把参数区塞进系统框或原本的小卡片。见 `docs/research/pdf-preview.md` 附录 C。
 
 ---
 

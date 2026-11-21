@@ -4,8 +4,9 @@
 // 为什么需要:类型选择原先只能靠系统保存框的 filter(用户得先打开系统框才能
 // 切类型)。面板把「存成什么」前置到应用内,系统框只负责「存哪」。
 //
-// 分期:当前只做类型选择;PDF 的页边距 / 字号 / 页眉页脚与分页预览留到
-// `#pdf-preview` 落地时扩展(类型分段下方加参数区即可,结构不变)。
+// 第 4 项「PDF 预览」是入口而非格式:确认后打开 PdfPreviewPanel,在面板里
+// 实时调页边距 / 字号 / 行距 / 页眉页脚,再由前端 Display List 直接写 PDF。
+// 旧的 WebView2 PrintToPdf 路径(PDF)保持不变,两者互不干扰。
 //
 // 视觉 / 键盘与 VeloConfirmDialog 同源(Teleport + 居中卡 + Esc 关 + Enter 确认),
 // 复用 --surface-3 / --shadow-popover 族,暗色靠 CSS 变量翻面。
@@ -64,7 +65,7 @@ function pick(type: ExportType): void {
         >
           <span class="text-lg font-semibold text-[var(--chrome-text-active)]">导出</span>
 
-          <div class="mt-5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="导出类型">
+          <div class="mt-5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="导出类型">
             <button
               v-for="t in EXPORT_TYPES"
               :key="t.type"

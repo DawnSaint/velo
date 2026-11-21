@@ -3,11 +3,9 @@
 // 设计原则（见 ROADMAP #eslint-setup）：
 // - 初期宽松规则 + baseline 过渡，渐进式收紧
 // - 推荐规则集统一降为 warn（不阻断 CI），逐步收敛后升级为 error
-// - Prettier 负责格式，ESLint 负责代码质量 / 最佳实践，eslint-config-prettier 关闭冲突规则
 import js from '@eslint/js'
 import ts from 'typescript-eslint'
 import vue from 'eslint-plugin-vue'
-import prettierConfig from 'eslint-config-prettier'
 
 export default ts.config(
   // ── 全局忽略 ──────────────────────────────────────────────
@@ -32,9 +30,6 @@ export default ts.config(
 
   // ── Vue 推荐规则（flat/recommended 含 Vue 3 基础规则） ────
   ...vue.configs['flat/recommended'],
-
-  // ── 关闭与 Prettier 冲突的规则 ────────────────────────────
-  prettierConfig,
 
   // ── Vue SFC：让 <script lang="ts"> 用 TS parser ──────────
   {
@@ -111,10 +106,11 @@ export default ts.config(
 
       // ── Vue 规则调整 ──
       'vue/multi-word-component-names': 'off', // Velo 有单词组件名（如 Breadcrumbs.vue）
-      'vue/max-attributes-per-line': 'off', // Prettier 已管格式
+      // 模板格式类规则保持关闭，不强制特定换行/缩进风格
+      'vue/max-attributes-per-line': 'off',
       'vue/singleline-html-element-content-newline': 'off',
-      'vue/html-self-closing': 'off', // Prettier 已管
-      'vue/html-indent': 'off', // Prettier 已管
+      'vue/html-self-closing': 'off',
+      'vue/html-indent': 'off',
       'vue/attributes-order': 'warn',
       'vue/no-v-html': 'off', // Velo 用 v-html 渲染导出 HTML（已 DOMPurify）
     },

@@ -20,3 +20,11 @@ declare module 'node:path' {
 // vitest 在 ESM 测试文件里也提供 CommonJS `__dirname` 全局(Vite 的
 // `import.meta.dirname` 别名)。给 TS 一个明确声明,免去 @types/node。
 declare const __dirname: string
+
+// wawoff2 的 emscripten binding 源码(?raw)。不走 wawoff2/decompress.js 包装 ——
+// 它在 Vite 预构建下把 onRuntimeInitialized 注册到空 exports 对象上导致永久悬挂,
+// 详见 pdfPreview/woff2Decode.ts 头部注释。
+declare module 'wawoff2/build/decompress_binding.js?raw' {
+  const source: string
+  export default source
+}

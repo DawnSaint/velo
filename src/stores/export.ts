@@ -24,6 +24,11 @@
 //    (同 document.ts)。早先 PDF 导出后主 webview 被 navigate 走导致
 //    JS 上下文销毁,既看不到反馈、顶栏也回不来 —— 隐藏窗口方案同时解决这两点。
 //
+// 6) **PDF 预览(未发版)**:`pdf-preview` 是第 4 个面板选项,不是新格式 ——
+//    确认后打开 PdfPreviewPanel,实时调页边距 / 字号 / 行距 / 页眉页脚,
+//    由前端 Display List 直接写 PDF(不依赖 WebView2,三平台一致)。旧 PDF
+//    路径保持不变。见 docs/architecture/export.md。
+//
 // 不动 currentFilePath / lastSavedContent / fs:watch —— 导出是"产出一份
 // 静态文件",不是"切换到那个文件继续编辑",跟保存 / 另存为是不同语义。
 
@@ -41,7 +46,7 @@ import type { buildExportDocx } from '@/lib/export/docxRenderer'
 
 // ========== 导出类型 ==========
 
-export type ExportType = 'pdf' | 'docx' | 'html'
+export type ExportType = 'pdf' | 'docx' | 'html' | 'pdf-preview'
 
 export interface ExportTypeSpec {
   type: ExportType
@@ -58,13 +63,16 @@ export interface ExportTypeSpec {
 /**
  * 支持的导出类型。顺序即面板展示顺序,PDF 在前(默认推荐)。
  *
- * 后续 `#pdf-preview` 落地时,给 PDF 项补页边距 / 字号 / 页眉页脚参数即可,
- * 面板结构不用改。
+ * `pdf-preview` 不是「另一种文件格式」,而是一个入口:选中后打开分页预览面板,
+ * 在面板里调页边距 / 字号 / 行距 / 页眉页脚并实时重排,再由前端 Display List
+ * 直接写出 PDF。与旧 `pdf`(WebView2 PrintToPdf)互不干扰,三平台一致。
+ * 方案评估见 docs/research/pdf-preview.md 附录 C。
  */
 export const EXPORT_TYPES: ExportTypeSpec[] = [
   { type: 'pdf', label: 'PDF', ext: 'pdf', exts: ['pdf'], desc: '版式与分页最稳，适合分享 / 打印' },
   { type: 'docx', label: 'Word', ext: 'docx', exts: ['docx'], desc: '保留样式，便于二次编辑' },
   { type: 'html', label: 'HTML', ext: 'html', exts: ['html', 'htm'], desc: '自包含单文件，浏览器直接打开' },
+  { type: 'pdf-preview', label: 'PDF 预览', ext: 'pdf', exts: ['pdf'], desc: '实时分页预览 · 可调边距字号' },
 ]
 
 function specOf(type: ExportType): ExportTypeSpec {
@@ -111,6 +119,9 @@ export const useExportStore = defineStore('export', () => {
   const selectedType = ref<ExportType>('pdf')
   /** 面板里的文件名(不含扩展名)。 */
   const panelFileName = ref('')
+  /** PDF 预览面板开关 + 默认导出文件名。 */
+  const previewOpen = ref(false)
+  const previewFileName = ref('')
 
   /**
    * 主入口。面板确认后调用;也可直接程序化调用(默认 PDF)。
@@ -123,6 +134,11 @@ export const useExportStore = defineStore('export', () => {
     if (!isTauri()) {
       notify.info('导出功能仅在桌面端可用')
       return false
+    }
+    // 预览入口不落盘,只开面板;参数调完后由 PdfPreviewPanel 自己写 PDF。
+    if (type === 'pdf-preview') {
+      openPdfPreview(name)
+      return true
     }
     const docStore = useDocumentStore()
     const editorStore = useEditorStore()
@@ -193,11 +209,26 @@ export const useExportStore = defineStore('export', () => {
     selectedType.value = type
   }
 
-  /** 面板确认:关闭面板并按所选类型导出。 */
+  /** 打开 PDF 预览面板(导出面板确认 / 程序化调用共用)。 */
+  function openPdfPreview(name: string | null = null): void {
+    const raw = name ?? useDocumentStore().fileName
+    previewFileName.value = !raw || raw === '未命名' ? '' : raw.replace(/\.[^.]+$/, '')
+    previewOpen.value = true
+  }
+
+  function closePdfPreview(): void {
+    previewOpen.value = false
+  }
+
+  /** 面板确认:关闭面板并按所选类型导出 / 打开预览。 */
   async function confirmExportPanel(): Promise<void> {
     const type = selectedType.value
     const name = panelFileName.value.trim()
     panelOpen.value = false
+    if (type === 'pdf-preview') {
+      openPdfPreview(name || null)
+      return
+    }
     await exportDocument(type, name || null)
   }
 
@@ -246,6 +277,10 @@ export const useExportStore = defineStore('export', () => {
     panelOpen,
     selectedType,
     panelFileName,
+    previewOpen,
+    previewFileName,
+    openPdfPreview,
+    closePdfPreview,
     openExportPanel,
     closeExportPanel,
     selectExportType,

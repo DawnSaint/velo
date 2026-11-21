@@ -63,6 +63,11 @@ module.exports = {
           // renderMarkdown 复用 createParseProcessor 保证 parse 语义与编辑器一致。
           // TODO: 将 parseProcessor 抽取到 src/lib/ 消除此耦合
           'src/lib/renderMarkdown\\.ts',
+          // pdfPreview 复用同一套 remark 插件链（preserveEmptyLine / alert /
+          // encodeLinkUrls / highlight / strictMath / emoji），保证 PDF 解析
+          // 语义与编辑器 / 导出 HTML 一致。
+          // TODO: 将 remark 插件抽取到 src/lib/ 消除此耦合
+          'src/lib/export/pdfPreview/index\\.ts',
         ],
       },
       to: {
