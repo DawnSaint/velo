@@ -21,7 +21,7 @@ import type {
   DisplayOp, FontKey, PdfDestinations, PdfDocument, PdfLayoutOptions, PdfPage, PdfSource,
   RichFragment, LinkOp, TextOp,
 } from './types'
-import { DEFAULT_PDF_LAYOUT_OPTIONS } from './types'
+import { DEFAULT_PDF_LAYOUT_OPTIONS, PX_TO_PT } from './types'
 // ---- IR ----------------------------------------------------------------------
 
 export interface Run {
@@ -29,6 +29,11 @@ export interface Run {
   font: FontKey
   /** 相对传入 base 字号的倍数 */
   scale: number
+  /**
+   * 左右内边距（pt，单侧）。模拟 CSS inline-block 的 `padding` ——
+   * 脚注引用 `.footnote-ref { padding: 0 2px }`。0 / 未设时行为与旧版一致。
+   */
+  padX?: number
   colorKey?: keyof Tokens
   hex?: string
   hexDark?: string
@@ -60,7 +65,10 @@ export interface DecoStyle {
   radius?: number
   /** 相对所在行的字号缩放（sub/sup = 0.75） */
   scale?: number
-  /** 相对基线的纵向偏移 em（sup 负、sub 正；CSS 用 top/bottom） */
+  /**
+   * 相对基线的纵向偏移 em，向上为负（与 CSS `top` 同号：sup = -0.5、sub = +0.25）。
+   * 引擎内部 y 向下，故绘制时按 `baseline + shiftEm * size` 换算。
+   */
   shiftEm?: number
 }
 
@@ -92,6 +100,7 @@ export interface BlockIR {
 }
 
 const SANS: FontKey = 'sans'
+const BOLD: FontKey = 'bold'
 
 function run(text: string, patch: Partial<Run> = {}): Run {
   return { text, font: SANS, scale: 1, colorKey: 'ink', ...patch }
@@ -309,10 +318,21 @@ function inlineRuns(nodes: any[], style: Partial<Run>, ctx: BuildCtx): Run[] {
         i++; continue
       }
       case 'footnoteReference': {
-        // 引用端：可跳到定义（与导出 HTML 的 #velo-fn-{slug} 同源）。
+        // 引用端：对齐导出 HTML 的 <sup class="footnote-ref"><a>label</a></sup> ——
+        // 只有 label 本身（无方括号），主色 + 0.85em + 加粗 + 上标抬高，
+        // 可跳到定义（锚点与导出 HTML 的 #velo-fn-{slug} 同源）。
         const label = String(n.identifier ?? '')
         const slug = footnoteSlug(label)
-        out.push(run(`[${label}]`, { ...style, colorKey: 'link', scale: (style.scale ?? 1) * 0.85, font: 'bold', dest: `fn-${slug}` }))
+        out.push(run(label, {
+          ...style,
+          colorKey: 'primary',
+          scale: (style.scale ?? 1) * 0.85,
+          font: 'bold',
+          dest: `fn-${slug}`,
+          // .footnote-ref 是 inline-block + padding:0 2px —— 两侧各留 2px 空隙。
+          padX: 2 * PX_TO_PT,
+          deco: { shiftEm: -0.5 },
+        }))
         i++; continue
       }
       case 'emoji': {
@@ -347,7 +367,7 @@ async function shikiLines(value: string, lang: string, src: PdfSource): Promise<
   const { html } = await renderCodeBlockHtml({
     code: value, lang, lightTheme: src.lightTheme, darkTheme: src.darkTheme,
   })
-  if (!html) return value.replace(/\t/g, '    ').split('\n').map(line => [run(line, { font: 'mono', scale: 0.86 })])
+  if (!html) return value.replace(/\t/g, '    ').split('\n').map(line => [run(line, { font: 'mono', scale: 0.9 })])
   const code = new DOMParser().parseFromString(html, 'text/html').querySelector('code')
   if (!code) return []
   const lines: Run[][] = [[]]
@@ -357,7 +377,7 @@ async function shikiLines(value: string, lang: string, src: PdfSource): Promise<
     parts.forEach((part, i) => {
       if (i > 0) lines.push([])
       if (part) lines[lines.length - 1].push(run(part, {
-        font: 'mono', scale: 0.86,
+        font: 'mono', scale: 0.9,
         hex: light || undefined,
         hexDark: dark || light || undefined,
       }))
@@ -469,8 +489,10 @@ export async function buildBlocks(tree: Root, src: PdfSource, fb: FragmentBuild)
       }
       case 'footnoteDefinition': {
         const label = String(node.identifier ?? '')
+        // 描述用正文字号（webview 的 .footnote-content 不缩放），
+        // 颜色是正文色 0.6 透明 → tokens.footnoteInk 已预混。
         blocks.push({ kind: 'footnote', label, anchor: `fn-${footnoteSlug(label)}`,
-          runs: flattenRuns(node.children, ctx, { scale: 0.9, colorKey: 'footnoteInk' }) })
+          runs: flattenRuns(node.children, ctx, { colorKey: 'footnoteInk' }) })
         break
       }
       case 'definition': case 'yaml': case 'toml': break
@@ -486,7 +508,7 @@ export async function buildBlocks(tree: Root, src: PdfSource, fb: FragmentBuild)
 
 // ---- 断行 / 分页 --------------------------------------------------------------
 
-interface Piece { run: Run; text: string; w: number; frag: boolean; h: number }
+interface Piece { run: Run; text: string; w: number; frag: boolean; h: number; padX?: number }
 interface Line { pieces: Piece[]; w: number; fragH: number }
 function runColor(r: Run, t: Tokens, dark: boolean): string {
   if (r.hex) return dark ? (r.hexDark ?? r.hex) : r.hex
@@ -499,7 +521,7 @@ function decoOp(x: number, baseline: number, w: number, size: number, d: NonNull
   return {
     op: 'deco',
     x: x - padX,
-    y: baseline - shiftEm * size - size * 0.95,
+    y: baseline + shiftEm * size - size * 0.95,
     w: w + padX * 2,
     h: size * 1.28,
     fill: d.fill ?? null,
@@ -528,9 +550,9 @@ function wrap(runs: Run[], maxW: number, base: number, opts: WrapOpts = {}): Lin
   // 0.5pt 容差：正好填满一行时浮点误差（504.58000000000004 > 504.58）
   // 会把已经排好的前缀单独挤成一行，视觉上出现「Markdown」孤字行。
   const EPS = 0.5
-  const pushRaw = (r: Run, text: string, w: number) => {
+  const pushRaw = (r: Run, text: string, w: number, padX = 0) => {
     if (cur.w + w > maxW + EPS && cur.pieces.length) flush()
-    cur.pieces.push({ run: r, text, w, frag: false, h: 0 })
+    cur.pieces.push({ run: r, text, w, frag: false, h: 0, padX })
     cur.w += w
   }
 
@@ -546,6 +568,14 @@ function wrap(runs: Run[], maxW: number, base: number, opts: WrapOpts = {}): Lin
     }
     const size = base * r.scale * (r.deco?.scale ?? 1)
     const chunks = r.text.match(/\s+|[^\s]+/g) ?? []
+    // run 级内边距：整段只加一次（首块携带 2*padX 的宽度与左侧 padX 偏移）。
+    const pad = r.padX ?? 0
+    let firstChunk = true
+    const pushRun = (text: string, w: number) => {
+      const head = firstChunk
+      firstChunk = false
+      pushRaw(r, text, w + (head ? pad * 2 : 0), head ? pad : 0)
+    }
     for (const chunk of chunks) {
       const cw = measureMixed(chunk, r.font, size)
       if (/^\s+$/.test(chunk)) {
@@ -562,10 +592,11 @@ function wrap(runs: Run[], maxW: number, base: number, opts: WrapOpts = {}): Lin
           if (buf) {
             cur.pieces.push({ run: r, text: buf, w: bw, frag: false, h: 0 })
             cur.w += bw
+            firstChunk = false
           }
           continue
         }
-        if (cur.pieces.length && cur.w + cw <= maxW + EPS) pushRaw(r, chunk, cw)
+        if (cur.pieces.length && cur.w + cw <= maxW + EPS) pushRun(chunk, cw)
         else if (cur.pieces.length) flush()
         continue
       }
@@ -575,16 +606,16 @@ function wrap(runs: Run[], maxW: number, base: number, opts: WrapOpts = {}): Lin
       const cjk = /[\u3400-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/.test(chunk)
       if (!cjk && cw <= maxW) {
         if (cur.w + cw > maxW + EPS && cur.pieces.length) flush()
-        pushRaw(r, chunk, cw)
+        pushRun(chunk, cw)
         continue
       }
       let buf = '', bw = 0
       for (const ch of chunk) {
         const w = glyph(ch, r.font).w / 1000 * size
-        if (cur.w + bw + w > maxW + EPS && buf) { pushRaw(r, buf, bw); buf = ''; bw = 0 }
+        if (cur.w + bw + w > maxW + EPS && buf) { pushRun(buf, bw); buf = ''; bw = 0 }
         buf += ch; bw += w
       }
-      if (buf) pushRaw(r, buf, bw)
+      if (buf) pushRun(buf, bw)
     }
   }
   if (cur.pieces.length) lines.push(cur)
@@ -599,6 +630,11 @@ interface DrawOpts {
   size?: number
   /** 同一行前置片段（列表 marker），绝对 x */
   prefix?: { pieces: Piece[]; x: number }
+  /**
+   * 行尾绝对定位的 run（脚注回链 ↩ 右对齐用）。不参与行宽推进，
+   * 只按给定 x 画，基线与本行一致。
+   */
+  tail?: { run: Run; x: number }
   /** 已由调用方 ensure 过整块高度，跳过逐行分页检查 */
   skipEnsure?: boolean
 }
@@ -690,7 +726,7 @@ class Painter {
         if (!p.frag) {
           const pSize = base * p.run.scale * (p.run.deco?.scale ?? 1)
           const shift = p.run.deco?.shiftEm ?? 0
-          this.text(px, baseline - shift * pSize, p.text, p.run, pSize)
+          this.text(px + (p.padX ?? 0), baseline + shift * pSize, p.text, p.run, pSize)
         }
         px += p.w
       }
@@ -705,19 +741,28 @@ class Painter {
         x += p.w
         continue
       }
+      // run 级内边距：文字从 padX 起画，宽度已含左右两段 pad。
+      const padX = p.padX ?? 0
+      const textW = p.w - padX * 2
       if (p.run.bgKey) {
-        this.cur.ops.push({ op: 'rect', x: x - 1, y: baseline - pSize * 1.02, w: p.w + 2, h: pSize * 1.3, fill: this.t[p.run.bgKey] ?? this.t.inlineBg })
+        this.cur.ops.push({ op: 'rect', x: x + padX - 1, y: baseline - pSize * 1.02, w: textW + 2, h: pSize * 1.3, fill: this.t[p.run.bgKey] ?? this.t.inlineBg })
       }
       // 底衬要在文字下层：deco 先入栈，再 text。
       const shift = p.run.deco?.shiftEm ?? 0
       if (p.run.deco && (p.run.deco.fill || p.run.deco.stroke)) {
-        this.cur.ops.push(decoOp(x, baseline, p.w, pSize, p.run.deco, shift))
+        this.cur.ops.push(decoOp(x + padX, baseline, textW, pSize, p.run.deco, shift))
       }
-      this.text(x, baseline - shift * pSize, p.text, p.run, pSize)
+      this.text(x + padX, baseline + shift * pSize, p.text, p.run, pSize)
       if (p.run.strike) {
-        this.cur.ops.push({ op: 'line', x1: x, y1: baseline - pSize * 0.3, x2: x + p.w, y2: baseline - pSize * 0.3, color: runColor(p.run, this.t, this.opts.dark), width: 0.6 })
+        this.cur.ops.push({ op: 'line', x1: x + padX, y1: baseline - pSize * 0.3, x2: x + padX + textW, y2: baseline - pSize * 0.3, color: runColor(p.run, this.t, this.opts.dark), width: 0.6 })
       }
       x += p.w
+    }
+    if (o.tail) {
+      const r = o.tail.run
+      const tSize = base * r.scale * (r.deco?.scale ?? 1)
+      const shift = r.deco?.shiftEm ?? 0
+      this.text(o.tail.x, baseline + shift * tSize, r.text, r, tSize)
     }
     this.y = top + h
     return h
@@ -767,6 +812,90 @@ class Painter {
   fr(id: string): RichFragment | undefined { return this.frags[id] }
 }
 
+// ---- 块级间距（照抄主编辑器 CSS 的 margin） -----------------------------------
+//
+// 导出 HTML（webview 方案）与主编辑器共用 src/styles/ 下的同一套 partial，
+// 所以把这些 margin 值抄过来，TS 版式就能与 webview 逐项对齐。
+//
+// 两个必须注意的点：
+//  1) CSS 的 em 相对**块自身** font-size，不是正文字号 —— 标题的 margin 要乘
+//     标题自己的字号，否则 h3 的 1em 会算成正文的 1em。
+//  2) _editor-typography.scss 里 h3 / h4 / h5 / h6 **只写了 margin-top**，
+//     margin-bottom 落回浏览器 UA 默认值（h3 1em / h4 1.33em / h5 1.67em /
+//     h6 2.33em）。webview PDF 实测 h3→段落 baseline 间距正好 = 1em(h3)，
+//     就是这个默认值在生效 —— 照抄它，不要「顺手补个 0」。
+
+/** 标题字号（相对正文），对齐 _editor-typography.scss 的 h1..h6。 */
+const HEADING_SCALE = [2, 1.6, 1.4, 1.2, 1, 1]
+
+/** 标题 margin [before, after]，单位 em（相对标题自身字号）。 */
+const HEADING_SPACE: [number, number][] = [
+  [2, 1],       // h1
+  [1.5, 0.5],   // h2
+  [1, 1],       // h3（after = UA 默认 1em）
+  [0.5, 1.33],  // h4（after = UA 默认 1.33em）
+  [1.2, 1.67],  // h5（after = UA 默认 1.67em）
+  [1.2, 2.33],  // h6（after = UA 默认 2.33em）
+]
+
+/**
+ * 块的 margin（pt，相对正文 body）。值域见各 partial：
+ *   _editor-typography / _editor-lists / _editor-code / _editor-tables /
+ *   _editor-toc / _editor-alerts / _editor-image。
+ */
+function blockSpace(b: Block, body: number): { before: number; after: number } {
+  switch (b.kind) {
+    case 'heading': {
+      const i = Math.min(Math.max(b.level ?? 1, 1), 6) - 1
+      const em = body * (HEADING_SCALE[i] ?? 1)
+      return { before: HEADING_SPACE[i][0] * em, after: HEADING_SPACE[i][1] * em }
+    }
+    case 'para': return { before: body * 0.5, after: body * 0.5 }
+    // blockquote margin:0；带 variant 的 quote 是 alert(.velo-alert) margin:1em 0。
+    case 'quote': return b.variant ? { before: body, after: body } : { before: 0, after: 0 }
+    // pre margin:1em 0（em 相对 pre，而 pre 继承正文字号）
+    case 'code': return { before: body, after: body }
+    case 'hr': return { before: body, after: body }
+    // .tableWrapper margin:1.8em 0 1em
+    case 'table': return { before: body * 1.8, after: body }
+    // .velo-toc margin:.25em 0
+    case 'toc': return { before: body * 0.25, after: body * 0.25 }
+    // 富片段按外层容器取 margin：图片 .velo-image-inline .25em/.15em；
+    // mermaid .mermaid-node 与 katex-display 都是 1em 0；HTML 块按正文段落 .5em。
+    case 'fragment': {
+      const k = b.fragMode
+      if (k === 'mermaid' || k === 'math') return { before: body, after: body }
+      if (k === 'html') return { before: body * 0.5, after: body * 0.5 }
+      return { before: body * 0.25, after: body * 0.15 }
+    }
+    // li margin:.25em 0；列表首尾由 relayout 换成 ul/ol 的 .5em
+    case 'listItem': return { before: body * 0.25, after: body * 0.25 }
+    // .footnote-definition margin:1em 0 .5em
+    case 'footnote': return { before: body, after: body * 0.5 }
+    case 'spacer': return { before: 0, after: 0 }
+    default: return { before: 0, after: 0 }
+  }
+}
+
+/**
+ * 列表 marker 文本，对齐 _editor-lists.scss 的 list-style-type：
+ *   ul: disc → circle → square（第 3 层起恒定 square）
+ *   ol: decimal → lower-alpha → lower-roman
+ */
+function markerText(ordered: boolean, ordinal: number, depth: number): string {
+  if (!ordered) return depth === 0 ? '•' : depth === 1 ? '◦' : '▪'
+  if (depth === 0) return `${ordinal}.`
+  if (depth === 1) return `${String.fromCharCode(97 + ((ordinal - 1) % 26))}.`
+  const table: [number, string][] = [
+    [1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'],
+    [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i'],
+  ]
+  let out = ''
+  let v = ordinal
+  for (const [n, sym] of table) while (v >= n) { out += sym; v -= n }
+  return `${out}.`
+}
+
 /** 同步重排：改任意 PdfLayoutOptions 都只走这里，不重新解析 mdast / 不重渲染富片段。 */
 export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, opts: PdfLayoutOptions): PdfDocument {
   resetMissingGlyphs()
@@ -778,29 +907,45 @@ export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, o
   const x0 = geo.marginLeft
   const lineH = geo.lineHeight
 
-  for (const b of ir.blocks) {
+  // 相邻块的 margin 按 CSS 规则 collapse（取大者），而不是相加。
+  let prevAfter = 0
+  for (let bi = 0; bi < ir.blocks.length; bi++) {
+    const b = ir.blocks[bi]
+    const sp = blockSpace(b, body)
+    // 连续同深度列表项：首项 / 末项吃 ul/ol 的 .5em，中间仍是 li 的 .25em。
+    if (b.kind === 'listItem') {
+      const d = b.depth ?? 0
+      const prev = ir.blocks[bi - 1]
+      const next = ir.blocks[bi + 1]
+      if (prev?.kind !== 'listItem' || (prev.depth ?? 0) !== d) sp.before = body * 0.5
+      if (next?.kind !== 'listItem' || (next.depth ?? 0) !== d) sp.after = body * 0.5
+    }
+    const gap = Math.max(prevAfter, sp.before)
+    // 间距计入分页判定，避免标题被留在页底、正文去了下一页。
+    p.ensure(gap + lineH)
+    p.y += gap
+    prevAfter = sp.after
+
     switch (b.kind) {
       case 'spacer': p.ensure(b.spacer ?? lineH * 0.5); p.y += b.spacer ?? lineH * 0.5; break
 
       case 'heading': {
         const lvl = b.level ?? 1
-        const size = body * ([2, 1.5, 1.25, 1.1, 1, 0.9][lvl - 1] ?? 1)
-        const lh = size * 1.35
-        p.ensure(lh * 2)
-        p.y += lineH * 0.45
+        // 字号 / 行高都与主编辑器一致（line-height 继承 .velo-editor 的 1.75）
+        const size = body * (HEADING_SCALE[lvl - 1] ?? 1)
+        const lh = size * 1.75
+        p.ensure(lh)
         // 目录 / 正文锚点都指向标题行顶（PDF 会滚到该行）
         if (b.anchor) p.addDest(b.anchor, x0, p.y)
         for (const l of wrap(b.runs ?? [], contentW, size)) {
           p.drawLine(l, lvl === 1 ? x0 + (contentW - l.w) / 2 : x0, size, { lh })
         }
         if (lvl === 2) p.rule(p.y + 3, x0, x0 + contentW, t.h2Border)
-        p.y += lineH * 0.35
         break
       }
 
       case 'para': {
         for (const l of wrap(b.runs ?? [], contentW, body)) p.drawLine(l, x0, body, { lh: lineH })
-        p.y += lineH * 0.35
         break
       }
 
@@ -812,46 +957,135 @@ export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, o
         const rows: Line[] = []
         if (b.label) rows.push(...wrap([run(b.label, { font: 'bold', scale: 0.85, hex: color, hexDark: color })], width, body))
         rows.push(...wrap(b.runs ?? [], width, body))
+        // blockquote padding:.25em 1em，内部段落 margin:.5em 0（被 padding 挡住
+        // 不穿透）→ 顶 / 底各 .75em。alert(.velo-alert) padding:.15em 1em。
+        const padV = body * (b.variant ? 0.15 : 0.75)
+        const rowsH = rows.reduce((s, l) => s + Math.max(lineH, l.fragH), 0)
+        p.ensure(padV * 2 + rowsH)
+        const top = p.y
+        p.y += padV
         for (const l of rows) {
-          const top = p.y
           const h = Math.max(lineH, l.fragH)
           p.drawLine(l, x0 + indent, body, { lh: h })
-          p.cur.ops.push({ op: 'line', x1: x0 + 2, y1: top, x2: x0 + 2, y2: top + h, color, width: 3 })
         }
-        p.y += lineH * 0.3
+        p.y += padV
+        // 竖条贯穿 padding，贴合 border-left 画在块盒上的效果
+        p.cur.ops.push({ op: 'line', x1: x0 + 2, y1: top, x2: x0 + 2, y2: p.y, color, width: 3 })
         break
       }
 
       case 'listItem': {
-        const indent = 18 + (b.depth ?? 0) * 18
-        const bullet = b.ordered ? `${b.ordinal ?? 1}.` : (b.checked != null ? (b.checked ? '☑' : '☐') : '•')
-        const marker = run(bullet, { scale: 0.95, colorKey: 'muted' })
-        const markerW = measureMixed(bullet, marker.font, body * marker.scale) + 8
-        const lines = wrap(b.runs ?? [], contentW - indent - markerW, body)
+        const depth = b.depth ?? 0
+        // ul / ol { padding-left:2em }，嵌套每层再 +2em
+        const base = 2 * body * (depth + 1)
+        const isTask = b.checked != null
+        const ordered = b.ordered === true
+        // task li 另有 padding-left:1.8em（checkbox 占位）
+        const textX = x0 + base + (isTask ? 1.8 * body : 0)
+        // li::marker 走主色（_editor-lists.scss:20-23），不再是灰的
+        const bullet = markerText(ordered, b.ordinal ?? 1, depth)
+        const marker = run(bullet, { colorKey: 'primary' })
+        // 无序 marker 用矢量图形而不是 '•' 字形：字形墨迹只有 0.22em（偏小），
+        // 且 Chromium 的 marker 尺寸随字体度量漂移（实测 0.30–0.39em）。
+        // 直径固定 0.32em —— 参考截图实测 11px ÷ em 34.6px ≈ 0.318em；
+        // 右缘到文字 0.55em（同图实测 0.577em）。有序 marker 仍走文字层（可搜索）。
+        const dot = 0.32 * body
+        const markerGap = 0.55 * body
+        const vectorMarker = !isTask && !ordered
+        const markerW = vectorMarker
+          ? dot + markerGap
+          : measureMixed(bullet, marker.font, body) + 8
+        // 勾选态：整段 muted + 删除线（[data-checked="true"] .task-content）
+        const done = isTask && !!b.checked
+        const runs: Run[] = (b.runs ?? []).map(r => (done
+          ? {
+              ...r,
+              strike: true,
+              colorKey: (r.colorKey === 'ink' || !r.colorKey ? 'muted' : r.colorKey) as keyof Tokens,
+            }
+          : r))
+        const lines = wrap(runs, contentW - (textX - x0) - (isTask ? 0 : markerW), body)
         const use = lines.length ? lines : [{ pieces: [], w: 0, fragH: 0 } as Line]
+        if (isTask) {
+          // checkbox 1em × 1em，与首行垂直居中；勾选填主色 + 白对勾
+          const cb = body
+          const h0 = Math.max(lineH, use[0].fragH)
+          const cbX = x0 + base
+          const cbY = p.y + (h0 - cb) / 2
+          p.ensure(h0)
+          if (b.checked) {
+            p.cur.ops.push({ op: 'rect', x: cbX, y: cbY, w: cb, h: cb, fill: t.primary })
+            const lw = Math.max(1, cb * 0.14)
+            const x1 = cbX + cb * 0.24, y1 = cbY + cb * 0.52
+            const x2 = cbX + cb * 0.42, y2 = cbY + cb * 0.72
+            const x3 = cbX + cb * 0.78, y3 = cbY + cb * 0.3
+            p.cur.ops.push({ op: 'line', x1, y1, x2, y2, color: '#ffffff', width: lw })
+            p.cur.ops.push({ op: 'line', x1: x2, y1: y2, x2: x3, y2: y3, color: '#ffffff', width: lw })
+          } else {
+            // 白底 + #aaa 边框（.task-checkbox background:#fff / border:1px solid #aaa）
+            p.cur.ops.push({ op: 'rect', x: cbX, y: cbY, w: cb, h: cb, fill: '#ffffff' })
+            p.cur.ops.push({ op: 'strokeRect', x: cbX, y: cbY, w: cb, h: cb, color: '#aaaaaa', width: 1 })
+          }
+        }
         use.forEach((l, i) => {
-          const prefix = i === 0 ? { pieces: [{ run: marker, text: bullet, w: markerW, frag: false, h: 0 } as Piece], x: x0 + indent - markerW } : undefined
-          p.drawLine(l, x0 + indent, body, { lh: Math.max(lineH, l.fragH), prefix })
+          const h = Math.max(lineH, l.fragH)
+          if (isTask) { p.drawLine(l, textX, body, { lh: h }); return }
+          // 有序列表：marker 是文字（'1.' / 'a.' / 'i.'），保持可选中
+          if (i === 0 && !vectorMarker) {
+            const prefix = { pieces: [{ run: marker, text: bullet, w: markerW, frag: false, h: 0 } as Piece], x: textX - markerW }
+            p.drawLine(l, textX, body, { lh: h, prefix })
+            return
+          }
+          const top = p.y
+          p.drawLine(l, textX, body, { lh: h })
+          if (i > 0) return
+          // 圆点圆心对齐首行文字的 x-height 中线（主编辑器 li::marker 的视觉位置）
+          const baseline = top + body * 0.82 + (h - body) / 2
+          const x = textX - markerGap - dot
+          const y = baseline - 0.25 * body - dot / 2
+          if (depth === 0) {
+            // disc：实心正圆
+            p.cur.ops.push({ op: 'deco', x, y, w: dot, h: dot, fill: t.primary, radius: dot / 2 })
+          } else if (depth === 1) {
+            // circle：空心圆（描边居中，外径 ≈ dot + width ≈ 0.375em）
+            p.cur.ops.push({ op: 'deco', x, y, w: dot, h: dot, stroke: t.primary, width: 0.055 * body, radius: dot / 2 })
+          } else {
+            // square：实心方块
+            p.cur.ops.push({ op: 'rect', x, y, w: dot, h: dot, fill: t.primary })
+          }
         })
         break
       }
 
       case 'code': {
-        const lh = body * 0.86 * 1.5
-        const pad = 7
-        p.ensure(lh + pad * 2)
-        p.y += pad
-        for (const line of b.codeLines ?? []) {
-          const wrapped = wrap(line.length ? line : [run('', { font: 'mono', scale: 0.86 })], contentW - pad * 2, body, { pre: true })
-          for (const one of (wrapped.length ? wrapped : [{ pieces: [], w: 0, fragH: 0 } as Line])) {
-            p.ensure(lh)
-            const top = p.y
-            p.cur.ops.push({ op: 'rect', x: x0, y: top, w: contentW, h: lh, fill: t.codeBg })
-            p.drawLine(one, x0 + pad, body, { lh, size: body * 0.86, skipEnsure: true })
-            p.y = top + lh
+        // 对齐 _editor-code.scss：pre { margin:1em 0; padding:.75em 1em }
+        // （margin 由循环的 blockSpace 给）；行距 = pre 的 1.6em 绝对值继承给 code；
+        // pre code { font-size:.9em }。
+        // 注意：**不画** webview 那个空的 header 占位条（pre::before / 2.75em 预留）——
+        // 需求明确不要它，所以 padding-top 保持 .75em。
+        const codeSize = body * 0.9
+        const lh = body * 1.6
+        const padX = body
+        const padTop = body * 0.75
+        const padBottom = body * 0.75
+        const wrappedAll = (b.codeLines ?? []).map(line => {
+          const w = wrap(line.length ? line : [run('', { font: 'mono', scale: 0.9 })], contentW - padX * 2, body, { pre: true })
+          return w.length ? w : [{ pieces: [], w: 0, fragH: 0 } as Line]
+        })
+        if (!wrappedAll.length) wrappedAll.push([{ pieces: [], w: 0, fragH: 0 } as Line])
+        const boxH = padTop + wrappedAll.reduce((s, ls) => s + ls.length * lh, 0) + padBottom
+        p.ensure(boxH)
+        const top = p.y
+        // pre 整块底色（含 padding），避免逐行画导致顶 / 底出现无底色的缝
+        p.cur.ops.push({ op: 'rect', x: x0, y: top, w: contentW, h: boxH, fill: t.codeBg })
+        p.y = top + padTop
+        for (const ls of wrappedAll) {
+          for (const one of ls) {
+            // drawLine 内部会推进 this.y（= top + lh），不要重复加
+            p.drawLine(one, x0 + padX, body, { lh, size: codeSize, skipEnsure: true })
           }
         }
-        p.y += pad + lineH * 0.3
+        p.y = top + boxH
         break
       }
 
@@ -899,15 +1133,14 @@ export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, o
           }
           p.cur.ops.push({ op: 'line', x1: x0 + contentW, y1: top, x2: x0 + contentW, y2: p.y, color: t.tableBorder, width: 0.4 })
         }
-        p.y += lineH * 0.3
         break
       }
 
       case 'hr': {
-        p.ensure(lineH)
-        p.y += lineH * 0.5
-        p.rule(p.y, x0, x0 + contentW, t.hr)
-        p.y += lineH * 0.5
+        // hr margin:1em 0（循环已给）；border-top:2px solid #ddd
+        p.ensure(2)
+        p.rule(p.y, x0, x0 + contentW, t.hr, 2)
+        p.y += 2
         break
       }
 
@@ -953,31 +1186,52 @@ export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, o
             p.drawLine(l, x0 + r.indent, body, { lh: rowH(l), skipEnsure: true })
           }
         }
-        p.y = top + total + lineH * 0.4
+        p.y = top + total
         break
       }
 
       case 'footnote': {
-        // 对齐导出 HTML / 编辑器：label 加粗主色 + 描述 + ↩ 回链。
-        // 不画分隔线 —— _footnote.scss 明确当前没有分割线，webview 版也没有；
-        // 之前这里多画的 15% 宽灰线是 ts 独有的「奇怪的横线」。
-        const labelRun = run(`${b.label ?? ''}  `, { scale: 0.9, font: 'bold', hex: t.footnoteLabel, hexDark: t.footnoteLabel })
-        const backRun = run('  ↩', { scale: 0.9, hex: t.footnoteLabel, hexDark: t.footnoteLabel, dest: `fnref-${footnoteSlug(b.label ?? '')}` })
-        const combined = [labelRun, ...(b.runs ?? []), backRun]
-        const wrapped = wrap(combined, contentW - 12, body)
+        // 对齐导出 HTML 的 .footnote-definition（flex + align-items:baseline）：
+        //   <div class="footnote-label">label</div>   ← 与文中引用同款：主色 / 加粗 / 正文字号
+        //   <div class="footnote-content">描述</div>   ← 正文色 opacity 0.6
+        //   <a class="footnote-backref">↩</a>          ← 主色 opacity 0.6，贴右缘、首行基线
+        // label 与内容之间、内容与回链之间各 0.4em；整块从内容左缘起，无缩进。
+        const label = b.label ?? ''
+        const labelW = measureMixed(label, BOLD, body)
+        const gap = body * 0.4
+        const backRun = run('↩', { font: 'bold', colorKey: 'footnoteBack', dest: `fnref-${footnoteSlug(label)}` })
+        const backW = Math.max(measureMixed('↩', BOLD, body), body * 0.6)
+        const textX = x0 + labelW + gap
+        const maxW = Math.max(body, contentW - labelW - gap * 2 - backW)
+        const wrapped = wrap(b.runs ?? [], maxW, body)
+        const lines = wrapped.length ? wrapped : [{ pieces: [], w: 0, fragH: 0 }]
         // 整块 ensure：脚注定义不被分页从中间劈开（webview 侧是连续的一块，
         // 之前逐行 drawLine 会把 4 条脚注拆到第 5、6 页，看起来像丢了一条）。
-        const total = wrapped.reduce((s, l) => s + Math.max(lineH, l.fragH), 0)
-        p.ensure(total)
+        const total = lines.reduce((s, l) => s + Math.max(lineH, l.fragH), 0)
+        // .footnote-definition padding:0.8em 0 0（margin 由循环的 blockSpace 给）
+        const padTop = body * 0.8
+        p.ensure(padTop + total)
+        p.y += padTop
         // 回链 ↩ 指向的 ref 锚点：真实引用在正文里，定义处先兜一个退路，
         // 正文出现 footnoteReference 时会被更精确的位置覆盖。
-        const refAnchor = b.anchor ? `fnref-${footnoteSlug(b.label ?? '')}` : undefined
+        const refAnchor = b.anchor ? `fnref-${footnoteSlug(label)}` : undefined
         if (refAnchor) p.addDest(refAnchor, x0, p.y)
-        wrapped.forEach((l, i) => {
+        lines.forEach((l, i) => {
           const top = p.y
           const h = Math.max(lineH, l.fragH)
-          if (i === 0 && b.anchor) p.addDest(b.anchor, x0, top)
-          p.drawLine(l, x0 + 12, body, { lh: h, skipEnsure: true })
+          if (i === 0) {
+            if (b.anchor) p.addDest(b.anchor, x0, top)
+            p.drawLine(l, textX, body, {
+              lh: h,
+              skipEnsure: true,
+              // label 走 prefix：不占行宽、与描述同基线（webview 的 flex 首项）。
+              // 颜色 / 字重与文中引用 .footnote-ref 保持一致（主色加粗），不用黑色。
+              prefix: { pieces: [{ run: run(label, { colorKey: 'primary', font: 'bold' }), text: label, w: labelW, frag: false, h: 0 }], x: x0 },
+              tail: { run: backRun, x: x0 + contentW - backW },
+            })
+          } else {
+            p.drawLine(l, textX, body, { lh: h, skipEnsure: true })
+          }
         })
         break
       }
@@ -989,9 +1243,14 @@ export function relayout(ir: BlockIR, fragments: Record<string, RichFragment>, o
         const w = fr.w * scale
         const h = fr.h * scale
         p.ensure(Math.min(h, geo.pageHeight - geo.marginTop - geo.marginBottom))
-        const left = (b.fragMode === 'image' || b.fragMode === 'math') ? x0 + (contentW - w) / 2 : x0
+        // 图片 / 公式 / mermaid 在版心内水平居中：编辑器里 mermaid 是
+        // .mermaid-svg-area 的 flex 居中（_mermaid.scss:58-67），图片走
+        // .velo-image-inline 的居中 wrapper，公式是 .katex-display 居中。
+        const left = (b.fragMode === 'image' || b.fragMode === 'math' || b.fragMode === 'mermaid')
+          ? x0 + (contentW - w) / 2
+          : x0
         p.cur.ops.push({ op: 'fragment', id: fr.id, x: left, y: p.y, w, h })
-        p.y += h + lineH * 0.35
+        p.y += h
         break
       }
       default: break

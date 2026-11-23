@@ -52,6 +52,19 @@
   --pele-radius: 4px;
 }
 
+/* 导出 HTML 的 mermaid 容器(body.velo-editor 下)。SVG(DOCX 模式是 PNG img)
+   是 inline 元素,用 text-align 在版心内水平居中,对齐编辑器 .mermaid-svg-area
+   的 flex 居中;同时给 SVG 限宽,避免超宽图溢出页面(编辑器侧由
+   .mermaid-svg-area svg 的 max-width 负责)。 */
+.velo-editor .velo-mermaid-block {
+  text-align: center;
+
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
 /* SVG area(默认态点击切到编辑)。
    flex 居中:懒加载高度衔接下 svgArea 会带 min-height(缓存高度 / pre 实测
    高度),loader / 占位 / 错误提示在预留空间内居中,SVG 也在其中居中。 */

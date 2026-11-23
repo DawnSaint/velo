@@ -27,9 +27,15 @@ const props = withDefaults(defineProps<{
   widthClass?: string
   /** ARIA label */
   ariaLabel?: string
+  /**
+   * 下拉面板 z-index。面板 Teleport 到 body，若触发器位于高层级弹窗内
+   * （如 PDF 预览 z-[1400]），默认 1100 会被弹窗盖住，调用方按需调大。
+   */
+  panelZIndex?: number
 }>(), {
   widthClass: 'w-48',
   ariaLabel: '',
+  panelZIndex: 1100,
 })
 
 const emit = defineEmits<{
@@ -216,6 +222,7 @@ onBeforeUnmount(() => {
           top: `${panelTop}px`,
           left: `${panelLeft}px`,
           minWidth: `${panelMinWidth}px`,
+          zIndex: panelZIndex,
         }"
       >
         <div

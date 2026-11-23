@@ -13,6 +13,11 @@ import { useNotifyStore } from '@/stores/notify'
 import { save as saveDialog } from '@/tauri/dialog'
 import { writeFile } from '@/tauri/fs'
 import { formatError } from '@/utils/formatError'
+import VeloSelect from '@/components/settings/VeloSelect.vue'
+// 纸张表是纯常量，直接从 types 子模块取 —— 避免把整个 PDF 引擎拉进主包
+// （引擎仍走下面的动态 import）。
+import { PDF_PAPER_SIZES } from '@/lib/export/pdfPreview/types'
+import type { PdfPaperSize } from '@/lib/export/pdfPreview/types'
 import type { PdfBuild, PdfDocument, PdfLayoutOptions } from '@/lib/export/pdfPreview'
 
 type Engine = typeof import('@/lib/export/pdfPreview')
@@ -38,12 +43,26 @@ const isDev = import.meta.env.DEV
 
 const opts = reactive<PdfLayoutOptions>({
   margins: { horizontal: 16, vertical: 18 },
+  paperSize: 'a4',
   fontSize: 12,
   lineHeight: 1.75,
   showHeader: false,
   showFooter: true,
   headerText: '',
   dark: false,
+  // 与 webview 导出同源：脚注引用 / 回链用编辑器主色。
+  primaryColor: editorStore.primaryColor,
+})
+
+/** 纸张下拉选项直接来自 PDF_PAPER_SIZES —— 新增纸张不必改这里。 */
+const paperOptions = Object.entries(PDF_PAPER_SIZES).map(([value, spec]) => ({
+  value,
+  label: spec.label,
+}))
+/** VeloSelect 的 modelValue 是 string，进出时转成 PdfPaperSize 字面量。 */
+const paperSize = computed({
+  get: () => opts.paperSize ?? 'a4',
+  set: (v: string) => { opts.paperSize = v as PdfPaperSize },
 })
 
 /** 预览固定 1 倍（无缩放控件；画布容器宽度足够 A4 展示）。 */
@@ -178,6 +197,12 @@ watch(opts, () => {
   scheduleDraw()
 }, { deep: true })
 
+// 编辑器换主题色 → 同步重排（脚注引用 / 回链跟随主色）。
+watch(() => editorStore.primaryColor, () => {
+  if (!open()) return
+  opts.primaryColor = editorStore.primaryColor
+})
+
 watch(() => exportStore.previewOpen, async (v) => {
   if (!v) return
   await ensureEngine()
@@ -199,6 +224,7 @@ onBeforeUnmount(() => {
 
 function resetOpts() {
   opts.margins = { horizontal: 16, vertical: 18 }
+  opts.paperSize = 'a4'
   opts.fontSize = 12
   opts.lineHeight = 1.75
   opts.showFooter = true
@@ -277,7 +303,18 @@ async function doExport() {
                 <button type="button" class="text-xs text-[var(--chrome-accent-blue)] hover:underline" @click="resetOpts">重置</button>
               </div>
 
-              <div class="mb-4">
+              <div class="mb-6">
+                <div class="mb-1.5 text-[11px] text-[var(--chrome-text-secondary)]">纸张大小</div>
+                <VeloSelect
+                  v-model="paperSize"
+                  :options="paperOptions"
+                  width-class="w-full"
+                  aria-label="纸张大小"
+                  :panel-z-index="1500"
+                />
+              </div>
+
+              <div class="mb-6">
                 <div class="mb-1.5 text-[11px] text-[var(--chrome-text-secondary)]">页边距（mm）</div>
                 <!-- 水平（左右） -->
                 <div class="flex items-center gap-2">
@@ -307,7 +344,7 @@ async function doExport() {
                   </div>
                 </div>
                 <!-- 垂直（上下） -->
-                <div class="mt-2 flex items-center gap-2">
+                <div class="mt-4 flex items-center gap-2">
                   <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">垂直</span>
                   <span class="w-9 shrink-0 text-right text-[11px] tabular-nums text-[var(--chrome-text-primary)]">{{ marginV.active }}</span>
                   <div
@@ -335,7 +372,7 @@ async function doExport() {
                 </div>
               </div>
 
-              <div class="mb-4 space-y-3">
+              <div class="mb-6 space-y-4">
                 <div class="flex items-center gap-2">
                   <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">字号</span>
                   <span class="w-9 shrink-0 text-right text-[11px] tabular-nums text-[var(--chrome-text-primary)]">{{ fontSize.active }}pt</span>

@@ -29,8 +29,8 @@ import type { PdfDocument, PdfLayoutOptions, PdfSource, RichFragment } from './t
 
 export { renderAllPages, renderPageDom, ensurePreviewDomStyles } from './previewRenderer'
 export { opsSummary } from './pdfWriter'
-export { DEFAULT_PDF_LAYOUT_OPTIONS, MM_TO_PT } from './types'
-export type { PdfDocument, PdfLayoutOptions, PdfMargins, PdfSource } from './types'
+export { DEFAULT_PDF_LAYOUT_OPTIONS, MM_TO_PT, PDF_PAPER_SIZES } from './types'
+export type { PdfDocument, PdfLayoutOptions, PdfMargins, PdfPaperSize, PdfSource } from './types'
 
 export interface PdfBuild {
   doc: PdfDocument

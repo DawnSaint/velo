@@ -164,9 +164,32 @@ export interface PdfMargins {
   vertical: number
 }
 
+/** 可选纸张（宽度 / 高度单位 pt，与 PDF 用户单位一致）。 */
+export type PdfPaperSize = 'a4' | 'a5' | 'letter' | 'legal'
+
+export interface PdfPaperSpec {
+  /** 下拉里展示的名字（含尺寸标注） */
+  label: string
+  width: number
+  height: number
+}
+
+/**
+ * 纸张表。A 系列由 mm 折算（×72/25.4），Letter / Legal 由英寸折算（×72）。
+ * 新增纸张只需在这里加一条 + 给 PdfPaperSize 加字面量。
+ */
+export const PDF_PAPER_SIZES: Record<PdfPaperSize, PdfPaperSpec> = {
+  a4: { label: 'A4 · 210 × 297 mm', width: 595.28, height: 841.89 },
+  a5: { label: 'A5 · 148 × 210 mm', width: 419.53, height: 595.28 },
+  letter: { label: 'Letter · 8.5 × 11 in', width: 612, height: 792 },
+  legal: { label: 'Legal · 8.5 × 14 in', width: 612, height: 1008 },
+}
+
 export interface PdfLayoutOptions {
   /** mm —— 面板里用户实时调整的值 */
   margins: PdfMargins
+  /** 纸张；不传按 A4 */
+  paperSize?: PdfPaperSize
   /** pt —— 正文基准字号 */
   fontSize: number
   /** 倍数 —— 行高 / 字号 */
@@ -175,16 +198,24 @@ export interface PdfLayoutOptions {
   showFooter: boolean
   headerText: string
   dark: boolean
+  /**
+   * 主题主色（编辑器 primaryColor）。webview 侧脚注引用 / 回链取
+   * `--md-doc-primary-color`，未开启「主题色影响正文」时回退 #1F71D9；
+   * 不传按默认主色。
+   */
+  primaryColor?: string
 }
 
 export const DEFAULT_PDF_LAYOUT_OPTIONS: PdfLayoutOptions = {
   margins: { horizontal: 16, vertical: 18 },
+  paperSize: 'a4',
   fontSize: 12,
   lineHeight: 1.75,
   showHeader: false,
   showFooter: true,
   headerText: '',
   dark: false,
+  primaryColor: '#1F71D9',
 }
 
 export const MM_TO_PT = 72 / 25.4

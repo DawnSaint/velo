@@ -9,7 +9,7 @@
 
 import type { FontKey, PdfLayoutOptions } from './types'
 import type { FontMeta, FontSet } from './fontSubset'
-import { MM_TO_PT } from './types'
+import { MM_TO_PT, PDF_PAPER_SIZES } from './types'
 
 export type { FontMeta } from './fontSubset'
 
@@ -181,11 +181,14 @@ export interface Tokens {
   inlineBg: string
   pageBg: string
   /**
-   * 脚注文字 / 标号色。webview 侧 `.footnote-content` 是 opacity:0.6 的
-   * #333（label 是主色），这里按 pageBg 预混出等价实色，避免 PDF 额外 alpha。
+   * 脚注描述色。webview 侧 `.footnote-content` 是正文色 opacity:0.6，
+   * 这里按 pageBg 预混出等价实色，避免 PDF 额外 alpha。
    */
   footnoteInk: string
-  footnoteLabel: string
+  /** 脚注回链 ↩：webview 侧是主色 opacity:0.6，同样预混成实色。 */
+  footnoteBack: string
+  /** 主题主色（脚注引用端 / 回链；编辑器 primaryColor）。 */
+  primary: string
 }
 
 /** 对齐 _editor-typography.scss / _editor-code.scss / _editor-alerts.scss 的导出侧取值 */
@@ -195,7 +198,7 @@ const LIGHT: Tokens = {
   hr: '#dddddd', h2Border: '#eeeeee', tocBorder: '#0F4C81',
   tocBg: '#fcfcfc', tableBorder: '#dddddd', highlight: '#fff3a3',
   inlineBg: '#f0f0f0', pageBg: '#ffffff',
-  footnoteInk: '#848484', footnoteLabel: '#78aae8',
+  footnoteInk: '#848484', footnoteBack: '#78aae8', primary: '#1F71D9',
 }
 
 const DARK: Tokens = {
@@ -204,11 +207,35 @@ const DARK: Tokens = {
   hr: '#444444', h2Border: '#3a3a3a', tocBorder: '#4a90d9',
   tocBg: '#1f1f1f', tableBorder: '#444444', highlight: '#6b5a15',
   inlineBg: '#333333', pageBg: '#1e1e1e',
-  footnoteInk: '#959595', footnoteLabel: '#416fa5',
+  footnoteInk: '#959595', footnoteBack: '#416fa5', primary: '#6aa3e0',
+}
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return null
+  const v = parseInt(m[1], 16)
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+}
+
+/** 把 color 按 alpha 叠到 bg 上返回实色（PDF 没有 CSS alpha，必须预混）。 */
+function mixOn(color: string, bg: string, alpha: number): string {
+  const c = hexToRgb(color)
+  const b = hexToRgb(bg)
+  if (!c || !b) return color
+  const ch = (i: number) => Math.round(c[i] * alpha + b[i] * (1 - alpha))
+  return `#${[ch(0), ch(1), ch(2)].map(v => v.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function tokensOf(opts: PdfLayoutOptions): Tokens {
-  return opts.dark ? DARK : LIGHT
+  const base = opts.dark ? DARK : LIGHT
+  const primary = opts.primaryColor || base.primary
+  return {
+    ...base,
+    primary,
+    // webview 的 opacity:0.6 是相对 pageBg 的，主色可配 → 这里实时预混。
+    footnoteInk: mixOn(base.ink, base.pageBg, 0.6),
+    footnoteBack: mixOn(primary, base.pageBg, 0.6),
+  }
 }
 
 export const ALERT_COLORS: Record<string, string> = {
@@ -216,12 +243,13 @@ export const ALERT_COLORS: Record<string, string> = {
   warning: '#bf8700', caution: '#cf222e',
 }
 
-/** 用户面板值（mm）→ 布局用 pt */
+/** 用户面板值（mm）→ 布局用 pt；纸张尺寸由 opts.paperSize 决定（默认 A4） */
 export function layoutGeometry(opts: PdfLayoutOptions) {
   const m = opts.margins
+  const paper = PDF_PAPER_SIZES[opts.paperSize ?? 'a4'] ?? PDF_PAPER_SIZES.a4
   return {
-    pageWidth: 595.28,
-    pageHeight: 841.89,
+    pageWidth: paper.width,
+    pageHeight: paper.height,
     marginTop: m.vertical * MM_TO_PT,
     marginRight: m.horizontal * MM_TO_PT,
     marginBottom: m.vertical * MM_TO_PT,
