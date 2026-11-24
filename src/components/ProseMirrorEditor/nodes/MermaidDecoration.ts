@@ -17,6 +17,9 @@
 //   - 不再用 textarea + 自管 commit/cancel(source 全程在 doc.textContent 里)
 //   - widget 在 side: -1(在 pre 之前)→ codeHighlight 在 mermaid 上**不**挂 toolbar
 //     (我们 widget 自带 toolbar 接管),避免同 pos 同 side 多 widget 冲突
+//   - widget 传懒工厂 + key 只含内容身份(编辑态 + source):PM 按 key 复用
+//     DOM,toggle/fold/viewport 全量重建不再销毁重建所有 widget;只有 source
+//     变化才重建对应块并重渲染(详见 buildDecosForMermaidBlock 注释)
 //   - focus 走 view.focus() + TextSelection 进 pre 内部;blur 走 view.dispatch
 //     把 selection 移到 doc 顶层
 //
@@ -232,13 +235,28 @@ function buildDecosForMermaidBlock(
   const widgetPos = pos + node.nodeSize
   // 关键:传给 widget 工厂的 pos 必须是 **绝对 pos** ($from.start() 风格),
   // 跟 setMeta / tr.delete / tr.setSelection 共用一套坐标系。
-  const widget = makeMermaidWidget(source, deco, absolutePos, isEditing)
-  decos.push(Decoration.widget(widgetPos, widget, {
-    block: true,
-    side: -2,
-    key: `mermaid-widget:${pos}:${isEditing ? 'edit' : 'view'}`,
-    ignoreSelection: true,
-  }))
+  // **必须传懒工厂,不能传已建好的 HTMLElement**:PM placeWidget 的复用条件
+  // 是 `widget == next.widget || !toDOM.parentNode` —— 传元素时 toDOM 就是
+  // 那个已挂载的旧元素,parentNode 恒真 → 条件恒 false → 每次全量重建
+  // (toggle / fold / viewport meta)都销毁重建**所有** widget DOM,缓存 SVG
+  // 被 innerHTML 重插、fade-in 重播,表现为"展开一个 mermaid 全文档重绘"。
+  // 传函数时 toDOM.parentNode 为 undefined,PM 按 key 复用旧 DOM,工厂只在
+  // key 变化(真正需要重建)时才跑。
+  //
+  // **key 只含内容身份(编辑态 + source),不含 pos**:pos 平移(上方键入)
+  // 不应重建 widget;按钮点击经 getPos 实时定位,不依赖工厂期捕获的 pos。
+  // source 必须进 key:增量路径 remove+add 受影响块后,若 key 不变 PM 会
+  // 复用旧 widget → 改源码不重渲染。
+  decos.push(Decoration.widget(
+    widgetPos,
+    (_view, getPos) => makeMermaidWidget(source, deco, absolutePos, isEditing, getPos),
+    {
+      block: true,
+      side: -2,
+      key: `mermaid-widget:${isEditing ? 'edit' : 'view'}:${source}`,
+      ignoreSelection: true,
+    },
+  ))
   return decos
 }
 
@@ -290,6 +308,7 @@ function makeMermaidWidget(
   deco: MermaidDecoState,
   pos: number,
   isEditing: boolean,
+  getPos: () => number | undefined,
 ): HTMLElement {
   const dom = document.createElement('div')
   dom.className = 'mermaid-node mermaid-widget'
@@ -307,9 +326,9 @@ function makeMermaidWidget(
   //   - 折叠态(默认):chevron-down(向下)→ 点击展开 code block
   //   - 展开态:chevron-up(向上)→ 点击收起 code block
   // (避免叉号容易被误认为删除;未来要做可缩放/拖动,这是唯一入口)
-  toolbar.appendChild(makeToggleBtn(pos, isEditing))
+  toolbar.appendChild(makeToggleBtn(getPos, isEditing))
   toolbar.appendChild(makeCopyBtn(svgArea))
-  toolbar.appendChild(makeDeleteBtn(pos))
+  toolbar.appendChild(makeDeleteBtn(getPos))
   dom.appendChild(toolbar)
 
   // v0.4.6+:SVG 区域不再响应 click(避免与后续 zoom/pan 拖动手势冲突);
@@ -373,7 +392,24 @@ export function deleteMermaidBlockAt(view: EditorView, pos: number): void {
   view.focus()
 }
 
-function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
+/** toolbar 按钮点击时实时解析 content 起点 pos(absolutePos)。
+ *  widget 可能被 PM 跨 doc 变化复用(key 只含内容身份,不含 pos),工厂期
+ *  捕获的 pos 会 stale。getPos 是 PM 的实时位置访问器,返回 widget 当前
+ *  pos(block 末尾 = 下一 block 起点),nodeBefore 即本 code_block,
+ *  回退一个 nodeSize 再 +1 即 content 起点。 */
+function resolveMermaidContentPos(
+  view: EditorView,
+  getPos: () => number | undefined,
+): number | null {
+  const end = getPos()
+  if (end == null) return null
+  const block = view.state.doc.resolve(end).nodeBefore
+  if (!block || block.type.name !== 'code_block') return null
+  if ((block.attrs.language as string) !== 'mermaid') return null
+  return end - block.nodeSize + 1
+}
+
+function makeToggleBtn(getPos: () => number | undefined, isEditing: boolean): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'velo-icon-btn mermaid-btn mermaid-btn-toggle'
@@ -392,6 +428,8 @@ function makeToggleBtn(pos: number, isEditing: boolean): HTMLElement {
     e.stopPropagation()
     const view = currentView
     if (!view || view.isDestroyed) return
+    const pos = resolveMermaidContentPos(view, getPos)
+    if (pos == null) return
     toggleMermaidSourceAt(view, pos)
   })
   return btn
@@ -528,7 +566,7 @@ function getSvgDimensions(svg: SVGElement): { width: number; height: number } {
   throw new Error('无法确定图表尺寸')
 }
 
-function makeDeleteBtn(pos: number): HTMLElement {
+function makeDeleteBtn(getPos: () => number | undefined): HTMLElement {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'velo-icon-btn velo-icon-btn--danger mermaid-btn mermaid-btn-delete'
@@ -541,6 +579,8 @@ function makeDeleteBtn(pos: number): HTMLElement {
     e.stopPropagation()
     const view = currentView
     if (!view || view.isDestroyed) return
+    const pos = resolveMermaidContentPos(view, getPos)
+    if (pos == null) return
     deleteMermaidBlockAt(view, pos)
   })
   return btn
@@ -645,7 +685,13 @@ function renderError(dom: HTMLElement, msg: string): void {
 function renderSvg(dom: HTMLElement, svg: string): void {
   dom.innerHTML = svg
   const svgEl = dom.querySelector('svg')
-  if (svgEl) svgEl.style.height = 'auto'
+  if (svgEl) {
+    svgEl.style.height = 'auto'
+    // 本函数只走缓存命中路径(widget 重建时重插已渲染产物)。fade-in 只服务
+    // 首渲染 loader→SVG 过渡(走 fillWidget 的 p.then 分支);重插重播动画
+    // 会让展开/收起等重建操作看起来像"重绘"。
+    svgEl.style.animation = 'none'
+  }
 }
 // ========== Plugin ==========
 

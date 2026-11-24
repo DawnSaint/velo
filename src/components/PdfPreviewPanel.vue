@@ -6,6 +6,7 @@
 // 不重新渲染 KaTeX / mermaid / shiki / 图片。全部在前端完成，不依赖 WebView2。
 
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type ComponentPublicInstance } from 'vue'
+import { Loader2 } from '@lucide/vue'
 import { useDocumentStore } from '@/stores/document'
 import { useEditorStore } from '@/stores/editor'
 import { useExportStore } from '@/stores/export'
@@ -246,6 +247,8 @@ async function doExport() {
     const bytes = await mod.serializePdf(d)
     await writeFile(target, bytes)
     notify.success(`已导出:${target}`)
+    // 成功即关(与导出面板「成功才关」语义一致);失败保持打开可改参数重试。
+    exportStore.closePdfPreview()
   } catch (e) {
     console.error('PDF 预览导出失败', e)
     notify.error(`导出失败:${formatError(e)}`)
@@ -283,15 +286,21 @@ async function doExport() {
             <div class="ml-auto flex items-center gap-3">
               <button
                 type="button"
-                class="rounded-lg border border-[var(--surface-border)] px-3 py-1.5 text-sm text-[var(--chrome-text-primary)] hover:bg-[var(--surface-hover)]"
+                :disabled="exporting"
+                class="rounded-lg border border-[var(--surface-border)] px-3 py-1.5 text-sm text-[var(--chrome-text-primary)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                 @click="exportStore.closePdfPreview()"
-              >关闭</button>
+              >
+                关闭
+              </button>
               <button
                 type="button"
                 :disabled="exporting || !doc"
-                class="rounded-lg bg-[var(--chrome-accent-blue)] px-4 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                class="flex items-center gap-2 rounded-lg bg-[var(--chrome-accent-blue)] px-4 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                 @click="void doExport()"
-              >{{ exporting ? '导出中…' : '导出 PDF' }}</button>
+              >
+                <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
+                {{ exporting ? '导出中…' : '导出 PDF' }}
+              </button>
             </div>
           </div>
 

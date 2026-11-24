@@ -11,7 +11,7 @@
 //     pre 切到 data-mermaid-source="visible"(展开源码)。
 //  3. 删除时同步清 editNodeSet(toggleEditAt: -1 触发 set 清空)。
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
@@ -23,6 +23,20 @@ import {
   ensureMermaidSourceVisibleAt,
 } from '../nodes/MermaidDecoration'
 import { codeHighlightPlugin } from '../nodes/CodeHighlightWidget'
+import { viewportPlugin, viewportKey } from '../nodes/viewportPlugin'
+
+// ★ stub pele:本测关心 widget DOM 复用 / 重建时机,不需要真渲染 SVG。
+// vi.mock 工厂提供 render / PeleError 最小形状(对齐 MermaidDecoration.getPele
+// 的用法),把渲染产物固定为空 SVG,零真实计算(同 codeHighlight.test.ts)。
+vi.mock('pele', () => {
+  class PeleError extends Error {
+    code = 'syntax'
+  }
+  return {
+    PeleError,
+    render: () => ({ svg: '<svg class="pele"></svg>' }),
+  }
+})
 
 function makeView(initialMd: string): EditorView {
   const container = document.createElement('div')
@@ -459,6 +473,149 @@ describe('ensureMermaidSourceVisibleAt', () => {
     const deco = mermaidDecoKey.getState(view.state)!
     expect(deco.editNodeSet.size).toBe(0)
     expect(deco.pendingFocusSet.size).toBe(0)
+
+    view.destroy()
+  })
+})
+
+// ============================================================
+//  Widget 复用:展开源码 / 上方编辑不得重绘其他 mermaid
+// ============================================================
+//
+// 回归背景:toggleEditAt meta → decoSet=null 全量重建。旧实现把**已建好的
+// HTMLElement** 传给 Decoration.widget,PM placeWidget 的复用条件
+// `widget == next.widget || !toDOM.parentNode` 对已挂载元素恒 false →
+// 所有 widget DOM 销毁重建 → 缓存 SVG 被 innerHTML 重插 → fade-in 动画
+// 重播 → 展开一个 mermaid,全文档 mermaid 集体可见重绘。
+// 修复契约:
+//   1. widget 传懒工厂,key 只含内容身份(编辑态 + source),PM 按 key 复用;
+//   2. 只有 source 变化才重建对应 widget;
+//   3. 缓存命中重插不重播 fade-in(首渲染保留);
+//   4. toolbar 按钮点击经 getPos 实时定位,pos 平移后不命中旧坐标。
+
+describe('mermaidDecoration widget 复用(展开不重绘)', () => {
+  const twoBlocksMd = [
+    '```mermaid',
+    'graph TD',
+    '  A-->B',
+    '```',
+    '',
+    'middle paragraph',
+    '',
+    '```mermaid',
+    'graph LR',
+    '  X-->Y',
+    '```',
+  ].join('\n')
+
+  function mermaidBlockPositions(view: EditorView): number[] {
+    const positions: number[] = []
+    view.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'code_block' && (node.attrs.language as string) === 'mermaid') {
+        positions.push(pos)
+      }
+      return true
+    })
+    return positions
+  }
+
+  async function flushRenders(): Promise<void> {
+    // 等 getPele() 的 import + render promise + consumeFocus 微任务走完
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+  }
+
+  it('展开一个 mermaid,其他 mermaid 的 widget DOM 保持不变', async () => {
+    const view = makeView(twoBlocksMd)
+    await flushRenders()
+    const before = Array.from(view.dom.querySelectorAll('.mermaid-node'))
+    expect(before.length).toBe(2)
+
+    const positions = mermaidBlockPositions(view)
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: positions[1] + 1 }))
+
+    const after = Array.from(view.dom.querySelectorAll('.mermaid-node'))
+    expect(after.length).toBe(2)
+    expect(after[0]).toBe(before[0])
+    expect(after[1].classList.contains('is-editing')).toBe(true)
+
+    // consumeFocus 微任务还会再触发一次全量重建,同样不得重绘
+    await flushRenders()
+    const settled = Array.from(view.dom.querySelectorAll('.mermaid-node'))
+    expect(settled[0]).toBe(before[0])
+
+    view.destroy()
+  })
+
+  it('修改源码只重建被编辑块的 widget,其他块不受牵连', async () => {
+    const view = makeView(twoBlocksMd)
+    await flushRenders()
+    const before = Array.from(view.dom.querySelectorAll('.mermaid-node'))
+    expect(before.length).toBe(2)
+
+    const positions = mermaidBlockPositions(view)
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: positions[0] + 1 }))
+    view.dispatch(view.state.tr.insertText('  C-->D\n', positions[0] + 1))
+    await flushRenders()
+
+    const after = Array.from(view.dom.querySelectorAll('.mermaid-node'))
+    expect(after.length).toBe(2)
+    expect(after[1]).toBe(before[1])
+    expect(after[0]).not.toBe(before[0])
+
+    view.destroy()
+  })
+
+  it('缓存命中重插不重播 fade-in,首次渲染保留 fade-in', async () => {
+    const view = makeView('```mermaid\ngraph TD\n  A-->B\n```')
+    await flushRenders()
+    const first = view.dom.querySelector('.mermaid-svg-area svg') as SVGElement | null
+    expect(first).not.toBeNull()
+    expect(first!.style.animation).not.toBe('none')
+
+    const pos = findMermaidCodeBlockPos(view)
+    view.dispatch(view.state.tr.setMeta(mermaidDecoKey, { toggleEditAt: pos + 1 }))
+    await flushRenders()
+
+    const reinserted = view.dom.querySelector('.mermaid-svg-area svg') as SVGElement | null
+    expect(reinserted).not.toBeNull()
+    expect(reinserted).not.toBe(first)
+    expect(reinserted!.style.animation).toBe('none')
+
+    view.destroy()
+  })
+
+  it('上方段落键入后,toolbar 展开按钮仍命中当前块(实时定位)', async () => {
+    // 挂 viewportPlugin 并 dispatch 一次 viewport meta 让 decoSet 落盘,
+    // 后续键入走增量路径(复用 widget DOM)——这才是 toolbar 闭包 pos
+    // 可能 stale 的真实场景(全量重建路径每次都会刷新闭包)。
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const state = EditorState.create({
+      schema,
+      doc: fromMarkdown('intro\n\n```mermaid\ngraph TD\n  A-->B\n```', schema),
+      plugins: [viewportPlugin, mermaidDecoration],
+    })
+    const view = new EditorView(container, { state })
+    view.dispatch(view.state.tr.setMeta(viewportKey, { from: 0, to: view.state.doc.content.size }))
+    await flushRenders()
+    const blockPos = findMermaidCodeBlockPos(view)
+
+    // 在 intro 中间键入(脏区间不触及 mermaid 块,增量路径保留旧 widget)
+    // → mermaid 块 pos 整体后移,但 widget DOM 被复用
+    view.dispatch(view.state.tr.insertText('xxx', pmPosOf(view, 'intro') + 2))
+    await flushRenders()
+    const newBlockPos = findMermaidCodeBlockPos(view)
+    expect(newBlockPos).toBe(blockPos + 3)
+
+    const btn = view.dom.querySelector('.mermaid-btn-toggle') as HTMLElement | null
+    expect(btn).not.toBeNull()
+    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    const deco = mermaidDecoKey.getState(view.state)!
+    expect(deco.editNodeSet.has(newBlockPos + 1)).toBe(true)
+    const pre = view.dom.querySelector('pre[data-mermaid-source]') as HTMLElement | null
+    expect(pre!.dataset.mermaidSource).toBe('visible')
 
     view.destroy()
   })

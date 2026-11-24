@@ -189,15 +189,16 @@ pub async fn export_pdf(
 ///
 /// 放 cache 目录而非系统 temp:随应用卸载 / 用户清缓存自然回收,不污染文档目录;
 /// asset scope 是 `**`,cache 目录下的文件天然在授权范围内。
-fn prepare_export_html(
+/// PDF / 图片导出共用(`image.rs`),错误统一走 `io::Error`,各模块自行转自己的错误类型。
+pub(crate) fn prepare_export_html(
     app: &tauri::AppHandle<tauri::Wry>,
     label: &str,
     html: &str,
-) -> Result<PathBuf, PdfError> {
+) -> Result<PathBuf, std::io::Error> {
     let dir = app
         .path()
         .app_cache_dir()
-        .map_err(|_| PdfError::Io(std::io::Error::other("app_cache_dir unavailable")))?
+        .map_err(|_| std::io::Error::other("app_cache_dir unavailable"))?
         .join("velo-export");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{label}.html"));
@@ -206,7 +207,7 @@ fn prepare_export_html(
 }
 
 /// 删掉临时导出 HTML。失败静默 —— 缓存目录由系统/应用兜底清理。
-fn cleanup_export_html(path: &Path) {
+pub(crate) fn cleanup_export_html(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
@@ -215,7 +216,8 @@ fn cleanup_export_html(path: &Path) {
 /// 与前端 `convertFileSrc` 同构(Windows/Android 用 `{scheme}://{protocol}.localhost/{path}`,
 /// macOS/Linux 用 `{protocol}://localhost/{path}`)。wry 的 custom protocol workaround
 /// 会在导航时把该 URL 交给注册的 `asset` scheme handler,后者 revert 回真实路径再读盘。
-fn asset_url_for_path(path: &Path) -> Result<String, String> {
+/// PDF / 图片导出共用(`image.rs`)。
+pub(crate) fn asset_url_for_path(path: &Path) -> Result<String, String> {
     // 拒绝相对路径 / 含 `..` 的路径 —— 与 tauri asset handler 的 SafePathBuf 校验对齐。
     if !path.is_absolute() {
         return Err("export html path must be absolute".into());

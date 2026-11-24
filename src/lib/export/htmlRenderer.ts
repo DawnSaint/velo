@@ -104,6 +104,15 @@ export interface ExportOptions {
    * 不中断导出。
    */
   inlineAssets?: boolean
+  /**
+   * 强制配色方案(仅图片导出用)。默认 undefined 保持自适应:
+   * HTML 导出在浏览器里跟**系统**暗色走(`@media (prefers-color-scheme: dark)`)。
+   * 图片导出的截图 webview 里媒体查询同样只认系统主题,会与编辑器设置的主题
+   * (app 亮 + 系统暗 → 暗图)不一致,所以图片导出按 app 的 darkMode 把该媒体
+   * 查询改写成恒命中('dark')/ 恒不命中('light')。同 PDF 用 `@media print`
+   * 强制 light 的思路。
+   */
+  forceColorScheme?: 'light' | 'dark'
 }
 
 export interface ExportResult {
@@ -267,6 +276,19 @@ ${bodyHtml}
 </body>
 </html>
 `
+  // 强制配色方案:把导出 HTML 里所有 `@media (prefers-color-scheme: dark)`
+  // (htmlRenderer 内联块 + exportStyles.scss 编译块)改成恒命中 / 恒不命中,
+  // 让截图 webview 的渲染跟随 app darkMode,而非系统主题。见 ExportOptions。
+  if (opts.forceColorScheme) {
+    const condition = opts.forceColorScheme === 'dark' ? 'all' : 'not all'
+    return {
+      html: html.replace(
+        /@media\s*\(prefers-color-scheme:\s*dark\)/g,
+        `@media ${condition}`,
+      ),
+      warnings,
+    }
+  }
   return { html, warnings }
 }
 

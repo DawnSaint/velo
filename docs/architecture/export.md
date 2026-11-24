@@ -1,10 +1,10 @@
 # Export Architecture
 
-> **本文件负责**：HTML / PDF / DOCX 导出管线、mdast walker、DOMPurify、KaTeX 字体、shiki / mermaid 导出、SVG 光栅化与 Tauri PrintToPDF。
+> **本文件负责**：HTML / PDF / DOCX / 图片(PNG / JPEG)导出管线、mdast walker、DOMPurify、KaTeX 字体、shiki / mermaid 导出、SVG 光栅化、Tauri PrintToPDF 与 WebView2 CapturePreview。
 >
-> **何时阅读**：改 `lib/export/*`、`stores/export.ts`、PDF Rust command、导出样式或新增 mdast node 输出时。
+> **何时阅读**：改 `lib/export/*`、`stores/export.ts`、PDF Rust command、图片截图链路、导出样式或新增 mdast node 输出时。
 >
-> **代码入口**：`src/lib/export/{htmlRenderer,docxRenderer,svgRaster,katexHtml,mermaidHtml,shikiHtml,sanitizeHtml,katexCss,fontFaceCss}.ts`、`src/lib/export/exportStyles.scss`、`src/components/ExportPanel.vue`、`src/stores/export.ts`、`src-tauri/src/{pdf,pdf_windows}.rs`。
+> **代码入口**：`src/lib/export/{htmlRenderer,docxRenderer,svgRaster,katexHtml,mermaidHtml,shikiHtml,sanitizeHtml,katexCss,fontFaceCss}.ts`、`src/lib/export/exportStyles.scss`、`src/components/ExportPanel.vue`、`src/stores/export.ts`、`src-tauri/src/{pdf,pdf_windows,image,image_windows}.rs`。
 >
 > **相关文档**：[架构入口](../ARCHITECTURE.md) · [编辑器](./editor.md) · [Tauri 架构](./tauri.md)
 
@@ -17,6 +17,10 @@
 - **导出 DOM class 名必须与 editor NodeView verbatim 一致**，否则 `@forward` 进来的样式落空。
 - **PDF 新建窗口必须在 async command 里做**；闭包不能 self-reference（webview7 / settings 必须 move 进 handler）。
 - **Windows PDF 必须 `SetShouldPrintBackgrounds(true)`**，否则 alert SVG / 代码块底色 / 暗色底全丢。
+- **图片截图窗口必须离屏可见,不能 `visible(false)`**：CapturePreview 抓的是**已渲染的视觉树**（不像 PrintToPdf 会强制渲染），HWND 隐藏时 WebView2 停渲染，抓出来空白。窗口建在 (-32000, -32000) + `SW_SHOWNOACTIVATE`（不抢焦点、skip_taskbar 不进 Alt-Tab）。
+- **controller 系 API 是创建线程绑定**：`SetRasterizationScale` / `SetBounds` / `ParentWindow` 从 worker 线程调报 `0x802A000C`。量高度需要「轮询 + 延时」，UI 线程不能 sleep —— 用页面内 `setTimeout` 轮询 + `postMessage` 回传，Rust 只在 WebMessageReceived 回调做事（全程 UI 线程）。
+- **`SetRasterizationScale(2.0)` 会被系统 DPI 覆写**（窗口显示 / DPI 事件时回落到显示器 scale）：CSS 视口 = 物理 bounds ÷ dpr 随之变窄，按固定 2× 算的边界会把文档截断。ready 消息回传实际 `devicePixelRatio` / `innerWidth`，宽度不对就按 dpr 重撑物理宽再测一轮。
+- **图片配色按 app `darkMode` 强制**：截图 webview 的 `@media (prefers-color-scheme: dark)` 只认系统主题，app 亮 + 系统暗会导出暗图。`buildExportHtml` 的 `forceColorScheme` 把该媒体查询改写成恒命中 / 恒不命中（同 PDF `@media print` 强制 light 的思路）。
 - **PDF 的 HTML 必须走本地文件 + asset 协议，不能走 data URL**：WebView2/Chromium 对 data: URL 主文档有 ~2MB 上限，导出 HTML 内联字体后必然超限（`Navigate` 报 `0x80070057`）。asset 协议三处配置必须一致 —— config `assetProtocol.enable` + `scope: ["**"]`、CSP 含 `http://asset.localhost`、Rust 侧按 `convertFileSrc` 同构规则拼 URL；少一处就静默 403 / 拒绝访问。
 - **导出内部锚点 fragment 必须与 heading id 同源 `slugify()`**，外部 URL fragment 不动。
 - **KaTeX 字体必须 inline base64**，导出环境无 `fonts/` 目录。
@@ -72,15 +76,28 @@
 
 **懒加载**：`docx` 是 20MB 级包，`stores/export.ts` 用 `loadExportDocx()` 动态 import 推迟到首次导出，不进主 bundle。
 
+### 图片路径(PNG / JPEG)
+
+`buildExportHtml` 同一条 HTML（`forceColorScheme` 按 app 主题强制配色）→ `invoke('export_image', { outputPath, html, format })` → Rust `image::export_image`（`src-tauri/src/image.rs`）新建离屏截图窗口渲染整篇 + CapturePreview。链路：
+
+1. **离屏窗口**：`visible(false)` 建窗（避免创建瞬间闪现）+ `position(-32000,-32000)` + `decorations(false)`；`with_webview` 里 `ShowWindow(SW_SHOWNOACTIVATE)` 显示 —— WebView2 只在 HWND 可见时渲染，CapturePreview 才有内容可抓（红线）。
+2. **导航**：HTML 落 `app_cache_dir/velo-export/<label>.html` + asset 协议（复用 `pdf.rs` 的 helper，data URL 2MB 上限同理），`NavigationCompleted` 后注入 JS 轮询（`readyState` + `document.fonts.ready` + `<img>.complete`，连续两次高度一致才回传，防加载中途测量）。
+3. **撑开整篇**：CapturePreview 只抓 controller bounds 区域，不自动展开滚动内容。JS 回传 `scrollHeight` + 实际 `devicePixelRatio` / `innerWidth`；Rust 校验 CSS 宽 == 880（导出 body max-width），不等则按 dpr 重撑物理宽再测一轮，最后把窗口 + bounds 撑到 `height × dpr`。宽度不变不会重排，`setTimeout 250ms` 等绘制落定再抓。
+4. **格式**：PNG / JPEG 都是 CapturePreview 原生格式（`COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_*`），写进 `SHCreateMemStream` 内存流，completion handler 读流写盘。JPEG 有损、体积约为 PNG 的 ~85%（无透明通道需求时更省）。
+
+**限制**：整篇物理高度上限 16000px（贴 D3D 纹理 16384），CSS 上限随 dpr 浮动（2× 显示器约 8000px）；超限报 `TooTall` 提示改用 PDF。macOS / Linux 返回 `ImageError::Unsupported`（同 PDF 现状）。
+
 ### store 与内置导出面板
 
-`stores/export.ts` 的 `openExportPanel()` 打开内置 `ExportPanel`（`src/components/ExportPanel.vue`，App.vue 挂载）：用户先选类型（PDF / Word / HTML）+ 确认文件名，确认后 `confirmExportPanel()` → `exportDocument(type, name)`。这样**类型选择内置化**，系统 `saveDialog` 只负责「存哪」，不再兼管「存成什么」（原先要先开系统框才能切 filter）。
+`stores/export.ts` 的 `openExportPanel()` 打开内置 `ExportPanel`（`src/components/ExportPanel.vue`，App.vue 挂载）：用户只需选类型（PDF / Word / HTML / 图片），确认后 `confirmExportPanel()` → `exportDocument(type)`。这样**类型选择内置化**，系统 `saveDialog` 负责「存哪 + 文件名叫什么」（原先要先开系统框才能切 filter；文件名输入从面板移到了系统框）。面板的关闭语义：**只有「取消」能关**（点空白 / Esc 不关）；确认导出时面板保持打开（系统保存框 + 导出中），**成功才自动关**；导出中两个按钮都禁用、主按钮显示 spinner —— 且 loading 只在系统保存框返回路径后（真正开始导出）出现。
 
-`exportDocument(type, name)` 按类型锁死 `saveDialog` filter、默认路径后缀与类型一致，再按扩展名 dispatch：`.html` → `buildExportHtml` + `writeTextFile`；`.docx` → `buildExportDocx` + `writeFile`（二进制）；`.pdf` → `invoke('export_pdf', { outputPath, html })`。程序化调用仍可直接 `exportDocument(type)`（默认 pdf），面板只是 UI 前置。
+`exportDocument(type, name)` 按类型锁死 `saveDialog` filter、默认路径后缀与类型一致，再按扩展名 dispatch：`.html` → `buildExportHtml` + `writeTextFile`；`.docx` → `buildExportDocx` + `writeFile`（二进制）；`.pdf` → `invoke('export_pdf', { outputPath, html })`；图片 → `invoke('export_image', { outputPath, html, format })`。程序化调用仍可直接 `exportDocument(type)`（默认 pdf），面板只是 UI 前置。
+
+**图片是唯一不锁死 filter 的类型**：`saveDialog` 给 PNG / JPEG 两个 filter，用户可在系统保存框里切换格式，最终按选中路径的扩展名 dispatch（`jpg/jpeg` → jpeg，其余 png；无图片扩展名补 `.png`）。
 
 **入口三处统一走面板**：顶栏「文件」菜单的导出项、命令面板「导出」、快捷键 `Ctrl+Shift+E` 都调 `openExportPanel()`（不再各自直接导出）。HTML / DOCX 走 `loadExportHtml` / `loadExportDocx` 懒加载模块（katex 字体 ~845KB + docx 包不常驻主 bundle）。**reentrant 守门**（`exporting.value` 期间第二次调用立刻返回）；成功 / 失败弹原生 `message`（故 Rust 端走隐藏打印窗口保主 webview 活着）；**不**改 `currentFilePath` / `lastSavedContent` / `fs:watch` —— 导出是「产出一份静态文件」，与「切换到那个文件继续编辑」是不同语义（见 DECISIONS ADR-20260621-004）。
 
-**面板范围**：四项 —— `PDF` / `Word` / `HTML` / `PDF 预览`。前三项仍是「类型 + 文件名 → `saveDialog` 选路径」。第四项 `pdf-preview` 不是格式而是入口：确认后打开 `PdfPreviewPanel`，纸张大小 / 页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式参数在预览面板自己的侧栏，调完点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`。旧 `PDF` 项保持 PrintToPdf 纯导出语义，不受影响。决策与实测见 `docs/research/pdf-preview.md` 附录 C / D。
+**面板范围**：五项 —— `PDF` / `Word` / `HTML` / `图片` / `PDF 预览`。前四项仍是「类型 + 文件名 → `saveDialog` 选路径」（图片项在系统框里可切 PNG / JPEG）。第五项 `pdf-preview` 不是格式而是入口：确认后打开 `PdfPreviewPanel`，纸张大小 / 页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式参数在预览面板自己的侧栏，调完点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`，导出中按钮 loading、成功后自动关闭预览（失败保持打开可改参数重试）。旧 `PDF` 项保持 PrintToPdf 纯导出语义，不受影响。决策与实测见 `docs/research/pdf-preview.md` 附录 C / D。
 
 ## PDF 预览 / 导出（Display List 双后端）
 
@@ -113,11 +130,13 @@ markdown ─ unified(runSync) ─ mdast
 - **必须 `runSync(parse(md))`**：unified 的 `parse()` 只跑 parser，transformer 类插件（`remarkAlert` / `remarkHighlight` / `remarkEncodeLinkUrls`，返回 `tree => {...}`）在 `run()` / `runSync()` 阶段才执行。只 parse 会导致 alert 仍是 blockquote、`==高亮==` 不生效、链接 URL 空格不 encode。`remarkGfm` 不受影响（同时注册 micromark 扩展，parse 期生效）。`remarkPreserveEmptyLine` 是 parser 拦截，注入的 `<br />` 空段占位由 walker `isEmptyBrPlaceholder` 兜成 `''`。
 - **行内 raw HTML 必须先合并再 sanitize**：remark 把 `<kbd>Mod</kbd>` 拆成 html/text/html 3 个 mdast 节点，孤立开标签被 DOM parser 自动闭合成 `<kbd></kbd>` → `Mod` 游离到标签外。编辑器（`markdownIO.ts:mergeHtmlInlineRuns`）/ 导出（`htmlRenderer.ts:mergeHtmlInlineRunsMdast`）各走一个标签栈状态机（开标签 push、闭标签 pop、栈空 flush）合并成整段再一次性 sanitize，两份逻辑刻意同构，改一处同步另一处。**已知限制（两侧一致）**：HTML 区域内夹带 mark（emphasis / strong / link 等）会丢，保 mark 需重写成 span tree，留后续。
 - **导出 DOM class 名必须与 editor NodeView verbatim 一致**：导出样式来源是 `_editor-*.scss` 经 `@forward` 注入 `exportStyles.scss`，前提是 walker 输出 DOM 的 class 名跟 editor NodeView 一致；class 跑偏 → 样式落空（踩坑：footnote `footnote-ref-node` vs `footnote-ref`）。**非原生控件（task checkbox / 自定义折叠箭头等）editor / export DOM 形态必然不同**：editor 靠 `data-item-type` / `.task-content` 等选择器，导出走 native `<input>`，那些规则不命中 —— 要么在 `exportStyles.scss` 末尾补 export-only 覆盖规则，要么改 walker 复刻 editor DOM，不要假设 `@forward` 进来就有了。
+- **导出代码块要去掉空 header 条**：editor 的 `.velo-code-block:not(.velo-code-has-header)` 会画一条预留 header（`::before` + padding-top），与仅 editor 存在的 CodeHighlightWidget（语言名 / chevron / 复制按钮）共用高度、保证有 / 无 header 两态外框等高；导出 walker 只输出裸 `<pre>`（无 widget 无 class），这条就是纯空条。`exportStyles.scss` 末尾有 export-only 覆盖（去 `::before` + padding-top 归位），**改代码块样式时别把这条覆盖弄丢**（htmlRenderer.test.ts 有 SCSS 源断言）。
 - **导出脚注 def 对齐编辑器 flex 三段**：`_footnote.scss` 把 `.footnote-definition` 写成 `display:flex` 三段（`.footnote-label` 标号 + `.footnote-content` 描述 + `.footnote-backref` 回链 ↩）+ `.footnote-content > p { display:inline; margin:0 }` 拉平首段。导出 walker 必须输出同款 class / id。**ref 端类名有意拆开**：导出是静态 `<sup><a href="#...">label</a></sup>`，套编辑器 `.footnote-ref-node` 的 contentEditable 专有样式（cursor / outline / user-select / :focus）无意义或冲突，所以 walker 走单独的 `.footnote-ref` class；`_footnote.scss` 必须有 `.footnote-ref` 块镜像 `.footnote-ref-node` 视觉，`.footnote-ref a` 显式 `color:inherit; text-decoration:none`。`htmlRenderer.test.ts` 的 SCSS 源断言守住这条规则。slug 用 `label.replace(/[^a-zA-Z0-9_-]/g, '_') || 'fn'`（大小写敏感保留、非 ASCII 替 `_`，**不能**复用 heading slugify 的 toLowerCase）。
 - **blockquote 必须 reset `margin:0`**：浏览器默认 `blockquote { margin: 1em 40px }`，那 40px 让 border-left 离行头 40px（引用线右偏）。`_editor-typography.scss` 只设 `padding` 没 reset margin，导出 HTML / 编辑器内一并修（共用同一份 typography partial）。
 - **导出内部锚点 fragment 必须同源 slugify**：heading id 走 `slugify()`，外部浏览器把 href 字面空格 url-encode 成 `%20` 作 fragment，两边对不上 → HTML 点了没效果、PDF 不可点击（编辑器内 ctrl+click 有 `linkClick.ts:scrollToAnchor` 运行时 fallback，导出静态 HTML 没这层）。修法：导出 `case 'link'` 在 decode 后若 `href.startsWith('#')`，把 fragment 喂同款 `slugify()` 重写；**外部 URL fragment 不动**（远端 id 由远端决定）。
 - **导出 KaTeX 字体必须 inline**：`katex.min.css` 里 `@font-face` 引用 `url(fonts/KaTeX_*.{woff2,woff,ttf})`，编辑器侧 Vite side-effect import 会改写 `url()`；但**导出走 `?inline` 拿 CSS 原文，Vite 不改 `url()`**，导出旁无 `fonts/` → 字体回退。`katexCss.ts` 顶层 `import.meta.glob` 拿 20 个 woff2 base64 data URI，`inlineKatexWoff2Fonts` 把每条 `@font-face` 的 src 改写成单条 woff2 data URI 并 strip woff / ttf（现代浏览器含 WebView2 首选 woff2；只 inline woff2 压到 ~340KB 而非全部 60 文件 ~1.3MB）。vitest 走纯函数 `inlineKatexWoff2Fonts(css, fontMap)` 验转换逻辑（`?inline` 在 vitest 与 prod build 行为不一致返回空）。
 - **新增暗色规则要两处同步**：editor 走 `_editor-dark.scss` 的 `:is(.dark .velo-editor, .velo-editor.dark)`（Vue 控制 `<html class="dark">`），export 走 `exportStyles.scss` 的 `@media (prefers-color-scheme: dark)`（**自写副本，不 forward `_editor-dark.scss`**，导出 HTML 无 `.velo-editor.dark` 依赖）。两套语义不等价：导出只跟系统暗色偏好走，不能跟应用内 toggle 走。
+- **图片导出的配色要按 app `darkMode` 强制**：截图 webview 里媒体查询只认**系统**主题，app 亮 + 系统暗会导出与编辑器不一致的暗图。`buildExportHtml` 加 `forceColorScheme` 选项把 `@media (prefers-color-scheme: dark)` 改写成 `@media all` / `@media not all`（仅图片导出传）；HTML / PDF / DOCX 路径不受影响（PDF 另有 `@media print` 强制 light）。
 - **Windows PDF 必须开 `SetShouldPrintBackgrounds(true)`**：WebView2 `ICoreWebView2_7::PrintToPdf` 默认 `ShouldPrintBackgrounds=false`，不打印任何 `background-color` / `background-image`（alert `::before` SVG 图标、shiki 代码块底色、表格条纹、暗色底全丢）。`CreatePrintSettings()` 后必须调该 setter；设置失败不致命，best-effort `let _ =` 忽略。导出 task list `<li>` 挂 `class="velo-task-item"`（`exportStyles.scss` 给 `list-style:none`）去默认 disc 圆点 —— editor 侧靠 `li[data-item-type="task"]` 去圆点，导出走 native `<input type="checkbox">`，用 class 单独兜。
 - **PDF 的 HTML 不能走 data URL**：WebView2/Chromium 对 data: URL 主文档有 ~2MB 上限（`NavigateToString` 明确 2MB），而导出 HTML 内联字体后远超此限（改按需内联前是 ~5.2MB b64），`Navigate` 直接返回 `0x80070057`（E_INVALIDARG），表现为「导出失败:PrintToPdf failed: Navigate: 拒绝访问」。修法：HTML 写 `app_cache_dir/velo-export/<label>.html`，用 `http://asset.localhost/<percent-encoded-path>` 导航。wry 在 Windows 上把自定义 scheme 改写成 `{scheme}://{protocol}.localhost/...`，并用 `WebResourceRequested` filter 拦截后 revert 回真实路径交给 tauri asset handler `File::open`。三处配置必须一致（config `assetProtocol.enable` + `scope: ["**"]`、CSP 含 `http://asset.localhost`、Rust 侧按 `convertFileSrc` 同构规则拼 URL），少一处就静默 403 / 拒绝访问。**排查同类问题先看报错里的 HRESULT**：`0x80070057` = E_INVALIDARG（参数超限），不是权限问题。
 - **内嵌字体按需内联而非全量**：`buildFontFaceCss(fontFamily, fontMono)` 只内联实际命中的族。全量内联 8 款约 5.2MB base64，其中 Noto Sans SC 一款占 3MB —— 用户没选它纯属浪费。**注意 bundle 体积不会因此变小**：`woff2DataUris` 是模块顶层 eager glob，所有字体仍进导出 chunk；按需减少的是导出 HTML 产物体积。真要减 bundle 得改惰性 fetch（每次导出多 20+ 次 fetch + 转码，取舍见 `katexCss.ts` 同段说明）。匹配逻辑放 `fontFaceCss.ts` 内部而非复用 `utils/fontStacks.ts`：后者是 UI 层，`src/lib/export/` 是叶模块，dep-cruiser `leaf-no-upper` 禁止反向依赖。

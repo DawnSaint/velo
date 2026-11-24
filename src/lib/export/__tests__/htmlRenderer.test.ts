@@ -228,6 +228,18 @@ describe('htmlRenderer', () => {
   })
 
 
+  it('exportStyles drops the empty code-block header strip (exports have no header widget)', () => {
+    // editor 的 `.velo-code-block:not(.velo-code-has-header)` 会画一条预留
+    // header(::before + padding-top),与仅 editor 存在的 CodeHighlightWidget
+    // 共用高度保持两态外框等高;导出 walker 只输出裸 <pre>,这条就是纯空条。
+    // 断言 exportStyles.scss 末尾有 export-only 覆盖(同 footnote 的源断言)。
+    const scss = readFileSync(resolvePath(__dirname, '../exportStyles.scss'), 'utf8')
+    expect(scss).toMatch(
+      /\.velo-editor\s+pre\.velo-code-block:not\(\.velo-code-has-header\):not\(\[data-language='mermaid'\]\)\s*\{[^}]*padding-top:\s*0\.75em/s,
+    )
+    expect(scss).toMatch(/&::before\s*\{[^}]*display:\s*none/s)
+  })
+
   it('renders GitHub-flavored alerts ([!TYPE]) as velo-alert divs', async () => {
     // remarkAlert 把带 [!TYPE] 首行的 blockquote 改写成 alert 节点。
     // 导出 walker 必须有 alert 分支,否则落 default 静默丢弃。
@@ -448,6 +460,15 @@ describe('htmlRenderer', () => {
     const { html } = await buildExportHtml(baseOpts('hi'))
     expect(html).toContain('@media (prefers-color-scheme: dark)')
     expect(html).toContain('@media print')
+  })
+
+  it('forceColorScheme rewrites the dark media query (image export follows app theme)', async () => {
+    const light = await buildExportHtml({ ...baseOpts('hi'), forceColorScheme: 'light' })
+    expect(light.html).not.toContain('@media (prefers-color-scheme: dark)')
+    expect(light.html).toContain('@media not all')
+    const dark = await buildExportHtml({ ...baseOpts('hi'), forceColorScheme: 'dark' })
+    expect(dark.html).not.toContain('@media (prefers-color-scheme: dark)')
+    expect(dark.html).toContain('@media all')
   })
 
   it('returns warnings array (empty when all renders succeed)', async () => {

@@ -1,37 +1,27 @@
 <script setup lang="ts">
-// 内置导出面板 —— 先选类型 + 文件名,确认后才走系统 saveDialog 选路径。
+// 内置导出面板 —— 先选类型,确认后才走系统 saveDialog 选路径。
 //
 // 为什么需要:类型选择原先只能靠系统保存框的 filter(用户得先打开系统框才能
-// 切类型)。面板把「存成什么」前置到应用内,系统框只负责「存哪」。
+// 切类型)。面板把「存成什么」前置到应用内,系统框只负责「存哪」(含文件名,
+// 所以面板里不再有文件名输入)。
 //
-// 第 4 项「PDF 预览」是入口而非格式:确认后打开 PdfPreviewPanel,在面板里
-// 实时调页边距 / 字号 / 行距 / 页眉页脚,再由前端 Display List 直接写 PDF。
-// 旧的 WebView2 PrintToPdf 路径(PDF)保持不变,两者互不干扰。
+// 关闭语义:**只有「取消」按钮能关**;点空白 / Esc 都不关(避免误触丢选项)。
+// 确认导出时面板保持打开(系统保存框 + 导出中),成功才自动关;导出中两个
+// 按钮都禁用,主按钮显示 loading。
 //
-// 视觉 / 键盘与 VeloConfirmDialog 同源(Teleport + 居中卡 + Esc 关 + Enter 确认),
+// 视觉 / 键盘与 VeloConfirmDialog 同源(Teleport + 居中卡 + Enter 确认),
 // 复用 --surface-3 / --shadow-popover 族,暗色靠 CSS 变量翻面。
 
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { Loader2 } from '@lucide/vue'
 import { EXPORT_TYPES, useExportStore, type ExportType } from '@/stores/export'
 
 const exportStore = useExportStore()
-const fileNameRef = ref<HTMLInputElement | null>(null)
 
 const open = computed(() => exportStore.panelOpen)
-const currentExt = computed(() => EXPORT_TYPES.find(t => t.type === exportStore.selectedType)?.ext ?? '')
-
-watch(open, (v) => {
-  if (v) void nextTick(() => fileNameRef.value?.focus())
-})
 
 function onKeydown(e: KeyboardEvent) {
   if (!open.value) return
-  if (e.key === 'Escape') {
-    e.preventDefault()
-    e.stopPropagation()
-    exportStore.closeExportPanel()
-    return
-  }
   if (e.key === 'Enter') {
     // 焦点在按钮上时交给原生 click(避免与主按钮点击打架)。
     if (document.activeElement instanceof HTMLButtonElement) return
@@ -55,7 +45,6 @@ function pick(type: ExportType): void {
       <div
         v-if="open"
         class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/5 dark:bg-black/50"
-        @click.self="exportStore.closeExportPanel()"
       >
         <div
           class="velo-export-card w-[520px] max-w-[calc(100vw-32px)] rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-3)] p-6 shadow-[var(--shadow-popover)]"
@@ -83,32 +72,24 @@ function pick(type: ExportType): void {
             </button>
           </div>
 
-          <label class="mt-4 block text-xs text-[var(--chrome-text-secondary)]" for="velo-export-name">文件名</label>
-          <div class="mt-1.5 flex items-center gap-2">
-            <input
-              id="velo-export-name"
-              ref="fileNameRef"
-              v-model="exportStore.panelFileName"
-              type="text"
-              spellcheck="false"
-              placeholder="untitled"
-              class="min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--chrome-text-primary)] outline-none focus:border-[var(--chrome-accent-blue)]"
-            >
-            <span class="shrink-0 text-sm text-[var(--chrome-text-secondary)]">.{{ currentExt }}</span>
-          </div>
-
           <div class="mt-6 flex h-10 justify-end gap-4">
             <button
               type="button"
-              class="rounded-lg border border-[var(--surface-border)] px-4 text-base text-[var(--chrome-text-primary)] transition-colors hover:bg-[var(--surface-hover)]"
+              :disabled="exportStore.exporting"
+              class="rounded-lg border border-[var(--surface-border)] px-4 text-base text-[var(--chrome-text-primary)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               @click="exportStore.closeExportPanel()"
-            >取消</button>
+            >
+              取消
+            </button>
             <button
               type="button"
               :disabled="exportStore.exporting"
-              class="rounded-lg bg-[var(--chrome-accent-blue)] px-4 text-base font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              class="flex items-center gap-2 rounded-lg bg-[var(--chrome-accent-blue)] px-4 text-base font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               @click="void exportStore.confirmExportPanel()"
-            >{{ exportStore.exporting ? '导出中…' : '导出' }}</button>
+            >
+              <Loader2 v-if="exportStore.exporting" class="h-4 w-4 animate-spin" />
+              {{ exportStore.exporting ? '导出中…' : '导出' }}
+            </button>
           </div>
         </div>
       </div>

@@ -1,17 +1,26 @@
-// 导出 store —— 把当前 markdown 文档导出为 PDF (默认) / Word / HTML。
+// 导出 store —— 把当前 markdown 文档导出为 PDF (默认) / Word / HTML / 图片。
 //
 // 设计要点:
 // 1) **内置导出面板优先**:`openExportPanel()` 打开 ExportPanel,让用户先选类型
-//    (PDF / Word / HTML) + 确认文件名,再走系统 saveDialog 选路径。类型选择
-//    内置化后,系统框只负责「存哪」,不再兼管「存成什么」。
+//    (PDF / Word / HTML / 图片),确认后才走系统 saveDialog 选「存哪 + 存成什么
+//    名字」。类型选择内置化后,系统框只负责「存哪」,不再兼管「存成什么」。
+//    文件名也在系统框里定,面板不再有文件名输入框。
+//    面板关闭语义:**只有「取消」能关**(点空白 / Esc 不关,防误触);确认导出
+//    时面板保持打开(系统框 + 导出中),成功才自动关;导出中按钮禁用 + loading。
 // 2) **saveDialog 多 filter,PDF 排第一**:面板确认后按所选类型**锁死** filter
 //    (不再暴露三个选项),默认路径后缀与类型一致 —— 用户回车即走该类型。
 //    程序化调用仍可 `exportDocument(type)` 直接导出(默认 pdf)。
+//    **例外:图片类型给两个 filter(PNG / JPEG)** —— 用户可在系统保存框里
+//    切换格式,最终按选中路径的扩展名 dispatch。
 // 3) **HTML 路径**:`buildExportHtml` 生成完整 HTML 字符串 → `writeTextFile` 落盘。
 //    自包含(所有 CSS inline),用户拿到 HTML 任何浏览器都能开。
 // 3b) **Word 路径**:`buildExportDocx`(复用 htmlRenderer + docx.js
 //     `htmlToContent`)→ `writeFile` 写二进制。图片 / SVG 由 docxRenderer
 //     走 inlineAssets 自包含。选型见 docs/research/export-more.md。
+// 3c) **图片路径**:`buildExportHtml` 同 HTML 导出 → `invoke('export_image',
+//     { outputPath, html, format })`。Rust 端在离屏可见 webview 窗口里渲染整篇
+//     并 CapturePreview 成长图(PNG / JPEG 原生格式)。隐藏窗口不渲染、抓出来
+//     空白,所以窗口建在屏幕外再 SW_SHOWNOACTIVATE 显示 —— 见 image_windows.rs。
 // 4) **PDF 路径 (v0.4.7 后)**:`invoke('export_pdf', { outputPath, html })` 调
 //    平台原生 PrintToPDF API (Windows WebView2 ICoreWebView2_7::PrintToPdf),
 //    静默写到 target 路径,无任何系统对话框。HTML 已经在前端 buildExportHtml
@@ -46,7 +55,7 @@ import type { buildExportDocx } from '@/lib/export/docxRenderer'
 
 // ========== 导出类型 ==========
 
-export type ExportType = 'pdf' | 'docx' | 'html' | 'pdf-preview'
+export type ExportType = 'pdf' | 'docx' | 'html' | 'image' | 'pdf-preview'
 
 export interface ExportTypeSpec {
   type: ExportType
@@ -63,6 +72,9 @@ export interface ExportTypeSpec {
 /**
  * 支持的导出类型。顺序即面板展示顺序,PDF 在前(默认推荐)。
  *
+ * `image` 默认后缀 png,但 saveDialog 给 PNG / JPEG 两个 filter —— 用户可在
+ * 系统保存框里切换格式(唯一不锁死 filter 的类型),按最终扩展名 dispatch。
+ *
  * `pdf-preview` 不是「另一种文件格式」,而是一个入口:选中后打开分页预览面板,
  * 在面板里调页边距 / 字号 / 行距 / 页眉页脚并实时重排,再由前端 Display List
  * 直接写出 PDF。与旧 `pdf`(WebView2 PrintToPdf)互不干扰,三平台一致。
@@ -72,6 +84,7 @@ export const EXPORT_TYPES: ExportTypeSpec[] = [
   { type: 'pdf', label: 'PDF', ext: 'pdf', exts: ['pdf'], desc: '版式与分页最稳，适合分享 / 打印' },
   { type: 'docx', label: 'Word', ext: 'docx', exts: ['docx'], desc: '保留样式，便于二次编辑' },
   { type: 'html', label: 'HTML', ext: 'html', exts: ['html', 'htm'], desc: '自包含单文件，浏览器直接打开' },
+  { type: 'image', label: '图片', ext: 'png', exts: ['png', 'jpg', 'jpeg'], desc: '整篇长图，保存时可选 PNG / JPEG' },
   { type: 'pdf-preview', label: 'PDF 预览', ext: 'pdf', exts: ['pdf'], desc: '实时分页预览 · 可调边距字号' },
 ]
 
@@ -117,8 +130,6 @@ export const useExportStore = defineStore('export', () => {
   const panelOpen = ref(false)
   /** 当前选中的导出类型(面板分段控件)。 */
   const selectedType = ref<ExportType>('pdf')
-  /** 面板里的文件名(不含扩展名)。 */
-  const panelFileName = ref('')
   /** PDF 预览面板开关 + 默认导出文件名。 */
   const previewOpen = ref(false)
   const previewFileName = ref('')
@@ -143,8 +154,16 @@ export const useExportStore = defineStore('export', () => {
     const docStore = useDocumentStore()
     const editorStore = useEditorStore()
     const spec = specOf(type)
+    // 图片类型给两个 filter,用户可在系统保存框切换 PNG / JPEG(需求:最后一步
+    // 可改文件类型);其余类型锁死单 filter,面板选什么就存什么。
+    const filters = type === 'image'
+      ? [
+          { name: 'PNG 图片', extensions: ['png'] },
+          { name: 'JPEG 图片', extensions: ['jpg', 'jpeg'] },
+        ]
+      : [{ name: spec.label, extensions: spec.exts }]
     const target = await saveDialog({
-      filters: [{ name: spec.label, extensions: spec.exts }],
+      filters,
       defaultPath: defaultExportPath(name ?? docStore.fileName, type),
     })
     if (!target) return false
@@ -167,7 +186,8 @@ export const useExportStore = defineStore('export', () => {
       darkTheme: editorStore.codeDarkTheme,
     }
     try {
-      if (isPdf) await exportToPdf(target, opts)
+      if (type === 'image') await exportToImage(target, opts)
+      else if (isPdf) await exportToPdf(target, opts)
       else if (isDocx) await exportToDocx(target, opts)
       else await exportToHtml(target, opts)
       succeeded = true
@@ -194,14 +214,13 @@ export const useExportStore = defineStore('export', () => {
       useNotifyStore().info('导出功能仅在桌面端可用')
       return
     }
-    const docStore = useDocumentStore()
-    const raw = docStore.fileName
-    panelFileName.value = !raw || raw === '未命名' ? '' : raw.replace(/\.[^.]+$/, '')
     selectedType.value = 'pdf'
     panelOpen.value = true
   }
 
   function closeExportPanel(): void {
+    // 导出中不允许关(避免绕过 loading 态 / 状态竞争)。
+    if (exporting.value) return
     panelOpen.value = false
   }
 
@@ -220,16 +239,22 @@ export const useExportStore = defineStore('export', () => {
     previewOpen.value = false
   }
 
-  /** 面板确认:关闭面板并按所选类型导出 / 打开预览。 */
+  /**
+   * 面板确认:按所选类型导出 / 打开预览。
+   *
+   * **面板此时不关**:系统保存框与导出过程都在面板背后进行,失败还能改选项
+   * 重试;导出成功(exportDocument 返回 true)才关。PDF 预览是「换面板」而非
+   * 导出,保持原有交接语义(关导出面板、开预览面板)。
+   */
   async function confirmExportPanel(): Promise<void> {
     const type = selectedType.value
-    const name = panelFileName.value.trim()
-    panelOpen.value = false
     if (type === 'pdf-preview') {
-      openPdfPreview(name || null)
+      panelOpen.value = false
+      openPdfPreview()
       return
     }
-    await exportDocument(type, name || null)
+    const ok = await exportDocument(type)
+    if (ok) panelOpen.value = false
   }
 
   /**
@@ -251,6 +276,27 @@ export const useExportStore = defineStore('export', () => {
     const { buildExportDocx } = await loadExportDocx()
     const { bytes } = await buildExportDocx(opts)
     await writeFile(target, bytes)
+  }
+
+  /**
+   * 图片导出:buildExportHtml(同 HTML 导出)+ invoke('export_image')。
+   * 配色按 app 的 darkMode 强制(forceColorScheme)—— 截图 webview 的媒体查询
+   * 只认系统主题,不强制会出现 app 亮色 + 系统暗色 → 导出暗图。
+   * 格式按 saveDialog 选中路径的扩展名 dispatch(jpg/jpeg → jpeg,其余 png);
+   * 路径没带图片扩展名时补 .png(系统框通常会自动补 filter 后缀,这里是兜底)。
+   * Rust 端离屏 webview 渲染整篇 + CapturePreview,见 image_windows.rs。
+   * 失败抛错由 exportDocument 外层 catch + Toast 兜底。
+   */
+  async function exportToImage(target: string, opts: Parameters<typeof buildExportHtml>[0]): Promise<void> {
+    const { buildExportHtml } = await loadExportHtml()
+    const { html } = await buildExportHtml({
+      ...opts,
+      forceColorScheme: opts.darkMode ? 'dark' : 'light',
+    })
+    const lower = target.toLowerCase()
+    const format = lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'jpeg' : 'png'
+    const outputPath = /\.(png|jpe?g)$/.test(lower) ? target : `${target}.png`
+    await invoke<void>('export_image', { outputPath, html, format })
   }
 
   /**
@@ -276,7 +322,6 @@ export const useExportStore = defineStore('export', () => {
     exporting,
     panelOpen,
     selectedType,
-    panelFileName,
     previewOpen,
     previewFileName,
     openPdfPreview,

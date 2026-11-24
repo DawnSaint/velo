@@ -97,3 +97,15 @@ html, body {
 
 // 导出场景不需要 find 高亮、ProseMirror 选区、drop-cursor 等编辑器内部装饰
 // 也没事 —— CSS 没命中选择器就不会画,零视觉干扰。
+
+// 代码块空 header 条:editor 的 `.velo-code-block:not(.velo-code-has-header)`
+// 会画一条预留 header(::__before + padding-top),与真实 header widget
+// (CodeHighlightWidget,仅 editor 有)共用高度保证两态外框等高。导出 walker 只
+// 输出裸 `<pre>`(无 widget / 无 class),这条就是纯空条 —— 导出侧一律去掉。
+.velo-editor pre.velo-code-block:not(.velo-code-has-header):not([data-language='mermaid']) {
+  padding-top: 0.75em;
+
+  &::before {
+    display: none;
+  }
+}

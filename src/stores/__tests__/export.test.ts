@@ -133,6 +133,60 @@ describe('useExportStore.exportDocument', () => {
     )
   })
 
+  it('image export offers PNG + JPEG filters and invokes export_image (png)', async () => {
+    vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/foo.png')
+    const docStore = useDocumentStore()
+    docStore.content = '# pic'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const store = useExportStore()
+    const ok = await store.exportDocument('image')
+    expect(ok).toBe(true)
+    // 图片是唯一不锁死 filter 的类型:系统保存框可切换 PNG / JPEG
+    expect(saveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [
+        { name: 'PNG 图片', extensions: ['png'] },
+        { name: 'JPEG 图片', extensions: ['jpg', 'jpeg'] },
+      ],
+      defaultPath: 'foo.png',
+    }))
+    expect(writeTextFile).not.toHaveBeenCalled()
+    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
+      outputPath: '/tmp/foo.png',
+      format: 'png',
+    }))
+    const [, payload] = vi.mocked(invoke).mock.calls[0]
+    expect((payload as any).html).toContain('<!DOCTYPE html>')
+    expect((payload as any).html).toContain('pic')
+  })
+
+  it('image export dispatches jpeg when target ends with .jpg', async () => {
+    vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/foo.jpg')
+    const docStore = useDocumentStore()
+    docStore.content = '# pic'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const store = useExportStore()
+    const ok = await store.exportDocument('image')
+    expect(ok).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
+      outputPath: '/tmp/foo.jpg',
+      format: 'jpeg',
+    }))
+  })
+
+  it('image export appends .png when target has no image extension', async () => {
+    vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/foo')
+    const docStore = useDocumentStore()
+    docStore.content = '# pic'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const store = useExportStore()
+    const ok = await store.exportDocument('image')
+    expect(ok).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
+      outputPath: '/tmp/foo.png',
+      format: 'png',
+    }))
+  })
+
   it('is reentrant: a second call while exporting returns false immediately', async () => {
     // 让 saveDialog 走挂起,期间第二次 exportDocument 应当立刻返回 false
     let resolveSave: (v: string | null) => void = () => {}
@@ -157,7 +211,7 @@ describe('useExportStore 内置导出面板', () => {
     vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
-  it('openExportPanel seeds filename (without ext) and defaults to PDF', () => {
+  it('openExportPanel opens panel and defaults to PDF', () => {
     const docStore = useDocumentStore()
     docStore.content = '# hi'
     docStore.currentFilePath = '/tmp/foo.md'
@@ -165,8 +219,6 @@ describe('useExportStore 内置导出面板', () => {
     store.openExportPanel()
     expect(store.panelOpen).toBe(true)
     expect(store.selectedType).toBe('pdf')
-    // currentFilePath 派生 fileName('/tmp/foo.md' → 'foo.md')→ 面板去掉 .md
-    expect(store.panelFileName).toBe('foo')
   })
 
   it('openExportPanel refuses outside Tauri (browser dev web)', () => {
@@ -176,7 +228,7 @@ describe('useExportStore 内置导出面板', () => {
     expect(store.panelOpen).toBe(false)
   })
 
-  it('confirmExportPanel closes panel and locks saveDialog filter to selected type', async () => {
+  it('confirmExportPanel locks saveDialog filter to selected type and closes on success', async () => {
     vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/out.docx')
     vi.mocked(writeFile).mockResolvedValueOnce()
     const docStore = useDocumentStore()
@@ -194,6 +246,7 @@ describe('useExportStore 内置导出面板', () => {
     store.openExportPanel()
     store.selectExportType('docx')
     await store.confirmExportPanel()
+    // 成功后才关(失败时保持打开,便于改选项重试)
     expect(store.panelOpen).toBe(false)
     expect(saveDialog).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ name: 'Word', extensions: ['docx'] }],
@@ -202,22 +255,41 @@ describe('useExportStore 内置导出面板', () => {
     expect(writeFile).toHaveBeenCalledTimes(1)
   })
 
+  it('confirmExportPanel keeps panel open while saveDialog / export is pending', async () => {
+    let resolveSave: (v: string | null) => void = () => {}
+    vi.mocked(saveDialog).mockImplementationOnce(() => new Promise((r) => { resolveSave = r }) as any)
+    vi.mocked(writeTextFile).mockResolvedValueOnce()
+    const docStore = useDocumentStore()
+    docStore.content = '# hi'
+    docStore.currentFilePath = '/tmp/foo.md'
+    const store = useExportStore()
+    store.openExportPanel()
+    // 系统保存框还开着时:面板不关、exporting 不启(loading 只在真正导出时出现)
+    const pending = store.confirmExportPanel()
+    expect(store.panelOpen).toBe(true)
+    expect(store.exporting).toBe(false)
+    resolveSave(null) // 用户在系统框取消 → 面板仍开
+    await pending
+    expect(store.panelOpen).toBe(true)
+    expect(store.exporting).toBe(false)
+  })
+
   it('confirmExportPanel with pdf-preview opens the preview panel instead of saveDialog', async () => {
     const store = useExportStore()
     store.openExportPanel()
-    store.panelFileName = 'report'
     store.selectExportType('pdf-preview')
     await store.confirmExportPanel()
     expect(store.panelOpen).toBe(false)
     expect(store.previewOpen).toBe(true)
-    expect(store.previewFileName).toBe('report')
     expect(saveDialog).not.toHaveBeenCalled()
     store.closePdfPreview()
     expect(store.previewOpen).toBe(false)
   })
 
-  it('EXPORT_TYPES exposes exactly 4 options with pdf-preview last', () => {
-    expect(EXPORT_TYPES.map(t => t.type)).toEqual(['pdf', 'docx', 'html', 'pdf-preview'])
-    expect(EXPORT_TYPES[3].ext).toBe('pdf')
+  it('EXPORT_TYPES exposes exactly 5 options with pdf-preview last', () => {
+    expect(EXPORT_TYPES.map(t => t.type)).toEqual(['pdf', 'docx', 'html', 'image', 'pdf-preview'])
+    expect(EXPORT_TYPES[3].ext).toBe('png')
+    expect(EXPORT_TYPES[3].exts).toEqual(['png', 'jpg', 'jpeg'])
+    expect(EXPORT_TYPES[4].ext).toBe('pdf')
   })
 })

@@ -13,6 +13,7 @@
 - **插件顺序以 `plugins/order.ts` 为唯一真相**：`CANONICAL_PLUGIN_ORDER` 定义顺序，`resolvePlugins` 校验集合并按序排列。新增 / 删除 / 重命名插件必须同步该列表，否则抛错。`EditorInner.vue` 的 `pluginEntries` 物理顺序无关。
 - **`foldDecoration` 必须前置**：折叠状态是 module-level mutable set，在 apply 阶段刷新；读它的装饰插件（`codeHighlight` / `codeLineNumber` / `mermaidDecoration` / `tocDecoration`）必须排在其后。
 - **装饰选型**：mermaid / TOC 走 `Decoration.widget`，不要做 NodeView；不要 dispatch setMeta 触发 mermaid / shiki 重建。
+- **mermaid widget 必须传懒工厂，key 只含内容身份（编辑态 + source）**：传已建好的 HTMLElement 时 PM `placeWidget` 的复用条件 `!toDOM.parentNode` 对已挂载元素恒 false，每次 meta 全量重建都销毁重建所有 widget → 缓存 SVG 重插、fade-in 重播，展开一个 mermaid 全文档重绘。source 必须进 key（否则增量重建会复用旧 widget 不重渲染）；pos 不进 key（上方键入平移不重建），toolbar 按钮点击经 `getPos` 实时解析 pos，不用工厂期捕获值。缓存命中重插（`renderSvg`）抑制 fade-in，动画只服务首渲染 loader→SVG 过渡。
 - **shiki 探活**用 `getLoadedLanguages()`，不要用 `getLanguage()`（miss 时 throw）；不要清理 `getTokensCached` 的 LRU。
 - **脚注编号不写回 label**：编号放插件 state，改 `attrs.label` / label 文本会丢语义且不符 GFM。
 - **快捷键只在 `editor/shortcuts/bindings.ts` 注册**，不在 `EditorInner.vue` 硬编码。
