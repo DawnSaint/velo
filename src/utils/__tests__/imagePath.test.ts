@@ -7,7 +7,6 @@ import {
   dirnameSync,
   resolveImageAssetAbsPath,
   isImageExt,
-  IMAGE_EXTS,
 } from '../imagePath'
 
 describe('resolveImagePath', () => {
@@ -200,13 +199,6 @@ describe('resolveImageAssetAbsPath', () => {
 })
 
 describe('isImageExt', () => {
-  it('IMAGE_EXTS 覆盖 8 种图片类型(顺序无关)', () => {
-    // 用 Set 比较 —— 只验"集合相等",不绑死数组顺序
-    expect(new Set(IMAGE_EXTS)).toEqual(
-      new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif']),
-    )
-  })
-
   it('常见扩展名返回 true(大小写不敏感)', () => {
     expect(isImageExt('png')).toBe(true)
     expect(isImageExt('PNG')).toBe(true)

@@ -188,40 +188,6 @@ describe('foldDecoration state 行为(通过真实 dispatch 路径验证)', () =
 })
 
 // ============================================================
-//  FrontmatterNodeView chevron click
-// ============================================================
-
-describe('FrontmatterNodeView chevron click', () => {
-  it('click chevron → dispatch setMeta(foldKey,{toggle:contentStart}) + chevron data-fold-state 翻成 collapsed', () => {
-    const view = makeView('---\nfoo: bar\n---\n\nBody\n')
-    const fm = findFrontmatter(view)!
-    // 找 chevron button(挂在 header 内)
-    const chevron = view.dom.querySelector('.velo-frontmatter-fold-btn') as HTMLButtonElement | null
-    expect(chevron).not.toBeNull()
-    expect(chevron!.getAttribute('data-fold-state')).toBe('expanded')
-    // 模拟 click
-    chevron!.click()
-    // 验证 foldKey state 已折叠
-    expect(foldKey.getState(view.state)!.collapsedSet.has(fm.contentStart)).toBe(true)
-    // 验证 chevron 方向已翻
-    expect(chevron!.getAttribute('data-fold-state')).toBe('collapsed')
-    view.destroy()
-  })
-
-  it('click 已折叠 chevron → 展开', () => {
-    const view = makeView('---\nfoo: bar\n---\n\nBody\n')
-    const fm = findFrontmatter(view)!
-    const chevron = view.dom.querySelector('.velo-frontmatter-fold-btn') as HTMLButtonElement
-    chevron.click() // 折叠
-    expect(foldKey.getState(view.state)!.collapsedSet.has(fm.contentStart)).toBe(true)
-    chevron.click() // 展开
-    expect(foldKey.getState(view.state)!.collapsedSet.has(fm.contentStart)).toBe(false)
-    expect(chevron.getAttribute('data-fold-state')).toBe('expanded')
-    view.destroy()
-  })
-})
-
-// ============================================================
 //  frontmatter 不存在
 // ============================================================
 

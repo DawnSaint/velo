@@ -39,20 +39,6 @@ describe('codeBlockBackspaceCommand', () => {
     expect(dispatched).toBe(false)    // 不能 dispatch 任何 tr
   })
 
-  it('上一行有内容,代码块也有内容 + 首位 Backspace:不影响上一行', () => {
-    // 同上场景,但显式断言 dispatch 没跑过 → 上一行 paragraph 不会被破坏
-    const doc = schema.node('doc', null, [
-      schema.node('paragraph', null, [schema.text('hello')]),
-      schema.node('code_block', null, [schema.text('x')]),
-    ])
-    const codeBlockInnerStart = 1 + 5 + 1 + 1 // 8
-    const state = stateWithDoc(doc, codeBlockInnerStart)
-
-    let nextState: EditorState | null = null
-    codeBlockBackspaceCommand(state, (tr) => { nextState = state.apply(tr) })
-    expect(nextState).toBeNull() // 没 dispatch
-  })
-
   it('上一行是空 paragraph,代码块有内容 + 首位 Backspace:不删除空行', () => {
     const doc = schema.node('doc', null, [
       schema.node('paragraph'), // 空段

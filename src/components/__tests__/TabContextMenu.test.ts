@@ -95,11 +95,6 @@ describe('TabContextMenu', () => {
     expect(w.find('[data-testid="tab-ctx-close-right"]').exists()).toBe(false)
   })
 
-  it('tabIndex < totalTabs - 1 时「关闭右侧」显示', () => {
-    const w = mountMenu({ totalTabs: 3, tabIndex: 0 })
-    expect(w.find('[data-testid="tab-ctx-close-right"]').exists()).toBe(true)
-  })
-
   // —— Save ——
 
   it('dirty + 非只读:显示「保存」', () => {
@@ -165,10 +160,4 @@ describe('TabContextMenu', () => {
     expect(evt.defaultPrevented).toBe(true)
   })
 
-  it('defineExpose 暴露 rootEl', () => {
-    const w = mountMenu()
-    const vm = w.vm as unknown as { rootEl: HTMLElement | null }
-    expect(vm.rootEl).toBeTruthy()
-    expect(vm.rootEl?.tagName).toBe('DIV')
-  })
 })

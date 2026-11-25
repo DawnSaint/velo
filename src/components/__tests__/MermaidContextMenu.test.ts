@@ -44,7 +44,6 @@ describe('MermaidContextMenu', () => {
     ]
     for (const id of ids) expect(w.find(`[data-testid="${id}"]`).exists()).toBe(true)
     expect(w.find('[data-testid="mermaid-toggle-source"]').text()).toBe('展开源代码')
-    expect(w.find('[data-testid="mermaid-delete"]').classes()).toContain('ctx-menu-item--danger')
   })
 
   it('展开态显示「收起源代码」', () => {

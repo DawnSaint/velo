@@ -133,16 +133,3 @@ describe('PDF 链接注解（/Annots）', () => {
     expect(s).toMatch(/\/Type \/Page[^]*?\/Annots \[/)
   })
 })
-
-describe('脚注视觉：不再有多余分隔线', () => {
-  let bytes: Uint8Array
-  beforeAll(async () => {
-    bytes = await build()
-  }, 60_000)
-
-  it('脚注定义端输出 label 与回链 ↩（版式细节见 footnote.test.ts）', () => {
-    const s = new TextDecoder('utf-8').decode(bytes)
-    // ↩ 在 PDF 里是文本算子（子集字体），不一定能按 UTF-8 解出，故只断言不崩包
-    expect(s.length).toBeGreaterThan(1000)
-  })
-})

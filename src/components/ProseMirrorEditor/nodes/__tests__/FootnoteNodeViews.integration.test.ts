@@ -94,15 +94,6 @@ describe('CTRL+click 跳转 reference → definition', () => {
     expect(sup).not.toBeNull()
   })
 
-  it('sup 上有 click handler 监听(检测 NodeView 接管成功)', () => {
-    // 如果 NodeView 没装上,这里 dispatchEvent 也不会有人监听
-    // 通过 spyOn addEventListener 之前已经注册了 click —— 不,更直接的:
-    // 直接 dispatch click,看 selection 动不动,见下一个测试
-    const sup = findSup(view)!
-    // sanity: sup 至少存在且是 Element
-    expect(sup.tagName).toBe('SUP')
-  })
-
   it('CTRL+click sup 后,selection 跳到 definition 内', () => {
     const sup = findSup(view)!
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })

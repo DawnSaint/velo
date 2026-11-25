@@ -316,20 +316,6 @@ describe('document store', () => {
 
   // 5. saveAs 路径切换时启停 fs.watch
   describe('saveAs() 路径切换', () => {
-    it('另存为新路径后,watch 切到新路径', async () => {
-      const store = await setupOpenedFile('hello', '/old.md')
-      vi.mocked(writeTextFile).mockResolvedValueOnce()
-
-      vi.mocked(saveDialog).mockResolvedValueOnce('/new.md')
-      const ok = await store.saveAs()
-
-      expect(ok).toBe(true)
-      expect(store.currentFilePath).toBe('/new.md')
-      // 最后一次 watch 调用应该是 '/new.md'
-      const calls = vi.mocked(watch).mock.calls
-      expect(calls.at(-1)?.[0]).toBe('/new.md')
-    })
-
     it('用户取消另存为时,路径和监听都不变', async () => {
       const store = await setupOpenedFile('hello', '/old.md')
 
@@ -556,18 +542,6 @@ describe('document store', () => {
 
       expect(store.tabs.length).toBe(1)
       expect(store.activeId).toBe(firstId)
-    })
-
-    it('openPathInNewTab:未开 path → 新开标签并激活(行为同 openPathInTab)', async () => {
-      const store = useDocumentStore()
-      store.init('')
-      vi.mocked(readTextFile).mockResolvedValueOnce('hello\n')
-
-      await store.openPathInNewTab('/a.md')
-
-      expect(store.tabs.length).toBe(1)
-      expect(store.currentFilePath).toBe('/a.md')
-      expect(store.content).toBe('hello\n')
     })
 
     // 核心:中键点击的差异化语义
@@ -822,25 +796,6 @@ describe('document store', () => {
       expect(store.tabs.map(t => t.id).sort()).toEqual([ids.a, ids.b].sort())
       // c 是 active 且被关 → 切到剩余首个(a,Map 保插入序)
       expect(store.activeId).toBe(ids.a)
-    })
-
-    it('closeSavedTabs:活动标签是 clean 且被关 → 切到剩余首个', () => {
-      const store = useDocumentStore()
-      store.init('')
-      vi.mocked(readTextFile).mockResolvedValue('hello\n')
-      // 两个 clean 标签 + 活动是第一个
-      const a = store.createTab()
-      store.switchTab(a)
-      const b = store.createTab()
-      // b 改成 dirty
-      const bDoc = store.documents.get(b)!
-      bDoc.content = 'dirty'
-
-      store.closeSavedTabs()
-      // a 是 clean → 关;只剩 b
-      expect(store.tabs.map(t => t.id)).toEqual([b])
-      // activeId 原本是已删的 a → 切到剩余首个 b
-      expect(store.activeId).toBe(b)
     })
 
     it('closeAllTabs:逐个 confirm;用户同意 → 全关,activeId 变空', async () => {

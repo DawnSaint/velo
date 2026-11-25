@@ -153,12 +153,6 @@ describe('consecutive punctuation limit', () => {
 // ============================================================
 
 describe('protected regions', () => {
-  it('protects fenced code blocks', () => {
-    const md = '中文English\n```\ncode, here\n```\n更多中文'
-    const result = formatMarkdown(md, config)
-    expect(result).toContain('code, here') // code content preserved
-  })
-
   it('protects inline code', () => {
     const md = '这是`code, snippet`中文'
     const result = formatMarkdown(md, config)

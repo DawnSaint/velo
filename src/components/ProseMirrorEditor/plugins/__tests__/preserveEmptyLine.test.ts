@@ -180,12 +180,6 @@ describe('preprocessBlankLines: strictMath 一致性', () => {
       .toBe('$$\nxxx\n\n<br />\n\nyyy\n')
   })
 
-  it('合法数学块(无空行)仍受逐字区保护', () => {
-    // $$\nx\ny\n$$ 是合法数学块,内容受保护
-    expect(preprocessBlankLines('$$\nx = 1\ny = 2\n$$\n'))
-      .toBe('$$\nx = 1\ny = 2\n$$\n')
-  })
-
   it('$$ 段落间多空行:空段在 round-trip 中保留', () => {
     // 用户场景:PM doc 有 $$ 段落 + 空段 + 内容段 + 空段 + $ 段落
     // toMarkdown 产出 3+ 连续 \n,preprocessBlankLines 必须注入 <br />

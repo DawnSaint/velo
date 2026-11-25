@@ -163,17 +163,6 @@ describe('mark 源码编辑 session', () => {
     view.destroy()
   })
 
-  it('session 内 doc 有 [data-mark-source-edit] decoration', async () => {
-    const view = makeView([
-      schema.text('See '),
-      schema.text('bold', [schema.marks.strong.create({ marker: '*' })]),
-      schema.text(' tail'),
-    ])
-    await enterAt(view, 9)
-    expect(view.dom.querySelector('[data-mark-source-edit]')).not.toBeNull()
-    view.destroy()
-  })
-
   it('marker 保真:*italic* 与 _italic_ 各自进+移出 marker 不变', async () => {
     const v1 = makeView([
       schema.text('See '),

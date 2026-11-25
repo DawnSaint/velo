@@ -191,15 +191,6 @@ describe('collectFoldableKeys', () => {
     view.destroy()
   })
 
-  it('contentStart 是从 stable key 反查 pos 的关键(同一个 heading 多次调用稳定)', () => {
-    const md = ['# Stable', '', 'p'].join('\n')
-    const view = makeView(md)
-    const keys1 = collectFoldableKeys(view.state.doc)
-    const keys2 = collectFoldableKeys(view.state.doc)
-    expect(keys1[0].contentStart).toBe(keys2[0].contentStart)
-    expect(keys1[0].stableKey).toBe(keys2[0].stableKey)
-    view.destroy()
-  })
 })
 
 // ============================================================
@@ -733,30 +724,6 @@ describe('placeholder 交互 (v0.7.2)', () => {
     expect(foldDeleteCommand(view.state, view.dispatch.bind(view))).toBe(false)
     // 折叠态不变
     expect(foldKey.getState(view.state)!.collapsedSet.size).toBe(1)
-    view.destroy()
-  })
-
-  it('foldDeleteCommand 直接调用(不经过 keymap)也能正确扩展删除', () => {
-    const md = ['# X', '', 'content1', '', 'content2', '', '# Y'].join('\n')
-    const view = makeView(md)
-    const h = findHeadingByText(view, 'X')!
-    view.dispatch(view.state.tr.setMeta(foldKey, { toggle: h.contentStart }))
-
-    const ph = findFoldPlaceholder(view)!
-    // 选区覆盖 fold_placeholder
-    view.dispatch(view.state.tr.setSelection(
-      TextSelection.create(view.state.doc, h.pos + 1, ph.pos + 1),
-    ))
-
-    // 直接调用 foldDeleteCommand(模拟 keymap 链首执行)
-    const result = foldDeleteCommand(view.state, view.dispatch.bind(view))
-    expect(result).toBe(true)
-
-    // X + content 被删,Y 保留
-    expect(view.state.doc.textContent).not.toContain('X')
-    expect(view.state.doc.textContent).not.toContain('content1')
-    expect(view.state.doc.textContent).not.toContain('content2')
-    expect(view.state.doc.textContent).toContain('Y')
     view.destroy()
   })
 

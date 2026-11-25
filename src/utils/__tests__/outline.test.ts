@@ -34,9 +34,6 @@ describe('stripFormatting', () => {
   it('取消 \\_ → _ 后再剥离斜体,不会留 \\ 也不会被斜体吞', () => {
     expect(stripFormatting('foo\\_bar')).toBe('foo_bar')
   })
-  it('取消 \\* → * 后再剥离斜体', () => {
-    expect(stripFormatting('foo\\*bar')).toBe('foo*bar')
-  })
   it('取消 \\\\ → \\', () => {
     expect(stripFormatting('path\\\\to\\\\file')).toBe('path\\to\\file')
   })

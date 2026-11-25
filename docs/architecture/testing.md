@@ -40,20 +40,20 @@
 
 ### 测试分层与规模
 
-113 个测试文件，按「越便宜越优先」分布：
+129 个测试文件，按「越便宜越优先」分布：
 
 | 位置 | 数量 | 覆盖重点 |
 | --- | --- | --- |
-| `src/components/ProseMirrorEditor/__tests__/` | 55 | 编辑器核心：markdownIO round-trip / 块级增量序列化 / 语法实时转换 / Enter·Backspace·Shift+Enter 键位链 / 数学·emoji·char_ref·HTML 图片源码会话 / 表格 CellSelection 与剪贴板 / 折叠占位符 / CJK 排版三件套 / diff 语义化装饰 / 代码高亮 |
+| `src/components/ProseMirrorEditor/__tests__/` | 60 | 编辑器核心：markdownIO round-trip / 块级增量序列化 / 语法实时转换 / Enter·Backspace·Shift+Enter 键位链 / 数学·emoji·char_ref·HTML 图片源码会话 / 表格 CellSelection 与剪贴板 / 折叠占位符 / CJK 排版三件套 / diff 语义化装饰 / 代码高亮 |
 | `src/utils/__tests__/` | 15 | 纯函数：fuzzy / outline / quickCommand / commandPalette / quickOpenIndex / workspaceSearch(JS + Rust) / lineDiff / imageSrc / imagePath / markdownPath / documentStats / statusPath / breadcrumbs / revealHeading |
-| `src/components/__tests__/` | 13 | 组件：QuickCommandPanel / WorkspaceSearchPanel / FileTree / Sidebar / SourceModeEditor / DiffView / VeloConfirmDialog / ActivityBar / StatusBar / TabContextMenu / FileMenuButton / crossModeSync / treeUtils |
+| `src/components/__tests__/` | 15 | 组件：QuickCommandPanel / WorkspaceSearchPanel / FileTree / Sidebar / SourceModeEditor / DiffView / VeloConfirmDialog / ActivityBar / StatusBar / TabContextMenu / FileMenuButton / crossModeSync / treeUtils / MermaidContextMenu / ImagePreviewLightbox |
 | `src/stores/__tests__/` | 10 | Pinia：document（多标签 + 自动保存快照下沉）/ workspace / migration（settings v1→vN、workspaces v1→v5）/ recentFiles / versionHistory / system / editor / export / confirm / notify |
 | `ProseMirrorEditor/plugins/__tests__/` | 9 | 插件：resolvePlugins / remarkAlert / preserveEmptyLine / charRefSourceEdit / focusMode / linkClick / linkSyntax / sessionRetreat / typewriterMode |
 | `ProseMirrorEditor/nodes/__tests__/` | 4 | HtmlNodeView / FootnoteNodeViews(+integration) / mathLazyRender |
 | `ProseMirrorEditor/findreplace/__tests__/` | 2 | backend / findMatches |
 | `ProseMirrorEditor/composables/__tests__/` | 2 | useProseMirror / useResizeSplitter |
 | `ProseMirrorEditor/editor/shortcuts/commands/__tests__/` | 1 | zoomCommands |
-| `src/lib/export/__tests__/` | 1 | htmlRenderer（含 SCSS 源断言） |
+| `src/lib/export/__tests__/` | 10 | htmlRenderer（含 SCSS 源断言）/ svgRaster / fontFaceCss / docxRenderer + pdfPreview（paperSize / htmlInline / codeIndent / links / footnote / fontSubset） |
 | `src/composables/__tests__/` | 1 | useStaleEntry |
 
 完整清单以文件系统为准（`find src -name '*.test.ts'`）；本表只用于判断「哪一层缺覆盖」。

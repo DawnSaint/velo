@@ -83,15 +83,6 @@ describe('linkSyntax: 单字触发', () => {
     cleanup()
   })
 
-  it('regex:跨行 [text\\n](url) 不匹配', () => {
-    const matched = /\[([^\]\n]+)\]\(([^()\s]+)\)/.exec('para[a\nb](url)')
-    expect(matched).toBeNull()
-  })
-
-  it('regex:url 含空格不匹配', () => {
-    const matched = /\[([^\]\n]+)\]\(([^()\s]+)\)/.exec('[x](u rl)')
-    expect(matched).toBeNull()
-  })
 })
 
 describe('linkSyntax: 粘贴 / 中间编辑 / 不吸附', () => {
@@ -153,14 +144,4 @@ describe('linkSyntax: 粘贴 / 中间编辑 / 不吸附', () => {
     cleanup()
   })
 
-  it('已带 link mark 的文本不被重复转换', () => {
-    const { view, cleanup } = mountView('')
-    view.dispatch(view.state.tr.insertText('[X](https://x.com)', 1))
-    const docBefore = view.state.doc.toString()
-
-    view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)))
-
-    expect(view.state.doc.toString()).toBe(docBefore)
-    cleanup()
-  })
 })

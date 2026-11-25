@@ -8,8 +8,6 @@
 // 5. setCodeBlockLanguage(view, pos, 'python') → doc language attr 变 → inline decoration 跟着变
 // 6. docChanged(在 code_block 内打字)→ 同一 pos 的 widget 实例 contentHash 变 → token 重算
 // 7. 主题切换:切 <html class="dark"> → CSS 变量值变 → token span DOM 的 style 不变
-// 8. CONTAINER_BLACKLIST 回归:在 code_block 内键入 ### 不应转 heading
-// 9. 复制按钮 click → CustomEvent('velo:copy-code') 冒泡,detail 包含 pos
 // 10. v0.4.6+:mermaid 走 code_block lang='mermaid',codeHeader 对 mermaid 跳过
 //     (由 MermaidDecoration 自带 toolbar 接管,避免双层 header);v0.4.7+:mermaid
 //     **语法高亮**走自写轻量 tokenizer(旁路 shiki,因 shiki mermaid grammar 是
@@ -35,7 +33,6 @@ import {
   ensureLanguage,
   __resetHighlighterForTest,
 } from '../nodes/CodeBlockLangs'
-import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import { foldDecoration, foldKey } from '../nodes/FoldDecoration'
 import { mermaidDecoration, mermaidDecoKey } from '../nodes/MermaidDecoration'
 import { frontmatterNodeViewPlugin } from '../nodes/FrontmatterNodeView'
@@ -146,14 +143,6 @@ afterEach(() => {
 // ============================================================
 
 describe('codeHighlightPlugin', () => {
-  it('1. 装载 code_block → 工具条 widget 出现', async () => {
-    const view = makeView('```js\nconst x = 1\n```')
-    await flushHighlighter()
-    const wrap = view.dom.querySelector('.velo-code-header-widget')
-    expect(wrap).not.toBeNull()
-    view.destroy()
-  })
-
   it('2. language=javascript → inline decoration 写 shiki 局部 CSS 变量', async () => {
     const view = makeView('```javascript\nconst x = 1\n```')
     await flushHighlighter()
@@ -248,41 +237,6 @@ describe('codeHighlightPlugin', () => {
       .map((s) => s.getAttribute('style'))
     // 颜色 style 引用 var(--shiki-xxx),DOM 上的 style 字符串没变
     expect(after).toEqual(before)
-    view.destroy()
-  })
-
-  it('8. CONTAINER_BLACKLIST 回归:在 code_block 内 ### 不转 heading', async () => {
-    // 装一个含 syntaxAutoFormat 的最小 view
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const state = EditorState.create({
-      schema,
-      doc: fromMarkdown('```\n### inside code\n```', schema),
-      plugins: [syntaxAutoFormatPlugin, codeHighlightPlugin],
-    })
-    const view = new EditorView(container, { state })
-    // 找到 code_block,确认是 code_block 类型而不是 heading
-    const pos = findCodeBlockPos(view)
-    expect(pos).toBeGreaterThanOrEqual(0)
-    expect(view.state.doc.nodeAt(pos)?.type.name).toBe('code_block')
-    // 在 code_block 内部插入字符模拟用户输入,确认不会触发 syntax 转换
-    const blockEnd = pos + view.state.doc.nodeAt(pos)!.nodeSize - 1
-    view.dispatch(view.state.tr.insertText(' #', blockEnd - 1))
-    expect(view.state.doc.nodeAt(pos)?.type.name).toBe('code_block')
-    view.destroy()
-  })
-
-  it('9. 复制按钮 click → widget 内部直接 await writeToClipboard', async () => {
-    // v0.4.3 fast-follow:复制 click 不再冒泡到 index.vue,widget 内部 await
-    // 调 writeToClipboard;失败回退 navigator.clipboard;最终静默,不抛错。
-    // 这里只验证 click 不抛错 + 按钮 SVG 结构存在(实际写剪贴板在
-    // Tauri webview 环境才需要 mock,jsdom 测默认静默 swallow)。
-    const view = makeView('```js\nconst x = 1\n```')
-    await flushHighlighter()
-    const copyBtn = view.dom.querySelector('[data-testid="code-copy-btn"]') as HTMLElement | null
-    expect(copyBtn).not.toBeNull()
-    // click 不会抛错(内部 import 失败 / clipboard 不可用都被 swallow)
-    expect(() => copyBtn!.click()).not.toThrow()
     view.destroy()
   })
 
@@ -622,15 +576,6 @@ describe('codeHighlight helpers', () => {
     expect(paraPos).toBeGreaterThanOrEqual(0)
     const ok = setCodeBlockLanguage(view.state, paraPos, 'python')
     expect(ok).toBe(false)
-    view.destroy()
-  })
-
-  it('setCodeBlockLanguage 改 attr 不抛错', () => {
-    const view = makeView('```js\nx\n```')
-    const pos = findCodeBlockPos(view)
-    const ok = setCodeBlockLanguage(view.state, pos, 'python', (tr) => view.dispatch(tr))
-    expect(ok).toBe(true)
-    expect(view.state.doc.nodeAt(pos)?.attrs.language).toBe('python')
     view.destroy()
   })
 

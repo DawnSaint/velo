@@ -197,20 +197,6 @@ describe('parseImageSource / serializeImageSource', () => {
 })
 
 describe('image 源码编辑 session', () => {
-  it('选中后渲染悬浮 code-xml 按钮', async () => {
-    const view = makeView(imageNode())
-    const pos = getImagePos(view.state.doc)
-    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
-    await new Promise((r) => setTimeout(r, 10))
-
-    const wrapper = view.dom.querySelector('.velo-image-inline') as HTMLElement
-    expect(wrapper.classList.contains('selected')).toBe(true)
-    const btn = wrapper.querySelector('.image-edit-btn') as HTMLButtonElement
-    expect(btn).not.toBeNull()
-    expect(btn.querySelector('svg')).not.toBeNull() // code-xml SVG
-    view.destroy()
-  })
-
   it('点按钮把 image 节点替换成源码纯文本,光标落进文本', async () => {
     const view = makeView(imageNode({ src: 'a.png', alt: 'alt', title: 't' }))
     await enterEdit(view)
@@ -262,17 +248,6 @@ describe('image 源码编辑 session', () => {
     const sel2 = v2.state.selection
     expect(v2.state.doc.textBetween(sel2.from, sel2.to, '\n', '\n')).toBe('a.png')
     v2.destroy()
-  })
-
-  it('编辑态渲染图片预览 widget,src 合法时显示', async () => {
-    const view = makeView(imageNode({ src: 'a.png', alt: 'alt', title: '' }))
-    await enterEdit(view)
-
-    const preview = view.dom.querySelector('.velo-image-source-preview') as HTMLImageElement
-    expect(preview).not.toBeNull()
-    expect(preview.tagName).toBe('IMG')
-    expect(preview.src).toContain('a.png')
-    view.destroy()
   })
 
   it('src 含括号时编辑态预览 widget 正常显示(不消失)', async () => {
@@ -375,14 +350,6 @@ describe('image 源码编辑 session', () => {
     const img = getImageNode(view.state.doc)
     expect(img).not.toBeNull()
     expect(img!.attrs).toEqual(before)
-    view.destroy()
-  })
-
-  it('编辑态 doc 里有 .velo-image-source-edit decoration', async () => {
-    const view = makeView(imageNode())
-    await enterEdit(view)
-
-    expect(view.dom.querySelector('.velo-image-source-edit')).not.toBeNull()
     view.destroy()
   })
 

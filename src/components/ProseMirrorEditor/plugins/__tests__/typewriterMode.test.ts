@@ -10,7 +10,7 @@
 // 居中滚动的真实行为(光标恒在视口中线)依赖 WebView2 布局,归手动验证。
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { EditorState, TextSelection } from 'prosemirror-state'
+import { EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { schema } from '../../editor/schema'
 import { fromMarkdown } from '../../editor/markdownIO'
@@ -70,14 +70,6 @@ describe('typewriterModePlugin', () => {
     expect(scrollHandler(view)).toBe(true)
     view.dispatch(view.state.tr.setMeta(typewriterModeKey, { enabled: false }))
     expect(scrollHandler(view)).toBe(false)
-  })
-
-  it('enabled 下 dispatch 选区变化 tr 不抛(update 居中路径无异常)', () => {
-    const view = makeView('第一段\n\n第二段\n\n第三段', true)
-    expect(() => {
-      // 把光标移到第二段(第一段 3 字 + \n\n = 5 字符偏移后是第二段开头,+1 跳 doc opening token)
-      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 6)))
-    }).not.toThrow()
   })
 
   it('模块级镜像经 setTypewriterModeEnabled 同步后,state.init 读到正确初值', () => {

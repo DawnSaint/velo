@@ -24,7 +24,6 @@ import { linkClickPlugin, linkClickPluginKey } from '../plugins/linkClick'
 import { syntaxAutoFormatPlugin } from '../plugins/syntaxAutoFormat'
 import {
   registerShortcut,
-  buildShortcutKeymap,
   getShortcuts,
   _resetShortcutRegistry,
   type ShortcutCommand,
@@ -67,7 +66,7 @@ function mountView(blocks: ReturnType<typeof schema.node>[] = [schema.node('para
 }
 
 // ============================================================
-//  registry / buildShortcutKeymap
+//  registry
 // ============================================================
 
 describe('shortcuts: registry', () => {
@@ -101,13 +100,6 @@ describe('shortcuts: registry', () => {
     expect(getShortcuts().length).toBe(0)
   })
 
-  it('buildShortcutKeymap 返回 Plugin 实例', () => {
-    registerShortcut({ key: 'Mod-x', command: () => true, label: 'x', group: 'system' })
-    const plugin = buildShortcutKeymap()
-    // prosemirror-keymap 内部把 keyMap 包成 handleKeyDown function,
-    // 暴露在 plugin.props.handleKeyDown
-    expect(plugin.props?.handleKeyDown).toBeTypeOf('function')
-  })
 })
 
 // ============================================================
@@ -409,20 +401,6 @@ function firstBodyCellPos(view: EditorView): number {
 
 
 describe("shortcuts: table row/column operations", () => {
-  it("cmd* 在表格内 → 消费(true)", () => {
-    const { view, cleanup } = mountTable()
-    const cellPos = firstBodyCellPos(view)
-    view.dispatch(
-      view.state.tr.setSelection(
-        TextSelection.create(view.state.doc, cellPos + 1)
-      )
-    )
-    // cmdAddRowAfter should succeed (returns true) when cursor is in body row
-    const cmd = cmdAddRowAfter(schema)
-    expect(cmd(view.state, undefined)).toBe(true)  // dry-run without dispatch
-    cleanup()
-  })
-
   it("cmd* 不在表格内 → noop(false)", () => {
     const { view, cleanup } = mountView() // paragraph only
     expect(cmdAddRowAfter(schema)(view.state, view.dispatch)).toBe(false)

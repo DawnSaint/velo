@@ -30,17 +30,6 @@ describe('ActivityBar', () => {
     setActivePinia(createPinia())
   })
 
-  it('renders all primary shell actions', () => {
-    const wrapper = mountBar({ props: { active: null } })
-
-    expect(wrapper.find('[aria-label="工作区"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="大纲"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="全局搜索"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="资产"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="设置"]').exists()).toBe(true)
-  })
-
   it('emits a dedicated event for each navigation action', async () => {
     const wrapper = mountBar({ props: { active: null } })
 

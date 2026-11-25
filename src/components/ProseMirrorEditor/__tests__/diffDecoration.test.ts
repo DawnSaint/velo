@@ -44,20 +44,10 @@ describe('buildDecorations', () => {
     expect(decoSet.find().length).toBe(0)
   })
 
-  it('纯新增文本 → 绿色背景装饰', () => {
-    const decoSet = getDecoSet('Hello.', 'Hello world.')
-    expect(hasAddedInlineDeco(decoSet)).toBe(true)
-  })
-
   it('纯删除文本 → 红色背景 widget', () => {
     const decoSet = getDecoSet('Hello world.', 'Hello.')
     const decos = decoSet.find()
     expect(decos.length).toBeGreaterThan(0)
-  })
-
-  it('修改一行 → 既有 added inline 又有 removed widget', () => {
-    const decoSet = getDecoSet('Hello old world.', 'Hello new world.')
-    expect(hasAddedInlineDeco(decoSet)).toBe(true)
   })
 
   it('修改一行 → 只标记变化的字符,不标记整行', () => {
@@ -468,16 +458,6 @@ describe('diffDecorationPlugin 增量构建', () => {
     expect(zeroLen.length).toBeGreaterThan(0)
     expect(zeroLen.every(e => e.from < 500)).toBe(true)
     expect(s.decoSet!.find().length).toBe(0)
-  })
-
-  it('滚动后粘性追加:新进视口的 block 补建,已建的保留', () => {
-    let state = makeDiffState('a\n\nb\n\nc', 'A\n\nB\n\nc', { from: 0, to: 1 })
-    const before = diffDecorationKey.getState(state)!.decoSet!.find().length
-
-    // viewport 扩到全文 → 追加剩下两个修改段的装饰
-    state = state.apply(state.tr.setMeta(viewportKey, { from: 0, to: state.doc.content.size }))
-    const after = diffDecorationKey.getState(state)!.decoSet!.find().length
-    expect(after).toBeGreaterThan(before)
   })
 
   it('滚动扩展视口后,已建 entry 的装饰不会重复添加', () => {

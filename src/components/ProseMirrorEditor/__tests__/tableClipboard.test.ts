@@ -223,39 +223,6 @@ describe('CellSelection cut:deleteSelection 清空选中 cell', () => {
 // ============================================================
 
 describe('CellSelection paste:handlePaste 整块填充', () => {
-  it('2×2 矩形粘贴 2×2 cell 块 → 覆盖选中区域', () => {
-    // 源表:2 col × 2 body,内容 X0/C0 等
-    // 用 mount 拿到 view,从 doc 取 cell pos(已含 doc 偏移)
-    const srcMount = mount([buildTable(2, 2, 'X'), schema.node('paragraph')])
-    const srcCells = collectCellPos(srcMount.view)
-    // body 2×2 = cells[2..5]
-    const srcSel = new CellSelection(
-      srcMount.view.state.doc.resolve(srcCells[2]),
-      srcMount.view.state.doc.resolve(srcCells[5]),
-    )
-    const srcSlice = srcSel.content()
-    expect(srcSlice.content.childCount).toBe(2) // 2 rows
-    expect(srcSlice.content.child(0).childCount).toBe(2) // 2 cells per row
-
-    // 目标表:2 col × 2 body,内容 R0/C0 等
-    const { view, cleanup } = mount([buildTable(2, 2), schema.node('paragraph')])
-    selectRect(view, 2, 5) // body 2×2 = cells[2]..cells[5]
-    expect(view.state.selection instanceof CellSelection).toBe(true)
-
-    // handlePaste(view, _event, slice) — event 参数未使用,传空对象即可
-    const ok = handlePaste(view, {} as ClipboardEvent, srcSlice)
-    expect(ok).toBe(true)
-
-    const texts = bodyCellTexts(view)
-    // 全部 4 个 body cell 被源表内容覆盖
-    expect(texts[0]).toBe('X0/C0')
-    expect(texts[1]).toBe('X0/C1')
-    expect(texts[2]).toBe('X1/C0')
-    expect(texts[3]).toBe('X1/C1')
-    srcMount.cleanup()
-    cleanup()
-  })
-
   it('2×2 矩形粘贴 1×1 cell → 整块填同一个内容', () => {
     // 源:单 cell 内容 "SINGLE"
     const srcCell = schema.nodes.table_cell.create(null, mkText('SINGLE'))

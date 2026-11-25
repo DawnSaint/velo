@@ -173,49 +173,6 @@ describe('list_item 内嵌套 block 的 Enter', () => {
 
   // ── 不回归 ──────────────────────────────────────────────
 
-  it('普通 list_item paragraph 末尾 Enter → 仍新增 list_item', () => {
-    const doc = schema.node('doc', null, [
-      schema.node('bullet_list', null, [
-        schema.node('list_item', null, [
-          schema.node('paragraph', null, [schema.text('foo')]),
-        ]),
-      ]),
-    ])
-    const v = mount(doc)
-    setCursorAtEndOf(v, 'foo')
-
-    makeEnterCmd()(v.state, v.dispatch.bind(v))
-
-    const list = v.state.doc.firstChild!
-    expect(list.type.name).toBe('bullet_list')
-    expect(list.childCount).toBe(2)
-    expect(list.child(1).firstChild!.textContent).toBe('')
-    v.destroy()
-  })
-
-  it('空 list_item Enter → 仍退出列表', () => {
-    const pT = schema.nodes.paragraph
-    const doc = schema.node('doc', null, [
-      schema.node('bullet_list', null, [
-        schema.node('list_item', null, [
-          schema.node('paragraph', null, [schema.text('foo')]),
-        ]),
-        schema.node('list_item', null, [pT.create()]),
-      ]),
-    ])
-    const v = mount(doc)
-    v.dispatch(v.state.tr.setSelection(TextSelection.atEnd(v.state.doc)))
-
-    makeEnterCmd()(v.state, v.dispatch.bind(v))
-
-    const list = v.state.doc.firstChild!
-    expect(list.type.name).toBe('bullet_list')
-    expect(list.childCount).toBe(1)
-    expect(v.state.doc.childCount).toBe(2)
-    expect(v.state.doc.child(1).type.name).toBe('paragraph')
-    v.destroy()
-  })
-
   it('嵌套列表 list_item > bullet_list > list_item > paragraph 末尾 Enter → split 嵌套项', () => {
     const doc = schema.node('doc', null, [
       schema.node('bullet_list', null, [

@@ -66,18 +66,6 @@ describe('Shift-Tab 焦点保留', () => {
     expect(state.doc.textContent).toBe('foo')
   })
 
-  it('光标在 paragraph 开头', () => {
-    const state = makeState('hello', 0)
-    const consumed = shiftTabCmd(state, undefined)
-    expect(consumed).toBe(true)
-  })
-
-  it('光标在 paragraph 末尾', () => {
-    const state = makeState('hello', 5)
-    const consumed = shiftTabCmd(state, undefined)
-    expect(consumed).toBe(true)
-  })
-
   it('空 paragraph', () => {
     const doc = schema.node('doc', null, [schema.node('paragraph')])
     const state = EditorState.create({

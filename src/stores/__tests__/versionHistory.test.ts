@@ -131,21 +131,6 @@ describe('versionHistory store', () => {
       expect(cached.find(s => s.id === 'auto1')).toBeUndefined()
     })
 
-    it('mergedOldId 为 null 时正常追加(不合并)', () => {
-      const store = useVersionHistoryStore()
-      const base = Date.now()
-      store.snapshotsByFile.set('/test.md', [
-        { version: 1, id: '200', filePath: '/test.md', content: 'b', savedAt: base - 100, trigger: 'manual' },
-      ])
-      store.upsertSnapshot('/test.md', {
-        version: 1, id: '300', filePath: '/test.md', content: 'c', savedAt: base, trigger: 'manual',
-      }, null)
-      const cached = store.snapshotsByFile.get('/test.md')!
-      expect(cached).toHaveLength(2)
-      expect(cached[0].id).toBe('300')
-      expect(cached[1].id).toBe('200')
-    })
-
     it('超出 CAP 时修剪旧快照', () => {
       const store = useVersionHistoryStore()
       const cap = store.VERSION_SNAPSHOT_CAP

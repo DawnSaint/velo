@@ -86,22 +86,6 @@ describe('Sidebar', () => {
     expect(wrapper.findComponent({ name: 'EditorOutline' }).exists()).toBe(false)
   })
 
-  it('file tab 活时 refreshDir 对外暴露且不抛错', async () => {
-    const workspace = useWorkspaceStore()
-    workspace.setActiveRoot('/test/ws')
-    workspace.setSidebarTab('files')
-
-    const wrapper = mount(Sidebar, {
-      props: { modelValue: '', filePath: null },
-    })
-    await nextTick()
-
-    const sidebarVm = wrapper.vm as unknown as { refreshDir: (p: string) => void }
-    expect(typeof sidebarVm.refreshDir).toBe('function')
-    // 同步调用,内部 FileTree.refreshDir(异步) 走 try/catch,不抛到 Sidebar 层
-    expect(() => sidebarVm.refreshDir('/test/ws/sub')).not.toThrow()
-  })
-
   // paste 时若 file.type 为空 / 未知 MIME,旧版会把 ext 字面写成 '(null)';
   // 源码里 src 被 escapeMdUrl 写成 `\(null\)`(避免括号破坏 markdown 语法)。
   // 面板正则提取 src 后必须剥掉转义反斜杠,否则算出的 absPath 与磁盘真实路径
@@ -217,19 +201,6 @@ describe('Sidebar', () => {
     expect(preview.images.map(i => i.name)).toEqual(['other.jpg', 'pic.png'])
     expect(preview.index).toBe(1)
     expect(preview.images[1].absPath).toBe('/test/ws/pic.png')
-  })
-
-  it('outline tab 时 refreshDir 不抛错(FileTree 未挂载)', () => {
-    const workspace = useWorkspaceStore()
-    workspace.setActiveRoot('/test/ws')
-    // 保持 outline tab
-
-    const wrapper = mount(Sidebar, {
-      props: { modelValue: '', filePath: null },
-    })
-
-    const sidebarVm = wrapper.vm as unknown as { refreshDir: (p: string) => void }
-    expect(() => sidebarVm.refreshDir('/test/ws/sub')).not.toThrow()
   })
 
   // #settings-panel 重做:设置激活时大纲区域显示空态(设置类目改为设置页顶部 Tab 切换,

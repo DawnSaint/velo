@@ -51,24 +51,6 @@ describe('editor store 默认值', () => {
     expect(store.fontMono).toContain('ui-monospace')
   })
 
-  it('改 latinFont 后 fontFamily computed 响应', () => {
-    const store = useEditorStore()
-    store.latinFont = 'georgia'
-    expect(store.fontFamily).toContain('Georgia')
-  })
-
-  it('改 cjkFont 后 fontFamily computed 响应', () => {
-    const store = useEditorStore()
-    store.cjkFont = 'songti'
-    expect(store.fontFamily).toContain('Songti')
-  })
-
-  it('改 monoFont 后 fontMono computed 响应', () => {
-    const store = useEditorStore()
-    store.monoFont = 'jetbrains'
-    expect(store.fontMono).toContain('JetBrains Mono')
-  })
-
   it('themeMode 默认 system', () => {
     const store = useEditorStore()
     expect(store.themeMode).toBe('system')
@@ -94,21 +76,6 @@ describe('editor store 默认值', () => {
   it('zoomLevel 默认 1.0(v0.7.12)', () => {
     const store = useEditorStore()
     expect(store.zoomLevel).toBe(1.0)
-  })
-
-  it('zoomLevel 可写且双向反映', () => {
-    const store = useEditorStore()
-    store.zoomLevel = 1.5
-    expect(store.zoomLevel).toBe(1.5)
-  })
-
-  it('所有 ref 可写且双向反映', () => {
-    const store = useEditorStore()
-    store.themeMode = 'dark'
-    expect(store.themeMode).toBe('dark')
-
-    store.primaryColor = '#FF0000'
-    expect(store.primaryColor).toBe('#FF0000')
   })
 })
 

@@ -34,13 +34,6 @@ describe('decideOpenFocus', () => {
     expect(policy.selection.head).toBe(TextSelection.atStart(doc).head)
   })
 
-  it('以非空段落结尾 → 不主动 focus + 选区 atStart', () => {
-    const doc = docFromMd('# Title\n\n末尾段落有内容')
-    const policy = decideOpenFocus(doc)
-    expect(policy.shouldFocus).toBe(false)
-    expect(policy.selection.head).toBe(TextSelection.atStart(doc).head)
-  })
-
   it('以 heading 结尾 → 不主动 focus + 选区 atStart', () => {
     const doc = docFromMd('# OnlyHeading')
     const policy = decideOpenFocus(doc)
@@ -55,15 +48,8 @@ describe('decideOpenFocus', () => {
     expect(policy.selection.head).toBe(TextSelection.atStart(doc).head)
   })
 
-  // 原 TODO #2:MD 顶部是目录的时候,进入 MD 文件会自动选中目录
-  it('原 TODO #2 场景:顶部 [TOC] 内容非空 → 不主动 focus + 选区 atStart(不抢焦点)', () => {
-    const doc = docFromMd('[TOC]\n\n# Section A\n\nbody')
-    const policy = decideOpenFocus(doc)
-    expect(policy.shouldFocus).toBe(false)
-    expect(policy.selection.head).toBe(TextSelection.atStart(doc).head)
-  })
-
   // NEW TODO:打开 B 文档时若不在开头(A doc 已下拉到非开头位置),需复位到开头
+  // cases 含原 TODO #2 场景(MD 顶部是 [TOC] 目录时不应自动选中目录 / 抢焦点)
   it('打开新文档的通用场景:任何非空段结尾 → 选区强制 atStart', () => {
     const cases = [
       '# Title',

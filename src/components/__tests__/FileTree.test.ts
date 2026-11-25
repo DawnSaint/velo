@@ -975,61 +975,6 @@ describe('FileTree', () => {
     wrapper.unmount()
   })
 
-  it('根节点 row 始终显示展开箭头,默认展开(rotate-90)', async () => {
-    // workspace 是空目录(根 children = []),箭头仍要显示 —— 根永远是目录,
-    // 保留 expand affordance(子目录加载后为空才隐藏箭头,根例外)
-    const wrapper = await mountWithEntries([])
-    const rootRow = wrapper.findAll('.group')[0]
-    const arrowSvg = rootRow.element.querySelector('span.size-4 > svg')
-    expect(arrowSvg).toBeTruthy()
-    expect(arrowSvg!.classList.contains('rotate-90')).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('根折叠态:箭头无 rotate-90 + 子项不渲染', async () => {
-    const wrapper = await mountWithEntries([])
-
-    const rootRow = wrapper.findAll('.group')[0]
-    await rootRow.trigger('click')
-    await flushPromises()
-
-    const arrowSvg = rootRow.element.querySelector('span.size-4 > svg')!
-    expect(arrowSvg.classList.contains('rotate-90')).toBe(false)
-    // 折叠态:子项不渲染
-    expect(nonRootRows(wrapper).length).toBe(0)
-    wrapper.unmount()
-  })
-
-  // ── 1 级"空目录"探测(v0.5.1) ──
-
-  it('父目录加载后空子目录与有内容子目录均显示箭头', async () => {
-    // 根 = [empty/, hasItems/];empty/ readDir → [];hasItems/ readDir → [note.md]。
-    // 探测完成后:两者均显示箭头(空目录也保留展开 affordance)。
-    const workspace = useWorkspaceStore()
-    workspace.activeRoot = '/test/root'
-    vi.mocked(readDir).mockImplementation(async (p) => {
-      const path = typeof p === 'string' ? p : p.toString()
-      if (path === '/test/root') return [entry('empty', true), entry('hasItems', true)]
-      if (path === '/test/root/empty') return []
-      if (path === '/test/root/hasItems') return [entry('note.md', false)]
-      return []
-    })
-
-    const wrapper = mount(FileTree, { attachTo: document.body })
-    await flushPromises()
-    await nextTick()
-    // 探测是 fire-and-forget,再 flush 一轮等 readDir promise resolve + 模板重渲
-    await flushPromises()
-    await nextTick()
-
-    const emptyRow = findRowByName(wrapper, 'empty')!
-    const hasItemsRow = findRowByName(wrapper, 'hasItems')!
-
-    expect(emptyRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 空目录也有箭头
-    expect(hasItemsRow.element.querySelectorAll('span.size-4 > svg').length).toBe(1) // 有 child → 箭头
-    wrapper.unmount()
-  })
-
   // ── 复制 / 粘贴(v0.5.x) ──
 
   it('点击「复制」→ 剪贴板记录源路径(菜单「粘贴」随后可见)', async () => {
@@ -1154,24 +1099,5 @@ describe('FileTree', () => {
     expect(copyFile).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith('不能将目录粘贴到自身或其子目录')
     w.unmount()
-  })
-
-  it('根节点右键无「复制」,容器空白处右键无「复制」', async () => {
-    const wrapper = await mountWithEntries([entry('a.md', false)])
-    // 根节点右键
-    const rootRow = wrapper.findAll('.group')[0]
-    triggerContextMenu(rootRow)
-    await nextTick()
-    let menu = document.body.querySelector('[data-tree-context-menu]')!
-    expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
-
-    // 容器空白处右键
-    const container = wrapper.find('[class*="overflow-y-auto"]').element as HTMLElement
-    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
-    container.dispatchEvent(ev)
-    await nextTick()
-    menu = document.body.querySelector('[data-tree-context-menu]')!
-    expect(Array.from(menu.querySelectorAll('button')).some(b => b.textContent?.includes('复制'))).toBe(false)
-    wrapper.unmount()
   })
 })

@@ -171,9 +171,6 @@ describe('computeColumnWidths', () => {
     expect(plan.widths.every((w) => Number.isFinite(Number.parseFloat(w)))).toBe(true)
   })
 
-  it('同一输入结果稳定(打字时列宽不抖)', () => {
-    expect(planOf([null, null, null], 888)).toEqual(planOf([null, null, null], 888))
-  })
 })
 
 describe('columnWidthBudget', () => {

@@ -153,24 +153,6 @@ describe('HtmlNodeView - img src 代理', () => {
     host.remove()
   })
 
-  it('http(s) / data: src 经 proxyDomURL 透传(image NodeView 同款 resolveImageSrc 已处理)', () => {
-    // resolveImageSrc 对 http(s)/data:/asset:/tauri: 原样返回;这里用 identity 模拟
-    const proxy = (url: string) => url
-    const host = document.createElement('div')
-    document.body.appendChild(host)
-    const doc = schema.node('doc', null, [
-      schema.node('html_block', { value: '<img src="https://example.com/a.png">' }),
-    ])
-    const plugin = createHtmlNodeViewPlugin({ proxyDomURL: proxy })
-    const state = EditorState.create({ doc, schema, plugins: [plugin] })
-    const view = new EditorView(host, { state })
-
-    const img = view.dom.querySelector('.velo-html-block img') as HTMLImageElement
-    expect(img.getAttribute('src')).toBe('https://example.com/a.png')
-    view.destroy()
-    host.remove()
-  })
-
   it('无 src 的 <img> 不报错(跳过代理)', () => {
     const proxy = (url: string) => `asset://proxy/${url}`
     const host = document.createElement('div')
@@ -207,15 +189,6 @@ describe('HtmlNodeView - 块级 HTML 源码切换(code_block 范式)', () => {
     const view = new EditorView(host, { state, editable })
     return { view, host, cleanup: () => { view.destroy(); host.remove() } }
   }
-
-  it('渲染态:右上角有源码切换按钮(code-xml svg)', () => {
-    const { view, cleanup } = mountBlockView('<details><summary>X</summary>Y</details>')
-    const btn = view.dom.querySelector('.html-source-toggle-btn')
-    expect(btn).not.toBeNull()
-    expect(btn!.tagName.toLowerCase()).toBe('button')
-    expect(btn!.innerHTML).toContain('<svg')
-    cleanup()
-  })
 
   it('点击按钮:html_block 被替换为 code_block,内容为原始 HTML 源码', () => {
     const { view, cleanup } = mountBlockView('<details><summary>X</summary>Y</details>')

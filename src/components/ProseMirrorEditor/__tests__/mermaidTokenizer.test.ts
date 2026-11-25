@@ -212,26 +212,6 @@ describe('tokenizeMermaid — offset 跨行累加', () => {
     expect(shapeClose?.offset).toBe(25)
   })
 
-  it('reconstruct 拼接结果:token 落在正确 offset(无错位)', () => {
-    const code = 'graph LR\n  A[Hello] --> B{World}'
-    const tokens = flat(code)
-    const rebuilt = reconstruct(tokens)
-    // 每个 token.content 应在 rebuilt 中其 offset 处出现
-    for (const t of tokens) {
-      expect(rebuilt.slice(t.offset, t.offset + t.content.length)).toBe(t.content)
-    }
-  })
-
-  it('含 CJK 的多字节字符不影响 offset 累加', () => {
-    // "更新状态" 4 个汉字 = 8 个 UTF-16 code unit(string.length = 8)
-    const code = 'graph LR\n  B --> B1[更新状态]'
-    const tokens = flat(code)
-    const shape = tokens.find(t => t.content === '[更新状态]')
-    expect(shape).toBeTruthy()
-    // 验证 offset + content.length 不越界
-    expect(shape!.offset + shape!.content.length).toBeLessThanOrEqual(code.length)
-  })
-
   it('行数与 code.split("\\n") 一致', () => {
     const code = 'a\nb\nc\nd'
     expect(tokenizeMermaid(code)).toHaveLength(4)

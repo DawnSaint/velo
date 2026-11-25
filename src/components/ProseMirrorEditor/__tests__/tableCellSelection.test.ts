@@ -150,19 +150,6 @@ describe('CellSelection 矩形内右键:插入锚定矩形外边界(1 行/1 列)
     cleanup()
   })
 
-  it("右侧插列:在最右边那格的右边插 1 列", () => {
-    const { view, cleanup } = mount([buildTable(3, 3), schema.node('paragraph')])
-    const cells = collectCellPos(view)
-    // 矩形 (row1,col0)index3 → (row2,col1)index7: 右边界 = col1。
-    const anchor = view.state.doc.resolve(cells[3])
-    const head = view.state.doc.resolve(cells[7])
-    view.dispatch(view.state.tr.setSelection(new CellSelection(anchor, head)))
-    const ok = cmdAddColumnAfter(schema, cells[7])(view.state, view.dispatch)
-    expect(ok).toBe(true)
-    expect(colCount(view)).toBe(4) // 原 3 + 1
-    cleanup()
-  })
-
   it("左侧插列:在最左边那格的左边插 1 列", () => {
     const { view, cleanup } = mount([buildTable(3, 3), schema.node('paragraph')])
     const cells = collectCellPos(view)

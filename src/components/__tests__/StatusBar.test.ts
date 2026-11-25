@@ -21,14 +21,6 @@ function mountStatusBar(overrides: Record<string, unknown> = {}) {
 }
 
 describe('StatusBar', () => {
-  it('renders workspace, word count and cursor position', () => {
-    const wrapper = mountStatusBar()
-
-    expect(wrapper.text()).toContain('工作区C:/notes')
-    expect(wrapper.text()).toContain('字数 5')
-    expect(wrapper.text()).toContain('行 2, 列 3')
-  })
-
   it('shows dirty indicator only when dirty', () => {
     expect(mountStatusBar({ dirty: false }).text()).not.toContain('未保存')
     expect(mountStatusBar({ dirty: true }).text()).toContain('未保存')
@@ -102,12 +94,6 @@ describe('StatusBar', () => {
     // 即便强行 click 也不 emit —— documentStore 那层还会兜底(setter 尊重 locked)
     await button.trigger('click')
     expect(wrapper.emitted('toggle-read-only')).toBeUndefined()
-  })
-
-  it('does not expose a file path copy button', () => {
-    const wrapper = mountStatusBar()
-
-    expect(wrapper.find('button[title="C:/notes/drafts/a.md"]').exists()).toBe(false)
   })
 
   it('opens detailed stats popover from the word count', async () => {

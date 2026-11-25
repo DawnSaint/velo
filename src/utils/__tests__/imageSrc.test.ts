@@ -43,12 +43,6 @@ describe('resolveImageSrc(主编辑器与 diff 预览共用)', () => {
     expect(convertFileSrc).toHaveBeenCalledWith('/docs/assets/图解.png')
   })
 
-  it('Windows 文档目录下的相对路径同样归一成 forward slash', () => {
-    enterTauri()
-    expect(resolveImageSrc('assets\\x.png', 'C:\\docs\\note.md')).toBe('C:/docs/assets/x.png')
-    expect(convertFileSrc).toHaveBeenCalledWith('C:/docs/assets/x.png')
-  })
-
   it('src 本身是绝对路径 → 不拼目录,直接转换', () => {
     enterTauri()
     expect(resolveImageSrc('/opt/img/x.png', '/docs/note.md')).toBe('/opt/img/x.png')

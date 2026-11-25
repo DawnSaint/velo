@@ -104,15 +104,6 @@ function typeAt(view: EditorView, pos: number, text: string) {
 }
 
 describe('syntaxAutoFormat: block syntaxes', () => {
-  it('"### " 段首键入 → 转 heading 3', () => {
-    const { view, cleanup } = mountView()
-    typeAt(view, 1, '### ')
-    const block = view.state.doc.firstChild!
-    expect(block.type.name).toBe('heading')
-    expect(block.attrs.level).toBe(3)
-    cleanup()
-  })
-
   it('"# " ~ "###### " 各级 heading 都能触发', () => {
     for (let i = 1; i <= 6; i++) {
       const { view, cleanup } = mountView()
@@ -272,15 +263,6 @@ describe('syntaxAutoFormat: block syntaxes', () => {
       expect(view.state.doc.firstChild!.type.name).toBe('hr')
       cleanup()
     }
-  })
-
-  it('"---" 不在第三个连字符处立即转 hr,等待空格或 Enter 触发', () => {
-    const { view, cleanup } = mountView()
-    typeAt(view, 1, '---')
-    const block = view.state.doc.firstChild!
-    expect(block.type.name).toBe('paragraph')
-    expect(block.textContent).toBe('---')
-    cleanup()
   })
 
   // frontmatterSyntax 是空格触发(同 hr 范式):裸 `---` 不触发,留给

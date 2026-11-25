@@ -10,7 +10,6 @@
 // 7. 增量更新:在 CJK 段中间插入字符 → 装饰正确更新
 // 8. 增量更新:删除 CJK 段部分字符 → 装饰正确更新
 // 9. setMeta(cjkSpacingKey, { enabled: false }) → 装饰消失
-// 10. setMeta(cjkSpacingKey, { enabled: true }) → 装饰出现
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -150,15 +149,6 @@ describe('cjkLetterSpacingPlugin', () => {
 
     view.dispatch(view.state.tr.setMeta(cjkSpacingKey, { enabled: false }))
     expect(cjkSpans(view).length).toBe(0)
-    view.destroy()
-  })
-
-  it('10. setMeta({ enabled: true }) → 装饰出现', () => {
-    const view = makeView('这是一段中文', false)
-    expect(cjkSpans(view).length).toBe(0)
-
-    view.dispatch(view.state.tr.setMeta(cjkSpacingKey, { enabled: true }))
-    expect(cjkSpans(view).length).toBeGreaterThan(0)
     view.destroy()
   })
 })

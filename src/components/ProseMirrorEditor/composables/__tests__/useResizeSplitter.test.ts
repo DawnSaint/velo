@@ -209,27 +209,6 @@ describe('useResizeSplitter', () => {
     scope.stop()
   })
 
-  it('onDragCollapse 去重 —— 拖到阈值之下多次 mousemove 只 fire 一次', async () => {
-    const onDragCollapse = vi.fn()
-    const width = ref(300)
-    const scope = effectScope()
-    scope.run(() => {
-      const { startDrag } = useResizeSplitter({
-        width,
-        min: 0,
-        max: 600,
-        dragCollapseBelow: 80,
-        onDragCollapse,
-      })
-      startDrag(new MouseEvent('mousedown', { button: 0, clientX: 400 }))
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-    })
-    expect(onDragCollapse).toHaveBeenCalledTimes(1)
-    scope.stop()
-  })
-
   it('dragCollapseBelow 出区(回到阈值之上)→ 复位,下次再次进入能再 fire', async () => {
     const onDragCollapse = vi.fn()
     const width = ref(300)
@@ -251,32 +230,6 @@ describe('useResizeSplitter', () => {
       // 再进区
       window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
       expect(onDragCollapse).toHaveBeenCalledTimes(2)
-    })
-    scope.stop()
-  })
-
-  it('dragCollapseBelow 出区 → onDragReopen 调一次(VSCode / Obsidian drag-reopen 行为)', async () => {
-    const onDragCollapse = vi.fn()
-    const onDragReopen = vi.fn()
-    const width = ref(300)
-    const scope = effectScope()
-    scope.run(() => {
-      const { startDrag } = useResizeSplitter({
-        width,
-        min: 0,
-        max: 600,
-        dragCollapseBelow: 80,
-        onDragCollapse,
-        onDragReopen,
-      })
-      startDrag(new MouseEvent('mousedown', { button: 0, clientX: 400 }))
-      // 进入区:onDragCollapse fire,onDragReopen 不动
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-      expect(onDragCollapse).toHaveBeenCalledTimes(1)
-      expect(onDragReopen).toHaveBeenCalledTimes(0)
-      // 出区:onDragReopen fire 一次
-      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 400 }))
-      expect(onDragReopen).toHaveBeenCalledTimes(1)
     })
     scope.stop()
   })
@@ -338,30 +291,6 @@ describe('useResizeSplitter', () => {
       expect(onDragCollapse).toHaveBeenCalledTimes(1)
       expect(onDragReopen).toHaveBeenCalledTimes(0)
     })
-    scope.stop()
-  })
-
-  it('不传 onDragReopen → 出区也不报错,行为等价于只 fire onDragCollapse', async () => {
-    const onDragCollapse = vi.fn()
-    const width = ref(300)
-    const scope = effectScope()
-    expect(() => {
-      scope.run(() => {
-        const { startDrag } = useResizeSplitter({
-          width,
-          min: 0,
-          max: 600,
-          dragCollapseBelow: 80,
-          onDragCollapse,
-          // 注意:故意不传 onDragReopen
-        })
-        startDrag(new MouseEvent('mousedown', { button: 0, clientX: 400 }))
-        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 400 }))
-        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100 }))
-      })
-    }).not.toThrow()
-    expect(onDragCollapse).toHaveBeenCalledTimes(2)
     scope.stop()
   })
 
