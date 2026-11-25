@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { DecoOp } from '../types'
 
 const HB_URL = 'velo-test:hb-subset.wasm'
 const WOFF2_URLS = {
@@ -46,7 +47,6 @@ vi.stubGlobal('fetch', vi.fn(async (url: string) => {
 
 const { buildPdf, serializePdf } = await import('../index')
 const { DEFAULT_PDF_LAYOUT_OPTIONS } = await import('../types')
-type DecoOp = import('../types').DecoOp
 type TextOp = import('../types').TextOp
 
 const MD = [

@@ -726,11 +726,11 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-section__header--warn {
-  color: rgb(180 83 9); /* amber-700 */
+  color: var(--color-amber-700);
 }
 
 .dark .asset-section__header--warn {
-  color: rgb(251 191 36); /* amber-400 */
+  color: var(--color-amber-400);
 }
 
 .asset-section__chevron {
@@ -759,13 +759,13 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-section__count--warn {
-  background: rgb(254 243 199); /* amber-100 */
-  color: rgb(180 83 9); /* amber-700 */
+  background: var(--color-amber-100);
+  color: var(--color-amber-700);
 }
 
 .dark .asset-section__count--warn {
-  background: rgb(120 53 15 / 0.4); /* amber-900/40 */
-  color: rgb(251 191 36); /* amber-400 */
+  background: color-mix(in srgb, var(--color-amber-900) 40%, transparent);
+  color: var(--color-amber-400);
 }
 
 .asset-subgroup {
@@ -833,11 +833,11 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-item__thumb--broken {
-  background: rgb(254 243 199); /* amber-100 */
+  background: var(--color-amber-100);
 }
 
 .dark .asset-item__thumb--broken {
-  background: rgb(120 53 15 / 0.3); /* amber-900/30 */
+  background: color-mix(in srgb, var(--color-amber-900) 30%, transparent);
 }
 
 .asset-item__img {
@@ -878,10 +878,10 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-item__alt--warn {
-  color: rgb(180 83 9); /* amber-700 */
+  color: var(--color-amber-700);
 }
 
 .dark .asset-item__alt--warn {
-  color: rgb(251 191 36); /* amber-400 */
+  color: var(--color-amber-400);
 }
 </style>

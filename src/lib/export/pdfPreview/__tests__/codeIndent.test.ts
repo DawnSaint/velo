@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { Run } from '../layoutEngine'
 
 const HB_URL = 'velo-test:hb-subset.wasm'
 const WOFF2_URLS = {
@@ -51,7 +52,6 @@ const { installFontSet } = await import('../tokens')
 const { buildFontSet } = await import('../fontSubset')
 const { DEFAULT_PDF_LAYOUT_OPTIONS } = await import('../types')
 const { buildPdf, serializePdf } = await import('../index')
-type Run = import('../layoutEngine').Run
 type BlockIR = import('../layoutEngine').BlockIR
 type TextOp = import('../types').TextOp
 

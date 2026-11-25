@@ -19,7 +19,7 @@ export interface TextOp {
   text: string
 }
 
-export interface RectOp {
+interface RectOp {
   op: 'rect'
   x: number
   y: number
@@ -28,7 +28,7 @@ export interface RectOp {
   fill: PdfColor
 }
 
-export interface StrokeRectOp {
+interface StrokeRectOp {
   op: 'strokeRect'
   x: number
   y: number
@@ -38,7 +38,7 @@ export interface StrokeRectOp {
   width: number
 }
 
-export interface LineOp {
+interface LineOp {
   op: 'line'
   x1: number
   y1: number
@@ -132,7 +132,7 @@ export interface FormulaContent {
   rects: FormulaRect[]
 }
 
-export interface FormulaGlyph {
+interface FormulaGlyph {
   ch: string
   /** 解析后的字体：'sans' | 'bold' | 'mono'，或 KaTeX 族名（Main-Regular 等） */
   font: string
@@ -143,7 +143,7 @@ export interface FormulaGlyph {
   color: PdfColor
 }
 
-export interface FormulaPath {
+interface FormulaPath {
   /** PDF 路径算子（m/l/c/h，y 向上）；同样可直接作 SVG path d */
   ops: string
   fill?: PdfColor | null
@@ -152,7 +152,7 @@ export interface FormulaPath {
   clip?: { x: number; y: number; w: number; h: number }
 }
 
-export interface FormulaRect {
+interface FormulaRect {
   x: number
   y: number
   w: number

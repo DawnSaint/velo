@@ -24,7 +24,7 @@ P2  #system-tray ──→ #daily-note
     #diff-autoscroll · #diff-change-preview · #diff-ruler
 
 P3  #code-signing（独立，CI 核心已通）
-    #ai-assist · #export-more · #bookmark（独立）
+    #ai-assist · #bookmark（独立）
     #theme-market · #theme-presets（独立）
 ```
 
@@ -72,16 +72,6 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] **多种自带主题预设** `#theme-presets` `P3` `M`
   - 除当前两套外增加更多内置主题
   - 与主题市场共享主题数据格式
-
-- [x] **导出更多格式** `#export-more` `P3` `M` `?`
-  - ~~建议走 pandoc 桥接（一行命令多格式），比自写 walker 高效~~ → 复核：pandoc 非唯一解；实测 `docx.js` 的 `htmlToContent`（复用现有导出 HTML）保真度最高（保留 CSS／语法高亮／alert／公式），`mdast2docx` 为无样式退路；Rust 系实测：ferrodoc 缺公式/自定义语法（不适合），knit-md-docx 功能全但需进 src-tauri（列长期架构选项）
-
-- [x] **导出 PDF 分页预览** `#pdf-preview` `P3` `M`
-  - 公式已从位图改为矢量（DOM 实测提取，可选中 / 可搜索；选型见 DECISIONS ADR-20261125-001）；转换失败回退位图。
-  - 导出面板新增「PDF 预览」入口，打开分页预览面板，可实时调整页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式。
-  - 预览与导出共用前端 Display List：不依赖 WebView2 / PrintToPdf，三平台一致；改参数只做同步重排（实测 ~5–8ms）。
-  - 早期「忠实预览必须复用 PrintToPDF，压不到 ~1s」的结论建立在「与编辑器逐页 WYSIWYG 一致」的旧约束上；改为允许与 doc HTML / 主编辑器有细微差异后结论不再成立（选型留痕见 DECISIONS ADR-20261119-001）。
-  - 旧 `PDF` 导出路径（WebView2 PrintToPdf）保留，不替换。
 
 - [ ] **书签** `#bookmark` `P3` `S`
   - 在文档内标记位置，侧栏 / 命令面板快速跳回

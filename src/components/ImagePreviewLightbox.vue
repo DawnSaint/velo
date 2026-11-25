@@ -454,16 +454,16 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: rgb(209 213 219); /* gray-300 */
+  color: var(--color-gray-300);
   transition: background-color 120ms ease, color 120ms ease;
 }
 .lp-btn:hover {
-  background: rgb(255 255 255 / 0.1);
-  color: #fff;
+  background: color-mix(in srgb, var(--color-white) 10%, transparent);
+  color: var(--color-white);
 }
 .lp-btn--active {
-  background: rgb(255 255 255 / 0.14);
-  color: #fff;
+  background: color-mix(in srgb, var(--color-white) 14%, transparent);
+  color: var(--color-white);
 }
 
 .lp-nav {
@@ -476,13 +476,13 @@ onBeforeUnmount(() => {
   width: 40px;
   height: 40px;
   border-radius: 9999px;
-  border: 1px solid rgb(255 255 255 / 0.1);
-  background: rgb(255 255 255 / 0.05);
-  color: rgb(229 231 235);
+  border: 1px solid color-mix(in srgb, var(--color-white) 10%, transparent);
+  background: color-mix(in srgb, var(--color-white) 5%, transparent);
+  color: var(--color-gray-200);
   transition: background-color 120ms ease;
 }
 .lp-nav:hover {
-  background: rgb(255 255 255 / 0.15);
+  background: color-mix(in srgb, var(--color-white) 15%, transparent);
 }
 
 /* 透明图棋盘格(随图片一起缩放,与主流看图器一致) */
@@ -495,7 +495,7 @@ onBeforeUnmount(() => {
     linear-gradient(45deg, #2a2f38 25%, transparent 25%, transparent 75%, #2a2f38 75%);
   background-size: 16px 16px;
   background-position: 0 0, 8px 8px;
-  box-shadow: 0 8px 40px rgb(0 0 0 / 0.55);
+  box-shadow: 0 8px 40px color-mix(in srgb, var(--color-black) 55%, transparent);
   will-change: transform;
 }
 .lp-img--ready {

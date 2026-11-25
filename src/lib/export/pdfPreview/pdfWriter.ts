@@ -83,7 +83,7 @@ function toUnicodeCmap(meta: FontMeta): string {
 }
 
 /** 惰性 A 档：只在导出时把还没位图的富片段光栅化。 */
-export async function ensureFragmentImages(doc: PdfDocument): Promise<string[]> {
+async function ensureFragmentImages(doc: PdfDocument): Promise<string[]> {
   const warnings: string[] = []
   const pending = new Set<string>()
   for (const page of doc.pages) {

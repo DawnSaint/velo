@@ -1,4 +1,12 @@
 {
+  "src/components/ImagePreviewLightbox.vue:#22262d": {
+    "color": "#22262d",
+    "type": "hex"
+  },
+  "src/components/ImagePreviewLightbox.vue:#2a2f38": {
+    "color": "#2a2f38",
+    "type": "hex"
+  },
   "src/components/Sidebar/AssetPanel.vue:rgb(209": {
     "color": "rgb(209",
     "type": "rgb"

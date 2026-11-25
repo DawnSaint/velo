@@ -55,7 +55,7 @@ export interface Run {
 }
 
 /** 自写 HTML 标签的视觉样式（值域与 SCSS / inline style 对齐，颜色由布局时按主题选）。 */
-export interface DecoStyle {
+interface DecoStyle {
   /** 背景填充 */
   fill?: string
   /** 描边色 */
@@ -72,9 +72,9 @@ export interface DecoStyle {
   shiftEm?: number
 }
 
-export type FragMode = 'math' | 'mermaid' | 'image' | 'html'
+type FragMode = 'math' | 'mermaid' | 'image' | 'html'
 
-export interface Block {
+interface Block {
   kind: 'para' | 'heading' | 'code' | 'table' | 'listItem' | 'quote' | 'hr' | 'toc' | 'footnote' | 'fragment' | 'spacer'
   runs?: Run[]
   codeLines?: Run[][]

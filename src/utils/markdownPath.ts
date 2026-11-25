@@ -1,4 +1,4 @@
-export const MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdown'] as const
+const MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdown'] as const
 
 export const MARKDOWN_DIALOG_FILTERS = [
   { name: 'Markdown', extensions: [...MARKDOWN_EXTENSIONS] },

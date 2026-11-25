@@ -162,11 +162,6 @@ export function measureMixed(text: string, preferred: FontKey, size: number): nu
   return units / 1000 * size
 }
 
-/** 字符串 → 按字体分组的 gid 序列（调用方已保证无混排时使用） */
-export function encode(text: string, font: FontKey): number[] {
-  return [...text].map(ch => glyph(ch, font).gid)
-}
-
 /** CSS 颜色 → PDF "r g b" 三分量。支持 #rgb / #rrggbb / rgb(...) */
 export function colorToRgb(value: string): string {
   const s = value.trim()
