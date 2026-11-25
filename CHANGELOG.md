@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.16](https://github.com/DawnSaint/velo/compare/v0.7.15...v0.7.16) (2026-11-25)
+
+
+### Features
+
+* **editor:** adapt table column widths to content and fix diff loading races ([3dc70c0](https://github.com/DawnSaint/velo/commit/3dc70c01853b5963a204f7ef58b0f524c6f9e649))
+* **editor:** add image context menu ([bfc3ebe](https://github.com/DawnSaint/velo/commit/bfc3ebe156133930e1104434238acc65035620a9))
+* **editor:** add mermaid preview context menu with copy, cut, export and delete actions ([b91c8d3](https://github.com/DawnSaint/velo/commit/b91c8d3fe8ac2447f6dea2c1664513c0dbe80b84))
+* **export:** add cross-platform pdf preview and export ([a0ed3ae](https://github.com/DawnSaint/velo/commit/a0ed3aeeb2f880159c395694621a5dc52ca5f9c9))
+* **export:** add docx export and an in-app export panel ([bc9e57e](https://github.com/DawnSaint/velo/commit/bc9e57e75a7be5f13956424e58a77d1c947aaf94))
+* **export:** add png/jpeg image export and refine export panel interactions ([818efb8](https://github.com/DawnSaint/velo/commit/818efb89164eacadad5505539e557bdb71e76609))
+* **export:** align pdf preview layout with the editor ([8879371](https://github.com/DawnSaint/velo/commit/8879371273e64722038c0bad286ec02679cf5873))
+* **export:** render katex formulas as pdf vectors from measured dom geometry ([61d5f07](https://github.com/DawnSaint/velo/commit/61d5f079f7ea71299570e5f0be523e2e30787cbb))
+* **sidebar:** replace orphan group with broken-ref detection and add an image preview lightbox ([a2b228c](https://github.com/DawnSaint/velo/commit/a2b228c1adac6b61b889d4de955ebfd373e918e8))
+
+
+### Bug Fixes
+
+* **export:** load PDF print HTML via asset protocol and inline fonts on demand ([aae46ba](https://github.com/DawnSaint/velo/commit/aae46ba80e54347daf55d9e3e5932d8b71ca4019))
+* **sidebar:** refresh git history without rebuilding the diff list ([e4e5035](https://github.com/DawnSaint/velo/commit/e4e5035b605bdb1f70f5aba623f76bd1241cc1ed))
+
 ## [0.7.15](https://github.com/DawnSaint/velo/compare/v0.7.14...v0.7.15) (2026-11-13)
 
 
