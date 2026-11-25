@@ -233,27 +233,9 @@ async fn export_pdf(
     pdf::export_pdf(window, output_path, html).await
 }
 
-/// 图片导出(PNG / JPEG 长图)—— WebView2 CapturePreview,离屏可见窗口截整篇。
-///
-/// 当前支持 Windows;macOS / Linux 在 `image::export_image` 里返回
-/// `ImageError::Unsupported`。format 取 "png" / "jpeg"。
-#[tauri::command]
-async fn export_image(
-    window: tauri::WebviewWindow,
-    output_path: String,
-    html: String,
-    format: String,
-) -> Result<(), image::ImageError> {
-    image::export_image(window, output_path, html, format).await
-}
-
 /// 仅在桌面端引入 pdf 模块(避免 mobile entry 编译失败)。
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod pdf;
-
-/// 仅在桌面端引入图片导出模块(同 pdf,依赖桌面 webview 截图 API)。
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-mod image;
 
 /// Git 历史集成(#local-timeline-git):调用系统 git 获取文件 commit 历史,
 /// 供版本历史面板展示。非 Git 仓库 / git 未安装时静默降级。
@@ -395,7 +377,6 @@ pub fn run() {
             show_main_window,
             open_devtools,
             export_pdf,
-            export_image,
             #[cfg(target_os = "windows")]
             open_default_apps_settings,
             shell_integration_state,

@@ -56,6 +56,16 @@ describe('useNotifyStore', () => {
     expect(store.toasts[0].duration).toBe(1000)
   })
 
+  it('可携带可选 action(如「打开预览」),随 toast 存储', () => {
+    const store = useNotifyStore()
+    const onClick = vi.fn()
+    store.success('已导出:/tmp/a.png', undefined, { label: '打开预览', onClick })
+    expect(store.toasts[0].action).toEqual({ label: '打开预览', onClick })
+    // 不带 action 的 toast 该字段为 undefined
+    store.info('plain')
+    expect(store.toasts[1].action).toBeUndefined()
+  })
+
   it('duration=0 表示不自动消失', () => {
     const store = useNotifyStore()
     store.info('persistent', 0)

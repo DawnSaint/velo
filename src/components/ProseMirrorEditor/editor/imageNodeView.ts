@@ -11,6 +11,26 @@ export interface ImageViewOptions {
   proxyDomURL: (url: string) => string
 }
 
+/**
+ * 把已加载图片的固有尺寸写回 width/height 属性,给 shrink-to-fit 布局一个确定基准。
+ *
+ * 只有 viewBox、没有 width/height 的 SVG 没有固有尺寸,浏览器在 `.image-frame`
+ * 这类 shrink-to-fit 容器里会把它的自动宽高算成 0 —— 图片整块塌缩不可见(源码编辑
+ * 态的预览 widget 是块级容器,不受影响,所以只在渲染态复现)。写回 natural* 后
+ * `.image-frame` 才能收缩到图片宽度,编辑按钮也仍贴在图片右上角。
+ *
+ * max-width / max-height 仍按原规则钳制(与普通位图一致);已有 width/height
+ * (`<img width=...>` 之类)不覆盖。
+ */
+function lockImageIntrinsicSize(img: HTMLImageElement): void {
+  if (img.hasAttribute('width') || img.hasAttribute('height')) return
+  const w = img.naturalWidth
+  const h = img.naturalHeight
+  if (w <= 0 || h <= 0) return
+  img.setAttribute('width', String(w))
+  img.setAttribute('height', String(h))
+}
+
 // 图片 NodeView:atom inline 节点,渲染 <img> + 选中态常驻悬浮 code-xml 按钮。
 //
 // 编辑走 imageEditPlugin 的 session(走 linkClick 同款范式,详见 image/imageEditPlugin.ts):
@@ -79,6 +99,11 @@ export function createImageNodeView(opts: ImageViewOptions) {
         // src 做 title,代理后的 asset:// 不便排查;文案本身不区分来源。
         attachImageErrorFallback(img, src)
         img.src = opts.proxyDomURL(src)
+        // 加载完成后写回固有尺寸(见 lockImageIntrinsicSize)。load 监听无条件挂;
+        // 缓存命中时 load 可能在挂监听前就已完成,再补一次立即检查兜底。
+        const lockSize = () => lockImageIntrinsicSize(img)
+        img.addEventListener('load', lockSize, { once: true })
+        if (img.complete) lockSize()
         const title = currentNode.attrs.title as string
         if (title) img.title = title
         // htmlSource image 的额外属性(width/style 等)展开到 img,让视觉效果生效

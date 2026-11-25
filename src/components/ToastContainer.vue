@@ -10,9 +10,15 @@
 // 挂在 scoped transition 类上）。
 
 import { Check, Info, AlertTriangle, XCircle, X } from '@lucide/vue'
-import { useNotifyStore, type ToastType } from '@/stores/notify'
+import { useNotifyStore, type Toast, type ToastType } from '@/stores/notify'
 
 const notify = useNotifyStore()
+
+/** 点击操作:执行动作并关闭该条(避免浮层挡住 lightbox)。 */
+function runAction(toast: Toast) {
+  toast.action?.onClick()
+  notify.dismiss(toast.id)
+}
 
 const iconFor: Record<ToastType, typeof Check> = {
   success: Check,
@@ -49,9 +55,19 @@ const iconColorFor: Record<ToastType, string> = {
           :class="iconColorFor[toast.type]"
           aria-hidden="true"
         />
-        <span class="min-w-0 flex-1 break-words text-sm text-gray-700 dark:text-gray-200">
-          {{ toast.message }}
-        </span>
+        <div class="min-w-0 flex-1">
+          <span class="block break-words text-sm text-gray-700 dark:text-gray-200">
+            {{ toast.message }}
+          </span>
+          <button
+            v-if="toast.action"
+            type="button"
+            class="mt-1 rounded text-sm underline underline-offset-2 text-gray-500 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+            @click="runAction(toast)"
+          >
+            {{ toast.action.label }}
+          </button>
+        </div>
         <button
           type="button"
           class="mt-0.5 shrink-0 rounded text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"

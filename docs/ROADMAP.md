@@ -73,14 +73,14 @@ P3  #code-signing（独立，CI 核心已通）
   - 除当前两套外增加更多内置主题
   - 与主题市场共享主题数据格式
 
-- [x] **导出更多格式** `#export-more` `P3` `M` `?` —— [RESEARCH](./research/export-more.md)
+- [x] **导出更多格式** `#export-more` `P3` `M` `?`
   - ~~建议走 pandoc 桥接（一行命令多格式），比自写 walker 高效~~ → 复核：pandoc 非唯一解；实测 `docx.js` 的 `htmlToContent`（复用现有导出 HTML）保真度最高（保留 CSS／语法高亮／alert／公式），`mdast2docx` 为无样式退路；Rust 系实测：ferrodoc 缺公式/自定义语法（不适合），knit-md-docx 功能全但需进 src-tauri（列长期架构选项）
 
-- [x] **导出 PDF 分页预览** `#pdf-preview` `P3` `M` —— [RESEARCH](./research/pdf-preview.md)（附录 C / D）
+- [x] **导出 PDF 分页预览** `#pdf-preview` `P3` `M`
   - 遗留差异「公式位图化」的独立可行性评估见 [KATEX VECTOR SPIKE](./research/pdf-katex-vector-spike.md)：结论为可做但属独立排期，未列入待办。
   - 导出面板新增「PDF 预览」入口，打开分页预览面板，可实时调整页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式。
   - 预览与导出共用前端 Display List：不依赖 WebView2 / PrintToPdf，三平台一致；改参数只做同步重排（实测 ~5–8ms）。
-  - 早期「忠实预览必须复用 PrintToPDF，压不到 ~1s」的结论建立在「与编辑器逐页 WYSIWYG 一致」的旧约束上；改为允许与 doc HTML / 主编辑器有细微差异后结论不再成立，见 [旧评估](./research/pdf-preview.md)。
+  - 早期「忠实预览必须复用 PrintToPDF，压不到 ~1s」的结论建立在「与编辑器逐页 WYSIWYG 一致」的旧约束上；改为允许与 doc HTML / 主编辑器有细微差异后结论不再成立（选型留痕见 DECISIONS ADR-20261119-001）。
   - 旧 `PDF` 导出路径（WebView2 PrintToPdf）保留，不替换。
 
 - [ ] **书签** `#bookmark` `P3` `S`
@@ -104,3 +104,17 @@ P3  #code-signing（独立，CI 核心已通）
 - [ ] **Stryker 变异测试** `#stryker` `P2` `L`
   - Velo 测试只跑 v8 覆盖率，容易高估有效性；变异测试能抓"测试过了但其实没断言"的假绿
   - 先对核心模块（`markdownIO` / `documentStore` / schema）
+
+- [ ] **类型检查链路迁移 TS7** `#ts7-toolchain` `P3` `M`
+  - 现状 `vue-tsc` 3.3.11 + TypeScript 6.0.3；TS7 是 Go 重写，`vue-tsc` 无法沿用，需切到 TS 官方 content-mappers 机制（`@vue/content-mapper` v4 alpha），编译器可选 tsrs（Rust 移植，npm `latest=7.1.0-beta.tsrs5`）或官方 `typescript@7.1.0-beta`
+  - 实测（隔离环境，未改依赖）：`type-check` 约 10.3s → ~2.6s；但 v4 mapper 更严，暴露 150 个既有类型问题，一份 d.ts 补丁（`GlobalDirectives` + `data-*` / `aria-*`）+ 2 处 store 类型收窄可压到 12 个
+  - 阻塞项：`typescript-eslint` peer 尚不支持 TS7；Volar v4 editor 支持未合并（vuejs/language-tools#6170）
+  - 前置准备（不切换即可做，对现状无害）：`vVeloScroll` 全局指令声明、`data-*` / `aria-*` 全局类型补丁、`themeMode` / `startupMode` store 类型收窄
+  - 调研见 [RESEARCH](./research/tsrs-content-mapper.md)
+
+- [ ] **Lint 链路切换到 oxlint（type-aware 后端 tsrs）** `#oxlint-lint` `P3` `M` `← #ts7-toolchain`
+  - oxlint 1.95.0（Rust linter）；实测同项目全量 lint 15.96s → 1.04s（~15×）；`@oxlint/migrate` 可从现有 flat config 生成 `.oxlintrc.json`（core / TS / globals / overrides 迁移覆盖良好）
+  - type-aware 后端用 tsrs：装 `oxlint + tsrs` 后 oxlint 自动用 tsrs-lint（实测 `no-floating-promises` / `no-unnecessary-condition` 生效），同时绕开 `typescript-eslint` 不支持 TS7 的阻塞
+  - 硬缺口：Vue 模板规则整批不支持（oxlint 仅 lint `<script>` 块），项目用到的 `attributes-order` / `no-v-html` / `html-self-closing` 等失效；官方路径 language plugins RFC #21936 / content mapper RFC #29142 均未落地，过渡可用第三方 `oxlint-vue-rs`
+  - 策略：阶段 1 混合跑（oxlint 接管非模板 + ESLint 保留 vue 模板规则），阶段 2 随官方 language plugin 落地收回
+  - 调研见 [RESEARCH](./research/tsrs-content-mapper.md)

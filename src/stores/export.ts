@@ -16,11 +16,12 @@
 //    自包含(所有 CSS inline),用户拿到 HTML 任何浏览器都能开。
 // 3b) **Word 路径**:`buildExportDocx`(复用 htmlRenderer + docx.js
 //     `htmlToContent`)→ `writeFile` 写二进制。图片 / SVG 由 docxRenderer
-//     走 inlineAssets 自包含。选型见 docs/research/export-more.md。
-// 3c) **图片路径**:`buildExportHtml` 同 HTML 导出 → `invoke('export_image',
-//     { outputPath, html, format })`。Rust 端在离屏可见 webview 窗口里渲染整篇
-//     并 CapturePreview 成长图(PNG / JPEG 原生格式)。隐藏窗口不渲染、抓出来
-//     空白,所以窗口建在屏幕外再 SW_SHOWNOACTIVATE 显示 —— 见 image_windows.rs。
+//     走 inlineAssets 自包含。选型见 docs/architecture/export.md「DOCX 路径」。
+// 3c) **图片路径**:`buildExportHtml`(inlineAssets 自包含)→ 前端
+//     `renderExportImage`(隐藏 iframe 原生渲染 + SVG foreignObject + canvas
+//     自适应倍率)→ `writeFile` 写二进制。纯 Web API,跨平台、异步、不卡 UI,
+//     样式与编辑器同源 —— 见 imageRenderer.ts。早先的 Rust 离屏窗口 +
+//     CapturePreview 只支持 Windows 且卡 UI,已退役。
 // 4) **PDF 路径 (v0.4.7 后)**:`invoke('export_pdf', { outputPath, html })` 调
 //    平台原生 PrintToPDF API (Windows WebView2 ICoreWebView2_7::PrintToPdf),
 //    静默写到 target 路径,无任何系统对话框。HTML 已经在前端 buildExportHtml
@@ -45,11 +46,13 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { save as saveDialog } from '@/tauri/dialog'
 import { writeTextFile, writeFile } from '@/tauri/fs'
-import { invoke, isTauri } from '@tauri-apps/api/core'
+import { invoke, isTauri, convertFileSrc } from '@tauri-apps/api/core'
 import { formatError } from '@/utils/formatError'
+import { basenameOfPath } from '@/utils/statusPath'
 import { useDocumentStore } from './document'
 import { useEditorStore } from './editor'
 import { useNotifyStore } from './notify'
+import { useImagePreviewStore } from './imagePreview'
 import type { buildExportHtml } from '@/lib/export/htmlRenderer'
 import type { buildExportDocx } from '@/lib/export/docxRenderer'
 
@@ -78,7 +81,7 @@ export interface ExportTypeSpec {
  * `pdf-preview` 不是「另一种文件格式」,而是一个入口:选中后打开分页预览面板,
  * 在面板里调页边距 / 字号 / 行距 / 页眉页脚并实时重排,再由前端 Display List
  * 直接写出 PDF。与旧 `pdf`(WebView2 PrintToPdf)互不干扰,三平台一致。
- * 方案评估见 docs/research/pdf-preview.md 附录 C。
+ * 实现见 docs/architecture/export.md「PDF 预览 / 导出」。
  */
 export const EXPORT_TYPES: ExportTypeSpec[] = [
   { type: 'pdf', label: 'PDF', ext: 'pdf', exts: ['pdf'], desc: '版式与分页最稳，适合分享 / 打印' },
@@ -109,6 +112,13 @@ let exportDocxMod: Promise<typeof import('@/lib/export/docxRenderer')> | null = 
 function loadExportDocx() {
   if (!exportDocxMod) exportDocxMod = import('@/lib/export/docxRenderer')
   return exportDocxMod
+}
+
+// imageRenderer 纯前端渲染(iframe + foreignObject + canvas),同范式懒加载。
+let exportImageMod: Promise<typeof import('@/lib/export/imageRenderer')> | null = null
+function loadExportImage() {
+  if (!exportImageMod) exportImageMod = import('@/lib/export/imageRenderer')
+  return exportImageMod
 }
 
 /**
@@ -201,7 +211,12 @@ export const useExportStore = defineStore('export', () => {
     }
     // 成功才弹成功提示 —— 放在 catch 之外,免得 toast 本身抛错被当成"导出失败"。
     if (succeeded) {
-      notify.success(`已导出:${target}`)
+      // 图片导出多一个「打开预览」动作:复用 lightbox(文件树 / 资产面板同一套),
+      // 直接看刚落盘的长图。其它类型维持纯告知。
+      const action = type === 'image'
+        ? { label: '打开预览', onClick: () => previewExportedImage(target) }
+        : undefined
+      notify.success(`已导出:${target}`, undefined, action)
       return true
     }
     return false
@@ -279,24 +294,34 @@ export const useExportStore = defineStore('export', () => {
   }
 
   /**
-   * 图片导出:buildExportHtml(同 HTML 导出)+ invoke('export_image')。
-   * 配色按 app 的 darkMode 强制(forceColorScheme)—— 截图 webview 的媒体查询
-   * 只认系统主题,不强制会出现 app 亮色 + 系统暗色 → 导出暗图。
-   * 格式按 saveDialog 选中路径的扩展名 dispatch(jpg/jpeg → jpeg,其余 png);
-   * 路径没带图片扩展名时补 .png(系统框通常会自动补 filter 后缀,这里是兜底)。
-   * Rust 端离屏 webview 渲染整篇 + CapturePreview,见 image_windows.rs。
+   * 图片导出:buildExportHtml(inlineAssets 自包含)+ 前端 renderExportImage
+   * (隐藏 iframe 原生渲染 + foreignObject + canvas)→ writeFile 写二进制。
+   * 跨平台、异步、不卡 UI;样式与编辑器同源。配色按 app darkMode 强制
+   * (forceColorScheme)。格式按 saveDialog 选中路径扩展名 dispatch(jpg/jpeg →
+   * jpeg,其余 png);路径没带图片扩展名时补 .png。见 imageRenderer.ts。
    * 失败抛错由 exportDocument 外层 catch + Toast 兜底。
    */
   async function exportToImage(target: string, opts: Parameters<typeof buildExportHtml>[0]): Promise<void> {
     const { buildExportHtml } = await loadExportHtml()
     const { html } = await buildExportHtml({
       ...opts,
+      inlineAssets: true,
       forceColorScheme: opts.darkMode ? 'dark' : 'light',
     })
     const lower = target.toLowerCase()
     const format = lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'jpeg' : 'png'
     const outputPath = /\.(png|jpe?g)$/.test(lower) ? target : `${target}.png`
-    await invoke<void>('export_image', { outputPath, html, format })
+    const { renderExportImage } = await loadExportImage()
+    const bytes = await renderExportImage({ html, format })
+    await writeFile(outputPath, bytes)
+  }
+
+  /** 图片导出成功提示的「打开预览」动作:复用全局 lightbox(文件树 / 资产面板同一套)。 */
+  function previewExportedImage(absPath: string): void {
+    useImagePreviewStore().open(
+      [{ url: convertFileSrc(absPath), name: basenameOfPath(absPath), absPath }],
+      0,
+    )
   }
 
   /**

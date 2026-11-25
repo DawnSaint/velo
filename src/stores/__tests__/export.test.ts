@@ -1,4 +1,5 @@
-// export store 合约测试:saveDialog → writeTextFile (HTML) / invoke('export_pdf') (PDF) 路径。
+// export store 合约测试:saveDialog → writeTextFile (HTML) / invoke('export_pdf') (PDF)
+// / writeFile (图片,前端渲染字节) 路径。
 //
 // 复刻 src/stores/__tests__/document.test.ts 的 store 单元测试模式:
 //   - setActivePinia(createPinia()) + vi.resetAllMocks() in beforeEach
@@ -14,6 +15,13 @@ import { EXPORT_TYPES, useExportStore } from '../export'
 import { useDocumentStore } from '../document'
 import { useEditorStore } from '../editor'
 import { useNotifyStore } from '../notify'
+import { renderExportImage } from '@/lib/export/imageRenderer'
+
+// 图片导出走前端 renderExportImage(iframe + canvas),jsdom 无法跑真实光栅化,
+// mock 成固定字节,断言 store 把字节交给 writeFile + 按扩展名 dispatch format。
+vi.mock('@/lib/export/imageRenderer', () => ({
+  renderExportImage: vi.fn(async () => new Uint8Array([137, 80, 78, 71])),
+}))
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -133,7 +141,7 @@ describe('useExportStore.exportDocument', () => {
     )
   })
 
-  it('image export offers PNG + JPEG filters and invokes export_image (png)', async () => {
+  it('image export offers PNG + JPEG filters and writes PNG bytes', async () => {
     vi.mocked(saveDialog).mockResolvedValueOnce('/tmp/foo.png')
     const docStore = useDocumentStore()
     docStore.content = '# pic'
@@ -150,13 +158,14 @@ describe('useExportStore.exportDocument', () => {
       defaultPath: 'foo.png',
     }))
     expect(writeTextFile).not.toHaveBeenCalled()
-    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
-      outputPath: '/tmp/foo.png',
-      format: 'png',
-    }))
-    const [, payload] = vi.mocked(invoke).mock.calls[0]
-    expect((payload as any).html).toContain('<!DOCTYPE html>')
-    expect((payload as any).html).toContain('pic')
+    expect(invoke).not.toHaveBeenCalledWith('export_image', expect.anything())
+    expect(renderExportImage).toHaveBeenCalledWith(expect.objectContaining({ format: 'png' }))
+    expect(writeFile).toHaveBeenCalledTimes(1)
+    const [path, bytes] = vi.mocked(writeFile).mock.calls[0]
+    expect(path).toBe('/tmp/foo.png')
+    expect(bytes).toBeInstanceOf(Uint8Array)
+    // 图片成功提示带「打开预览」动作(复用 lightbox)
+    expect(useNotifyStore().toasts.at(-1)?.action?.label).toBe('打开预览')
   })
 
   it('image export dispatches jpeg when target ends with .jpg', async () => {
@@ -167,10 +176,8 @@ describe('useExportStore.exportDocument', () => {
     const store = useExportStore()
     const ok = await store.exportDocument('image')
     expect(ok).toBe(true)
-    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
-      outputPath: '/tmp/foo.jpg',
-      format: 'jpeg',
-    }))
+    expect(renderExportImage).toHaveBeenCalledWith(expect.objectContaining({ format: 'jpeg' }))
+    expect(writeFile).toHaveBeenCalledWith('/tmp/foo.jpg', expect.any(Uint8Array))
   })
 
   it('image export appends .png when target has no image extension', async () => {
@@ -181,10 +188,7 @@ describe('useExportStore.exportDocument', () => {
     const store = useExportStore()
     const ok = await store.exportDocument('image')
     expect(ok).toBe(true)
-    expect(invoke).toHaveBeenCalledWith('export_image', expect.objectContaining({
-      outputPath: '/tmp/foo.png',
-      format: 'png',
-    }))
+    expect(writeFile).toHaveBeenCalledWith('/tmp/foo.png', expect.any(Uint8Array))
   })
 
   it('is reentrant: a second call while exporting returns false immediately', async () => {

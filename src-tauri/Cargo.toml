@@ -52,8 +52,7 @@ git2 = { version = "0.19", default-features = false }
 tempfile = "3"
 
 # Windows PDF 导出:WebView2 ICoreWebView2_7::PrintToPdf
-# Windows 图片导出:WebView2 CapturePreview(image_windows.rs 直接用 Foundation/Com,
-# 虽经 webview2-com-sys 传递启用,显式声明更稳)
+# (windows crate 的 Foundation/Com 等 feature 经 webview2-com-sys 传递启用,显式声明更稳)
 # Windows 注册表(v0.5.1 注册"在 Velo 中打开"文件夹右键菜单):winreg
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"

@@ -2,7 +2,7 @@
 
 > **性质**：差异 3 的独立 spike 评估，**结论先行：可做，但不是小修补，是一次独立排期的产品决策**。未实施，未列入 ROADMAP 待办。
 > **触发**：TS 版 PDF 导出（`src/lib/export/pdfPreview/`）与旧 WebView2 `PrintToPdf` 版对比，四大差异中差异 1/2/4 已修复，差异 3（公式位图化）单独评估。
-> **本文只回答**：能不能抹平、代价是什么、值不值得、怎么做最稳。代码现状一律以 `docs/architecture/export.md`「PDF 预览 / 导出」与 `docs/research/pdf-preview.md` 附录 C.7 为准。
+> **本文只回答**：能不能抹平、代价是什么、值不值得、怎么做最稳。代码现状一律以 `docs/architecture/export.md`「PDF 预览 / 导出」为准。
 
 ---
 
@@ -16,7 +16,7 @@
 | 主题 | 跟 `@media print`（强制 light） | 按首次 build 主题烘焙，面板切暗色不重渲染 |
 | 体积 | 单份 PDF 较大（基线 2.26MB） | 省公式位图字节，但多 5 张 JPEG |
 
-这不是 bug，是**附录 C.4 刻意选的 A 档位图取舍**——把 KaTeX 当"浏览器排好的原子富片段"采样，换取架构问题（op 类型、资源字典、双后端一致、缓存边界）先闭环。要抹平差异，就要在**不依赖浏览器排版的纯 TS 链路里，重新产出公式的矢量内容流**。
+这不是 bug，是**pdfPreview 落地时刻意选的 A 档位图取舍**——把 KaTeX 当"浏览器排好的原子富片段"采样，换取架构问题（op 类型、资源字典、双后端一致、缓存边界）先闭环。要抹平差异，就要在**不依赖浏览器排版的纯 TS 链路里，重新产出公式的矢量内容流**。
 
 **判定标准**（抹平 = 三者齐全）：① 公式走 PDF text 算子 + ② 嵌 KaTeX 字体子集 + ③ ToUnicode 可选中搜索。缺任何一项都只是"另一种降级"。
 
@@ -87,7 +87,7 @@ KaTeX 用 **20 个专用字体族**（`KaTeX_Main/Math/AMS/Size1-4/Caligraphic/F
 **关键判断**：
 - 这不是引擎硬限制——`pdfWriter` 已经是真 text 算子 + 嵌字体 + ToUnicode，mermaid 图内文字已经可选。差异 3 纯粹是"KaTeX 那一块还没接进 B 档"。
 - 但它也不是"补个 op 分支"的小活：**核心工作量在字体系统泛化 + 复刻 KaTeX 的 CSS 布局语义**，两者都是高风险区。
-- 与附录 C.4 对 mermaid B 档的评估对比：mermaid 当时的判断是"固定方言、300–400 行、逐图回归"就能上；KaTeX 的方言**不固定**（54 类、依赖 CSS 布局语义、字体 20 套），复杂度明显高一个量级。
+- 与选型期对 mermaid B 档的评估对比：mermaid 当时的判断是"固定方言、300–400 行、逐图回归"就能上；KaTeX 的方言**不固定**（54 类、依赖 CSS 布局语义、字体 20 套），复杂度明显高一个量级。
 
 ---
 
@@ -132,3 +132,39 @@ A：**排除**。MathML 只有语义（`<mi><mn><mfrac>`），没有任何视觉
 ## 6. 一句话结论
 
 **差异 3 不是硬限制，可以抹平，但它是一次独立排期的产品决策（P0 spike → P1 产品化），不是 1/2/4 那种"补实现"的修复。** 建议先做 P0 有限范围 spike 用最小代价验证定位精度与文本层收益，再决定是否投入字体系统泛化；任一止损线触发就维持 A 档位图并提高分辨率。
+
+---
+
+## 7. P0 实施结果（2026-11-24，代码在 `.pdfbench/katexvec/`）
+
+**结论：P0 通过，三条止損线均未触发，建议进入 P1 评估。**
+
+### 7.1 验收数据
+
+| 公式 | glyph | 像素差(>32) | 占比 | 平均浓度差 |
+| --- | --- | --- | --- | --- |
+| `E = mc^2`（inline） | 5 | **0** | 0.00% | 0.0/255 |
+| `x^2` | 2 | **0** | 0.00% | 0.0 |
+| `\sum_{i=1}^n` | 5 | **0** | 0.00% | 0.0 |
+| `\frac{a}{b}` | 2 | 8 | 0.00% | 0.0 |
+| `\sqrt{x}` | 1 | 3 | 0.00% | 0.0 |
+| `\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}` | 12 | 56 | 0.03% | 0.0 |
+| `\begin{aligned}…4 行…\end{aligned}` | 60 | 41 | 0.02% | 0.0 |
+
+- **pypdf 独立提取文本层全通过**：`π ∫ ∞ ← ∑ a b x d i j y + − , 0 1 2 n E m c` 全部可选中/搜索（判定标准①②③齐全）。
+- 对比台：参考 = KaTeX HTML（foreignObject 光栅化，strut 实测基线对齐），spike = PDF 经 pdf.js；红蓝双通道叠加 + ±16px 平移搜索确认收敛。
+- **基线对齐误差已消除**：全部公式最优 dy=0（残留 -1px 属亚像素）。
+
+### 7.2 落地要点（相对调研的修正）
+
+- **P0 实际接 3 套字体**（原估 1–2 套）：display 模式的 `\int`/`\sum` large-op 字形必须 `KaTeX_Size2-Regular`，否则缺字。链路仍为「woff2 → wawoff2(wasm) → hb-subset(wasm) → opentype.js」，零新增 Python / 静态资产。
+- **定位恒等式（实测推导，写进 `katexLayout.ts` 头注释）**：vlist 行基线 `y = -(style.top + pstrut.height)`（相对 vlist 基线）；符号宽 = `(width + italic) × maxFontSize × basePt`；sizing 类 `reset-sizeM.sizeN` 按 `sizeMultipliers` 折算；`paddingLeft` 走节点自身盒；spacing 已由 buildHTML 物化为 `.mspace[marginRight]`，转换器不需要复刻 spacing 表。
+- **路径算子**：`svgToPdf.pathOps` 的 M/L/C/A/Z/H/V 可直接复用（拷贝），补 `S/Q/T` 后覆盖 sqrtMain 等 alternate 路径；弧线转贝塞尔现成。
+- **踩坑记录**：① `mspace` 的 marginRight 若同时算作容器宽度和父流 margin 会双重计入（每处多 4px）；② SVG-as-image 的 foreignObject 不继承文档 CSS/@font-face，参考台必须内联注入；③ 参考侧基线要用 strut 底边实测，且 `vertical-align` 的 em 基准是 `.katex` 自身的 1.21em 字号；④ SVG 路径已在 layout 内翻成 y 向上，PDF 侧 `cm` 不能再做 y 翻转（二次翻转会把根号上下颠倒）；⑤ hide-tail 的裁切矩形要落在同一 y 向上坐标系，且路径必须真正被 `re W n` 包住，否则 400em 的 overbar 会横穿页面；⑥ 100% 宽的 `frac-line` 在量宽阶段记 0 宽，vlist 居中计算必须把它排除（否则分数线从 cellW/2 起画、右侧溢出）。
+
+### 7.3 遗留（P1/P2 边界）
+
+- `sample-int` 宽度 +15px（supsub cellW / nulldelimiter 边界），0.02% 级。
+- 未适配非 alternate 的 svgGeometry 路径（`\left(\right)` 伸缩分隔符、accent）、`\cancel` 等 17 样例以外的命令 —— 转换失败应告警回退位图（P1 的双编码器策略）。
+- 中文公式（`\text{中文}`）、极端 displaystyle 尺寸未验证；字体按需子集（P1 的 `collectCharset` 扩展）未做。
+- P1 的核心成本仍是字体系统泛化（`FontKey` 3→N）与 `previewRenderer` 文本算子渲染，本次未动。

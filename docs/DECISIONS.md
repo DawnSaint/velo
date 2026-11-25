@@ -87,7 +87,7 @@
 - **Context**: 四条 PDF 路径：html2pdf.js（新依赖 + CJK 字体配置）、iframe + `window.print()`（UX 差）、Tauri `printToPdf` API（不存在）、平台原生 PrintToPDF（Typora/Obsidian 同款方案）。
 - **Decision**: HTML 走 mdast walker 复用 shiki/KaTeX/mermaid/DOMPurify 渲染管线；PDF 走 Tauri `with_webview` 调平台原生 PrintToPDF（Windows `ICoreWebView2_7::PrintToPdf`，macOS/Linux 待补）。
 - **Consequences**: 前端零新依赖；PDF 静默写盘无对话框，与 Typora 同款 UX。HTML image 走 `asset://`，外部浏览器打开破图（已知限制）。
-- **后续更新（未发版）**: 需求方放宽「必须与编辑器 / DOC / HTML 完全一致」的约束，改为「允许细微差异 + 不依赖 WebView2 + 三平台 + 体积可控」，因此**新增一条并行的** `pdf-preview` 链路：前端轻量布局器产出共享 Display List，预览直接画 DOM、导出直接序列化 PDF（`src/lib/export/pdfPreview/`），不经过 Rust / PrintToPdf。**本 ADR 的 PrintToPdf 路径继续作为默认 `PDF` 导出保留**，两者互不替代 —— 旧路径版式与编辑器最一致（Windows），新路径快、跨平台、可实时调参。取舍与实测见 `docs/research/pdf-preview.md` 附录 C / D；macOS / Linux 的默认 PDF 导出仍是 `PdfError::Unsupported`，但可从「PDF 预览」面板导出。
+- **后续更新（未发版）**: 需求方放宽「必须与编辑器 / DOC / HTML 完全一致」的约束，改为「允许细微差异 + 不依赖 WebView2 + 三平台 + 体积可控」，因此**新增一条并行的** `pdf-preview` 链路：前端轻量布局器产出共享 Display List，预览直接画 DOM、导出直接序列化 PDF（`src/lib/export/pdfPreview/`），不经过 Rust / PrintToPdf。**本 ADR 的 PrintToPdf 路径继续作为默认 `PDF` 导出保留**，两者互不替代 —— 旧路径版式与编辑器最一致（Windows），新路径快、跨平台、可实时调参。选型见 ADR-20261119-001，实现见 `docs/architecture/export.md`；macOS / Linux 的默认 PDF 导出仍是 `PdfError::Unsupported`，但可从「PDF 预览」面板导出。
 
 ---
 
@@ -408,7 +408,7 @@
 - **Context**: 导出类型（PDF / Word / HTML）原先只能靠系统保存框的 filter 切换，用户必须先打开系统框才能选类型；当时在规划中的 `#pdf-preview` 也需要页边距 / 字号 / 页眉页脚参数与分页预览入口，系统框承载不了。
 - **Decision**: 新增内置 `ExportPanel`（Teleport 弹层），先选类型 + 文件名，确认后按类型锁死 `saveDialog` filter 再选路径；文件菜单、命令面板、快捷键三处统一走面板。
 - **Consequences**: 类型选择可见、可预期，系统框回归单一职责；程序化导出保留 `exportDocument(type)` 直连路径，测试与脚本不受影响。代价是多一个全局弹层及其键盘 / 焦点管理。
-- **后续更新（未发版）**: 面板从三项扩为四项，新增「PDF 预览」。它是**入口而非格式**：确认后不打 `saveDialog`，改为打开 `PdfPreviewPanel`，页边距 / 字号 / 行距 / 页眉页脚参数放在预览面板自己的侧栏；用户调完再点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`。这样既保留面板「先选类型 + 文件名」的语义，又不必把参数区塞进系统框或原本的小卡片。见 `docs/research/pdf-preview.md` 附录 C。
+- **后续更新（未发版）**: 面板从三项扩为四项，新增「PDF 预览」。它是**入口而非格式**：确认后不打 `saveDialog`，改为打开 `PdfPreviewPanel`，页边距 / 字号 / 行距 / 页眉页脚参数放在预览面板自己的侧栏；用户调完再点「导出 PDF」才走 `saveDialog` + 前端 `writeFile`。这样既保留面板「先选类型 + 文件名」的语义，又不必把参数区塞进系统框或原本的小卡片。见 `docs/architecture/export.md`「store 与内置导出面板」。
 
 ---
 
@@ -419,4 +419,14 @@
 - **Context**: GFM 无列宽语义，`markdownIO` 建表时 cell 的 `colwidth` 全为 null，`columnResizing` 的 `TableView` 因而把 `<colgroup>` 写成空宽度；CSS 又是 `table-layout: fixed + width: 100%`，浏览器只能按列数均分 —— 内容为单个 `#` 的列与长文本列等宽。候选：A 纯 `table-layout: auto`（3 行 CSS，但列宽随每次击键变化、拖拽 px 不精确）；B 按文本估宽写百分比（无需测量，但 KaTeX / 图片 / 行内代码估不准）；C 浏览器 auto 布局实测 → 实测宽度写回 colgroup → 切 fixed 锁定。C 若沿用「默认 fixed、rAF 里才切 auto 测量」会产生「先均分再跳变」的一帧。
 - **Decision**: 选 C，并把默认 CSS 直接改成 `auto`，让**首个可见态就是内容自适应**，从源头删掉「均分」这个状态。测量、写 `<colgroup>`、切 `locked` 全部在**同一个 rAF 回调**（paint 之前）完成，浏览器该帧只 paint 最终态；写回的是刚读到的同一组 auto 宽度（1px 量化，列宽之和恰等于测得的表格宽度），且切换发生在首次 paint 之前，用户只看到一次自适应布局 → 零跳变。列宽**一律用 px**：`columnResizing` 的拖拽预览只写 px，锁定态 `table { width: max-content }` 让表格总宽由列宽之和决定（Chromium 实测 `width: auto` 仍会把表格钳在容器宽度内、按比例缩放列宽，只有 `max-content` 能让 px override 精确跟手；超出部分由 `.tableWrapper` 横向滚动）；若自适应列用百分比，`%` 列与 px override 列混合、表格宽度又被 100% 锁死时，fixed 布局会重新平衡列宽吃掉 override 增量（首次拖拽不跟手）。新增 `editor/tableAutoWidth.ts` 的 `AutoWidthTableView extends TableView`，经 `columnResizing({ View, defaultCellMinWidth: 48 })` 注入，不改 `allPlugins` 顺序。多表同帧「统一切 auto → 统一读 → 统一锁」批处理，避免读写交错触发多次强制 layout。
 - **Consequences**: 全程不 dispatch transaction、不写 `colwidth`、不动 `markdownIO`，列宽是纯视图态，markdown round-trip 字节不变、undo 栈干净。锁定后普通打字不重测（结构签名 = 行数 + colspan 展开列数），只在增删行列 / 字体加载 / 容器宽度变化时重算；容器变化由 ResizeObserver 同步按缓存比例重算 px（等比例缩放、无闪烁），手动列宽变化只需同步重算一次。手动 `colwidth` 优先：保留用户设定的 px，**其余自动列保持「无手动列时的基准宽度」（`available × 内容比例`），不按 `available - manualSum` 重新分配**。原因是官方 `updateColumnWidth` 在 mouseup 时只给被拖的那一列写 `colwidth`，其余列仍是 0；若按剩余空间重算，拖宽一列就会把其它列压到 `MIN_COL_PX`（截图里的文字竖排、行高暴涨），且拖拽预览宽度与 mouseup 后宽度对不上。总宽允许大于 `available`，由 `.tableWrapper` 横向滚动。1px 量化误差只在**无手动列**时补给最大的自动列以铺满容器；有手动列时不做校正，避免改动自动列造成二次跳变。`columnWidthBudget()` 另把容器宽度扣掉 1px：`border-collapse: collapse` 下表格边框盒 = 列宽之和 + 1px 外框，`width: max-content` 按边框盒计算，若不扣这 1px，每个锁定表格都会比容器宽 1px、常驻一条横向滚动条（Chromium 实测 930 容器 → 表格 931 → 10px 滚动条；扣后表格 930、无滚动条，拖宽到 1556 时滚动条按需出现）。**锁定态全程保持 fixed，绝不因 hover / 拖拽切回 auto**：`columnResizing` 的 hover 判定基于 cell 边界 5px 命中区，布局一变边界就位移，随即触发「切 auto → hover 失效 → 切回 fixed → 又命中」的自激闪烁，列分割线也会跟着跳。为了让 fixed 下仍能拖拽，自适应宽度除 inline width 外另存一份到 `<col>` 的 `--velo-col-width`，由 `col { width: var(--velo-col-width, auto) }` 兜底 —— 官方 `updateColumnsOnResize` 每次（含 PM 的 `view.update`、拖拽预览）都会把无 `colwidth` 列的 inline width 清成 `''`，但不会动自定义属性；拖拽 override 列写的 inline px 优先级更高，自然覆盖兜底值。**列宽统一 px + 锁定态 `width: max-content`** 解决首次拖拽不跟手：此前自适应列是百分比、override 列是 px，表格宽度又被 100% 锁死（后来改成 `auto` 仍被 Chromium 钳在容器宽度内按比例缩放），fixed 布局把 override 增量重新平衡掉；mouseup 写入 `colwidth` 后才切成全 px，所以表现为「第一次拖拽没反应、松开才变、之后才跟手」。导出 HTML 无 NodeView，天然停在 auto 态，静态文档按内容自适应，docx 继承同一份 HTML。代价：多一个 NodeView + ResizeObserver；视口外 / colspan 不规则的表格会退化到 auto 态（仍是自适应，只是不锁定）。已知遗留：手动拖拽的列宽依旧会话级、重载即丢，后续若做「会话内记忆」应沿用本 ADR 的 view-only 路线。
+
+---
+
+## 未发版 — PDF 预览选型
+
+### ADR-20261119-001: PDF 预览走纯 TS 共享 Display List 双后端，不引入 Typst / 排版引擎
+
+- **Context**: 旧约束「预览必须与编辑器逐页 WYSIWYG 一致」在 ~1s 验收线下无解 —— PrintToPDF 是批处理原语，每次调用完整跑「加载 HTML → 全文档分页 → 光栅化」（~5s），改页眉与重写整篇无差别，且被全局打印锁串行。约束放宽为「允许细微差异 + 不依赖 WebView2 + 三平台 + 体积可控」后候选实测：复用 PrintToPdf（~5s、Windows-only）；Typst native 嵌入（安装包 +10–20MB、首次 ~1.4s、增量 150–270ms 但分页与 Chromium 不一致，预热消灭冷启动无效）；Typst WASM（+3–8MB、性能未验证）；非 Chromium HTML→PDF 引擎（WeasyPrint / jhtmltopdf / ironpress / xhtml2pdf 等实测保真度全部不达标 —— 快的不保真、保真的不快，Velo 导出 HTML 是为 Chromium 量身定制的；WeasyPrint 理论最优但 Windows 缺 GTK runtime 无法桌面分发）；纯 TS 轻量布局器（体积增量在懒加载 chunk 内、参数重排毫秒级）。
+- **Decision**: 自研纯 TS 布局器，预览与导出共享同一份 Display List（预览画 DOM 绝对定位、导出序列化 PDF），一致性由「同一棵布局树」而非「同一个慢引擎」保证；文本测量查子集字体字形宽度表（纯计算、三平台一致），字体走运行时 wasm 子集化（零新增字体文件）；富片段复用既有 JS 产物（mermaid 矢量、shiki 按 token 出文本算子、KaTeX / raw HTML 采样位图）。旧 PrintToPdf 路径保留为默认 `PDF` 导出，两者并列互不替代。
+- **Consequences**: 调参同步重排（毫秒级）、三平台行为一致、PDF 文本可选中 / 搜索；代价是分页 / 行盒与 Chromium 导出有细微差异（放宽约束的定价）、版式令牌与编辑器 SCSS 双源手工对齐（改主题须手动同步，漂移风险）、公式等位图片段不可选中 / 放大失真 / 暗色烘焙等已知限制（详见 `docs/architecture/export.md`）。Typst 保留为技术储备：若将来接受更大体积、需要更高质量数学 / 表格排版再重评，但不做「按平台分引擎」（三平台输出互不相同比现状更糟）。（原调研文档已删，选型结论以本条为准）
 

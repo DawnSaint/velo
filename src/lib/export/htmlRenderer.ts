@@ -138,7 +138,7 @@ function escapeHtml(text: string): string {
  * 撑爆 call stack(`apply` 的参数上限 ~65535)。
  *
  * 只在 Tauri webview / 浏览器里跑,用全局 `btoa`;不引 Buffer(那是 Node 专有,
- * 会让 Vite 需要 node polyfill —— 见 docs/research/export-more.md 2.3)。
+ * 会让 Vite 需要 node polyfill)。
  */
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = ''

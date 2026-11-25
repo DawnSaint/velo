@@ -17,12 +17,19 @@ import { defineStore } from 'pinia'
 
 export type ToastType = 'success' | 'info' | 'warning' | 'error'
 
+/** Toast 上的可选操作(如「打开预览」);点击后执行并关闭该条。 */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface Toast {
   id: number
   type: ToastType
   message: string
   /** 自动消失延时(ms)；0 = 不自动消失。默认值按 type 给（error 久一点）。 */
   duration: number
+  action?: ToastAction
 }
 
 let toastIdSeq = 0
@@ -41,10 +48,10 @@ const MAX_TOASTS = 5
 export const useNotifyStore = defineStore('notify', () => {
   const toasts = ref<Toast[]>([])
 
-  function push(type: ToastType, message: string, duration?: number): number {
+  function push(type: ToastType, message: string, duration?: number, action?: ToastAction): number {
     const id = ++toastIdSeq
     const d = duration ?? DEFAULT_DURATION[type]
-    toasts.value.push({ id, type, message, duration: d })
+    toasts.value.push({ id, type, message, duration: d, action })
     // 超出上限：移除最早的（数组头部）
     if (toasts.value.length > MAX_TOASTS) {
       toasts.value.splice(0, toasts.value.length - MAX_TOASTS)
@@ -63,10 +70,10 @@ export const useNotifyStore = defineStore('notify', () => {
 
   return {
     toasts,
-    success: (msg: string, duration?: number) => push('success', msg, duration),
-    info: (msg: string, duration?: number) => push('info', msg, duration),
-    warning: (msg: string, duration?: number) => push('warning', msg, duration),
-    error: (msg: string, duration?: number) => push('error', msg, duration),
+    success: (msg: string, duration?: number, action?: ToastAction) => push('success', msg, duration, action),
+    info: (msg: string, duration?: number, action?: ToastAction) => push('info', msg, duration, action),
+    warning: (msg: string, duration?: number, action?: ToastAction) => push('warning', msg, duration, action),
+    error: (msg: string, duration?: number, action?: ToastAction) => push('error', msg, duration, action),
     dismiss,
   }
 })
