@@ -18,6 +18,7 @@
 // woff2 都不进主 bundle。
 
 import { parse as parseFont } from 'opentype.js'
+import { katexWoff2DataUri } from '../katexCss'
 import { decompressWoff2 } from './woff2Decode'
 import hbSubsetWasmUrl from 'harfbuzzjs/dist/harfbuzz-subset.wasm?url'
 // 完整 woff2（与 fontFaceCss.ts 同一批文件）；?url 懒加载，构建期只拷资产不内联。
@@ -251,4 +252,45 @@ function hash(s: string): string {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
   return (h >>> 0).toString(36)
+}
+
+// ---- KaTeX 专用字体族（公式矢量用，按需子集）--------------------------------
+
+/** 完整 KaTeX woff2 → sfnt 缓存（按文件名；每族一次解压） */
+const katexFullySfnt = new Map<string, Uint8Array>()
+
+async function katexFullSfnt(filename: string): Promise<Uint8Array> {
+  const hit = katexFullySfnt.get(filename)
+  if (hit) return hit
+  const uri = katexWoff2DataUri(filename)
+  if (!uri) throw new Error(`KaTeX 字体未内联: ${filename}`)
+  const b64 = uri.slice(uri.indexOf(',') + 1)
+  const bin = atob(b64)
+  const woff2 = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) woff2[i] = bin.charCodeAt(i)
+  const sfnt = (await decompressWoff2(woff2)).slice()
+  katexFullySfnt.set(filename, sfnt)
+  return sfnt
+}
+
+/**
+ * 按「文档公式实际用到的族 → 字符集」生成 KaTeX 子集字体。
+ *
+ * 与正文三套同链路（woff2 → wawoff2 → hb-subset → opentype.js），只是字体源换成
+ * `katexCss` 已内联的 20 个 woff2 data URI —— 不新增打包资产。串行调用：
+ * wawoff2 / hb-subset 都是单实例共享堆。
+ *
+ * @param charsetByFamily 族名用 KaTeX 文件后缀（如 `Main-Regular` → `KaTeX_Main-Regular.woff2`）
+ */
+export async function buildKatexFontSet(
+  charsetByFamily: Record<string, string>,
+): Promise<Record<string, SubsetFont>> {
+  const out: Record<string, SubsetFont> = {}
+  for (const family of Object.keys(charsetByFamily)) {
+    const sfnt = await katexFullSfnt(`KaTeX_${family}.woff2`)
+    const text = charsetByFamily[family]
+    const ttf = await hbSubset(sfnt, text)
+    out[family] = { meta: extractMeta(ttf, text), ttf }
+  }
+  return out
 }

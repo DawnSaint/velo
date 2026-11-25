@@ -77,7 +77,7 @@ P3  #code-signing（独立，CI 核心已通）
   - ~~建议走 pandoc 桥接（一行命令多格式），比自写 walker 高效~~ → 复核：pandoc 非唯一解；实测 `docx.js` 的 `htmlToContent`（复用现有导出 HTML）保真度最高（保留 CSS／语法高亮／alert／公式），`mdast2docx` 为无样式退路；Rust 系实测：ferrodoc 缺公式/自定义语法（不适合），knit-md-docx 功能全但需进 src-tauri（列长期架构选项）
 
 - [x] **导出 PDF 分页预览** `#pdf-preview` `P3` `M`
-  - 遗留差异「公式位图化」的独立可行性评估见 [KATEX VECTOR SPIKE](./research/pdf-katex-vector-spike.md)：结论为可做但属独立排期，未列入待办。
+  - 公式已从位图改为矢量（DOM 实测提取，可选中 / 可搜索；选型见 DECISIONS ADR-20261125-001）；转换失败回退位图。
   - 导出面板新增「PDF 预览」入口，打开分页预览面板，可实时调整页边距 / 字号 / 行距 / 页眉页脚 / 页码 / 暗色版式。
   - 预览与导出共用前端 Display List：不依赖 WebView2 / PrintToPdf，三平台一致；改参数只做同步重排（实测 ~5–8ms）。
   - 早期「忠实预览必须复用 PrintToPDF，压不到 ~1s」的结论建立在「与编辑器逐页 WYSIWYG 一致」的旧约束上；改为允许与 doc HTML / 主编辑器有细微差异后结论不再成立（选型留痕见 DECISIONS ADR-20261119-001）。

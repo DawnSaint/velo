@@ -13,7 +13,7 @@
 //   都没有 → 降级为 fallbackText，进 warnings。
 
 import {
-  fontMeta, FONT_RES, colorToRgb, encodeMixed, loadFontBytes,
+  fontMeta, FONT_RES, colorToRgb, encodeMixed, formulaFontList, loadFontBytes,
   type FontMeta,
 } from './tokens'
 import type { DisplayOp, FontKey, PdfDocument, RichFragment } from './types'
@@ -154,11 +154,21 @@ class PdfBuilder {
   }
 }
 
-function contentStream(doc: PdfDocument, pageIndex: number, imgIds: Record<string, number>): string {
+function contentStream(
+  doc: PdfDocument,
+  pageIndex: number,
+  imgIds: Record<string, number>,
+  formulaFonts: { key: string }[],
+): string {
   const H = doc.pageHeight
   const page = doc.pages[pageIndex]
   let out = ''
   const color = (c: string, stroke = false) => `${colorToRgb(c)} ${stroke ? 'RG' : 'rg'}\n`
+  const resNameOf = (font: string): string | null => {
+    if (font === 'sans' || font === 'bold' || font === 'mono') return `/${FONT_RES[font as FontKey]}`
+    const i = formulaFonts.findIndex(e => e.key === font)
+    return i >= 0 ? `/F${3 + i + 1}` : null
+  }
 
   for (const op of page.ops) {
     switch (op.op) {
@@ -198,6 +208,33 @@ function contentStream(doc: PdfDocument, pageIndex: number, imgIds: Record<strin
         const fr: RichFragment | undefined = doc.fragments[op.id]
         const bottom = H - op.y - op.h
         if (!fr) break
+        if (fr.formula) {
+          // KaTeX 矢量：算子已是基线系 y 向上 pt；外层 cm 原样铺到片段盒，
+          // 内部再上移 depth（盒底 = 基线下 depth）。srcW/srcH == w/h → sx=sy=1。
+          const fx = fr.formula
+          let body = `q 1 0 0 1 0 ${f(fx.depth)} cm\n`
+          for (const r of fx.rects) {
+            body += `${color(r.color)}${f(r.x)} ${f(r.y)} ${f(r.w)} ${f(r.h)} re f\n`
+          }
+          for (const p of fx.paths) {
+            // 每条路径自带 q/Q：clip 是图形状态，不能漏到下一条
+            body += 'q\n'
+            if (p.clip) body += `${f(p.clip.x)} ${f(p.clip.y)} ${f(p.clip.w)} ${f(p.clip.h)} re W n\n`
+            if (p.fill) body += `${color(p.fill)} rg\n`
+            if (p.stroke) body += `${color(p.stroke)} RG\n${f(p.strokeWidth ?? 0.5)} w\n`
+            body += p.ops
+            body += p.fill && p.stroke ? 'B\n' : p.fill ? 'f\n' : p.stroke ? 'S\n' : 'n\n'
+            body += 'Q\n'
+          }
+          for (const t of fx.texts) {
+            const res = resNameOf(t.font)
+            if (!res) continue
+            body += `${color(t.color)} rg\nBT ${res} ${f(t.size)} Tf 1 0 0 1 ${f(t.x)} ${f(t.y)} Tm <${hex4(t.gid)}> Tj ET\n`
+          }
+          body += 'Q\n'
+          out += `q 1 0 0 1 ${f(op.x)} ${f(bottom)} cm\n${body}Q\n`
+          break
+        }
         if (fr.pdf && fr.srcW > 0 && fr.srcH > 0) {
           const sx = op.w / fr.srcW, sy = op.h / fr.srcH
           out += `q ${f(sx)} 0 0 ${f(sy)} ${f(op.x)} ${f(bottom)} cm\n${fr.pdf}\nQ\n`
@@ -298,15 +335,7 @@ export async function writePdf(doc: PdfDocument): Promise<Uint8Array> {
   const pagesId = b.reserve()
   const infoId = b.reserve()
 
-  // 字体对象：每套 5 个（Type0 / CIDFont / Descriptor / FontFile2 / ToUnicode）
-  const fontIds = {} as Record<FontKey, FontIds>
   const fontKeys: FontKey[] = ['sans', 'bold', 'mono']
-  for (const key of fontKeys) {
-    fontIds[key] = {
-      type0: b.reserve(), cid: b.reserve(), desc: b.reserve(),
-      file: b.reserve(), tounicode: b.reserve(),
-    }
-  }
 
   // 图像 XObject：给所有已就绪的 A 档片段各分一个 id
   const imgIds: Record<string, number> = {}
@@ -322,18 +351,35 @@ export async function writePdf(doc: PdfDocument): Promise<Uint8Array> {
   const destTreeId = destNames.length ? b.reserve() : 0
 
   // ---- 字体 ----
-  for (const key of fontKeys) {
-    const ids = fontIds[key]
-    const meta = fontMeta()[key]
-    const base = `Velo${key[0].toUpperCase()}${key.slice(1)}`
-    const bytes = fontBytes[key]
+  const writeFontObjects = (meta: FontMeta, bytes: Uint8Array, base: string): number => {
+    const ids: FontIds = {
+      type0: b.reserve(), cid: b.reserve(), desc: b.reserve(),
+      file: b.reserve(), tounicode: b.reserve(),
+    }
     b.setStream(ids.file, `<< /Length ${bytes.length} /Length1 ${bytes.length} >>`, bytes)
     b.set(ids.desc, `<< /Type /FontDescriptor /FontName /${base} /Flags 4 /FontBBox [${meta.bbox.join(' ')}] /ItalicAngle 0 /Ascent ${meta.ascent} /Descent ${meta.descent} /CapHeight ${meta.capHeight} /StemV 80 /FontFile2 ${ids.file} 0 R >>`)
     b.set(ids.cid, `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${base} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${ids.desc} 0 R /DW 1000 /W [0 [${meta.widths.join(' ')}]] /CIDToGIDMap /Identity >>`)
     const cmap = enc.encode(toUnicodeCmap(meta))
     b.setStream(ids.tounicode, `<< /Length ${cmap.length} >>`, cmap)
     b.set(ids.type0, `<< /Type /Font /Subtype /Type0 /BaseFont /${base} /Encoding /Identity-H /DescendantFonts [${ids.cid} 0 R] /ToUnicode ${ids.tounicode} 0 R >>`)
+    return ids.type0
   }
+
+  const bodyRes: string[] = []
+  for (const key of fontKeys) {
+    const base = `Velo${key[0].toUpperCase()}${key.slice(1)}`
+    const id = writeFontObjects(fontMeta()[key], fontBytes[key], base)
+    bodyRes.push(`/${FONT_RES[key]} ${id} 0 R`)
+  }
+
+  // KaTeX 公式子集族：资源名从 F4 起（F1-F3 是正文三套）
+  const formulaFonts = formulaFontList()
+  const sanitize = (s: string): string => s.replace(/[^A-Za-z0-9]/g, '')
+  const formulaRes: string[] = []
+  formulaFonts.forEach((entry, i) => {
+    const id = writeFontObjects(entry.meta, entry.ttf, `VeloKatex${sanitize(entry.key)}`)
+    formulaRes.push(`/F${4 + i} ${id} 0 R`)
+  })
 
   // ---- 图像 ----
   for (const fr of Object.values(doc.fragments)) {
@@ -360,12 +406,12 @@ export async function writePdf(doc: PdfDocument): Promise<Uint8Array> {
   }
 
   // ---- 页 ----
-  const fontRes = fontKeys.map(k => `/${FONT_RES[k]} ${fontIds[k].type0} 0 R`).join(' ')
+  const fontRes = [...bodyRes, ...formulaRes].join(' ')
   const xobjRes = Object.entries(imgIds).map(([, id]) => `/Im${id} ${id} 0 R`).join(' ')
   const resources = `<< /Font << ${fontRes} >>${xobjRes ? ` /XObject << ${xobjRes} >>` : ''} >>`
   doc.pages.forEach((_page, i) => {
     const { page, content } = pageIds[i]
-    const stream = enc.encode(contentStream(doc, i, imgIds))
+    const stream = enc.encode(contentStream(doc, i, imgIds, formulaFonts))
     b.setStream(content, `<< /Length ${stream.length} >>`, stream)
     const annots = annotsByPage[i]
     const annotPart = annots && annots.length ? ` /Annots [${annots.map(id => `${id} 0 R`).join(' ')}]` : ''

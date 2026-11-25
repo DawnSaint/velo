@@ -41,6 +41,27 @@ export function loadFontBytes(): Promise<Record<FontKey, Uint8Array>> {
   return Promise.resolve({ sans: s.sans.ttf, bold: s.bold.ttf, mono: s.mono.ttf })
 }
 
+/**
+ * 公式矢量用的 KaTeX 子集族（按需，见 katexVector.ts）。
+ * 与正文三套一样走全局注入：多文档缓存命中时由 layout() 重新 install。
+ */
+export interface FormulaFontEntry {
+  /** 族名（Main-Regular / Math-Italic / Size2-Regular ...） */
+  key: string
+  meta: FontMeta
+  ttf: Uint8Array
+}
+
+let activeFormulaFonts: FormulaFontEntry[] = []
+
+export function installFormulaFonts(list: FormulaFontEntry[]): void {
+  activeFormulaFonts = list
+}
+
+export function formulaFontList(): FormulaFontEntry[] {
+  return activeFormulaFonts
+}
+
 export interface GlyphHit {
   ch: string
   font: FontKey

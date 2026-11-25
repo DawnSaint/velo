@@ -24,7 +24,7 @@ import { buildBlocks, relayout, type BlockIR } from './layoutEngine'
 import { ensurePreviewDomStyles } from './previewRenderer'
 import { writePdf } from './pdfWriter'
 import { buildFontSet, collectCharset, type FontSet } from './fontSubset'
-import { installFontSet } from './tokens'
+import { installFontSet, installFormulaFonts, type FormulaFontEntry } from './tokens'
 import type { PdfDocument, PdfLayoutOptions, PdfSource, RichFragment } from './types'
 
 export { renderAllPages, renderPageDom, ensurePreviewDomStyles } from './previewRenderer'
@@ -48,6 +48,8 @@ interface Cached {
   warnings: string[]
   /** 构建这份 IR 时用的字体集；relayout 前重新 install，防止多文档缓存交错时度量串台 */
   fonts: FontSet
+  /** 公式矢量用到的 KaTeX 子集族，随文档一起缓存 */
+  formulaFonts: FormulaFontEntry[]
 }
 
 const CACHE_LIMIT = 4
@@ -92,8 +94,9 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
     const fonts = await buildFontSet(charset)
     installFontSet(fonts)
     const fb = await buildFragments(tree, source, opts)
+    installFormulaFonts(fb.formulaFonts)
     const ir = await buildBlocks(tree, source, fb)
-    entry = { ir, fragments: fb.fragments, warnings: fb.warnings, fonts }
+    entry = { ir, fragments: fb.fragments, warnings: fb.warnings, fonts, formulaFonts: fb.formulaFonts }
     cache.set(key, entry)
     while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value as string)
   }
@@ -104,6 +107,7 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
   const layout = (o: PdfLayoutOptions): PdfDocument => {
     // 缓存命中可能来自另一份文档（另一套子集字体），先恢复对应度量与 @font-face。
     installFontSet(entry!.fonts)
+    installFormulaFonts(entry!.formulaFonts)
     ensurePreviewDomStyles()
     const doc = relayout(entry!.ir, entry!.fragments, o)
     doc.warnings.push(...entry!.warnings)

@@ -116,15 +116,62 @@ export interface FragmentImage {
  * 富片段：预览用真实 DOM，导出用矢量内容流（B 档）或位图（A 档）。
  * pdf 与 image / rasterize 至少有一个；都没有时降级为文本并进 warnings。
  */
+/**
+ * KaTeX 矢量公式内容（`katexVector.ts` 从真实 DOM 实测提取）。
+ *
+ * 坐标系：pt、y 向上、原点为公式基线左端；外层片段盒左下角在 `(0, -depth)`。
+ * 与 A 档位图不同，公式文字是真正的 PDF text 算子（可选中 / 可搜索），
+ * 路径（根号 / 伸缩括号 / accent）是 PDF 路径算子。
+ */
+export interface FormulaContent {
+  width: number
+  height: number
+  depth: number
+  texts: FormulaGlyph[]
+  paths: FormulaPath[]
+  rects: FormulaRect[]
+}
+
+export interface FormulaGlyph {
+  ch: string
+  /** 解析后的字体：'sans' | 'bold' | 'mono'，或 KaTeX 族名（Main-Regular 等） */
+  font: string
+  gid: number
+  x: number
+  y: number
+  size: number
+  color: PdfColor
+}
+
+export interface FormulaPath {
+  /** PDF 路径算子（m/l/c/h，y 向上）；同样可直接作 SVG path d */
+  ops: string
+  fill?: PdfColor | null
+  stroke?: PdfColor | null
+  strokeWidth?: number
+  clip?: { x: number; y: number; w: number; h: number }
+}
+
+export interface FormulaRect {
+  x: number
+  y: number
+  w: number
+  h: number
+  color: PdfColor
+}
+
 export interface RichFragment {
   id: string
   kind: 'katex-inline' | 'katex-block' | 'mermaid' | 'code' | 'image'
   /** 版面上的尺寸（pt）—— 随字号 / 内容宽度变化由 layoutEngine 覆盖 */
   w: number
   h: number
-  previewEl: Element
+  /** 预览用真实 DOM；公式矢量片段为 null（previewRenderer 直接画 formula 算子） */
+  previewEl: Element | null
   /** B 档：PDF 内容流，使用「已翻转成 y 向上」的 SVG 用户坐标（不含外层 q/Q） */
   pdf: string | null
+  /** KaTeX 矢量公式内容（kind 为 katex-* 且转换成功时非空） */
+  formula: FormulaContent | null
   /** B 档内容源的 viewBox 尺寸，PdfWriter 用它算缩放 */
   srcW: number
   srcH: number

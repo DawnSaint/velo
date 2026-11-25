@@ -428,5 +428,15 @@
 
 - **Context**: 旧约束「预览必须与编辑器逐页 WYSIWYG 一致」在 ~1s 验收线下无解 —— PrintToPDF 是批处理原语，每次调用完整跑「加载 HTML → 全文档分页 → 光栅化」（~5s），改页眉与重写整篇无差别，且被全局打印锁串行。约束放宽为「允许细微差异 + 不依赖 WebView2 + 三平台 + 体积可控」后候选实测：复用 PrintToPdf（~5s、Windows-only）；Typst native 嵌入（安装包 +10–20MB、首次 ~1.4s、增量 150–270ms 但分页与 Chromium 不一致，预热消灭冷启动无效）；Typst WASM（+3–8MB、性能未验证）；非 Chromium HTML→PDF 引擎（WeasyPrint / jhtmltopdf / ironpress / xhtml2pdf 等实测保真度全部不达标 —— 快的不保真、保真的不快，Velo 导出 HTML 是为 Chromium 量身定制的；WeasyPrint 理论最优但 Windows 缺 GTK runtime 无法桌面分发）；纯 TS 轻量布局器（体积增量在懒加载 chunk 内、参数重排毫秒级）。
 - **Decision**: 自研纯 TS 布局器，预览与导出共享同一份 Display List（预览画 DOM 绝对定位、导出序列化 PDF），一致性由「同一棵布局树」而非「同一个慢引擎」保证；文本测量查子集字体字形宽度表（纯计算、三平台一致），字体走运行时 wasm 子集化（零新增字体文件）；富片段复用既有 JS 产物（mermaid 矢量、shiki 按 token 出文本算子、KaTeX / raw HTML 采样位图）。旧 PrintToPdf 路径保留为默认 `PDF` 导出，两者并列互不替代。
-- **Consequences**: 调参同步重排（毫秒级）、三平台行为一致、PDF 文本可选中 / 搜索；代价是分页 / 行盒与 Chromium 导出有细微差异（放宽约束的定价）、版式令牌与编辑器 SCSS 双源手工对齐（改主题须手动同步，漂移风险）、公式等位图片段不可选中 / 放大失真 / 暗色烘焙等已知限制（详见 `docs/architecture/export.md`）。Typst 保留为技术储备：若将来接受更大体积、需要更高质量数学 / 表格排版再重评，但不做「按平台分引擎」（三平台输出互不相同比现状更糟）。（原调研文档已删，选型结论以本条为准）
+- **Consequences**: 调参同步重排（毫秒级）、三平台行为一致、PDF 文本可选中 / 搜索；代价是分页 / 行盒与 Chromium 导出有细微差异（放宽约束的定价）、版式令牌与编辑器 SCSS 双源手工对齐（改主题须手动同步，漂移风险）、raw HTML 位图不可选中 / 放大失真等已知限制（公式位图已在 ADR-20261125-001 改为矢量，详见 `docs/architecture/export.md`）。Typst 保留为技术储备：若将来接受更大体积、需要更高质量数学 / 表格排版再重评，但不做「按平台分引擎」（三平台输出互不相同比现状更糟）。（原调研文档已删，选型结论以本条为准）
+
+---
+
+## 未发版 — 公式矢量
+
+### ADR-20261125-001: KaTeX 公式矢量走「真实 DOM 实测提取」，不在 JS 里复刻 CSS 排版语义
+
+- **Context**: pdfPreview 落地时公式走 A 档 foreignObject 位图（不可选 / 不可搜 / 放大失真）。要抹平差异有两条候选：① 拿 KaTeX `__renderToDomTree()` 虚拟树纯 JS 直译成 PDF 算子 —— 虚拟树自带精确度量，但视觉位置由浏览器 CSS 决定（vlist / 字号级联 / spacing / `overflow:hidden` / svgGeometry），需在 JS 重写一套 CSS 排版语义，估算 ~600–900 行且长尾命令持续补；② 让真实浏览器把 `katex.renderToString` 的 DOM 排好，用 `Range.getBoundingClientRect()` + `getComputedStyle` 逐字形 / 逐 SVG / 逐边框取坐标，直接翻译三类图元。②的验证由开发期临时 spike 完成（gitignored 临时目录，落地后已清理，复现方式见 `katexVector.ts` 头注释与回归测试）：`\frac \sqrt \sum \int 上下标 aligned` 与手写转换器像素差 ≤0.03%，另外 `\left(\right)`、accent、`\overbrace`、`\xrightarrow`、`\cancel`、`\binom`、`\mathcal/\mathbb`、`\text{中文}` 零模板覆盖。
+- **Decision**: 选 ②，产品化落到 `src/lib/export/pdfPreview/katexVector.ts`：10× 字号离屏测量后折算 pt（规避 1× 下 `min-height:1px` 取整），公式内容存 `RichFragment.formula`，预览直接画同一份算子、导出在 `pdfWriter` 发真 text/path/rect 算子；KaTeX 字体按文档公式实际用到的族运行时子集（复用既有 wawoff2 → hb-subset → opentype.js 链路），资源名从 `/F4` 起。转换失败（缺字 / 含未适配 SVG 形状）回退 A 档位图，与 mermaid 双编码器同策略。放弃 ①：把「CSS 排版求解器」外包给已在运行的 WebView 引擎，避免逐命令模板与 KaTeX 内部实现漂移。
+- **Consequences**: 公式文字重新可选中 / 可搜索，路径矢量无损；预览与导出共享同一份几何数据，不再有「位图按首次主题烘焙」的公式侧限制。代价：①依赖真实 DOM 布局（提取只在一端测量一次，预览 / 导出都用缓存算子，不会各排一次）；② `\text{中文}` 这类 KaTeX_Main 无字形的字符改为回退正文 sans（浏览器侧原本是系统 serif，属可接受的近似）；③ `.katex` 盒不含 SVG 溢出（`\overbrace` 等），片段盒高可能低估，预览不能裁 overflow；④ PDF 路径算子没有相对形式（小写也绝对），而 SVG path 小写是相对，预览侧转换必须翻大写命令。不做「按平台分别实现提取」：同一份 DOM API（Range / getComputedStyle）三平台都有，差异只在字体回退链。
 

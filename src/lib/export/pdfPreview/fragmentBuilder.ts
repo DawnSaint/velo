@@ -21,16 +21,19 @@ import { loadKatexCssWithFontsInlined } from '../katexCss'
 import { resolveImageAssetAbsPath, extFromFileName, extToMime } from '@/utils/imagePath'
 import { readFile } from '@/tauri/fs'
 import { svgToPdf } from './svgToPdf'
+import { finalizeFormulaVector, measureKatexVector, type MeasuredFormula } from './katexVector'
 import editorCss from '../exportStyles.scss?inline'
 import type { FragmentImage, PdfLayoutOptions, PdfSource, RichFragment } from './types'
 import { PX_TO_PT } from './types'
-import { tokensOf, type Tokens } from './tokens'
+import { tokensOf, type FormulaFontEntry, type Tokens } from './tokens'
 
 export interface FragmentBuild {
   fragments: Record<string, RichFragment>
   /** mdast 节点对象 → fragment id（同一棵树，布局时用对象身份查表） */
   byNode: WeakMap<object, string>
   warnings: string[]
+  /** 公式矢量用到的 KaTeX 子集族；index.ts 随文档缓存并 install 给 pdfWriter */
+  formulaFonts: FormulaFontEntry[]
 }
 
 interface Found { node: any; kind: 'katex-inline' | 'katex-block' | 'mermaid' | 'image' | 'raw-html' }
@@ -360,7 +363,7 @@ async function buildBitmapFragment(
       w: got.cssW * PX_TO_PT, h: got.cssH * PX_TO_PT,
       contentSize: { w: got.cssW, h: got.cssH }, contentOffset: { x: 0, y: 0 },
       previewEl: img,
-      pdf: null, srcW: 0, srcH: 0,
+      pdf: null, formula: null, srcW: 0, srcH: 0,
       image: got.image,
       fallbackText: alt,
     }
@@ -372,7 +375,7 @@ async function buildBitmapFragment(
     w: w * PX_TO_PT, h: h * PX_TO_PT,
     contentSize: { w: own.w, h: own.h }, contentOffset: { x: 16, y: 16 },
     previewEl: el,
-    pdf: null, srcW: 0, srcH: 0,
+    pdf: null, formula: null, srcW: 0, srcH: 0,
     image: null,
     rasterize: () => rasterizeElement(el, css, w, h, bg, { w: own.w, h: own.h }, { x: 16, y: 16 }),
     fallbackText: alt,
@@ -397,6 +400,10 @@ export async function buildFragments(
 
   const fragments: Record<string, RichFragment> = {}
   const byNode = new WeakMap<object, string>()
+  /** 公式矢量先行测量，字体子集化（异步、串行）后统一落定；失败回退位图 */
+  const pendingFormula: MeasuredFormula[] = []
+  const formulaEls = new Map<string, Element>()
+  const formulaNodes = new Map<string, object>()
 
   await Promise.all(found.map(async (item, idx) => {
     const id = `fr${idx}`
@@ -405,10 +412,25 @@ export async function buildFragments(
 
     if (item.kind === 'katex-inline' || item.kind === 'katex-block') {
       const display = item.kind === 'katex-block'
-      const { html, error } = await renderKatexHtml(String(node.value ?? ''), display)
+      const tex = String(node.value ?? '')
+      const { html, error } = await renderKatexHtml(tex, display)
       if (error) warnings.push(`公式渲染失败: ${error}`)
       const el = elementFromHtml(html)
-      frag = await buildBitmapFragment(id, item.kind, el, katexCss, bg, String(node.value ?? ''))
+      if (error || !el.querySelector('.katex-html')) {
+        // 语法错误占位 / 无 katex-html：保持旧的位图降级路径
+        frag = await buildBitmapFragment(id, item.kind, el, katexCss, bg, tex)
+      } else {
+        const measured = await measureKatexVector(el as HTMLElement, opts.fontSize)
+        if (!measured) {
+          warnings.push(`公式矢量测量失败，已回退位图: ${tex.slice(0, 40)}`)
+          frag = await buildBitmapFragment(id, item.kind, el, katexCss, bg, tex)
+        } else {
+          pendingFormula.push({ id, kind: item.kind, tex, box: measured.box, ops: measured.ops })
+          formulaEls.set(id, el)
+          formulaNodes.set(id, node as object)
+          return
+        }
+      }
     } else if (item.kind === 'mermaid') {
       const { svg, error } = await renderMermaidSvg(String(node.value ?? ''))
       if (!svg) {
@@ -425,6 +447,7 @@ export async function buildFragments(
         contentSize: { w: v.width, h: v.height }, contentOffset: { x: 0, y: 0 },
         previewEl: el,
         pdf: v.pdf && !v.warnings.length ? v.pdf : null,
+        formula: null,
         srcW: v.width, srcH: v.height,
         image: null,
         rasterize: () => svgToJpeg(sized, bg),
@@ -453,7 +476,7 @@ export async function buildFragments(
         w: got.w * PX_TO_PT, h: got.h * PX_TO_PT,
         contentSize: { w: got.w, h: got.h }, contentOffset: { x: 0, y: 0 },
         previewEl: el,
-        pdf: null, srcW: got.image.pxW, srcH: got.image.pxH,
+        pdf: null, formula: null, srcW: got.image.pxW, srcH: got.image.pxH,
         image: got.image,
         fallbackText: String(node.alt ?? ''),
       }
@@ -465,5 +488,41 @@ export async function buildFragments(
     }
   }))
 
-  return { fragments, byNode, warnings }
+  // 公式矢量落定：收集各族字符集 → 运行时子集化 → 解析 gid。
+  let formulaFonts: FormulaFontEntry[] = []
+  if (pendingFormula.length) {
+    const finalized = await finalizeFormulaVector(pendingFormula)
+    warnings.push(...finalized.warnings)
+    formulaFonts = finalized.fonts
+    for (const item of pendingFormula) {
+      const content = finalized.contents.get(item.id)
+      const el = formulaEls.get(item.id) ?? null
+      if (content) {
+        fragments[item.id] = {
+          id: item.id,
+          kind: item.kind,
+          w: content.width,
+          h: content.height + content.depth,
+          previewEl: null,
+          pdf: null,
+          formula: content,
+          srcW: content.width,
+          srcH: content.height + content.depth,
+          // 预览直接画 formula 算子，contentSize / offset 不参与（保留类型占位）
+          contentSize: { w: content.width, h: content.height + content.depth },
+          contentOffset: { x: 0, y: 0 },
+          image: null,
+          fallbackText: item.tex,
+        }
+      } else if (el) {
+        // 缺字 / 未适配形状 → 与 mermaid 同策略回退位图，保证内容不丢
+        fragments[item.id] = await buildBitmapFragment(
+          item.id, item.kind, el, katexCss, bg, item.tex,
+        )
+      }
+      byNode.set(formulaNodes.get(item.id) as object, item.id)
+    }
+  }
+
+  return { fragments, byNode, warnings, formulaFonts }
 }

@@ -43,6 +43,14 @@ for (const [modulePath, dataUri] of Object.entries(katexWoff2Modules)) {
 }
 
 /**
+ * 按文件名取 KaTeX woff2 的 base64 data URI（供 pdfPreview 运行时子集化取字节）。
+ * 如 `KaTeX_Main-Regular.woff2`。
+ */
+export function katexWoff2DataUri(filename: string): string | undefined {
+  return katexWoff2DataUris[filename]
+}
+
+/**
  * 把 katex.min.css 里所有 `@font-face` 的 src 改写成 woff2 base64 data URI。
  *
  * katex.min.css 里每个字体的 @font-face src 形如:

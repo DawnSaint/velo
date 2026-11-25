@@ -324,10 +324,9 @@ async function doExport() {
               </div>
 
               <div class="mb-6">
-                <div class="mb-1.5 text-[11px] text-[var(--chrome-text-secondary)]">页边距（mm）</div>
                 <!-- 水平（左右） -->
                 <div class="flex items-center gap-2">
-                  <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">水平</span>
+                  <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">水平页边距（mm）</span>
                   <span class="w-9 shrink-0 text-right text-[11px] tabular-nums text-[var(--chrome-text-primary)]">{{ marginH.active }}</span>
                   <div
                     :ref="marginH.attach"
@@ -354,7 +353,7 @@ async function doExport() {
                 </div>
                 <!-- 垂直（上下） -->
                 <div class="mt-4 flex items-center gap-2">
-                  <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">垂直</span>
+                  <span class="w-12 shrink-0 text-[11px] text-[var(--chrome-text-secondary)]">垂直页边距（mm）</span>
                   <span class="w-9 shrink-0 text-right text-[11px] tabular-nums text-[var(--chrome-text-primary)]">{{ marginV.active }}</span>
                   <div
                     :ref="marginV.attach"
