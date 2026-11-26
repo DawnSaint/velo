@@ -42,21 +42,16 @@ P3  #code-signing（独立，CI 核心已通）
 
 > 双模式 diff、Block Tree Diff、语义化渲染已交付，以下是遗留与新增的体验补强。
 
-- [ ] **diff 视角自动跳转第一个 diff + hunk 导航** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下
+- [x] **diff 视角自动跳转第一个 diff + hunk 导航** `#diff-autoscroll` `P2` `S` → 折叠子项不实现，见下
   - 选中版本条目进入 diff 视图时，自动滚动到第一处变更（源码 / 预览双模式）
   - 「上一处 / 下一处」导航按钮 + `n/N` 计数（`Alt+↑` / `Alt+↓`）：源码模式用 `extractHunks(displayRows)` 定位行 DOM，预览模式用变更锚点（doc pos）经子组件跳转
 
-- [ ] **修改预览** `#diff-change-preview` `P2` `M` `?`
-  - 痛点：预览 diff 的格式 / 节点类型变更只用琥珀色下划虚线提示「这里有变更」，看不出具体改了什么（加粗 → 斜体、段落 → 标题 2、链接地址变化等），用户必须切到源码模式看 markdown 原文才明白
-  - 目标：不离开富文本渲染态就能读懂改动内容；候选方向为悬停 / 点击琥珀标记展示「旧值 → 新值」浮层，或就地展开被替换的旧片段
-  - 需覆盖语义化渲染已分类的变更（marks 变化 / 节点类型变化 / split·merge 边界），并与删除片段的删除线语义区分
-  - 方案未定，开发前先在 `docs/research/` 写调研文档并由本条目链接进入
+- [x] ~~**修改预览** `#diff-change-preview` `P2` `M` `?`~~ → 取消琥珀色语义，预览模式下的格式 / 节点类型 / 非文本变更统一原位「删旧 + 增新」，变更内容直接可见，不再需要悬停浮层
 
-- [ ] **变更定位 ruler** `#diff-ruler` `P2` `M` `?`
+- [x] **变更定位 ruler** `#diff-ruler` `P2` `M` `?` —— [RESEARCH](./research/diff-ruler.md)
   - 参考 VSCode 的 Git diff overview ruler：在 diff 视图右侧滚动条区域叠加一条 ruler，按每处变更在全文中的相对位置画绿色（新增）/ 红色（删除）块，长文档滚动时也能一眼看出改动分布
   - 点击 / 拖动色块跳转到对应变更，与 `#diff-autoscroll` 的 hunk 导航共用同一套变更锚点，避免维护两份定位数据
   - 源码模式按行号映射、预览模式按 block 位置映射；无变更时不显示 ruler
-  - 方案未定，开发前先在 `docs/research/` 写调研文档并由本条目链接进入
 
 
 

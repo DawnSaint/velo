@@ -39,27 +39,44 @@
 //
 // **段间距策略**:diff 编辑器内段落去掉 margin,用 padding 撑开段间距。
 
-// ── 语义色 ──
+// Diff 视图隐藏原生滚动条(由右侧 DiffOverviewRuler 合一承担滚动条职责,#diff-ruler)
+.velo-hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 
-// 删除色三档:整体偏中性灰(三通道差 ~12,不再带蓝调),且比上一版再淡一档。
-// 递进关系不变:亮色「正文 → 标题 → 删除线」逐级变淡;暗色反向,逐级往背景压暗。
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+// ── 语义色（Primer 低饱和双色系：绿增 + 红删，正文与右侧 ruler 统一）──
 :root {
-  --diff-add-line: #16a34a; // green-600
-  --diff-del-ink: #848a92; // 删除正文
-  --diff-del-heading-ink: #9ba0a7; // 删除标题:再淡一档,抵消 bold + 大字号的墨量
-  --diff-del-line: #b0b5bb; // 删除线 / 描边 / 幽灵单元格底条
-  --diff-fmt-line: #d97706; // amber-600
+  --diff-add-line: #389e6d;
+  --diff-del-ink: #be5863;
+  --diff-del-heading-ink: #c96f78;
+  --diff-del-line: rgba(214, 86, 98, 0.58);
+  --diff-fmt-line: #d97706; // 保留兼容（不再主动输出琥珀标记）
+
+  // Overview Ruler(#diff-ruler)
+  --diff-ruler-add: rgba(45, 164, 110, 0.52);
+  --diff-ruler-del: rgba(214, 86, 98, 0.52);
+  --diff-ruler-thumb: rgba(120, 125, 132, 0.22);
+  --diff-ruler-thumb-hover: rgba(120, 125, 132, 0.36);
 }
 
 html.dark,
 .dark .velo-editor,
 .velo-editor.dark {
-  --diff-add-line: #34d399; // green-400(深底上提亮)
-  --diff-del-ink: #797f88;
-  // 暗底上「淡一档」= 往背景方向压暗(降低对比),而不是提亮——提亮会让粗体更抢眼
-  --diff-del-heading-ink: #676d75;
-  --diff-del-line: #555b63;
-  --diff-fmt-line: #f59e0b; // amber-500
+  --diff-add-line: #52b486;
+  --diff-del-ink: #d2767e;
+  --diff-del-heading-ink: #ba6970;
+  --diff-del-line: rgba(220, 98, 108, 0.65);
+  --diff-fmt-line: #f59e0b;
+
+  --diff-ruler-add: rgba(68, 178, 128, 0.58);
+  --diff-ruler-del: rgba(220, 98, 108, 0.60);
+  --diff-ruler-thumb: rgba(154, 160, 168, 0.26);
+  --diff-ruler-thumb-hover: rgba(154, 160, 168, 0.42);
 }
 
 // 语义「文本块」:能被文字删除线 / 文本标记承载的节点。

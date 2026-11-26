@@ -59,6 +59,11 @@ import {
 import { buildTablePairDecorations } from './tableDiff'
 import { getViewport, isInViewport, viewportKey } from '../nodes/viewportPlugin'
 import { attachImageErrorFallback } from '../editor/imageErrorPlaceholder'
+import {
+  extractWysiwygAnchors,
+  type DiffAnchor,
+  type DiffAnchorKind,
+} from '@/utils/diffAnchors'
 
 export const diffDecorationKey = new PluginKey<DiffDecorationState>('veloDiffDecoration')
 
@@ -68,6 +73,8 @@ export const diffDecorationKey = new PluginKey<DiffDecorationState>('veloDiffDec
 interface DiffPlanEntry {
   /** true = 变更 op(insert/delete/pair/split/merge);false = 未变更 block */
   changed: boolean
+  /** 变更语义类型(未变更 entry 省略) */
+  kind?: DiffAnchorKind
   /** 覆盖的 doc 范围(视口过滤用);delete 的 widget entry from === to */
   from: number
   to: number
@@ -101,6 +108,8 @@ export interface DiffPlan {
   entries: DiffPlanEntry[]
   /** 只含连续 insert / delete;pair / split / merge 不组成整框 */
   groups: DiffGroup[]
+  /** 合并连续变更块后的导航锚点(与源码模式 extractHunks 对齐) */
+  anchors: DiffAnchor[]
 }
 
 interface DiffDecorationState {
@@ -334,6 +343,7 @@ export function buildDiffPlan(
       if (groupId) attrs['data-diff-group-id'] = groupId
       const entry: DiffPlanEntry = {
         changed: true,
+        kind: 'added',
         from,
         to,
         decos: [Decoration.node(from, to, attrs)],
@@ -348,6 +358,7 @@ export function buildDiffPlan(
       const pos = widgetInsertPos(renderOps, i, newBlocks, newDoc)
       const entry: DiffPlanEntry = {
         changed: true,
+        kind: 'removed',
         from: pos,
         to: pos,
         decos: [deletedBlockWidget(pos, oldBlocks[op.oldIndex].node, groupId, resolveSrc)],
@@ -366,12 +377,13 @@ export function buildDiffPlan(
       }
       const first = newBlocks[op.newIndices[0]]
       const last = newBlocks[op.newIndices[op.newIndices.length - 1]]
-      entries.push({ changed: true, from: first.pos, to: last.pos + last.size, decos })
+      entries.push({ changed: true, kind: 'modified', from: first.pos, to: last.pos + last.size, decos })
     }
     else if (op.kind === 'merge') {
       const b = newBlocks[op.newIndex]
       entries.push({
         changed: true,
+        kind: 'modified',
         from: b.pos,
         to: b.pos + b.size,
         decos: [boundaryHintWidget(b.pos, `${op.oldIndices.length} 个段落已合并`)],
@@ -381,6 +393,7 @@ export function buildDiffPlan(
       const b = newBlocks[op.newIndex]
       entries.push({
         changed: true,
+        kind: 'modified',
         from: b.pos,
         to: b.pos + b.size,
         decos: buildPairDecorations(oldBlocks[op.oldIndex], b, resolveSrc),
@@ -392,7 +405,11 @@ export function buildDiffPlan(
     }
   }
 
-  return { entries, groups: [...groups.values()] }
+  return {
+    entries,
+    groups: [...groups.values()],
+    anchors: extractWysiwygAnchors(entries, newDoc.content.size),
+  }
 }
 
 /** delete 的 widget 插入位置:其后第一个引用新 block 的 op 的 block pos;无 → 文档末尾 */
@@ -425,7 +442,7 @@ function buildPairDecorations(
   }
 
   if (oldBlock.text === newBlock.text) {
-    return buildSameTextDecorations(oldBlock, newBlock)
+    return buildSameTextDecorations(oldBlock, newBlock, resolveSrc)
   }
 
   // 多文本容器(列表 / 引用 / 脚注 …):按容器分组对齐,字符级 diff 只在单个
@@ -438,36 +455,83 @@ function buildPairDecorations(
   return charDiffDecorations(oldBlock.text, newBlock)
 }
 
-/** 文本相同但 key 不同:节点类型 / 格式 / 非文本 leaf 变更 */
-function buildSameTextDecorations(oldBlock: BlockEntry, newBlock: BlockEntry): Decoration[] {
+/** 从旧 block 按纯文本偏移区间 [fromOff, toOff) 切片并保留原有 marks，用于行内格式变更的删除片段 */
+function serializeOldInlineSlice(
+  oldNode: PMNode,
+  fromOff: number,
+  toOff: number,
+): DocumentFragment {
+  const frag = document.createDocumentFragment()
+  const schema = oldNode.type.schema
+  const serializer = DOMSerializer.fromSchema(schema)
+  let off = 0
+
+  oldNode.descendants((node) => {
+    if (!node.isText || !node.text) return true
+    const len = node.text.length
+    const start = Math.max(fromOff, off)
+    const end = Math.min(toOff, off + len)
+    if (start < end) {
+      const sub = node.text.slice(start - off, end - off)
+      const sliced = schema.text(sub, node.marks)
+      frag.appendChild(serializer.serializeNode(sliced))
+    }
+    off += len
+    return true
+  })
+
+  return frag
+}
+
+/** 文本相同但 key 不同:节点类型 / 格式 / 非文本 leaf 变更统一呈现为「删旧 + 增新」(不再用琥珀色) */
+function buildSameTextDecorations(
+  oldBlock: BlockEntry,
+  newBlock: BlockEntry,
+  resolveSrc?: ImageSrcResolver,
+): Decoration[] {
   const decos: Decoration[] = []
   const oldLabel = nodeTypeLabel(oldBlock.node)
   const newLabel = nodeTypeLabel(newBlock.node)
   if (oldLabel !== newLabel) {
-    // 节点类型变更(含标题级别 / 代码块语言等关键 attrs):左侧条 + tooltip
+    // 节点类型变更(含标题级别 / 代码块语言等关键 attrs):旧块删除片段 + 新块新增描边
+    decos.push(deletedBlockWidget(newBlock.pos, oldBlock.node, undefined, resolveSrc))
     decos.push(
       Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, {
-        class: 'velo-diff-changed velo-diff-type-changed',
-        title: `${oldLabel} → ${newLabel}`,
+        class: 'velo-diff-added',
       }),
     )
     return decos
   }
-  // 仅格式变更(marks):精确到变化区间的 inline 标记 + tooltip
+
+  // 仅格式变更(marks):变化区间内原位展示旧格式删除片段 + 新格式新增下划线
   const ranges = diffInlineMarkRanges(oldBlock.node, newBlock.node)
   if (ranges.length === 0) {
-    // 非文本 leaf 变更(图片 src / alt 等):整块 amber 底色兜底
+    // 非文本 leaf 变更(图片 src / alt 等):整块删旧 + 增新
+    decos.push(deletedBlockWidget(newBlock.pos, oldBlock.node, undefined, resolveSrc))
     decos.push(
-      Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, { class: 'velo-diff-changed' }),
+      Decoration.node(newBlock.pos, newBlock.pos + newBlock.size, {
+        class: 'velo-diff-added',
+      }),
     )
     return decos
   }
+
   for (const r of ranges) {
     const from = offsetInSegments(r.from, newBlock)
     const to = offsetInSegments(r.to, newBlock)
     if (from < to) {
+      const rFrom = r.from
+      const rTo = r.to
       decos.push(
-        Decoration.inline(from, to, { class: 'velo-diff-format-changed', title: '格式变更' }),
+        Decoration.widget(from, () => {
+          const span = document.createElement('span')
+          span.className = 'velo-diff-removed'
+          span.appendChild(serializeOldInlineSlice(oldBlock.node, rFrom, rTo))
+          return span
+        }, { side: -1, ignoreSelection: true }),
+      )
+      decos.push(
+        Decoration.inline(from, to, { class: 'velo-diff-added-inline' }),
       )
     }
   }
@@ -659,4 +723,12 @@ export function setDiffOldDoc(
  */
 export function getDiffGroups(state: EditorState): DiffGroup[] {
   return diffDecorationKey.getState(state)?.plan?.groups ?? []
+}
+
+/**
+ * 读取当前 diff 的变更锚点列表(供自动跳转 / hunk 导航 / overview ruler 使用)。
+ * 锚点来自全量 plan,不受视口增量构建影响。
+ */
+export function getDiffAnchors(state: EditorState): DiffAnchor[] {
+  return diffDecorationKey.getState(state)?.plan?.anchors ?? []
 }

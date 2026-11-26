@@ -110,40 +110,54 @@ describe('查找后端命中反斜杠转义', () => {
   })
 })
 
-describe('**_xxx_** 粗斜体解析与往返', () => {
+describe('**_xxx_** / __*xxx*__ 粗斜体解析与往返', () => {
   it.each([
-    '**_xxx_**',
-    '中文**_xxx_**中文',
-    '这是**_xxx_**。',
-    'a**_xxx_**b',
-    '中文**_xxx_**',
-    '**_xxx_**中文',
-    '中文**（_xxx_）**中文',
-  ])('解析 %s 时 xxx 同时带 strong 与 emphasis', (md) => {
+    ['**_xxx_**', 'xxx'],
+    ['中文**_xxx_**中文', 'xxx'],
+    ['这是**_xxx_**。', 'xxx'],
+    ['a**_xxx_**b', 'xxx'],
+    ['中文**_xxx_**', 'xxx'],
+    ['**_xxx_**中文', 'xxx'],
+    ['中文**（_xxx_）**中文', 'xxx'],
+    ['__*零测集*__', '零测集'],
+    ['中文__*零测集*__中文', '零测集'],
+    ['这是__*零测集*__。', '零测集'],
+    ['a__*零测集*__b', '零测集'],
+    ['中文*__零测集__*中文', '零测集'],
+    ['中文_**零测集**_中文', '零测集'],
+  ])('解析 %s 时 %s 同时带 strong 与 emphasis', (md, target) => {
     const doc = fromMarkdown(md, schema)
-    const marks = collectMarks(doc, 'xxx')
+    const marks = collectMarks(doc, target)
     expect(marks).toContain('strong')
     expect(marks).toContain('emphasis')
-    // 不残留字面 **
     expect(doc.textContent).not.toContain('**')
-    // 往返保真（marker 仍为 ** 与 _）
+    expect(doc.textContent).not.toContain('__')
+    // 往返保真（单层强调内部已合并为 strong+emphasis，toMarkdown 幂等）
     const back = toMarkdown(doc).trim()
-    expect(back).toBe(md)
+    expect(toMarkdown(fromMarkdown(back, schema)).trim()).toBe(back)
   })
 
-  it('同一行多个跨节点 **_a_** 与 **_b_** 均正确解析', () => {
-    const md = '前**_a_**中**_b_**后'
-    const doc = fromMarkdown(md, schema)
-    expect(collectMarks(doc, 'a')).toEqual(expect.arrayContaining(['strong', 'emphasis']))
-    expect(collectMarks(doc, 'b')).toEqual(expect.arrayContaining(['strong', 'emphasis']))
-    expect(toMarkdown(doc).trim()).toBe(md)
+  it('同一行多个跨节点 **_a_** 与 **_b_** / __*a*__ 与 __*b*__ 均正确解析', () => {
+    for (const md of ['前**_a_**中**_b_**后', '前__*a*__中__*b*__后']) {
+      const doc = fromMarkdown(md, schema)
+      expect(collectMarks(doc, 'a'), md).toEqual(expect.arrayContaining(['strong', 'emphasis']))
+      expect(collectMarks(doc, 'b'), md).toEqual(expect.arrayContaining(['strong', 'emphasis']))
+      expect(toMarkdown(doc).trim(), md).toBe(md)
+    }
   })
 
-  it('转义的中文 \\*\\*_xxx_\\*\\*中文 保持斜体但不加粗', () => {
-    const md = '中文\\*\\*_xxx_\\*\\*中文'
-    const doc = fromMarkdown(md, schema)
-    const marks = collectMarks(doc, 'xxx')
-    expect(marks).toContain('emphasis')
-    expect(marks).not.toContain('strong')
+  it('ASCII 词内双下划线 foo__bar__baz 不误转加粗', () => {
+    const doc = fromMarkdown('foo__bar__baz', schema)
+    expect(collectMarks(doc, 'bar')).toEqual([])
+    expect(doc.textContent).toBe('foo__bar__baz')
+  })
+
+  it('转义的中文 \\*\\*_xxx_\\*\\*中文 与 \\_\\_*xxx*\\_\\_中文 保持斜体但不加粗', () => {
+    for (const md of ['中文\\*\\*_xxx_\\*\\*中文', '中文\\_\\_*xxx*\\_\\_中文']) {
+      const doc = fromMarkdown(md, schema)
+      const marks = collectMarks(doc, 'xxx')
+      expect(marks, md).toContain('emphasis')
+      expect(marks, md).not.toContain('strong')
+    }
   })
 })

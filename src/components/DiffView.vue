@@ -19,14 +19,16 @@
 // 切回预览会重建只读 EditorView 并重新解析 + 比对。
 // 模式切换复用底部状态栏的 sourceMode toggle(Eye/Code2 按钮)。
 
-import { computed, ref, watch } from 'vue'
-import { X, Loader2, Undo2 } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { X, Loader2, Undo2, ChevronUp, ChevronDown } from '@lucide/vue'
 import { useVersionHistoryStore, UNSAVED_ID } from '@/stores/versionHistory'
 import { useDocumentStore } from '@/stores/document'
 import { useEditorStore } from '@/stores/editor'
 import { diffLines, isPureCharRemoval, type DiffLine } from '@/utils/lineDiff'
+import { extractSourceAnchors, type DiffAnchor } from '@/utils/diffAnchors'
 import type { TimelineEntry } from '@/stores/versionHistory'
 import WysiwygDiffView from '@/components/ProseMirrorEditor/WysiwygDiffView.vue'
+import DiffOverviewRuler from '@/components/DiffOverviewRuler.vue'
 
 const versionHistory = useVersionHistoryStore()
 const documentStore = useDocumentStore()
@@ -70,6 +72,217 @@ const diffStats = computed(() => {
  * 跳过被合并的 removed 行(VSCode inline diff 风格:
  * 整行浅绿 + 新增字符深绿 + 删除字符红色删除线) */
 const displayRows = computed(() => diffResult.value.filter(l => !l.mergedIntoNext))
+
+// ========== 变更锚点与 hunk 导航(#diff-autoscroll)==========
+
+/** 实际渲染模式:newContent 为空时模板回退到源码列表,锚点来源与之对齐 */
+const effectiveSourceMode = computed(() => isSourceMode.value || !newContent.value)
+const sourceScrollRef = ref<HTMLElement | null>(null)
+const wysiwygRef = ref<InstanceType<typeof WysiwygDiffView> | null>(null)
+
+const rawSourceAnchors = computed(() => extractSourceAnchors(displayRows.value))
+const measuredSourceAnchors = ref<DiffAnchor[]>([])
+const sourceAnchors = computed(() => (
+  measuredSourceAnchors.value.length === rawSourceAnchors.value.length
+    ? measuredSourceAnchors.value
+    : rawSourceAnchors.value
+))
+const wysiwygAnchors = ref<DiffAnchor[]>([])
+
+let sourceRo: ResizeObserver | null = null
+let sourceMeasureRaf: number | null = null
+
+/** 源码模式用真实行 DOM 像素位置校正 ruler 比例(处理长行自动折行导致的比例偏移) */
+function measureSourceAnchors() {
+  const raw = rawSourceAnchors.value
+  const scroller = sourceScrollRef.value
+  if (!effectiveSourceMode.value || !scroller || raw.length === 0) {
+    measuredSourceAnchors.value = raw
+    return
+  }
+  const scrollHeight = scroller.scrollHeight
+  const scrollerRect = scroller.getBoundingClientRect()
+  if (scrollHeight <= 0 || scrollerRect.height <= 0) {
+    measuredSourceAnchors.value = raw
+    return
+  }
+  const scrollTop = scroller.scrollTop
+  measuredSourceAnchors.value = raw.map((anchor) => {
+    const startIdx = anchor.rowIndex
+    const endIdx = anchor.rowEndIndex
+    if (startIdx === undefined || endIdx === undefined) return anchor
+    const firstRow = scroller.querySelector<HTMLElement>(`[data-diff-row-idx="${startIdx}"]`)
+    const lastRow = scroller.querySelector<HTMLElement>(`[data-diff-row-idx="${Math.max(startIdx, endIdx - 1)}"]`)
+    if (!firstRow || !lastRow) return anchor
+    const topY = scrollTop + (firstRow.getBoundingClientRect().top - scrollerRect.top)
+    const bottomY = scrollTop + (lastRow.getBoundingClientRect().bottom - scrollerRect.top)
+    const startRatio = Math.min(1, Math.max(0, topY / scrollHeight))
+    const endRatio = Math.min(1, Math.max(startRatio, bottomY / scrollHeight))
+    return { ...anchor, startRatio, endRatio }
+  })
+}
+
+function scheduleMeasureSourceAnchors() {
+  if (sourceMeasureRaf !== null) return
+  sourceMeasureRaf = requestAnimationFrame(() => {
+    sourceMeasureRaf = null
+    measureSourceAnchors()
+  })
+}
+
+watch([rawSourceAnchors, effectiveSourceMode], () => {
+  measuredSourceAnchors.value = rawSourceAnchors.value
+  if (effectiveSourceMode.value) {
+    void nextTick(() => scheduleMeasureSourceAnchors())
+  }
+}, { immediate: true })
+const activeAnchors = computed(() =>
+  effectiveSourceMode.value ? sourceAnchors.value : wysiwygAnchors.value,
+)
+const activeAnchorIndex = ref(-1)
+const hasAnchors = computed(() => !loading.value && activeAnchors.value.length > 0)
+const activeScrollElement = computed<HTMLElement | null>(() => (
+  effectiveSourceMode.value
+    ? sourceScrollRef.value
+    : (wysiwygRef.value?.scrollContainerRef ?? null)
+))
+
+/** 新版本 diff 就绪后需要自动跳到第 0 处变更 */
+let pendingAutoScroll = false
+/** 从源码切回预览时,等 WysiwygDiffView 挂载并上报锚点后恢复当前序号 */
+let pendingModeSync = false
+
+function scrollSourceToRow(rowIndex: number) {
+  const scroller = sourceScrollRef.value
+  if (!scroller) return
+  const rowEl = scroller.querySelector<HTMLElement>(`[data-diff-row-idx="${rowIndex}"]`)
+  if (!rowEl) return
+  const scrollerRect = scroller.getBoundingClientRect()
+  const rowRect = rowEl.getBoundingClientRect()
+  const targetTop = scroller.scrollTop + (rowRect.top - scrollerRect.top) - scroller.clientHeight * 0.25
+  scroller.scrollTop = Math.max(0, targetTop)
+}
+
+function jumpToAnchor(idx: number) {
+  const anchors = activeAnchors.value
+  if (anchors.length === 0) {
+    activeAnchorIndex.value = -1
+    return
+  }
+  const wrapped = ((idx % anchors.length) + anchors.length) % anchors.length
+  activeAnchorIndex.value = wrapped
+  const anchor = anchors[wrapped]
+  if (effectiveSourceMode.value) {
+    scrollSourceToRow(anchor.rowIndex ?? 0)
+  }
+  else {
+    wysiwygRef.value?.scrollToAnchor(anchor)
+  }
+}
+
+function goToPrevAnchor() {
+  if (!hasAnchors.value) return
+  const nextIdx = activeAnchorIndex.value < 0
+    ? activeAnchors.value.length - 1
+    : activeAnchorIndex.value - 1
+  jumpToAnchor(nextIdx)
+}
+
+function goToNextAnchor() {
+  if (!hasAnchors.value) return
+  const nextIdx = activeAnchorIndex.value < 0 ? 0 : activeAnchorIndex.value + 1
+  jumpToAnchor(nextIdx)
+}
+
+function isRowInActiveHunk(idx: number): boolean {
+  if (!effectiveSourceMode.value || activeAnchorIndex.value < 0) return false
+  const anchor = activeAnchors.value[activeAnchorIndex.value]
+  if (!anchor || anchor.rowIndex === undefined || anchor.rowEndIndex === undefined) return false
+  return idx >= anchor.rowIndex && idx < anchor.rowEndIndex
+}
+
+function scheduleAutoScroll() {
+  activeAnchorIndex.value = -1
+  pendingAutoScroll = true
+  pendingModeSync = false
+  if (effectiveSourceMode.value) {
+    void nextTick(() => {
+      if (!pendingAutoScroll || loading.value || !effectiveSourceMode.value) return
+      pendingAutoScroll = false
+      if (sourceAnchors.value.length > 0) jumpToAnchor(0)
+    })
+  }
+}
+
+function onWysiwygAnchorsChange(anchors: DiffAnchor[]) {
+  wysiwygAnchors.value = anchors
+  if (loading.value || effectiveSourceMode.value) return
+  if (pendingAutoScroll) {
+    pendingAutoScroll = false
+    if (anchors.length > 0) jumpToAnchor(0)
+    return
+  }
+  if (pendingModeSync) {
+    pendingModeSync = false
+    if (anchors.length > 0) {
+      const clamped = Math.max(0, Math.min(activeAnchorIndex.value, anchors.length - 1))
+      jumpToAnchor(clamped)
+    }
+    else {
+      activeAnchorIndex.value = -1
+    }
+  }
+}
+
+watch(isSourceMode, (toSource) => {
+  if (loading.value) return
+  if (toSource || !newContent.value) {
+    pendingModeSync = false
+    void nextTick(() => {
+      if (sourceAnchors.value.length === 0) {
+        activeAnchorIndex.value = -1
+        return
+      }
+      const clamped = activeAnchorIndex.value < 0
+        ? 0
+        : Math.min(activeAnchorIndex.value, sourceAnchors.value.length - 1)
+      jumpToAnchor(clamped)
+    })
+  }
+  else {
+    pendingModeSync = true
+  }
+})
+
+function onKeydown(e: KeyboardEvent) {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  if (!hasAnchors.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'ArrowUp') goToPrevAnchor()
+  else goToNextAnchor()
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  if (typeof ResizeObserver !== 'undefined' && sourceScrollRef.value) {
+    sourceRo = new ResizeObserver(() => {
+      if (effectiveSourceMode.value) scheduleMeasureSourceAnchors()
+    })
+    sourceRo.observe(sourceScrollRef.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  sourceRo?.disconnect()
+  sourceRo = null
+  if (sourceMeasureRaf !== null) {
+    cancelAnimationFrame(sourceMeasureRaf)
+    sourceMeasureRaf = null
+  }
+})
 
 interface RowVisual {
   bg: string
@@ -132,6 +345,9 @@ async function loadDiff() {
     diffResult.value = []
     newContent.value = ''
     oldContent.value = ''
+    wysiwygAnchors.value = []
+    activeAnchorIndex.value = -1
+    pendingAutoScroll = false
     return
   }
 
@@ -145,6 +361,7 @@ async function loadDiff() {
       diffResult.value = diffLines(oldRaw, cachedNew)
       newContent.value = cachedNew
       oldContent.value = oldRaw
+      scheduleAutoScroll()
       return
     }
     // 前一版本是 Git 条目且未加载 —— 走异步路径
@@ -155,6 +372,7 @@ async function loadDiff() {
       diffResult.value = diffLines(r.content ?? '', cachedNew)
       newContent.value = cachedNew
       oldContent.value = r.content ?? ''
+      scheduleAutoScroll()
     }
     catch (e) {
       if (seq !== loadSeq) return
@@ -186,6 +404,7 @@ async function loadDiff() {
     diffResult.value = diffLines(oldContentRaw, newContentRaw)
     newContent.value = newContentRaw
     oldContent.value = oldContentRaw
+    scheduleAutoScroll()
   }
   catch (e) {
     if (seq !== loadSeq) return
@@ -193,6 +412,9 @@ async function loadDiff() {
     diffResult.value = []
     newContent.value = ''
     oldContent.value = ''
+    wysiwygAnchors.value = []
+    activeAnchorIndex.value = -1
+    pendingAutoScroll = false
   }
   finally {
     // 过期请求无权清 loading —— 新请求可能正在加载
@@ -279,6 +501,32 @@ function onClose() {
         <span v-else-if="!loading" class="text-gray-400">内容一致</span>
       </div>
       <div class="flex items-center gap-2">
+        <!-- hunk 导航(#diff-autoscroll) -->
+        <div
+          v-if="hasAnchors"
+          class="flex items-center gap-0.5 border-r border-[var(--surface-border)] pr-2"
+        >
+          <button
+            class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
+            title="上一处变更 (Alt+↑)"
+            aria-label="上一处变更"
+            @click="goToPrevAnchor"
+          >
+            <ChevronUp class="h-3.5 w-3.5" />
+          </button>
+          <span
+            data-diff-nav-counter
+            class="min-w-[2.25rem] text-center text-xs tabular-nums text-gray-500 dark:text-gray-400"
+          >{{ activeAnchorIndex >= 0 ? activeAnchorIndex + 1 : 0 }}/{{ activeAnchors.length }}</span>
+          <button
+            class="rounded-md p-1 text-gray-400 transition-colors hover:bg-[var(--surface-hover)] hover:text-gray-600 dark:hover:text-gray-300"
+            title="下一处变更 (Alt+↓)"
+            aria-label="下一处变更"
+            @click="goToNextAnchor"
+          >
+            <ChevronDown class="h-3.5 w-3.5" />
+          </button>
+        </div>
         <!-- 本地快照:显示「恢复」 -->
         <button
           v-if="!isSelectedUnsaved && !isSelectedGit"
@@ -308,71 +556,94 @@ function onClose() {
       </div>
     </div>
 
-    <!-- diff 内容 -->
-    <div v-velo-scroll class="min-h-0 flex-1 overflow-y-auto">
-      <!-- loading 态 -->
+    <!-- diff 内容 + 右侧合一滚动标尺(#diff-ruler) -->
+    <div class="flex min-h-0 flex-1">
       <div
-        v-if="loading"
-        class="flex h-full items-center justify-center"
+        ref="sourceScrollRef"
+        class="min-h-0 flex-1 overflow-y-auto"
+        :class="{ 'velo-hide-scrollbar': hasAnchors }"
       >
-        <Loader2 class="h-5 w-5 animate-spin text-gray-300 dark:text-gray-600" />
-      </div>
-      <!-- WYSIWYG diff 模式(sourceMode=false) -->
-      <WysiwygDiffView
-        v-else-if="!isSourceMode && newContent"
-        :new-content="newContent"
-        :old-content="oldContent"
-      />
-      <!-- 源码 diff 模式(sourceMode=true) -->
-      <template v-else>
-        <!-- 空结果 -->
+        <!-- loading 态 -->
         <div
-          v-if="diffResult.length === 0"
-          class="flex h-full items-center justify-center text-xs text-gray-400"
+          v-if="loading"
+          class="flex h-full items-center justify-center"
         >
-          <span>无 diff 内容</span>
+          <Loader2 class="h-5 w-5 animate-spin text-gray-300 dark:text-gray-600" />
         </div>
-        <!-- diff 结果:字号走 --md-font-size(跟随设置),不再是写死的 text-xs -->
-        <div
-          v-else
-          class="font-mono leading-relaxed"
-          style="font-size: var(--md-font-size, 14px)"
-        >
+        <!-- WYSIWYG diff 模式(sourceMode=false) -->
+        <WysiwygDiffView
+          v-else-if="!isSourceMode && newContent"
+          ref="wysiwygRef"
+          :new-content="newContent"
+          :old-content="oldContent"
+          :hide-scrollbar="hasAnchors"
+          @anchors-change="onWysiwygAnchorsChange"
+        />
+        <!-- 源码 diff 模式(sourceMode=true) -->
+        <template v-else>
+          <!-- 空结果 -->
           <div
-            v-for="(line, idx) in displayRows"
-            :key="idx"
-            class="flex"
-            :class="rowVisual(line).bg"
+            v-if="diffResult.length === 0"
+            class="flex h-full items-center justify-center text-xs text-gray-400"
           >
-            <span class="w-10 shrink-0 select-none border-r border-[var(--surface-border)] px-2 text-right text-gray-300 dark:text-gray-600">
-              {{ rowVisual(line).lineNo }}
-            </span>
-            <span
-              class="shrink-0 select-none px-2"
-              :class="rowVisual(line).prefixClass"
-            >
-              {{ rowVisual(line).prefix }}
-            </span>
-            <span
-              class="whitespace-pre-wrap px-1"
-              :class="rowVisual(line).textClass"
-            >
-              <!-- 配对修改行优先用 mergedInlineDiff 单行渲染 -->
-              <template v-if="line.mergedInlineDiff || line.inlineDiff">
-                <span
-                  v-for="(seg, si) in (line.mergedInlineDiff ?? line.inlineDiff)"
-                  :key="si"
-                  :class="{
-                    'bg-green-200/60 dark:bg-green-800/40': seg.type === 'added',
-                    'bg-red-200/60 text-red-700/80 dark:bg-red-800/40 dark:text-red-300/80': seg.type === 'removed',
-                  }"
-                >{{ seg.text }}</span>
-              </template>
-              <template v-else>{{ line.text || ' ' }}</template>
-            </span>
+            <span>无 diff 内容</span>
           </div>
-        </div>
-      </template>
+          <!-- diff 结果:字号走 --md-font-size(跟随设置),不再是写死的 text-xs -->
+          <div
+            v-else
+            class="font-mono leading-relaxed"
+            style="font-size: var(--md-font-size, 14px)"
+          >
+            <div
+              v-for="(line, idx) in displayRows"
+              :key="idx"
+              :data-diff-row-idx="idx"
+              class="flex border-l-2"
+              :class="[
+                rowVisual(line).bg,
+                isRowInActiveHunk(idx)
+                  ? 'border-l-blue-500 dark:border-l-blue-400'
+                  : 'border-l-transparent',
+              ]"
+            >
+              <span class="w-10 shrink-0 select-none border-r border-[var(--surface-border)] px-2 text-right text-gray-300 dark:text-gray-600">
+                {{ rowVisual(line).lineNo }}
+              </span>
+              <span
+                class="shrink-0 select-none px-2"
+                :class="rowVisual(line).prefixClass"
+              >
+                {{ rowVisual(line).prefix }}
+              </span>
+              <span
+                class="whitespace-pre-wrap px-1"
+                :class="rowVisual(line).textClass"
+              >
+                <!-- 配对修改行优先用 mergedInlineDiff 单行渲染 -->
+                <template v-if="line.mergedInlineDiff || line.inlineDiff">
+                  <span
+                    v-for="(seg, si) in (line.mergedInlineDiff ?? line.inlineDiff)"
+                    :key="si"
+                    :class="{
+                      'bg-green-200/60 dark:bg-green-800/40': seg.type === 'added',
+                      'bg-red-200/60 text-red-700/80 dark:bg-red-800/40 dark:text-red-300/80': seg.type === 'removed',
+                    }"
+                  >{{ seg.text }}</span>
+                </template>
+                <template v-else>{{ line.text || ' ' }}</template>
+              </span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- 滚动条与变更概览标尺合一(有变更时显示) -->
+      <DiffOverviewRuler
+        v-if="hasAnchors"
+        :anchors="activeAnchors"
+        :scroll-element="activeScrollElement"
+        @select="jumpToAnchor"
+      />
     </div>
   </div>
 </template>

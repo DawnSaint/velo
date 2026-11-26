@@ -65,10 +65,16 @@ vi.mock('@/stores/editor', async () => {
 })
 
 // 预览 diff 的 PM 渲染与竞态无关,替身掉避免拖慢/引入无关依赖
+const stubScrollToAnchor = vi.hoisted(() => vi.fn())
 vi.mock('@/components/ProseMirrorEditor/WysiwygDiffView.vue', () => ({
   default: {
     name: 'WysiwygDiffView',
     props: ['newContent', 'oldContent'],
+    emits: ['anchors-change'],
+    setup(_props: unknown, { expose }: { expose: (exposed: Record<string, unknown>) => void }) {
+      expose({ scrollToAnchor: stubScrollToAnchor })
+      return {}
+    },
     template: '<div class="wys-stub" />',
   },
 }))
@@ -216,5 +222,94 @@ describe('DiffView 加载竞态守卫', () => {
     expect(wrapper.text()).toContain('回退修改')
     expect(wrapper.text()).not.toContain('恢复此版本')
     expect(shownContent(wrapper)).toBe('UNSAVED BODY')
+  })
+})
+
+describe('DiffView hunk 导航与自动跳转(#diff-autoscroll)', () => {
+  beforeEach(() => {
+    state.selectedEntryId.value = null
+    state.entries.value = []
+    state.loadGitContent.mockReset()
+    state.diffOldContentAsync.mockReset()
+    state.diffOldContentAsyncSync.mockReset()
+    state.diffOldContentAsyncSync.mockReturnValue(null)
+    state.gitContentCache.clear()
+    state.sourceMode.sourceMode = false
+    stubScrollToAnchor.mockReset()
+  })
+
+  it('源码模式:进入 diff 自动定位到 1/N，按钮与 Alt+↑/↓ 循环跳转', async () => {
+    state.sourceMode.sourceMode = true
+    const oldMd = 'keep 1\nold a\nkeep 2\nold b\nkeep 3'
+    const newMd = 'keep 1\nnew a\nkeep 2\nnew b\nkeep 3'
+    state.entries.value = [
+      { id: 'local-1', filePath: '/note.md', timestamp: 10, source: 'local', content: newMd },
+    ]
+    state.diffOldContentAsyncSync.mockReturnValue(oldMd)
+
+    const wrapper = mount(DiffView)
+    state.selectedEntryId.value = 'local-1'
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('1/2')
+
+    // 点击下一处 → 2/2
+    await wrapper.find('button[aria-label="下一处变更"]').trigger('click')
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('2/2')
+
+    // Alt+↓ 循环回到 1/2
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true }))
+    await nextTick()
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('1/2')
+
+    // Alt+↑ 循环回到 2/2
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true }))
+    await nextTick()
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('2/2')
+  })
+
+  it('内容一致时不显示导航按钮', async () => {
+    state.sourceMode.sourceMode = true
+    state.entries.value = [
+      { id: 'local-same', filePath: '/note.md', timestamp: 10, source: 'local', content: 'same\ntext' },
+    ]
+    state.diffOldContentAsyncSync.mockReturnValue('same\ntext')
+
+    const wrapper = mount(DiffView)
+    state.selectedEntryId.value = 'local-same'
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('[data-diff-nav-counter]').exists()).toBe(false)
+  })
+
+  it('预览模式:收到 anchors-change 后自动跳转首处，按钮调用子组件 scrollToAnchor', async () => {
+    state.sourceMode.sourceMode = false
+    state.entries.value = [
+      { id: 'local-w', filePath: '/note.md', timestamp: 10, source: 'local', content: 'new body' },
+    ]
+    state.diffOldContentAsyncSync.mockReturnValue('old body')
+
+    const wrapper = mount(DiffView)
+    state.selectedEntryId.value = 'local-w'
+    await flushPromises()
+    await nextTick()
+
+    const stub = wrapper.findComponent({ name: 'WysiwygDiffView' })
+    const anchors = [
+      { index: 0, kind: 'added' as const, startRatio: 0.1, endRatio: 0.2, from: 10, to: 20 },
+      { index: 1, kind: 'modified' as const, startRatio: 0.5, endRatio: 0.6, from: 50, to: 60 },
+    ]
+    stub.vm.$emit('anchors-change', anchors)
+    await nextTick()
+
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('1/2')
+    expect(stubScrollToAnchor).toHaveBeenCalledTimes(1)
+    expect(stubScrollToAnchor).toHaveBeenLastCalledWith(anchors[0])
+
+    await wrapper.find('button[aria-label="下一处变更"]').trigger('click')
+    expect(wrapper.find('[data-diff-nav-counter]').text()).toBe('2/2')
+    expect(stubScrollToAnchor).toHaveBeenLastCalledWith(anchors[1])
   })
 })

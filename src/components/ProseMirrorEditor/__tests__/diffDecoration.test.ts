@@ -3,7 +3,7 @@ import { EditorState, Plugin } from 'prosemirror-state'
 import { DecorationSet, EditorView } from 'prosemirror-view'
 import { schema as veloSchema, type VeloSchema } from '../editor/schema'
 import { fromMarkdown } from '../editor/markdownIO'
-import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin, getDiffGroups, ensureStableDeletedWidgetRoot } from '../plugins/diffDecoration'
+import { buildDecorations, buildDiffPlan, diffDecorationKey, diffDecorationPlugin, getDiffAnchors, getDiffGroups, ensureStableDeletedWidgetRoot } from '../plugins/diffDecoration'
 import { attachImageErrorFallback } from '../editor/imageErrorPlaceholder'
 import { viewportPlugin, setInitialViewportHint, viewportKey } from '../nodes/viewportPlugin'
 
@@ -112,38 +112,47 @@ describe('buildDecorations', () => {
     expect(hasAddedInlineDeco(decoSet)).toBe(true)
   })
 
-  it('仅格式变更(加粗)→ 变化区间 inline 标记(旧实现完全不可见)', () => {
+  it('仅格式变更(加粗)→ 原位删旧 + 增新(无琥珀标记)', () => {
     const oldDoc = makeDoc('Hello world.')
     const newDoc = makeDoc('Hello **world**.')
     const decos = buildDecorations(newDoc, oldDoc)
-    const fmt = decos.filter(d => (d as any).type?.attrs?.class === 'velo-diff-format-changed')
-    expect(fmt.length).toBe(1)
+    const added = decos.filter(d => (d as any).type?.attrs?.class === 'velo-diff-added-inline')
+    expect(added.length).toBe(1)
     // 'world' 在新文档中的范围:段落 text 从 pos 1 开始,offset 6..11 → pos 7..12
-    expect(fmt[0].from).toBe(7)
-    expect(fmt[0].to).toBe(12)
-    expect((fmt[0] as any).type.attrs.title).toBe('格式变更')
-    // 不再用整块 changed 兜底
+    expect(added[0].from).toBe(7)
+    expect(added[0].to).toBe(12)
+    // 同时有原位旧格式删除 widget
+    const widgets = decos.filter(d => d.from === d.to)
+    expect(widgets.length).toBe(1)
+    expect(widgets[0].from).toBe(7)
+    const dom = (widgets[0] as any).type.toDOM() as HTMLElement
+    expect(dom.className).toBe('velo-diff-removed')
+    expect(dom.textContent).toBe('world')
     expect(decos.some(d => (d as any).type?.attrs?.class === 'velo-diff-changed')).toBe(false)
   })
 
-  it('节点类型变更(段落 → 标题,文本不变)→ 左侧条 + tooltip', () => {
+  it('节点类型变更(段落 → 标题,文本不变)→ 整块删旧 + 增新', () => {
     const oldDoc = makeDoc('Hello')
     const newDoc = makeDoc('# Hello')
     const decos = buildDecorations(newDoc, oldDoc)
-    const typeChanged = decos.filter(d =>
-      ((d as any).type?.attrs?.class ?? '').includes('velo-diff-type-changed'))
-    expect(typeChanged.length).toBe(1)
-    expect((typeChanged[0] as any).type.attrs.title).toBe('段落 → 标题 1')
+    const widgets = decos.filter(d => d.from === d.to)
+    expect(widgets.length).toBe(1)
+    const dom = (widgets[0] as any).type.toDOM() as HTMLElement
+    expect(dom.className).toBe('velo-diff-deleted-block')
+    expect(dom.querySelector('p')?.textContent).toBe('Hello')
+    expect(decos.some(d => (d as any).type?.attrs?.class === 'velo-diff-added')).toBe(true)
   })
 
-  it('标题级别变更(标题 1 → 标题 2,文本不变)→ tooltip 区分级别', () => {
+  it('标题级别变更(标题 1 → 标题 2,文本不变)→ 整块删旧 + 增新', () => {
     const oldDoc = makeDoc('# Hello')
     const newDoc = makeDoc('## Hello')
     const decos = buildDecorations(newDoc, oldDoc)
-    const typeChanged = decos.filter(d =>
-      ((d as any).type?.attrs?.class ?? '').includes('velo-diff-type-changed'))
-    expect(typeChanged.length).toBe(1)
-    expect((typeChanged[0] as any).type.attrs.title).toBe('标题 1 → 标题 2')
+    const widgets = decos.filter(d => d.from === d.to)
+    expect(widgets.length).toBe(1)
+    const dom = (widgets[0] as any).type.toDOM() as HTMLElement
+    expect(dom.className).toBe('velo-diff-deleted-block')
+    expect(dom.querySelector('h1')?.textContent).toBe('Hello')
+    expect(decos.some(d => (d as any).type?.attrs?.class === 'velo-diff-added')).toBe(true)
   })
 
   it('图片删除 → 带样式只读片段 widget(保留 <img> 结构)', () => {
@@ -314,13 +323,16 @@ describe('表格结构化 diff(整列 / 整行删除)', () => {
     expect(decos.some(d => (d as any).type?.attrs?.class === 'velo-diff-changed')).toBe(false)
   })
 
-  it('表格内仅格式变更 → 仍走同文异 key 逻辑,格式标记不丢失', () => {
+  it('表格内仅格式变更 → 仍走同文异 key 逻辑,原位删旧 + 增新不丢失', () => {
     const oldMd = '| A | B |\n| --- | --- |\n| a1 | b1 |'
     const newMd = '| A | **B** |\n| --- | --- |\n| a1 | b1 |'
     const decos = buildDecorations(makeDoc(newMd), makeDoc(oldMd))
-    const fmt = decos.filter(d =>
-      (d as any).type?.attrs?.class === 'velo-diff-format-changed')
-    expect(fmt.length).toBe(1)
+    const added = decos.filter(d =>
+      (d as any).type?.attrs?.class === 'velo-diff-added-inline')
+    expect(added.length).toBe(1)
+    const removed = widgetDoms(decos).filter(d => d.classList.contains('velo-diff-removed'))
+    expect(removed.length).toBe(1)
+    expect(removed[0].textContent).toBe('B')
   })
 
   it('同页多张表格同时删列 → 各表幽灵列内容正确(widget key 不冲突)', () => {
@@ -728,5 +740,25 @@ describe('ensureStableDeletedWidgetRoot', () => {
       el.classList.add('velo-diff-deleted-group')
       expect(ensureStableDeletedWidgetRoot(el)).toBe(el)
     }
+  })
+})
+
+describe('DiffAnchor 变更锚点(#diff-autoscroll)', () => {
+  it('连续新增块合并为单个 added 锚点，被未变更段隔开则拆成多个锚点', () => {
+    const plan = buildDiffPlan(
+      makeDoc('新段一\n\n新段二\n\n保留段\n\n修改后的尾段'),
+      makeDoc('保留段\n\n旧尾段'),
+    )
+    expect(plan.anchors).toHaveLength(2)
+    expect(plan.anchors[0].kind).toBe('added')
+    expect(plan.anchors[1].kind).toBe('modified')
+    expect(plan.anchors[0].from).toBeLessThan(plan.anchors[1].from!)
+  })
+
+  it('窄视口下 getDiffAnchors 仍返回全量锚点，不受增量构建影响', () => {
+    const narrow = makeDiffState('保留段\n\n旧尾段', '新段一\n\n保留段\n\n新尾段', { from: 0, to: 1 })
+    const full = makeDiffState('保留段\n\n旧尾段', '新段一\n\n保留段\n\n新尾段', null)
+    expect(getDiffAnchors(narrow)).toEqual(getDiffAnchors(full))
+    expect(getDiffAnchors(narrow)).toHaveLength(2)
   })
 })

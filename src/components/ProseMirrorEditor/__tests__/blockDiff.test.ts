@@ -157,6 +157,23 @@ describe('diffInlineMarkRanges', () => {
     const ranges = diffInlineMarkRanges(oldDoc.child(0), newDoc.child(0))
     expect(ranges).toEqual([{ from: 0, to: 4 }])
   })
+
+  it('纯源码写法差异(char_ref / * vs _ / ** vs __ / - vs *)不触发预览 diff 变更', () => {
+    // 字符实体与解码后普通字符视觉一致
+    expect(diffBlocks(makeDoc('是&#x4E2A;'), makeDoc('是个')).ops.map(o => o.kind)).toEqual(['equal'])
+    // 斜体 / 加粗 marker 写法不同但渲染一致
+    expect(diffBlocks(makeDoc('*italic*'), makeDoc('_italic_')).ops.map(o => o.kind)).toEqual(['equal'])
+    expect(diffBlocks(makeDoc('**bold**'), makeDoc('__bold__')).ops.map(o => o.kind)).toEqual(['equal'])
+    // 无序列表符号不同但渲染一致
+    expect(diffBlocks(makeDoc('- item'), makeDoc('* item')).ops.map(o => o.kind)).toEqual(['equal'])
+    // 任务列表勾选态变化仍属于可见语义变更
+    expect(diffBlocks(makeDoc('- [ ] todo'), makeDoc('- [x] todo')).ops.map(o => o.kind)).toEqual(['pair'])
+    // 回归:有序列表内嵌套段落含 char_ref / escape 切分 text 节点时,
+    // 不因 paragraph.childCount 不同而误判整个列表被删除替换
+    const oldList = '1. 第一项未变。\n\n2. 一张纸是&#x4E2A;**_零测集_**。'
+    const newList = '1. 第一项未变。\n\n2. 一张纸是个**_零测集_**。'
+    expect(diffBlocks(makeDoc(oldList), makeDoc(newList)).ops.map(o => o.kind)).toEqual(['equal'])
+  })
 })
 
 describe('nodeTypeLabel', () => {

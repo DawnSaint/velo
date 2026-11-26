@@ -251,13 +251,16 @@ describe('用户报告场景 2：WYSIWYG 逐字符输入与源码编辑 **_xxx_*
     view.destroy()
   })
 
-  it('逐字符键入 **_x_**（单字符）与 _**xxx**_ 均渲染为加粗斜体', () => {
-    for (const input of ['**_x_**', '_**xxx**_']) {
+  it('逐字符键入 **_x_**（单字符）、_**xxx**_ 与 __*零测集*__ 均渲染为加粗斜体', () => {
+    for (const [input, expectedText] of [
+      ['**_x_**', 'x'],
+      ['_**xxx**_', 'xxx'],
+      ['__*零测集*__', '零测集'],
+    ]) {
       const view = mountView('')
       for (const ch of input) {
         view.dispatch(view.state.tr.insertText(ch, view.state.selection.head))
       }
-      const expectedText = input.includes('xxx') ? 'xxx' : 'x'
       expect(view.state.doc.textContent, input).toBe(expectedText)
       let marks: string[] = []
       view.state.doc.descendants((n) => {

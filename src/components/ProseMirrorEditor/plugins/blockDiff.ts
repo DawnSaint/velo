@@ -151,24 +151,85 @@ export function collectBlocks(doc: PMNode): BlockEntry[] {
  * 文本也不是 leaf,若不入 key,「删一个空列」「增删空行」「删空列表项」这类
  * 不改变任何文本的结构变化会被判成 equal,diff 里彻底消失。
  */
+/**
+ * WYSIWYG diff 忽略的纯源码保真 mark（不影响富文本渲染与语义，仅用于 toMarkdown 原样写回）。
+ * 这类字节/语法级差异归源码 diff 模式展示，不在预览模式制造「视觉无变化却标琥珀」的噪音。
+ */
+const SOURCE_ONLY_MARKS = new Set(['char_ref', 'escape'])
+
+/**
+ * WYSIWYG diff 忽略的纯源码保真 attrs（按 mark / node 类型名索引）：
+ * - emphasis / strong: `marker`（`*` vs `_`）
+ * - heading: `id`（锚点元数据）
+ * - bullet_list / ordered_list / list_item: `spread` / `label` / `listType`（`-` vs `*`、松紧列表）
+ * - hardbreak: `hard`（`\` / 双空格 vs 软换行，均渲染 `<br>`）
+ * - image: `htmlSource`（`![]()` vs `<img>`，不进 toDOM 的纯序列化元数据）
+ */
+const SOURCE_ONLY_ATTRS: Record<string, ReadonlySet<string>> = {
+  emphasis: new Set(['marker']),
+  strong: new Set(['marker']),
+  heading: new Set(['id']),
+  bullet_list: new Set(['spread']),
+  ordered_list: new Set(['spread']),
+  list_item: new Set(['label', 'listType', 'spread']),
+  hardbreak: new Set(['hard']),
+  image: new Set(['htmlSource']),
+}
+
+function visualAttrsKey(typeName: string, attrs: Record<string, unknown>): string {
+  const ignored = SOURCE_ONLY_ATTRS[typeName]
+  if (!ignored) return JSON.stringify(attrs)
+  const filtered: Record<string, unknown> = {}
+  for (const key of Object.keys(attrs)) {
+    if (!ignored.has(key)) filtered[key] = attrs[key]
+  }
+  return JSON.stringify(filtered)
+}
+
 function blockKey(node: PMNode): string {
-  const parts: string[] = [node.type.name, JSON.stringify(node.attrs)]
+  const parts: string[] = [node.type.name, visualAttrsKey(node.type.name, node.attrs)]
+  // 相邻且可见 marks 相同的文本节点合并后入签名:
+  // char_ref 等纯源码保真 mark 会把同一段文本拆成多个 PM text 节点,
+  // 不合并会让「是&#x4E2A;」与「是个」因切分边界不同而产出不同 key。
+  let pendingText = ''
+  let pendingMark: string | null = null
+  const flushText = () => {
+    if (pendingMark === null) return
+    parts.push(pendingText)
+    parts.push(pendingMark)
+    pendingText = ''
+    pendingMark = null
+  }
+
   node.descendants((child) => {
     if (child.isText) {
-      parts.push(child.text ?? '')
-      // marks 签名:类型 + attrs(如 link 的 href),排序保证与顺序无关
-      parts.push(markSig(child))
+      const sig = markSig(child)
+      if (pendingMark === sig) {
+        pendingText += child.text ?? ''
+      }
+      else {
+        flushText()
+        pendingText = child.text ?? ''
+        pendingMark = sig
+      }
     }
     else if (child.isLeaf) {
+      flushText()
       // 非文本 leaf:image / hr / math_inline / emoji / hard_break 等
-      parts.push(`<${child.type.name}:${JSON.stringify(child.attrs)}>`)
+      parts.push(`<${child.type.name}:${visualAttrsKey(child.type.name, child.attrs)}>`)
     }
     else {
-      // 非 leaf 容器:childCount 让行列数 / 段落数的变化进入签名
-      parts.push(`(${child.type.name}:${child.childCount}:${JSON.stringify(child.attrs)})`)
+      flushText()
+      // 非 leaf 容器:block 容器记 childCount(行列数 / 段落数),
+      // textblock(paragraph / heading 等)不记 childCount —— 其子节点数是 PM 内部
+      // 文本切分粒度,char_ref / escape 等纯源码 mark 会把同一句拆成更多 text 节点,
+      // 记入 childCount 会导致列表/引用内嵌套段落的纯语法变更误判为整块差异。
+      const countPart = child.isTextblock ? '' : `:${child.childCount}`
+      parts.push(`(${child.type.name}${countPart}:${visualAttrsKey(child.type.name, child.attrs)})`)
     }
     return true
   })
+  flushText()
   return parts.join('')
 }
 
@@ -314,9 +375,13 @@ export function nodeTypeLabel(node: PMNode): string {
   }
 }
 
-/** 文本节点的 marks 签名(类型 + attrs,排序保证与顺序无关) */
+/** 文本节点的可见 marks 签名(过滤纯源码保真 mark 与 attrs,排序保证与顺序无关) */
 function markSig(node: PMNode): string {
-  return node.marks.map(m => m.type.name + JSON.stringify(m.attrs)).sort().join('&')
+  return node.marks
+    .filter(m => !SOURCE_ONLY_MARKS.has(m.type.name))
+    .map(m => m.type.name + visualAttrsKey(m.type.name, m.attrs))
+    .sort()
+    .join('&')
 }
 
 /**

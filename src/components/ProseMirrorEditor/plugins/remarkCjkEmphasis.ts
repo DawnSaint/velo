@@ -1,18 +1,19 @@
-// CJK 标点与跨节点（如 `中文**_xxx_**中文`）导致的 `**...**` 解析修复。
+// CJK 标点与跨节点（如 `中文**_xxx_**中文`、`中文__*xxx*__中文`）导致的强调解析修复。
 //
-// CommonMark 把 CJK 标点及 `_` 均归类为 Unicode/ASCII punctuation，导致：
+// CommonMark 把 CJK 标点及 `*`/`_` 均归类为 Unicode/ASCII punctuation，导致：
 //   1. `**text：**more` 的闭合 `**` 不满足 right-flanking；
 //   2. `more**（text）**` 的开启 `**` 不满足 left-flanking；
-//   3. `中文**_xxx_**中文` / `a**_xxx_**b` 中，外层 `**` 紧贴 `_`（标点）且另一侧是
-//      字词，remark-parse 只把内层 `_xxx_` 解析成 emphasis，外层 `**` 残留在相邻的
-//      两个 text 节点里，WYSIWYG 渲染为 `**` + 斜体 xxx + `**` 而未加粗。
+//   3. `中文**_xxx_**中文` / `中文__*xxx*__中文` / `中文*__xxx__*中文` / `中文_**xxx**_中文`
+//      中，外层界定符紧贴内层标点且另一侧是字词，remark-parse 只解析内层，外层
+//      `**`/`__`/`*`/`_` 残留在相邻的 text 节点里，WYSIWYG 渲染成裸界定符 + 单层样式。
 //
-// 修复方式：在 mdast 阶段扫描每个容器的 inline children，识别跨 text / 行内节点的
-// 未转义 `**...**` 对并包裹为 strong 节点。
+// 修复方式：在 mdast 阶段按顺序对 `**`、`__` 做跨节点重配，再补跨 `strong` 节点的
+// 单字符 `*`/`_` 包裹。
 //
 // 边界：
-// - 被反斜杠转义的 `\*`（由 remarkTrackEscapes 记入 `text._escapes`）绝不作为界定符；
-// - 连续 `***` 不拆（remark-parse 已原生处理 `***xxx***`）；
+// - 被反斜杠转义的 `\*`/`\_`（由 remarkTrackEscapes 记入 `text._escapes`）绝不作为界定符；
+// - 连续 `***`/`___` 不拆；
+// - `__` 严格排除 ASCII 词内形态（`foo__bar__baz` 保持字面文本，不误转加粗）；
 // - 内容首尾紧贴空白的 `** foo**` / `**foo **` 不补 strong（与 CommonMark 对齐）；
 // - 没有任何命中时原样返回 children，保留原 text 节点的 position 供 annotateCharRefs 回查。
 
@@ -23,16 +24,25 @@ import {
   type EscapableMdastText,
 } from '../editor/escape'
 
+type Marker = '*' | '_'
+
 type Token =
   | { kind: 'text'; node: EscapableMdastText }
   | { kind: 'node'; node: PhrasingContent }
   | { kind: 'delim' }
 
-function isUnescapedStar(value: string, idx: number, escaped: Set<number>): boolean {
-  return idx >= 0 && idx < value.length && value[idx] === '*' && !escaped.has(idx)
+function isAsciiWord(ch: string | undefined): boolean {
+  return !!ch && /[a-zA-Z0-9]/.test(ch)
 }
 
-function splitTextForDoubleStar(child: EscapableMdastText): { tokens: Token[]; delimCount: number } {
+function isUnescapedChar(value: string, idx: number, ch: Marker, escaped: Set<number>): boolean {
+  return idx >= 0 && idx < value.length && value[idx] === ch && !escaped.has(idx)
+}
+
+function splitTextForDoubleMarker(
+  child: EscapableMdastText,
+  marker: Marker,
+): { tokens: Token[]; delimCount: number } {
   const value = child.value
   const escaped = new Set(child._escapes ?? [])
   const tokens: Token[] = []
@@ -41,10 +51,12 @@ function splitTextForDoubleStar(child: EscapableMdastText): { tokens: Token[]; d
   let i = 0
   while (i < value.length) {
     if (
-      isUnescapedStar(value, i, escaped)
-      && isUnescapedStar(value, i + 1, escaped)
-      && !isUnescapedStar(value, i - 1, escaped)
-      && !isUnescapedStar(value, i + 2, escaped)
+      isUnescapedChar(value, i, marker, escaped)
+      && isUnescapedChar(value, i + 1, marker, escaped)
+      && !isUnescapedChar(value, i - 1, marker, escaped)
+      && !isUnescapedChar(value, i + 2, marker, escaped)
+      // `__` 排除 ASCII 词内（如 foo__bar__baz）；跨节点边界处 i-1 或 i+2 越界，不受影响
+      && !(marker === '_' && isAsciiWord(value[i - 1]) && isAsciiWord(value[i + 2]))
     ) {
       if (i > lastIdx) {
         tokens.push({ kind: 'text', node: sliceEscapedText(child, lastIdx, i) })
@@ -95,46 +107,46 @@ function pushNodeMergingText(out: PhrasingContent[], node: PhrasingContent): voi
   out.push(node)
 }
 
-function emitToken(out: PhrasingContent[], token: Token): void {
+function emitToken(out: PhrasingContent[], token: Token, delimStr: string): void {
   if (token.kind === 'delim') {
-    pushNodeMergingText(out, { type: 'text', value: '**' })
+    pushNodeMergingText(out, { type: 'text', value: delimStr })
   } else {
     pushNodeMergingText(out, token.node as PhrasingContent)
   }
 }
 
-function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
-  // 快路径：没有任何 text 节点含 `**`，直接原样返回。
-  let hasDoubleStar = false
+function rewriteStrongMarker(children: PhrasingContent[], marker: Marker): PhrasingContent[] {
+  const delimStr = marker + marker
+  let hasDouble = false
   for (const c of children) {
-    if (c.type === 'text' && (c as Text).value.includes('**')) {
-      hasDoubleStar = true
+    if (c.type === 'text' && (c as Text).value.includes(delimStr)) {
+      hasDouble = true
       break
     }
   }
-  if (!hasDoubleStar) return children
+  if (!hasDouble) return children
 
   const tokens: Token[] = []
   let textDelims = 0
   let totalDelims = 0
   for (const child of children) {
     if (child.type === 'text') {
-      const { tokens: split, delimCount } = splitTextForDoubleStar(child as EscapableMdastText)
+      const { tokens: split, delimCount } = splitTextForDoubleMarker(child as EscapableMdastText, marker)
       textDelims += delimCount
       totalDelims += delimCount
       tokens.push(...split)
       continue
     }
-    // 同行存在残留 `**` 时，把 remark-parse 因错位配对产生的 `**` strong 节点展平重配
-    // （如 `前**_a_**中**_b_**后` 中 remark-parse 会把 `**中**` 错配成 strong('*')，
-    // 导致首尾残留 `**`）；`__` strong 不展平，保持原语义。
+    // 同行存在残留 `**`/`__` 时，仅展平同 marker 的 strong 节点（如 `前__*a*__中__*b*__后`
+    // 中 remark-parse 会把中间 `中` 错配成 strong('_')），另一 marker 的 strong 保持不动。
     const maybeStrong = child as PhrasingContent & { _marker?: string; children?: PhrasingContent[] }
-    if (child.type === 'strong' && maybeStrong._marker !== '_' && Array.isArray(maybeStrong.children)) {
+    const sameMarker = (maybeStrong._marker ?? '*') === marker
+    if (child.type === 'strong' && sameMarker && Array.isArray(maybeStrong.children)) {
       tokens.push({ kind: 'delim' })
       totalDelims++
       for (const grand of maybeStrong.children) {
         if (grand.type === 'text') {
-          const { tokens: split, delimCount } = splitTextForDoubleStar(grand as EscapableMdastText)
+          const { tokens: split, delimCount } = splitTextForDoubleMarker(grand as EscapableMdastText, marker)
           totalDelims += delimCount
           tokens.push(...split)
         } else {
@@ -160,42 +172,100 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
         if (canOpenAfter(tokens, i)) {
           openIdx = i
         } else {
-          emitToken(out, tok)
+          emitToken(out, tok, delimStr)
         }
       } else {
-        emitToken(out, tok)
+        emitToken(out, tok, delimStr)
       }
-    } else {
-      if (tok.kind === 'delim') {
-        if (i > openIdx + 1 && canCloseBefore(tokens, i)) {
-          const inner: PhrasingContent[] = []
-          for (let k = openIdx + 1; k < i; k++) emitToken(inner, tokens[k])
-          out.push({
-            type: 'strong',
-            children: inner,
-            _marker: '*',
-          } as unknown as PhrasingContent)
-          matched = true
-          openIdx = -1
+    } else if (tok.kind === 'delim') {
+      if (i > openIdx + 1 && canCloseBefore(tokens, i)) {
+        const inner: PhrasingContent[] = []
+        for (let k = openIdx + 1; k < i; k++) emitToken(inner, tokens[k], delimStr)
+        out.push({
+          type: 'strong',
+          children: inner,
+          _marker: marker,
+        } as unknown as PhrasingContent)
+        matched = true
+        openIdx = -1
+      } else {
+        for (let k = openIdx; k < i; k++) emitToken(out, tokens[k], delimStr)
+        openIdx = -1
+        if (canOpenAfter(tokens, i)) {
+          openIdx = i
         } else {
-          // 当前 delim 不能闭合 openIdx：放弃 openIdx，再尝试把当前 delim 当新开界定符。
-          for (let k = openIdx; k < i; k++) emitToken(out, tokens[k])
-          openIdx = -1
-          if (canOpenAfter(tokens, i)) {
-            openIdx = i
-          } else {
-            emitToken(out, tok)
-          }
+          emitToken(out, tok, delimStr)
         }
       }
     }
   }
 
   if (openIdx !== -1) {
-    for (let k = openIdx; k < tokens.length; k++) emitToken(out, tokens[k])
+    for (let k = openIdx; k < tokens.length; k++) emitToken(out, tokens[k], delimStr)
   }
 
   return matched ? out : children
+}
+
+/**
+ * 补齐单字符 `*` / `_` 包裹相邻 strong 节点的场景（如 `中文*__xxx__*中文`、`中文_**xxx**_中文`）：
+ * remark-parse 已解析内层 strong，仅外层 `*`/`_` 残留在前后相邻 text 节点的末尾与开头。
+ */
+function rewriteOuterEmphasisAroundStrong(children: PhrasingContent[]): PhrasingContent[] {
+  if (children.length < 3) return children
+  let changed = false
+  const out: PhrasingContent[] = []
+  let i = 0
+  while (i < children.length) {
+    const prev = children[i]
+    const mid = children[i + 1]
+    const next = children[i + 2]
+    if (prev?.type === 'text' && mid?.type === 'strong' && next?.type === 'text') {
+      const pNode = prev as EscapableMdastText
+      const nNode = next as EscapableMdastText
+      const pVal = pNode.value
+      const nVal = nNode.value
+      const lastIdx = pVal.length - 1
+      const marker = pVal[lastIdx]
+      if (
+        (marker === '*' || marker === '_')
+        && nVal[0] === marker
+        && pVal[lastIdx - 1] !== marker
+        && nVal[1] !== marker
+        && !pNode._escapes?.includes(lastIdx)
+        && !nNode._escapes?.includes(0)
+      ) {
+        changed = true
+        if (lastIdx > 0) {
+          pushNodeMergingText(out, sliceEscapedText(pNode, 0, lastIdx) as PhrasingContent)
+        }
+        out.push({
+          type: 'emphasis',
+          children: [mid],
+          _marker: marker,
+        } as unknown as PhrasingContent)
+        // 消耗 next 开头的 marker，剩余文本留待后续迭代继续参与匹配（支持连续多处）
+        if (nVal.length > 1) {
+          children = children.slice()
+          children[i + 2] = sliceEscapedText(nNode, 1) as PhrasingContent
+          i += 2
+        } else {
+          i += 3
+        }
+        continue
+      }
+    }
+    pushNodeMergingText(out, children[i])
+    i++
+  }
+  return changed ? out : children
+}
+
+function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
+  let next = rewriteStrongMarker(children, '*')
+  next = rewriteStrongMarker(next, '_')
+  next = rewriteOuterEmphasisAroundStrong(next)
+  return next
 }
 
 export function remarkCjkEmphasis() {
