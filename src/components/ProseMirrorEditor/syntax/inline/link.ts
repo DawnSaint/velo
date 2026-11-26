@@ -6,6 +6,7 @@
 //  - 已带 link mark 的文本:由这里 apply 自己防御(下面 markFilter)
 
 import type { InlineSyntax } from '../../editor/syntaxRegistry'
+import { getRawTextExpandingEscapes } from '../../editor/escape'
 
 export const linkSyntax: InlineSyntax = {
   name: 'link',
@@ -15,8 +16,8 @@ export const linkSyntax: InlineSyntax = {
   pattern: /\[([^\]\n]+)\]\(([^()]+?)\s*\)/g,
   apply(tr, { schema, from, to, match }) {
     const linkText = match[1]
-    const url = match[2]
-    if (!linkText || !url) return false
+    const rawUrl = match[2]
+    if (!linkText || !rawUrl) return false
     const linkMarkType = schema.marks.link
     if (!linkMarkType) return false
 
@@ -31,8 +32,15 @@ export const linkSyntax: InlineSyntax = {
     })
     if (alreadyLinked) return false
 
+    const textEnd = from + 1 + linkText.length
+    const url = getRawTextExpandingEscapes(tr.doc, textEnd + 2, to - 1).trim()
+    if (!url) return false
+
+    // 仅剥除 `[` 和 `](url)`,保留链接文本内已有的 mark / 转义字符
     const linkMark = linkMarkType.create({ href: url })
-    tr.replaceWith(from, to, schema.text(linkText, [linkMark]))
+    tr.delete(textEnd, to)
+    tr.delete(from, from + 1)
+    tr.addMark(from, textEnd - 1, linkMark)
     return true
   },
 }

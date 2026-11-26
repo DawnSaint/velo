@@ -27,9 +27,9 @@ export const subSyntax: InlineSyntax = {
     if (!inner) return false
     const markType = schema.marks.subscript
     if (!markType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, markType.create())
+    tr.delete(to - 1, to)
+    tr.delete(from, from + 1)
+    tr.addMark(from, to - 2, markType.create())
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(markType)
     return true

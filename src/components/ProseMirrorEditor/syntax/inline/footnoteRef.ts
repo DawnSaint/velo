@@ -19,7 +19,7 @@ export const footnoteRefSyntax: InlineSyntax = {
   pattern: /\[\^([^\s\]]+)\]/g,
   apply(tr, { schema, from, to, match }) {
     const label = match[1]
-    if (!label) return false
+    if (!label || match[0].includes('\uE000')) return false
     const type = schema.nodes.footnote_reference
     if (!type) return false
     // 段首位置不转 —— 这是 footnote_definition 的起手,留给 markdown 序列化往返

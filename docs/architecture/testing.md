@@ -40,15 +40,15 @@
 
 ### 测试分层与规模
 
-130 个测试文件，按「越便宜越优先」分布：
+132 个测试文件，按「越便宜越优先」分布：
 
 | 位置 | 数量 | 覆盖重点 |
 | --- | --- | --- |
-| `src/components/ProseMirrorEditor/__tests__/` | 60 | 编辑器核心：markdownIO round-trip / 块级增量序列化 / 语法实时转换 / Enter·Backspace·Shift+Enter 键位链 / 数学·emoji·char_ref·HTML 图片源码会话 / 表格 CellSelection 与剪贴板 / 折叠占位符 / CJK 排版三件套 / diff 语义化装饰 / 代码高亮 |
+| `src/components/ProseMirrorEditor/__tests__/` | 61 | 编辑器核心：markdownIO round-trip / 块级增量序列化 / 语法实时转换 / Enter·Backspace·Shift+Enter 键位链 / 数学·emoji·char_ref·escape·HTML 图片源码会话 / 表格 CellSelection 与剪贴板 / 折叠占位符 / CJK 排版三件套 / diff 语义化装饰 / 代码高亮 |
 | `src/utils/__tests__/` | 15 | 纯函数：fuzzy / outline / quickCommand / commandPalette / quickOpenIndex / workspaceSearch(JS + Rust) / lineDiff / imageSrc / imagePath / markdownPath / documentStats / statusPath / breadcrumbs / revealHeading |
 | `src/components/__tests__/` | 15 | 组件：QuickCommandPanel / WorkspaceSearchPanel / FileTree / Sidebar / SourceModeEditor / DiffView / VeloConfirmDialog / ActivityBar / StatusBar / TabContextMenu / FileMenuButton / crossModeSync / treeUtils / MermaidContextMenu / ImagePreviewLightbox |
 | `src/stores/__tests__/` | 10 | Pinia：document（多标签 + 自动保存快照下沉）/ workspace / migration（settings v1→vN、workspaces v1→v5）/ recentFiles / versionHistory / system / editor / export / confirm / notify |
-| `ProseMirrorEditor/plugins/__tests__/` | 9 | 插件：resolvePlugins / remarkAlert / preserveEmptyLine / charRefSourceEdit / focusMode / linkClick / linkSyntax / sessionRetreat / typewriterMode |
+| `ProseMirrorEditor/plugins/__tests__/` | 10 | 插件：resolvePlugins / remarkAlert / preserveEmptyLine / charRefSourceEdit / escapeSourceEdit / focusMode / linkClick / linkSyntax / sessionRetreat / typewriterMode |
 | `ProseMirrorEditor/nodes/__tests__/` | 4 | HtmlNodeView / FootnoteNodeViews(+integration) / mathLazyRender |
 | `ProseMirrorEditor/findreplace/__tests__/` | 2 | backend / findMatches |
 | `ProseMirrorEditor/composables/__tests__/` | 2 | useProseMirror / useResizeSplitter |

@@ -33,6 +33,8 @@ import { imageEditKey } from '../image/imageEditPlugin'
 import { markSourceEditKey } from './markSourceEdit'
 import { htmlSourceEditKey } from './htmlSourceEdit'
 import { emojiSourceEditKey } from './emojiSourceEdit'
+import { escapeSourceEditKey } from './escapeSourceEdit'
+import { hasEscapeMark } from '../editor/escape'
 
 // 容器型黑名单:整个节点跳过(包括子节点)
 const CONTAINER_BLACKLIST = new Set([
@@ -152,6 +154,9 @@ function getActiveEditRanges(state: EditorState): { from: number, to: number }[]
   if (htmlSession) ranges.push({ from: htmlSession.editFrom, to: htmlSession.editTo })
   const emojiSession = emojiSourceEditKey.getState(state)?.session ?? null
   if (emojiSession) ranges.push({ from: emojiSession.editFrom, to: emojiSession.editTo })
+  for (const r of escapeSourceEditKey.getState(state)?.revealed ?? []) {
+    ranges.push({ from: r.from, to: r.to })
+  }
   return ranges
 }
 
@@ -176,8 +181,8 @@ function tryBlockSyntaxes(
   const mappedStart = tr.mapping.map(block.start)
   const mappedEnd = tr.mapping.map(block.end)
   if (mappedStart >= mappedEnd) return false
-  // 取段落 textContent(纯文本视图,跳过 atom 节点)用于段首正则匹配
-  const text = tr.doc.textBetween(mappedStart, mappedEnd, '\n', '\n')
+  // 取段落纯文本视图(带 escape mark 的字符用 \uE000 掩码，防 `\# ` / `\> ` 触发块级语法)
+  const text = buildBlockText(tr.doc, mappedStart, mappedEnd, true)
   for (const syntax of syntaxes) {
     syntax.pattern.lastIndex = 0
     const match = syntax.pattern.exec(text)
@@ -213,7 +218,12 @@ function tryBlockSyntaxes(
  * 跳过含非 text 节点的 match。不递进 content —— 节点内部的 text 不应被
  * inline 正则扫描(footnote label / LaTeX 源码不是用户在段落里键入的语法)。
  */
-function buildBlockText(doc: PMNode, from: number, to: number): string {
+function buildBlockText(
+  doc: PMNode,
+  from: number,
+  to: number,
+  hardbreakAsNewline = false,
+): string {
   let text = ''
   doc.nodesBetween(from, to, (node, pos) => {
     const nodeEnd = pos + node.nodeSize
@@ -221,10 +231,20 @@ function buildBlockText(doc: PMNode, from: number, to: number): string {
     if (node.isText) {
       const sliceStart = Math.max(0, from - pos)
       const sliceEnd = Math.min(node.nodeSize, to - pos)
-      text += (node.text || '').slice(sliceStart, sliceEnd)
+      if (hasEscapeMark(node)) {
+        // 已转义字符在正则视图中用 PUA 占位符 \uE000 掩码（1:1 保持 doc 坐标对齐），
+        // 避免被误当界定符，同时允许外层语法（如 **a \* b**）跨过它匹配而不丢内层节点。
+        text += '\uE000'.repeat(sliceEnd - sliceStart)
+      } else {
+        text += (node.text || '').slice(sliceStart, sliceEnd)
+      }
       return false
     }
     if (node.isInline) {
+      if (hardbreakAsNewline && node.type.name === 'hardbreak') {
+        text += '\n'
+        return false
+      }
       // inline 非 text 节点(footnote_reference / math_inline / image / hardbreak):
       // 用 NULL 占位,长度 = 落在 [from, to) 内的部分,不下钻 content
       const overlapStart = Math.max(pos, from)
@@ -236,6 +256,17 @@ function buildBlockText(doc: PMNode, from: number, to: number): string {
     return true
   })
   return text
+}
+
+/** 位置 idx 前紧邻奇数个反斜杠时返回 true（被反斜杠转义，不应作为语法起点）。 */
+function isPrecededByOddBackslashes(text: string, idx: number): boolean {
+  let count = 0
+  let i = idx - 1
+  while (i >= 0 && text[i] === '\\') {
+    count++
+    i--
+  }
+  return count % 2 === 1
 }
 
 /**
@@ -261,57 +292,75 @@ function tryInlineSyntaxes(
   for (const syntax of syntaxes) {
     if (!syntax.pattern.global) continue // 防御:inline 必须带 g
 
-    const mappedStart = tr.mapping.map(block.start)
-    const mappedEnd = tr.mapping.map(block.end)
-    if (mappedStart >= mappedEnd) continue
-    const blockText = buildBlockText(tr.doc, mappedStart, mappedEnd)
-    // ↑ 非 text 节点用 \u0000 占位(长度 = nodeSize),保证字符位置与 doc 位置
-    //   1:1 对应 —— match.index + mappedStart 就是 doc 上的 from 位置
+    // escape 语法需要在一轮内把同段所有 `\<punct>` 全部转换完，否则段内有两处转义
+    // （如 `\[0,255] 128\*128 ... 128*-1`）时只转第一处就 break，后续 emphasisStar
+    // 会误吃尚未转换的 `\*`。每轮把 2 字符缩成 1 字符并掩码为 \uE000，必然收敛。
+    const repeatUntilExhausted = syntax.name === 'escape'
+    let pass = 0
+    while (pass++ < 256) {
+      const mappedStart = tr.mapping.map(block.start)
+      const mappedEnd = tr.mapping.map(block.end)
+      if (mappedStart >= mappedEnd) break
+      const blockText = buildBlockText(tr.doc, mappedStart, mappedEnd)
+      // ↑ 非 text 节点用 \u0000 占位(长度 = nodeSize),保证字符位置与 doc 位置
+      //   1:1 对应 —— match.index + mappedStart 就是 doc 上的 from 位置
 
-    syntax.pattern.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = syntax.pattern.exec(blockText)) !== null) {
-      const matchFrom = mappedStart + match.index
-      const matchTo = matchFrom + match[0].length
-      // 防御:正则零宽匹配会陷入死循环,强制 lastIndex++
-      if (match[0].length === 0) {
-        syntax.pattern.lastIndex++
-        continue
-      }
+      syntax.pattern.lastIndex = 0
+      let match: RegExpExecArray | null
+      let appliedInPass = false
+      while ((match = syntax.pattern.exec(blockText)) !== null) {
+        const matchFrom = mappedStart + match.index
+        const matchTo = matchFrom + match[0].length
+        // 防御:正则零宽匹配会陷入死循环,强制 lastIndex++
+        if (match[0].length === 0) {
+          syntax.pattern.lastIndex++
+          continue
+        }
 
-      // 黑名单字符过滤:范围内含非 text 节点(\u0000 占位)或 code mark 文本 → 跳过
-      let skip = false
-      if (blockText.slice(match.index, match.index + match[0].length).includes('\u0000')) {
-        skip = true
-      }
-      if (!skip && codeMarkType) {
-        // 检查 from..to 范围内是否有 text 节点带 code mark
-        tr.doc.nodesBetween(matchFrom, matchTo, (n) => {
-          if (skip) return false
-          if (n.isText && n.marks.some(m => m.type === codeMarkType)) skip = true
-          return !skip
+        // 兜底防御：非 escape 语法若匹配起点紧跟奇数个反斜杠（如未注册 escapeSyntax
+        // 的单测或活跃编辑区旁），跳过，避免把 `\*foo*` 误转为斜体。
+        if (syntax.name !== 'escape' && isPrecededByOddBackslashes(blockText, match.index)) {
+          continue
+        }
+
+        // 黑名单字符过滤:范围内含非 text 节点(\u0000 占位)或 code mark 文本 → 跳过
+        let skip = false
+        if (blockText.slice(match.index, match.index + match[0].length).includes('\u0000')) {
+          skip = true
+        }
+        if (!skip && codeMarkType) {
+          // 检查 from..to 范围内是否有 text 节点带 code mark
+          tr.doc.nodesBetween(matchFrom, matchTo, (n) => {
+            if (skip) return false
+            if (n.isText && n.marks.some(m => m.type === codeMarkType)) skip = true
+            return !skip
+          })
+        }
+        if (skip) continue
+
+        // 与任一活跃编辑态 session(link / image / mark / escape)重叠 → 跳过
+        const mappedEditRanges = activeEditRanges.map(r => ({
+          from: tr.mapping.map(r.from, -1),
+          to: tr.mapping.map(r.to, 1),
+        }))
+        if (mappedEditRanges.some(r => rangesIntersect({ from: matchFrom, to: matchTo }, r))) {
+          continue
+        }
+
+        const before = tr.steps.length
+        const ok = syntax.apply(tr, {
+          schema,
+          from: matchFrom,
+          to: matchTo,
+          match,
         })
+        if (ok && tr.steps.length > before) {
+          touched = true
+          appliedInPass = true
+          break
+        }
       }
-      if (skip) continue
-
-      // 与任一活跃编辑态 session(link / image / mark)重叠 → 跳过
-      if (activeEditRanges.some(r => rangesIntersect({ from: matchFrom, to: matchTo }, r))) {
-        continue
-      }
-
-      const before = tr.steps.length
-      const ok = syntax.apply(tr, {
-        schema,
-        from: tr.mapping.map(matchFrom),
-        to: tr.mapping.map(matchTo),
-        match,
-      })
-      if (ok && tr.steps.length > before) {
-        touched = true
-        // 一次 apply 后 doc 变了,tr.mapping / blockText 都需要重算,
-        // 当前段落剩余内容下一轮 inline syntax 再扫
-        break
-      }
+      if (!repeatUntilExhausted || !appliedInPass) break
     }
   }
   return touched

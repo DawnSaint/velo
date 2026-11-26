@@ -31,6 +31,7 @@ import { cmFindHighlightEffect } from './cmFindHighlight'
 import { subscribeCmDocChange } from './cmDocChange'
 import { flushMarkSourceEdit } from '../plugins/markSourceEdit'
 import { flushCharRefReveal, recheckCharRefReveal } from '../plugins/charRefSourceEdit'
+import { flushEscapeReveal, recheckEscapeReveal } from '../plugins/escapeSourceEdit'
 import { ensureMermaidSourceVisibleAt } from '../nodes/MermaidDecoration'
 
 export interface FindReplaceBackend {
@@ -108,6 +109,7 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       // 实体源码态同样会改 doc 长度(解码字符 → 实体字面量),先还原再算坐标。
       // 工作区搜索点击结果走 findMatches → setSelection → 重新进入源码态,无副作用。
       flushCharRefReveal(view)
+      flushEscapeReveal(view)
       return findMatchesInDoc(view.state.doc, query, options)
     },
     setSelection(from, to) {
@@ -145,6 +147,7 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
       // 重判一次实体源码态 —— 命中停在实体上就继续显示字面量,否则空操作。
       // 工作区搜索跳转也走这里,此时选区就在刚展开的实体内,sync 会保持原状。
       recheckCharRefReveal(view)
+      recheckEscapeReveal(view)
     },
     setFindActive(active) {
       if (active) {
@@ -153,6 +156,7 @@ export function createPmBackend(view: PmEditorView): FindReplaceBackend {
         view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: true }))
         flushMarkSourceEdit(view)
         flushCharRefReveal(view)
+        flushEscapeReveal(view)
       } else {
         view.dispatch(view.state.tr.setMeta(findHighlightKey, { type: 'active', active: false }))
       }

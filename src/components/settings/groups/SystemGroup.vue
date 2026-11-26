@@ -145,6 +145,13 @@ onMounted(async () => {
         {{ updateStatus === 'checking' ? '检查中…' : '检查更新' }}
       </button>
     </SettingsItem>
+    <!-- 静默检查失败不弹 toast（避免启动打扰），设置页留一行提示，消除「没反应」的困惑 -->
+    <p
+      v-if="tauri && updateStatus === 'error'"
+      class="text-xs text-gray-500 dark:text-gray-400"
+    >
+      更新检查未成功，可点击「检查更新」重试
+    </p>
     <!-- 自动更新开关：控制启动时静默检查 + 后台下载；下载完成后仍需用户确认安装重启。 -->
     <SettingsItem
       v-if="tauri"
@@ -239,7 +246,7 @@ onMounted(async () => {
     </SettingsItem>
 
     <!-- 文件夹右键菜单：Windows 和 Linux 支持，机制各异（Windows=注册表/Linux=action 文件）。macOS Finder 服务已移除，待购入 Mac 设备后重新实现。 -->
-    <SettingsItem v-if="platform !== 'macos'" label='文件夹右键菜单增加"在 Velo 中打开"' :keywords="['folder', 'context', 'menu', '右键', '文件夹']">
+    <SettingsItem v-if="platform !== 'macos'" label="文件夹右键菜单增加&quot;在 Velo 中打开&quot;" :keywords="['folder', 'context', 'menu', '右键', '文件夹']">
       <input
         v-model="folderMenuOn"
         type="checkbox"
@@ -250,7 +257,7 @@ onMounted(async () => {
     </SettingsItem>
 
     <!-- .md 文件右键菜单：仅 Windows 完整支持（SystemFileAssociations 动词），其它平台留后续迭代。 -->
-    <SettingsItem v-if="platform === 'windows'" :label='`Markdown 文件右键菜单增加"在 Velo 中编辑`' :keywords="['md', 'context', 'menu', '右键']">
+    <SettingsItem v-if="platform === 'windows'" label="Markdown 文件右键菜单增加&quot;在 Velo 中编辑" :keywords="['md', 'context', 'menu', '右键']">
       <input
         v-model="mdMenuOn"
         type="checkbox"

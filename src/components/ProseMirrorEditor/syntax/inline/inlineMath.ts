@@ -32,6 +32,7 @@
 
 import { TextSelection } from 'prosemirror-state'
 import type { InlineSyntax } from '../../editor/syntaxRegistry'
+import { getRawTextExpandingEscapes } from '../../editor/escape'
 
 export const inlineMathSyntax: InlineSyntax = {
   name: 'inlineMath',
@@ -43,8 +44,9 @@ export const inlineMathSyntax: InlineSyntax = {
     if (!inner) return false
     const type = schema.nodes.math_inline
     if (!type) return false
-    // content 含完整 `$...$`(含分隔符),由 NodeView 在渲染时剥离 $ 给 katex
-    const text = match[0]
+    // content 含完整 `$...$`(含分隔符),由 NodeView 在渲染时剥离 $ 给 katex;
+    // 公式内反斜杠按字面还原（避免 `\uE000` 占位泄露或吞掉 LaTeX `\_`）。
+    const text = getRawTextExpandingEscapes(tr.doc, from, to)
     tr.replaceRangeWith(from, to, type.create(null, schema.text(text)))
     // 用户实时键入最后一个 $ 形成 `$x$` 时,PM 默认把 selection map 到节点之外
     // (原光标在匹配末尾,replaceRangeWith 后落到插入节点之后)→ isCursorInNode

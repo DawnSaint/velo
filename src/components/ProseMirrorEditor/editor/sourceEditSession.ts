@@ -19,6 +19,7 @@ import { imageEditKey } from '../image/imageEditPlugin'
 import { htmlSourceEditKey } from '../plugins/htmlSourceEdit'
 import { emojiSourceEditKey } from '../plugins/emojiSourceEdit'
 import { charRefSourceEditKey } from '../plugins/charRefSourceEdit'
+import { escapeSourceEditKey } from '../plugins/escapeSourceEdit'
 
 /** 获取所有活跃 session 的文本范围(绝对位置),用于 toMarkdown 占位符替换。 */
 export function getSourceEditRanges(state: EditorState): { from: number; to: number }[] {
@@ -36,6 +37,11 @@ export function getSourceEditRanges(state: EditorState): { from: number; to: num
   // 实体源码态:doc 里是 '&#x20;' 纯文本(无 mark),toMarkdown 会把 & 转义成
   // \&,必须同样走占位符还原,否则展开期间键入会把 content 写成 \&#x20;。
   for (const r of charRefSourceEditKey.getState(state)?.revealed ?? []) {
+    ranges.push({ from: r.from, to: r.to })
+  }
+  // 转义源码态:doc 里是 `\*` 纯文本(无 escape mark),toMarkdown 会把 `\` 转成 `\\`,
+  // 必须走占位符还原,否则展开期间键入会把 content 写成 `\\*`。
+  for (const r of escapeSourceEditKey.getState(state)?.revealed ?? []) {
     ranges.push({ from: r.from, to: r.to })
   }
   return ranges

@@ -12,16 +12,17 @@ import type { InlineSyntax } from '../../editor/syntaxRegistry'
 
 export const emphasisUnderscoreSyntax: InlineSyntax = {
   name: 'emphasisUnderscore',
-  // \b_xxx_\b,内层非空非空白,首尾不空白,不带换行
-  pattern: /\b_(?![_\s])([^_\n]+?[^_\s])_\b/g,
+  // \b_xxx_\b,内层非空(含单字符 `_x_`),首尾不空白/不为 `_`,不带换行
+  pattern: /\b_(?![_\s])([^_\n]+?)(?<![_\s])_\b/g,
   apply(tr, { schema, from, to, match }) {
     const inner = match[1]
     if (!inner) return false
     const emphasisType = schema.marks.emphasis
     if (!emphasisType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, emphasisType.create({ marker: '_' }))
+    // 只剥除首尾 `_` 并加 mark,保留内层已有 strong / escape 等 mark
+    tr.delete(to - 1, to)
+    tr.delete(from, from + 1)
+    tr.addMark(from, to - 2, emphasisType.create({ marker: '_' }))
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(emphasisType)
     return true

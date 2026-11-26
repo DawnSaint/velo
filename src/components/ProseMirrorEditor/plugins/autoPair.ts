@@ -209,24 +209,28 @@ function handleTextInput(
 
   const { state } = view
 
-  // 智能引号转换（优先于自动配对，独立于 autoPairEnabled 开关）
+  // 智能引号转换（优先于自动配对，独立于 autoPairEnabled 开关；反斜杠转义 `\"`/`\'` 跳过）
   if (config.smartQuoteConversion && !isInCodeBlock(state) && !isInInlineCode(state)) {
     if (text === '"') {
       const before = getCharBefore(state, from)
-      const open = isOpenContext(before)
-      const quote = config.cjkCornerQuotes
-        ? (open ? '\u300C' : '\u300D')  // 「 」
-        : (open ? '\u201C' : '\u201D')  // “ ”
-      view.dispatch(state.tr.insertText(quote, from, to))
-      return true
+      if (before !== '\\') {
+        const open = isOpenContext(before)
+        const quote = config.cjkCornerQuotes
+          ? (open ? '\u300C' : '\u300D')  // 「 」
+          : (open ? '\u201C' : '\u201D')  // “ ”
+        view.dispatch(state.tr.insertText(quote, from, to))
+        return true
+      }
     }
     if (text === "'" && !isAfterWordChar(state, from)) {
       const before = getCharBefore(state, from)
-      const open = isOpenContext(before)
-      view.dispatch(state.tr.insertText(
-        open ? '\u2018' : '\u2019', from, to,
-      ))
-      return true
+      if (before !== '\\') {
+        const open = isOpenContext(before)
+        view.dispatch(state.tr.insertText(
+          open ? '\u2018' : '\u2019', from, to,
+        ))
+        return true
+      }
     }
   }
 

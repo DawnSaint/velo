@@ -17,8 +17,13 @@
 //   - `key: value`(`:` 后有空格)不匹配
 
 import { visit } from 'unist-util-visit'
-import type { Root, Text, PhrasingContent } from 'mdast'
+import type { Root, PhrasingContent } from 'mdast'
 import { has as emojiHas } from 'node-emoji'
+import {
+  isIndexEscaped,
+  sliceEscapedText,
+  type EscapableMdastText,
+} from '../editor/escape'
 
 const EMOJI_RE = /:([\w+-]+):/g
 
@@ -27,18 +32,25 @@ const EMOJI_RE = /:([\w+-]+):/g
  * 短码必须在 node-emoji 表中存在才转换为 emoji 节点。
  * 无匹配返回 { matched: false }。
  */
-function tryInTextRegex(v: string): { matched: boolean, pieces: PhrasingContent[] } {
+function tryInTextRegex(node: EscapableMdastText): { matched: boolean, pieces: PhrasingContent[] } {
+  const v = node.value
   EMOJI_RE.lastIndex = 0
   let m: RegExpExecArray | null
   const pieces: PhrasingContent[] = []
   let lastIdx = 0
   let hasMatch = false
   while ((m = EMOJI_RE.exec(v)) !== null) {
+    const openIdx = m.index
+    const closeIdx = m.index + m[0].length - 1
+    if (isIndexEscaped(node, openIdx) || isIndexEscaped(node, closeIdx)) {
+      EMOJI_RE.lastIndex = openIdx + 1
+      continue
+    }
     const shortcode = m[1]
     if (!emojiHas(shortcode)) continue
     hasMatch = true
     if (m.index > lastIdx) {
-      pieces.push({ type: 'text', value: v.slice(lastIdx, m.index) })
+      pieces.push(sliceEscapedText(node, lastIdx, m.index) as PhrasingContent)
     }
     pieces.push({
       type: 'emoji',
@@ -47,7 +59,7 @@ function tryInTextRegex(v: string): { matched: boolean, pieces: PhrasingContent[
     lastIdx = m.index + m[0].length
   }
   if (hasMatch && lastIdx < v.length) {
-    pieces.push({ type: 'text', value: v.slice(lastIdx) })
+    pieces.push(sliceEscapedText(node, lastIdx) as PhrasingContent)
   }
   return { matched: hasMatch, pieces }
 }
@@ -59,8 +71,7 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
       out.push(child)
       continue
     }
-    const v = (child as Text).value
-    const result = tryInTextRegex(v)
+    const result = tryInTextRegex(child as EscapableMdastText)
     if (result.matched) {
       out.push(...result.pieces)
     } else {

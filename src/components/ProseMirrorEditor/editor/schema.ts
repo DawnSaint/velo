@@ -704,6 +704,15 @@ const marks: Record<string, MarkSpec> = {
     inclusive: false,
     toDOM: () => ['span', 0],
   },
+
+  // Markdown 反斜杠转义(\* / \[ / \\ / \_ ...)。PM text 存转义后的实际字符,
+  // 默认展示字符本身,光标移入/点击时由 escapeSourceEditPlugin 展开为源码 `\<char>`。
+  // inclusive:false —— 边界打字不继承,新输入不会被当成转义字符。
+  escape: {
+    inclusive: false,
+    parseDOM: [{ tag: 'span[data-escape]' }],
+    toDOM: () => ['span', { 'data-escape': '' }, 0],
+  },
 }
 
 // ============================================================

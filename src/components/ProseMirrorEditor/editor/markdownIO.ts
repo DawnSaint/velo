@@ -20,6 +20,7 @@ import type { FrontmatterLang } from '../syntax/block/frontmatter'
 import { createParseProcessor, preprocessSource } from './parseProcessor'
 import { CHAR_REF_MARK, scanCharRefs } from './charRef'
 import type { CharRefAt, CharRefSegment } from './charRef'
+import { ESCAPE_MARK, expandEscapedText, isEscapableChar } from './escape'
 // remark-parse 实际解析的是 preprocessSource(md)（空行 → `<br />`、URL 空格 →
 // %20 两次改写之后），mdast 的 position.offset 也是相对这份字符串；
 // annotateEmphasisMarker / annotateMathDelimiterCount 用 offset 回查源文本，
@@ -213,6 +214,10 @@ const processor = createParseProcessor()
       // 字符实体:原样输出字面量,不走 state.safe(它会把 & 转义成 \&,
       // 写盘后实体就变成了普通文本)。
       charRef(node: { value?: string }) {
+        return node.value || ''
+      },
+      // 反斜杠转义:原样输出 `\<char>`,不走 state.safe 二次转义。
+      escapedChar(node: { value?: string }) {
         return node.value || ''
       },
     },
@@ -446,21 +451,30 @@ function annotateCharRefs(tree: Root, md: string): void {
 }
 
 /**
- * 带实体标注的 mdast text → PM inline 节点。
- * 连续实体合成一个 text 节点(char_ref mark 带 segments),其余区间照旧拆 soft break。
+ * 带实体 / 反斜杠转义标注的 mdast text → PM inline 节点。
+ * 连续实体合成一个 text 节点(char_ref mark 带 segments),连续转义字符合成带
+ * escape mark 的 text 节点,其余区间照旧拆 soft break。
  */
-function charRefTextToPM(
+function annotatedTextToPM(
   value: string,
   refs: CharRefAt[],
+  escapes: number[],
   marks: readonly Mark[],
   schema: Schema,
 ): PMNode[] {
   const charRefType = schema.marks[CHAR_REF_MARK]
+  const escapeType = schema.marks[ESCAPE_MARK]
+  const escapeSet = new Set<number>()
+  for (const idx of escapes) {
+    if (idx >= 0 && idx < value.length && value[idx] !== '\n' && isEscapableChar(value[idx])) {
+      escapeSet.add(idx)
+    }
+  }
   const out: PMNode[] = []
   let i = 0
   let refIdx = 0
   while (i < value.length) {
-    if (refIdx < refs.length && refs[refIdx].at === i) {
+    if (charRefType && refIdx < refs.length && refs[refIdx].at === i) {
       const segments: CharRefSegment[] = []
       let cursor = i
       while (refIdx < refs.length && refs[refIdx].at === cursor) {
@@ -476,9 +490,25 @@ function charRefTextToPM(
       i = cursor
       continue
     }
+    if (escapeType && escapeSet.has(i)) {
+      let end = i + 1
+      while (end < value.length && escapeSet.has(end)
+        && !(charRefType && refIdx < refs.length && refs[refIdx].at === end)) {
+        end++
+      }
+      out.push(schema.text(
+        value.slice(i, end),
+        marks.concat(escapeType.create()),
+      ))
+      i = end
+      continue
+    }
     let end = i
     while (end < value.length && value[end] !== '\n'
-      && !(refIdx < refs.length && refs[refIdx].at === end)) end++
+      && !(charRefType && refIdx < refs.length && refs[refIdx].at === end)
+      && !(escapeType && escapeSet.has(end))) {
+      end++
+    }
     if (end > i) out.push(schema.text(value.slice(i, end), marks))
     if (end < value.length && value[end] === '\n') {
       out.push(schema.node('hardbreak'))
@@ -545,9 +575,10 @@ function mdastBlockToPM(node: BlockContentWide, schema: Schema): PMNode[] {
 
   switch (node.type) {
     case 'paragraph': {
-      // [TOC] 独占段落 → toc 节点(trim 容忍首尾空白,不误伤正文含 [TOC] 的段落)
-      const text = node.children.map(c => (c as any).type === 'text' ? (c as any).value : '').join('')
-      if (text.trim() === '[TOC]') {
+      // [TOC] 独占段落 → toc 节点(trim 容忍首尾空白,不误伤正文含 [TOC] 或转义 \[TOC] 的段落)
+      const hasEscapes = node.children.some(c => (((c as MdastLike & { _escapes?: number[] })._escapes?.length ?? 0) > 0))
+      const text = node.children.map(c => c.type === 'text' ? c.value : '').join('')
+      if (!hasEscapes && text.trim() === '[TOC]') {
         return [schema.node('toc')]
       }
       return [schema.node('paragraph', null, mdastInlineToPM(node.children, schema))]
@@ -800,10 +831,12 @@ function inlineNodeToPM(
   switch (n.type) {
     case 'text': {
       if (!n.value) return []
-      // 字符实体:优先按标注切成「普通文本 / char_ref mark 文本」两套节点。
+      // 字符实体 / 反斜杠转义:按标注切成普通文本 / char_ref / escape 节点。
       const refs = n._charRefs as CharRefAt[] | undefined
-      if (refs?.length && schema.marks[CHAR_REF_MARK]) {
-        return charRefTextToPM(n.value, refs, marks, schema)
+      const escapes = n._escapes as number[] | undefined
+      if ((refs?.length && schema.marks[CHAR_REF_MARK])
+        || (escapes?.length && schema.marks[ESCAPE_MARK])) {
+        return annotatedTextToPM(n.value, refs ?? [], escapes ?? [], marks, schema)
       }
       // CommonMark soft break(\n)在 mdast text 里是字面 \n,但 PM text 节点不应
       // 含 \n —— CSS pre-wrap 会渲染它,但 PM 的 DOM ↔ doc 同步在编辑时可能
@@ -1317,6 +1350,10 @@ function spanToLeaf(span: InlineSpan): PhrasingContent {
           && segments.map(s => s.text).join('') === span.value) {
           return { type: 'charRef', value: segments.map(s => s.raw).join('') } as unknown as PhrasingContent
         }
+      }
+      // escape mark 的 text 节点存转义后的字符 —— 原样写回 `\<char>`,不走 state.safe。
+      if (span.marks.some(m => m.name === ESCAPE_MARK)) {
+        return { type: 'escapedChar', value: expandEscapedText(span.value) } as unknown as PhrasingContent
       }
       // \ → \u0001 占位符,让 state.safe 不处理 \ 的转义(上游 escapeBackslashes
       // 对连续 \\ 的转义规则 N→(N+1) 与 remark-parse 的 N→ceil(N/2) 不对称,

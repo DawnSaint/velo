@@ -22,9 +22,9 @@ export const strikeSyntax: InlineSyntax = {
     if (!inner) return false
     const strikeType = schema.marks.strike_through
     if (!strikeType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, strikeType.create())
+    tr.delete(to - 2, to)
+    tr.delete(from, from + 2)
+    tr.addMark(from, to - 4, strikeType.create())
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(strikeType)
     return true

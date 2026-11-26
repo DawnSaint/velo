@@ -19,12 +19,14 @@
 // `**` 抢匹配,且 code 独占不会嵌进其他 mark;htmlTag 走 `<...>` 与 backtick 无关。
 
 import type { InlineSyntax } from '../../editor/syntaxRegistry'
+import { getRawTextExpandingEscapes } from '../../editor/escape'
 
 export const inlineCodeSyntax: InlineSyntax = {
   name: 'inlineCode',
   pattern: /(?<!`)(`+)([^`\n]+?)\1(?!`)/g,
   apply(tr, { schema, from, to, match }) {
-    const inner = match[2]
+    const delimLen = match[1].length
+    const inner = getRawTextExpandingEscapes(tr.doc, from + delimLen, to - delimLen)
     if (!inner) return false
     const codeType = schema.marks.code
     if (!codeType) return false

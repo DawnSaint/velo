@@ -27,9 +27,11 @@ export const strongSyntax: InlineSyntax = {
     if (!inner) return false
     const strongType = schema.marks.strong
     if (!strongType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, strongType.create({ marker: isStarForm ? '*' : '_' }))
+    // 只剥除首尾分隔符并给内层加 mark,保留内层已有 emphasis / escape 等 mark
+    // (如逐字符输入 `**_xxx_**` 时 `_xxx_` 已先转为斜体,闭合 `**` 应叠加粗体)。
+    tr.delete(to - 2, to)
+    tr.delete(from, from + 2)
+    tr.addMark(from, to - 4, strongType.create({ marker: isStarForm ? '*' : '_' }))
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(strongType)
     return true

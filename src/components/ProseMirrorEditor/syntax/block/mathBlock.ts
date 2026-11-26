@@ -14,6 +14,7 @@
 
 import { TextSelection } from 'prosemirror-state'
 import type { BlockSyntax } from '../../editor/syntaxRegistry'
+import { getRawTextExpandingEscapes } from '../../editor/escape'
 
 // 首行 2+ 个 `$`，末行 2+ 个 `$`，中间任意内容（含空）。
 // 与 MathNodeViews 的 MATH_BLOCK_RE 一致，确保转换后不会被降级 appendTransaction 回退。
@@ -30,8 +31,8 @@ export const mathBlockSyntax: BlockSyntax = {
     const parent = $start.parent
     if (parent.type.name !== 'paragraph') return false
 
-    // 段落纯文本（hard_break 被 textBetween 转成 \n）
-    const text = tr.doc.textBetween(blockStart, blockEnd, '\n', '\n')
+    // 段落纯文本（hard_break 转为 \n，escape mark 还原为 `\<char>` 以保住 LaTeX `\\`）
+    const text = getRawTextExpandingEscapes(tr.doc, blockStart, blockEnd)
     if (!MATH_BLOCK_SYNTAX_RE.test(text)) return false
 
     // 用原始文本（含 `$$` 分隔符）作为 math_block content

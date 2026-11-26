@@ -18,7 +18,12 @@
 // (sup 包 sub)、`~^x^~`(sub 包 sup)。
 
 import { visit } from 'unist-util-visit'
-import type { Root, Text, PhrasingContent } from 'mdast'
+import type { Root, PhrasingContent } from 'mdast'
+import {
+  isIndexEscaped,
+  sliceEscapedText,
+  type EscapableMdastText,
+} from '../editor/escape'
 
 // `^` 只排除前后紧跟的 `^`(防 `^^` 空匹配),允许单词字符紧邻(支持 `x^2^` 化学式)。
 // math 的 `^` 在 `$...$` 内,已被 math_inline 节点吃掉,不会进入文本。
@@ -45,10 +50,11 @@ type Variant =
   | { kind: 'end', prefix: string }
   | { kind: 'start', rest: string }
 
-function classify(v: string, marker: Marker): Variant {
-  if (v === marker) return { kind: 'pure' }
-  const endsM = v.endsWith(marker)
-  const startsM = v.startsWith(marker)
+function classify(node: EscapableMdastText, marker: Marker): Variant {
+  const v = node.value
+  const startsM = v.startsWith(marker) && !isIndexEscaped(node, 0)
+  const endsM = v.endsWith(marker) && !isIndexEscaped(node, v.length - 1)
+  if (v === marker && startsM) return { kind: 'pure' }
   if (startsM && endsM && v.length >= 4) {
     const inner = v.slice(1, -1)
     return inner.includes(marker) ? { kind: 'plain', value: v } : { kind: 'both', content: inner }
@@ -60,20 +66,33 @@ function classify(v: string, marker: Marker): Variant {
 
 function isReject(c: string) { return /[~:/]/.test(c) }
 
-function tryInText(v: string, re: RegExp, nodeType: string): { matched: boolean, pieces: PhrasingContent[] } {
+function tryInText(node: EscapableMdastText, re: RegExp, nodeType: string): { matched: boolean, pieces: PhrasingContent[] } {
+  const v = node.value
   re.lastIndex = 0
   let m: RegExpExecArray | null
   const pieces: PhrasingContent[] = []
   let last = 0
   let hit = false
   while ((m = re.exec(v)) !== null) {
+    if (m[0].length === 0) {
+      re.lastIndex++
+      continue
+    }
+    const openIdx = m.index
+    const closeIdx = m.index + m[0].length - 1
+    if (isIndexEscaped(node, openIdx) || isIndexEscaped(node, closeIdx)) {
+      re.lastIndex = openIdx + 1
+      continue
+    }
     hit = true
-    if (m.index > last) pieces.push({ type: 'text', value: v.slice(last, m.index) })
-    pieces.push({ type: nodeType, children: [{ type: 'text', value: m[1] }] } as unknown as PhrasingContent)
+    if (m.index > last) pieces.push(sliceEscapedText(node, last, m.index) as PhrasingContent)
+    pieces.push({
+      type: nodeType,
+      children: [sliceEscapedText(node, openIdx + 1, closeIdx) as PhrasingContent],
+    } as unknown as PhrasingContent)
     last = m.index + m[0].length
-    if (m[0].length === 0) re.lastIndex++
   }
-  if (hit && last < v.length) pieces.push({ type: 'text', value: v.slice(last) })
+  if (hit && last < v.length) pieces.push(sliceEscapedText(node, last) as PhrasingContent)
   return { matched: hit, pieces }
 }
 
@@ -94,16 +113,16 @@ function rewrite(children: PhrasingContent[]): PhrasingContent[] {
         (inReg ? buf : next).push(child)
         continue
       }
-      const v = (child as Text).value
+      const textNode = child as EscapableMdastText
       if (!inReg) {
-        const t = tryInText(v, re, nodeType)
+        const t = tryInText(textNode, re, nodeType)
         if (t.matched) { next.push(...t.pieces); continue }
-        const c = classify(v, marker)
+        const c = classify(textNode, marker)
         switch (c.kind) {
           case 'plain': next.push(child); break
           case 'pure': inReg = true; buf = []; break
           case 'both':
-            if (c.content) next.push({ type: nodeType, children: [{ type: 'text', value: c.content }] } as unknown as PhrasingContent)
+            if (c.content) next.push({ type: nodeType, children: [sliceEscapedText(textNode, 1, textNode.value.length - 1) as PhrasingContent] } as unknown as PhrasingContent)
             else next.push(child)
             break
           case 'end': {
@@ -111,27 +130,28 @@ function rewrite(children: PhrasingContent[]): PhrasingContent[] {
               const lc = c.prefix.length ? c.prefix.charAt(c.prefix.length - 1) : ''
               if (c.prefix && isReject(lc)) { next.push(child); break }
             }
-            if (c.prefix) next.push({ type: 'text', value: c.prefix })
+            if (c.prefix) next.push(sliceEscapedText(textNode, 0, textNode.value.length - 1) as PhrasingContent)
             inReg = true; buf = []; break
           }
-          case 'start': inReg = true; buf = c.rest ? [{ type: 'text', value: c.rest }] : []; break
+          case 'start': inReg = true; buf = c.rest ? [sliceEscapedText(textNode, 1) as PhrasingContent] : []; break
         }
       } else {
-        const c = classify(v, marker)
+        const c = classify(textNode, marker)
         switch (c.kind) {
           case 'plain': buf.push(child); break
           case 'pure': flush(); break
-          case 'both': if (c.content) buf.push({ type: 'text', value: c.content }); flush(); break
-          case 'end': if (c.prefix) buf.push({ type: 'text', value: c.prefix }); flush(); break
-          case 'start': flush(); if (c.rest) next.push({ type: 'text', value: c.rest }); break
+          case 'both': if (c.content) buf.push(sliceEscapedText(textNode, 1, textNode.value.length - 1) as PhrasingContent); flush(); break
+          case 'end': if (c.prefix) buf.push(sliceEscapedText(textNode, 0, textNode.value.length - 1) as PhrasingContent); flush(); break
+          case 'start': flush(); if (c.rest) next.push(sliceEscapedText(textNode, 1) as PhrasingContent); break
         }
       }
     }
     if (inReg) unflush()
     // 递归处理新生成节点的 children,支持嵌套( sup 包 sub / sub 包 sup )
-    out = next.map((n: any) => {
-      if (n.type === 'superscript' || n.type === 'subscript') {
-        return { ...n, children: rewrite(n.children) }
+    out = next.map((n) => {
+      const node = n as unknown as { type: string; children?: PhrasingContent[] }
+      if ((node.type === 'superscript' || node.type === 'subscript') && Array.isArray(node.children)) {
+        return { ...node, children: rewrite(node.children) } as unknown as PhrasingContent
       }
       return n
     })
@@ -141,9 +161,10 @@ function rewrite(children: PhrasingContent[]): PhrasingContent[] {
 
 export function remarkSupSub() {
   return (tree: Root) => {
-    visit(tree, (node: any) => {
-      if (Array.isArray(node.children)) {
-        node.children = rewrite(node.children)
+    visit(tree, (node) => {
+      if ('children' in node && Array.isArray(node.children)) {
+        const parent = node as { children: PhrasingContent[] }
+        parent.children = rewrite(parent.children)
       }
     })
   }

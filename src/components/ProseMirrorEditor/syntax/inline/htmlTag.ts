@@ -35,7 +35,7 @@ export const htmlTagSyntax: InlineSyntax = {
   pattern: new RegExp(`${PAIRED}|${SELF_CLOSE}`, 'g'),
   apply(tr, { schema, from, to, match }) {
     const htmlString = match[0]
-    if (!htmlString) return false
+    if (!htmlString || htmlString.includes('\uE000')) return false
     const type = schema.nodes.html_inline
     if (!type) return false
     tr.replaceRangeWith(from, to, type.create({ value: htmlString }))

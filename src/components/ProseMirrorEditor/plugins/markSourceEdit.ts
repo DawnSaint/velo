@@ -35,6 +35,7 @@ import type { Mark, Node as PMNode } from 'prosemirror-model'
 
 import { fromMarkdown } from '../editor/markdownIO'
 import { getCharRefSegments, expandCharRefText } from '../editor/charRef'
+import { expandEscapedText, hasEscapeMark, isEscapableChar } from '../editor/escape'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { linkClickPluginKey } from './linkClick'
 import { imageEditKey } from '../image/imageEditPlugin'
@@ -183,73 +184,45 @@ function buildMarkSource(doc: PMNode, from: number, to: number): string {
     // 闭:内→外,在 prev 有 cur 没有的 mark 处插闭分隔符
     for (const name of CLOSE_ORDER) {
       if (prevMarks.some(byName(name)) && !cur.some(byName(name))) {
-        const m = prevMarks.find(byName(name))!
-        out += markerText(m)?.close ?? ''
+        const m = prevMarks.find(byName(name))
+        if (m) out += markerText(m)?.close ?? ''
       }
     }
     // 开:外→内,在 cur 有 prev 没有的 mark 处插开分隔符
     for (const name of OPEN_ORDER) {
       if (cur.some(byName(name)) && !prevMarks.some(byName(name))) {
-        const m = cur.find(byName(name))!
-        out += markerText(m)?.open ?? ''
+        const m = cur.find(byName(name))
+        if (m) out += markerText(m)?.open ?? ''
       }
     }
-    // char_ref text 节点存的是解码字符;源码态要显示实体字面量,否则 commit
-    // 重解析后实体会退化成普通空格(与写盘源码脱节)。
+    // char_ref / escape text 节点存的是解码字符;源码态要还原成原文(实体字面量 / `\<char>`),
+    // 否则 commit 重解析后实体或转义会退化成普通字符。
     const segments = getCharRefSegments(node)
+    const escaped = node.isText && hasEscapeMark(node)
     out += node.isText
-      ? (segments ? expandCharRefText(segments) : (node.text ?? ''))
+      ? (segments
+          ? expandCharRefText(segments)
+          : escaped
+            ? expandEscapedText(node.text ?? '')
+            : (node.text ?? ''))
       : ''
     prevMarks = cur
   }
   // 闭尾:所有还开着的 mark
   for (const name of CLOSE_ORDER) {
     if (prevMarks.some(byName(name))) {
-      const m = prevMarks.find(byName(name))!
-      out += markerText(m)?.close ?? ''
+      const m = prevMarks.find(byName(name))
+      if (m) out += markerText(m)?.close ?? ''
     }
   }
   return out
 }
 
-/** 从源码检出某 mark 类型实际用的分隔符(`*`/`_`)。strong 匹配 `**`/`__`,
- *  emphasis 匹配单个 `*`/`_`(排除 `**` 的组成部分)。单 session 内混用
- *  `*`/`_` 的边角情况按首次出现取(已知限制)。 */
-function detectMarker(source: string, kind: 'strong' | 'emphasis'): '*' | '_' {
-  if (kind === 'strong') {
-    return /__/.test(source) && !/\*\*/.test(source) ? '_' : '*'
-  }
-  // emphasis:优先找未被 `*` 包夹的单 `_`(后接非 _ * word 字符)
-  if (/(?<![*_])_(?![*_])/.test(source)) return '_'
-  return '*'
-}
-
-/** 对插入范围回写 strong/emphasis 的 marker attr,匹配源码实际分隔符。
- *  只在**已存在**该 mark 的 text span 上改 attr —— 不新增 mark(否则破源码 / 改成
- *  别的 mark 类型时会把 plain text 误加 strong)。highlight/strike 无 marker attr 跳过。 */
-function applyMarkerWriteback(tr: Transaction, from: number, to: number, source: string, schema: EditorState['schema']): Transaction {
-  const strongMarker = detectMarker(source, 'strong')
-  const emphMarker = detectMarker(source, 'emphasis')
-  const strongType = schema.marks.strong
-  const emphType = schema.marks.emphasis
-  // 先在 tr.doc 快照上收集带 strong / emphasis 的 text span(避免边改边迭代)
-  const spans: Array<[number, number, 'strong' | 'emphasis']> = []
-  tr.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isText) return
-    if (node.marks.some(m => m.type.name === 'strong')) spans.push([pos, pos + node.nodeSize, 'strong'])
-    if (node.marks.some(m => m.type.name === 'emphasis')) spans.push([pos, pos + node.nodeSize, 'emphasis'])
-  })
-  for (const [s, e, kind] of spans) {
-    const type = kind === 'strong' ? strongType : emphType
-    const marker = kind === 'strong' ? strongMarker : emphMarker
-    tr = tr.removeMark(s, e, type)
-    tr = tr.addMark(s, e, type.create({ marker }))
-  }
-  return tr
-}
-
 /** 把源码解析回 inline nodes 并替换 [editFrom, editTo]。
- *  没有 session 时返回 null(调用方据此跳过 dispatch)。 */
+ *  没有 session 时返回 null(调用方据此跳过 dispatch)。
+ *  strong/emphasis 的 marker attr 已由 fromMarkdown(annotateEmphasisMarker)
+ *  按节点精准标注,不再用全局正则 detectMarker 覆写(旧正则会误把 `**_xxx_**`
+ *  的 `_` 覆盖成 `*`)。 */
 function buildCommitTransaction(view: EditorView): Transaction | null {
   const pluginState = markSourceEditKey.getState(view.state)
   if (!pluginState?.session) return null
@@ -275,9 +248,6 @@ function buildCommitTransaction(view: EditorView): Transaction | null {
       tr = tr.insert(cursor, node)
       cursor += node.nodeSize
     }
-    // 回写 marker attr:fromMarkdown 默认 marker:'*',按源码实际分隔符改回
-    const restoredTo = editFrom + inlineNodes.reduce((s, n) => s + n.nodeSize, 0)
-    tr = applyMarkerWriteback(tr, editFrom, restoredTo, sourceText, view.state.schema)
   }
   // 关键:不调 setSelection —— 靠 tr.mapping 把用户已移到范围外的光标重映射。
   // 右离开:终点 = P - S + L >= editFrom + L + 1,严格过还原 mark 末尾 → 不重进。
@@ -332,9 +302,22 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
       }
       if (!value.session) return value
 
-      // 普通事务:editFrom +1 bias / editTo -1 bias 过 mapping(边界键入字符留在范围外)
+      // 普通事务:editFrom +1 bias / editTo -1 bias 过 mapping(边界键入字符留在范围外)。
+      // 例外:在 editFrom(开分隔符前)键入反斜杠 `\`(如 `*128...128*` → `\*128...128*`),
+      // 用户意图是转义开分隔符,需把 `\` 纳入 session,否则 commit 仍按 `*...*` 解析为斜体。
       const session = value.session
-      const editFrom = tr.mapping.map(session.editFrom, 1)
+      const mappedLeft = tr.mapping.map(session.editFrom, -1)
+      const mappedRight = tr.mapping.map(session.editFrom, 1)
+      let editFrom = mappedRight
+      if (mappedRight > mappedLeft) {
+        const inserted = newState.doc.textBetween(mappedLeft, mappedRight, '', '')
+        const nextChar = mappedRight < newState.doc.content.size
+          ? newState.doc.textBetween(mappedRight, mappedRight + 1, '', '')
+          : ''
+        if (/^\\+$/.test(inserted) && isEscapableChar(nextChar)) {
+          editFrom = mappedLeft
+        }
+      }
       const editTo = tr.mapping.map(session.editTo, -1)
       // 防线:当那次事务把会话范围**整体替换**掉时(整表 replaceWith / 大段粘贴覆盖),
       // 两端落进同一段被删内容,bias 相反会把它们映射到新区间的两端之外 →
@@ -403,9 +386,12 @@ export const markSourceEditPlugin = new Plugin<MarkSourceEditState>({
 
     // 光标在源码内的落点:右边界(markEnd)→ 源码末尾过闭分隔符(typing 落 mark 外不继承);
     // 内部 → 过开分隔符的映射位(typing 落 mark 内保留 mark)。左边界(markStart)不触发 enter。
-    const cursorPos = head === markEnd
-      ? markStart + source.length
-      : markStart + (head - markStart) + delimLen
+    const cursorPos = Math.min(
+      head === markEnd
+        ? markStart + source.length
+        : markStart + (head - markStart) + delimLen,
+      markStart + source.length,
+    )
 
     let tr = newState.tr.delete(markStart, markEnd).insertText(source, markStart)
     tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos))
@@ -463,8 +449,6 @@ export const markSourceEditEscapeKeymap = keymap({
         tr = tr.insert(cursor, node)
         cursor += node.nodeSize
       }
-      const restoredTo = editFrom + inlineNodes.reduce((s, n) => s + n.nodeSize, 0)
-      tr = applyMarkerWriteback(tr, editFrom, restoredTo, originalSource, state.schema)
     }
     // mapping 不安全:光标原本在源码内,会落回还原 mark 内 → 立即重进。
     // 显式落 editFrom(inclusive 左边界,不含目标 mark)。

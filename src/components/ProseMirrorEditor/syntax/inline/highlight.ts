@@ -25,9 +25,9 @@ export const highlightSyntax: InlineSyntax = {
     if (!inner) return false
     const highlightType = schema.marks.highlight
     if (!highlightType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, highlightType.create())
+    tr.delete(to - 2, to)
+    tr.delete(from, from + 2)
+    tr.addMark(from, to - 4, highlightType.create())
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(highlightType)
     return true

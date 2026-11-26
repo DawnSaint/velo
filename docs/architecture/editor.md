@@ -50,7 +50,7 @@
 | Table | `tableColumnResizing`、`tableCellInputGuard`、`tableEditing`、`tableResizeCursor`、`tableInsertHandle`、`tableContextMenu` |
 | Paste & Upload | `imageUpload`、`markdownPaste` |
 | Link & Image Edit | `linkClick`、`linkEditEscape`、`imageEdit`、`imageEditEscape` |
-| Source Edit | `markSourceEdit`、`markSourceEditEscape`、`htmlSourceEdit`、`htmlSourceEditEscape`、`emojiSourceEdit`、`emojiSourceEditEscape`、`charRefSourceEdit` |
+| Source Edit | `markSourceEdit`、`markSourceEditEscape`、`htmlSourceEdit`、`htmlSourceEditEscape`、`emojiSourceEdit`、`emojiSourceEditEscape`、`charRefSourceEdit`、`escapeSourceEdit`、`escapeSourceEditEscape` |
 | Syntax & Input | `syntaxAutoFormat` |
 | Viewport | `viewport` |
 | Code Decorations | `foldDecoration`、`codeHighlight`、`codeWrap`、`codeLineNumber` |
@@ -70,7 +70,7 @@
 `createParseProcessor()`（`editor/parseProcessor.ts`）是主线程与 Worker 共用的 parse 配置：
 
 ```
-remarkParse → preserveEmptyLine → encodeLinkUrls → remarkSupSub
+remarkParse → remarkTrackEscapes → preserveEmptyLine → encodeLinkUrls → remarkSupSub
 → remarkGfm(singleTilde:false) → strictMath → alert → highlight
 → underline → cjkEmphasis → emoji → frontmatter(['yaml','toml'])
 ```
@@ -87,9 +87,9 @@ remarkParse → preserveEmptyLine → encodeLinkUrls → remarkSupSub
 - Shift-Enter：`codeBlockExit → cmdTableCellHardBreak → shiftEnterExitBlock → shiftEnterListItem → splitBlock`
 - Backspace：`foldDelete → frontmatterBackspace → codeBlockBackspace → headingToParagraph → emptyParaBeforeListBackspace → baseKeymap`
 
-### 源码编辑 session 六件套
+### 源码编辑 session 七件套
 
-`imageEdit` / `linkClick` / `markSourceEdit` / `htmlSourceEdit` / `emojiSourceEdit` / `charRefSourceEdit` 共享同一状态机：进入 = 把渲染节点临时替换成源码纯文本；用户键入 = 普通事务（state 随位置平移）；移出 / Escape = commit 或还原。共用辅助在 `editor/sourceEditSession.ts`（`getSourceEditRanges` 供 `toMarkdown` 用占位符绕开转义）；瞬时视图切换事务挂 `editor/transactionMeta.ts` 的 `SKIP_CONTENT_EMIT`。
+`imageEdit` / `linkClick` / `markSourceEdit` / `htmlSourceEdit` / `emojiSourceEdit` / `charRefSourceEdit` / `escapeSourceEdit` 共享同一状态机：进入 = 把渲染节点临时替换成源码纯文本；用户键入 = 普通事务（state 随位置平移）；移出 / Escape = commit 或还原。共用辅助在 `editor/sourceEditSession.ts`（`getSourceEditRanges` 供 `toMarkdown` 用占位符绕开转义）；瞬时视图切换事务挂 `editor/transactionMeta.ts` 的 `SKIP_CONTENT_EMIT`。
 
 ## 关键取舍
 
@@ -100,8 +100,9 @@ remarkParse → preserveEmptyLine → encodeLinkUrls → remarkSupSub
 - **行内 mark 按「连续共享外层 mark」建容器树**：`pmInlineToMdast` → `processSpans` → `buildMarkTree`，分隔符只在整段两端各出现一次；underline / highlight / sup / sub 无 GFM 原生容器，用 html 边界节点输出。
 - **marker 保真**：自定义 strong / emphasis handler 读 `mark.attrs.marker`；`buildMarkSource` 自己按 marker 拼源码（`toMarkdown` 恒输出 `_` / `**`，会丢原始分隔符）。
 - **字符实体靠 `char_ref` mark 保真**：`remark-parse` 把 `&#x20;` / `&nbsp;` 解码进 mdast，实体字面量不进 PM doc —— 这就是"搜得到、定位不到"的根因。`editor/charRef.ts` 在 parse 阶段用 mdast position 回查，把"哪几个解码字符来自哪个实体"记进 mark 的 `segments`；`toMarkdown` 原样写回，查找后端在解码字符上搜字面量。
+- **反斜杠转义靠 `escape` mark 保真**：`plugins/remarkTrackEscapes.ts` 通过 `fromMarkdownExtensions` 在 micromark `characterEscapeValue` 阶段将转义字符下标记入 `text._escapes`（并顺带标注 `strong._marker`），下游 remark 插件据此跳过被转义界定符；`markdownIO` 转为 `escape` mark（`inclusive:false`）并还原为 `\<char>`；`syntax/inline/escape.ts` 排在所有 inline 语法最前，`syntaxAutoFormat` 用 `\uE000` 掩码已转义字符防止后续语法误吞；`plugins/escapeSourceEdit.ts` 在光标落入时展开浅灰 `\`（移开还原）；`markSourceEdit` 在 `editFrom` 前键入 `\` 时扩入 session，避免转义开分隔符被留在 session 外。
 - **strictMath 替代 remark-math**：remark-math 撞 EOF 即判定围栏闭合、内容含空行合法，未闭合 `$$` 会贪婪吞掉中间内容。自写 `plugins/strictMath/` 要求块级围栏独占一行闭合，token 类型复用 `mdast-util-math`，序列化剔除 `$` 的 unsafe 转义。
-- **CJK 标点**：CommonMark 把 CJK 标点当 Unicode punctuation，`**数据排序：**正文` 的闭合 `**` 不满足 right-flanking。`remarkCjkEmphasis` + 自定义 strong handler 修正。
+- **CJK 标点与跨节点粗斜体**：CommonMark 把 CJK 标点与 `_` 都归为标点，导致 `**数据排序：**正文` 及 `中文**_xxx_**中文` 等外层 `**` 不满足 flanking 条件，甚至在 `前**_a_**中**_b_**后` 中把中间 `**中**` 错配成 strong。`remarkCjkEmphasis` 按未转义 `**` 跨节点重配（遇到残留 `**` 时展平 `strong('*')` 而不动 `__`），配合自定义 strong handler 修正；WYSIWYG 实时 inline mark 语法统一改为只剥除首尾分隔符后 `addMark`，避免嵌套输入（如 `**_xxx_**`）抹掉内层已有 mark。
 - **上下标走 Obsidian / Pandoc 风格**：`^x^` / `~x~`，单 `~` 作下标；`remarkGfm` 配 `singleTilde:false`，让单 `~` 在 parse 阶段保持文本交给 `remarkSupSub`，双 `~~` 仍走 gfm 删除线。
 
 ### 插件与事务
@@ -211,6 +212,6 @@ ProseMirror 的 NodeView / Decoration / Plugin 在 TS 中命令式创建 DOM 并
 | `image/imageEditPlugin.ts`、`image/imageNodeView.ts` | `velo-image-*` | `_editor-image.scss` |
 | `nodes/HrNodeView.ts` | `velo-hr` | `_editor-hr.scss` |
 | `nodes/EmojiNodeView.ts`、`plugins/emojiSourceEdit.ts`、`plugins/emojiSuggest.ts` | `velo-emoji*` | `_editor-emoji.scss` |
-| `plugins/linkClick.ts`、`plugins/markSourceEdit.ts`、`plugins/charRefSourceEdit.ts`、`findreplace/findHighlight.ts`、`plugins/focusMode.ts` | `velo-*-source-edit` / `velo-char-ref-*` / `velo-find-*` / `velo-focus-active` | `_editor-base.scss`、`_editor-html-blocks.scss` |
+| `plugins/linkClick.ts`、`plugins/markSourceEdit.ts`、`plugins/charRefSourceEdit.ts`、`plugins/escapeSourceEdit.ts`、`findreplace/findHighlight.ts`、`plugins/focusMode.ts` | `velo-*-source-edit` / `velo-char-ref-*` / `velo-escape-*` / `velo-find-*` / `velo-focus-active` | `_editor-base.scss`、`_editor-html-blocks.scss` |
 | `plugins/tableInsertHandle.ts` | `velo-t-pick-handle` / `velo-t-insert-*` | `_editor-tables.scss` |
 | `nodes/CodeWrapPlugin.ts` | `data-velo-wrap`（属性） | `_editor-code.scss` |

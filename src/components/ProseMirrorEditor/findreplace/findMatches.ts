@@ -11,6 +11,11 @@ import {
   expandCharRefText,
   getCharRefSegments,
 } from '../editor/charRef'
+import {
+  buildEscapeIndexMap,
+  expandEscapedText,
+  hasEscapeMark,
+} from '../editor/escape'
 
 export interface FindOptions {
   caseSensitive: boolean
@@ -72,6 +77,9 @@ export function findMatchesInDoc(doc: Node, query: string, options: FindOptions)
     ]
     if (segments) {
       variants.push({ text: expandCharRefText(segments), map: buildCharRefIndexMap(segments) })
+    }
+    if (hasEscapeMark(node)) {
+      variants.push({ text: expandEscapedText(node.text), map: buildEscapeIndexMap(node.text) })
     }
     const seen = new Set<string>()
     for (const v of variants) {

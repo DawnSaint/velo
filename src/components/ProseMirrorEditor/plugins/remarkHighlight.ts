@@ -17,7 +17,12 @@
 // 旧版 `(?<![\w:/])` 挡了 `\w` 导致 `a==bc==` 无法识别,与实时转换端保持一致。
 
 import { visit } from 'unist-util-visit'
-import type { Root, Text, PhrasingContent } from 'mdast'
+import type { Root, PhrasingContent } from 'mdast'
+import {
+  isIndexEscaped,
+  sliceEscapedText,
+  type EscapableMdastText,
+} from '../editor/escape'
 
 const HL_RE = /(?<![/:])==([^=\n]+?)==/g
 
@@ -39,10 +44,13 @@ type TextVariant =
   | { kind: 'endEq', prefix: string }
   | { kind: 'startEq', rest: string }
 
-function classifyText(v: string): TextVariant {
-  if (v === '==') return { kind: 'pure' }
+function classifyText(node: EscapableMdastText): TextVariant {
+  const v = node.value
+  const startsEq = v.startsWith('==') && !isIndexEscaped(node, 0) && !isIndexEscaped(node, 1)
   const endsEq = v.endsWith('==')
-  const startsEq = v.startsWith('==')
+    && !isIndexEscaped(node, v.length - 2)
+    && !isIndexEscaped(node, v.length - 1)
+  if (v === '==' && startsEq) return { kind: 'pure' }
   if (startsEq && endsEq && v.length >= 4) {
     return { kind: 'both', content: v.slice(2, -2) }
   }
@@ -55,26 +63,41 @@ function classifyText(v: string): TextVariant {
  * 单文本节点内含 `==xxx==` 子串(`text ==hi== more`)—— 跑 HL_RE 切段。
  * 无匹配返回 { matched: false }。
  */
-function tryInTextRegex(v: string): { matched: boolean, pieces: PhrasingContent[] } {
+function tryInTextRegex(node: EscapableMdastText): { matched: boolean, pieces: PhrasingContent[] } {
+  const v = node.value
   HL_RE.lastIndex = 0
   let m: RegExpExecArray | null
   const pieces: PhrasingContent[] = []
   let lastIdx = 0
   let hasMatch = false
   while ((m = HL_RE.exec(v)) !== null) {
+    if (m[0].length === 0) {
+      HL_RE.lastIndex++
+      continue
+    }
+    const openIdx = m.index
+    const closeIdx = m.index + m[0].length - 2
+    if (
+      isIndexEscaped(node, openIdx)
+      || isIndexEscaped(node, openIdx + 1)
+      || isIndexEscaped(node, closeIdx)
+      || isIndexEscaped(node, closeIdx + 1)
+    ) {
+      HL_RE.lastIndex = openIdx + 1
+      continue
+    }
     hasMatch = true
     if (m.index > lastIdx) {
-      pieces.push({ type: 'text', value: v.slice(lastIdx, m.index) })
+      pieces.push(sliceEscapedText(node, lastIdx, m.index) as PhrasingContent)
     }
     pieces.push({
       type: 'highlight',
-      children: [{ type: 'text', value: m[1] }],
+      children: [sliceEscapedText(node, openIdx + 2, closeIdx) as PhrasingContent],
     } as unknown as PhrasingContent)
     lastIdx = m.index + m[0].length
-    if (m[0].length === 0) HL_RE.lastIndex++
   }
   if (hasMatch && lastIdx < v.length) {
-    pieces.push({ type: 'text', value: v.slice(lastIdx) })
+    pieces.push(sliceEscapedText(node, lastIdx) as PhrasingContent)
   }
   return { matched: hasMatch, pieces }
 }
@@ -110,17 +133,17 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
       continue
     }
 
-    const v = (child as Text).value
+    const textNode = child as EscapableMdastText
 
     if (!inHighlight) {
       // 优先尝试 in-text 正则(`text ==hi== more` / `==hi==` / `more ==hi==`)
-      const inText = tryInTextRegex(v)
+      const inText = tryInTextRegex(textNode)
       if (inText.matched) {
         out.push(...inText.pieces)
         continue
       }
 
-      const variant = classifyText(v)
+      const variant = classifyText(textNode)
       switch (variant.kind) {
         case 'plain':
           out.push(child)
@@ -135,7 +158,7 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
           if (variant.content) {
             out.push({
               type: 'highlight',
-              children: [{ type: 'text', value: variant.content }],
+              children: [sliceEscapedText(textNode, 2, textNode.value.length - 2) as PhrasingContent],
             } as unknown as PhrasingContent)
           }
           else {
@@ -154,7 +177,7 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
             out.push(child)
             break
           }
-          if (variant.prefix) out.push({ type: 'text', value: variant.prefix })
+          if (variant.prefix) out.push(sliceEscapedText(textNode, 0, textNode.value.length - 2) as PhrasingContent)
           inHighlight = true
           buffer = []
           break
@@ -164,14 +187,14 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
           // 不检查 rest 首字符:Obsidian/Logseq 风格 `==bold and **strong**==`
           // 允许 open `==` 后紧跟 word 字符(b / 等),只要前面不是 word 即可
           inHighlight = true
-          buffer = variant.rest ? [{ type: 'text', value: variant.rest }] : []
+          buffer = variant.rest ? [sliceEscapedText(textNode, 2) as PhrasingContent] : []
           break
         }
       }
     }
     else {
       // inHighlight —— 期待 close
-      const variant = classifyText(v)
+      const variant = classifyText(textNode)
       switch (variant.kind) {
         case 'plain':
           buffer.push(child)
@@ -182,7 +205,7 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
           break
         case 'both': {
           // `==xxx==` —— content 是 highlight 内,然后 close
-          if (variant.content) buffer.push({ type: 'text', value: variant.content })
+          if (variant.content) buffer.push(sliceEscapedText(textNode, 2, textNode.value.length - 2) as PhrasingContent)
           flush()
           break
         }
@@ -190,14 +213,14 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
           // prefix + `==` —— prefix 是 highlight 内容,`==` 是 close
           // 不检查 prefix.lastChar:那是 highlight 内容的字面字符,
           // 不是 close marker 的边界。close 边界在 `==` 之后,跨节点留到下个节点判定。
-          if (variant.prefix) buffer.push({ type: 'text', value: variant.prefix })
+          if (variant.prefix) buffer.push(sliceEscapedText(textNode, 0, textNode.value.length - 2) as PhrasingContent)
           flush()
           break
         }
         case 'startEq': {
           // `==` + rest —— `==` 是 close,rest 是 close 之后的 plain
           flush()
-          if (variant.rest) out.push({ type: 'text', value: variant.rest })
+          if (variant.rest) out.push(sliceEscapedText(textNode, 2) as PhrasingContent)
           break
         }
       }
@@ -210,9 +233,10 @@ function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
 
 export function remarkHighlight() {
   return (tree: Root) => {
-    visit(tree, (node: any) => {
-      if (!Array.isArray(node.children)) return
-      node.children = rewriteInlineChildren(node.children)
+    visit(tree, (node) => {
+      if (!('children' in node) || !Array.isArray(node.children)) return
+      const parent = node as { children: PhrasingContent[] }
+      parent.children = rewriteInlineChildren(parent.children)
     })
   }
 }

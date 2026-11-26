@@ -136,6 +136,17 @@
   color: var(--editor-text-muted);
 }
 
+// 反斜杠转义源码态:光标进入转义字符时展开的 `\` 浅灰提示色（字符本身保持正文色）,
+// 以及查找面板打开期间命中的转义字符前用 ::before 原位显示浅灰 `\`。
+.velo-escape-slash {
+  color: var(--editor-text-muted);
+}
+
+.velo-escape-inline::before {
+  content: '\\';
+  color: var(--editor-text-muted);
+}
+
 // 查找面板打开期间不改 doc(matches 坐标会漂移),用纯装饰把命中的解码字符
 // 原位显示成实体字面量:font-size:0 收掉解码字符的宽度,::after 里的字面量
 // 顶上它的位置。PM 会把同区间的 findHighlight deco 与本 deco 合并成一枚 span,

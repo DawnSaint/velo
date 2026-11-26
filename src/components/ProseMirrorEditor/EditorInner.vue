@@ -267,6 +267,7 @@ import { cursorFromTextBefore, type CursorPosition } from '@/utils/editorCursor'
 import { headingChainFromDoc, type HeadingBreadcrumb } from '@/utils/breadcrumbs'
 import { getSourceEditRanges } from './editor/sourceEditSession'
 import { charRefSourceEditPlugin } from './plugins/charRefSourceEdit'
+import { escapeSourceEditPlugin, escapeSourceEditEscapeKeymap } from './plugins/escapeSourceEdit'
 // katex.min.css 不再静态 import —— katex 包整体懒加载(见 MathNodeViews.ts
 // 的 getKatex),CSS 也跟着第一次 render 时动态 import,避免首屏加载 ~80KB CSS。
 
@@ -851,6 +852,9 @@ const pluginEntries: PluginEntry[] = [
   // 字符实体:点击 / 搜索跳转落到 &#x20; 解码出的空白时,临时换回实体字面量
   // (浅灰),失焦还原。放 syntaxAutoFormat 之前,与其余 source edit 同段。
   { id: 'charRefSourceEdit', plugin: charRefSourceEditPlugin },
+  // 反斜杠转义:光标进入转义字符时临时展开 `\`(浅灰提示),移开 / 失焦还原。
+  { id: 'escapeSourceEdit', plugin: escapeSourceEditPlugin },
+  { id: 'escapeSourceEditEscape', plugin: escapeSourceEditEscapeKeymap },
 
   // ── Syntax & Input ────────────────────────────────────────────────
   { id: 'syntaxAutoFormat', plugin: syntaxAutoFormatPlugin },

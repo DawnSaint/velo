@@ -14,14 +14,18 @@
 //   静默检查(silent)时网络错误完全不弹 toast —— 中国大陆直连 GitHub 不稳定,
 //   启动时弹一个红色错误 toast 会打扰用户;手动检查时弹 toast 给用户反馈。
 // - **超时**:check 请求 15s 超时,避免直连 GitHub 网络差时用户等一个无限超时。
-// - **前端 fetch check**:check 阶段用前端 fetch 请求 latest.json,跳过 Rust 端
-//   reqwest(代理不兼容)和版本对比(dev 版本相同时返回 null)。
-//   dev 环境 fetch 走 Vite proxy(/github-api),避免 WebView2 跨域/CSP/混合内容拦截;
-//   生产环境 fetch 走真实 GitHub API。downloadAndInstall 仍走 checkUpdate。
+// - **前端 fetch check**:check 阶段用前端 fetch 请求 updater 的 latest.json,
+//   跳过 Rust 端 reqwest(代理不兼容)。版本判定只信 latest.json —— 它走 Release
+//   资产下载通道,不受 REST API 未认证 60 次/小时/IP 限流(共享出口 IP 极易 403);
+//   REST API 仅作 release notes 降级源,失败不影响检查。请求失败一律走错误路径,
+//   不得判「无更新」,否则限流/断网时静默吞掉检查。
+//   dev 环境 fetch 走 Vite proxy(/github-release / /github-api),避免 WebView2
+//   跨域/CSP/混合内容拦截;生产环境直连。downloadAndInstall 仍走 checkUpdate。
 // - **release notes 来源**:更新卡片展示用户手写的 docs/RELEASE_NOTES.md(中文、
 //   面向用户),而非 release-please 自动生成的 CHANGELOG.md(英文 commit 流水账)。
 //   fetch GitHub raw 拿到 RELEASE_NOTES.md 全文后正则提取目标版本段落;
-//   raw fetch 失败时降级回 release.body(GitHub Release 页面 changelog)。
+//   raw 在国内网络间歇失败,降级 jsdelivr 按版本 tag 镜像(tag 内容 immutable,
+//   无分支缓存陈旧问题);再失败降级回 release.body(GitHub Release 页面 changelog)。
 
 import { ref, readonly } from 'vue'
 import { check as checkUpdate, type DownloadEvent } from '@tauri-apps/plugin-updater'
@@ -48,7 +52,14 @@ function isNetworkError(e: unknown): boolean {
   return msg.includes('error sending request') || msg.includes('network') || msg.includes('timeout') || msg.includes('connect')
 }
 
-/** GitHub API releases/latest,不重定向,返回 tag_name/body/published_at */
+/** updater manifest:Release 资产下载通道,不受 REST API 60 次/小时/IP 限流 */
+const LATEST_JSON_URL = 'https://github.com/DawnSaint/velo/releases/latest/download/latest.json'
+
+/** dev 环境用 Vite proxy 避免 WebView2 跨域/CSP/混合内容拦截 */
+const LATEST_JSON_URL_DEV = '/github-release/DawnSaint/velo/releases/latest/download/latest.json'
+
+/** GitHub API releases/latest,不重定向,返回 tag_name/body/published_at。
+ *  未认证限流 60 次/小时/IP,只作 best-effort 降级源,不可作版本判定源。 */
 const RELEASES_API = 'https://api.github.com/repos/DawnSaint/velo/releases/latest'
 
 /** dev 环境用 Vite proxy 避免 WebView2 跨域/CSP/混合内容拦截 */
@@ -60,13 +71,34 @@ const RELEASE_NOTES_URL = 'https://raw.githubusercontent.com/DawnSaint/velo/mast
 /** dev 环境用 Vite proxy(raw.githubusercontent.com 也受 CSP 跨域拦截) */
 const RELEASE_NOTES_URL_DEV = '/github-raw/DawnSaint/velo/master/docs/RELEASE_NOTES.md'
 
+interface UpdaterManifest {
+  version: string
+  notes?: string
+  pub_date?: string
+}
+
 interface GithubRelease {
   tag_name: string
   body?: string
   published_at?: string
 }
 
-/** 前端 fetch GitHub API 获取最新 release,跳过 Rust 端版本对比 */
+/** fetch updater manifest。非 ok / 网络失败一律 throw 走错误路径,
+ *  不能把请求失败当「无更新」(限流 403 时曾静默吞掉整条自动链路)。 */
+async function fetchLatestJson(timeoutMs: number): Promise<UpdaterManifest> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const url = import.meta.env.DEV ? LATEST_JSON_URL_DEV : LATEST_JSON_URL
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.json() as UpdaterManifest
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** best-effort fetch GitHub API,供 release notes / 日期降级;失败由调用方 catch */
 async function fetchLatestRelease(timeoutMs: number): Promise<GithubRelease | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -97,32 +129,38 @@ function extractReleaseNotesSection(markdown: string, version: string): string |
   const startMatch = markdown.match(startRe)
   if (!startMatch) return null
 
-  const startIdx = startMatch.index! + startMatch[0].length
+  const startIdx = (startMatch.index ?? 0) + startMatch[0].length
   // 从版本标题之后查找下一个 `## [` 开头的行(下一个版本)
   const rest = markdown.slice(startIdx)
   const nextMatch = rest.match(/^## \[\d/m)
-  const endIdx = nextMatch ? nextMatch.index! : rest.length
+  const endIdx = nextMatch?.index ?? rest.length
   return rest.slice(0, endIdx).trim() || null
 }
 
 /**
  * fetch docs/RELEASE_NOTES.md 并提取目标版本段落。
- * 失败(网络 / 解析不到对应版本)时返回 null,调用方降级到 release.body。
+ * raw 间歇失败时降级 jsdelivr 版本 tag 镜像;都失败(网络 / 解析不到对应版本)
+ * 返回 null,调用方降级到 release.body。
  */
 async function fetchReleaseNotes(version: string, timeoutMs: number): Promise<string | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const url = import.meta.env.DEV ? RELEASE_NOTES_URL_DEV : RELEASE_NOTES_URL
-  try {
-    const res = await fetch(url, { signal: controller.signal })
-    if (!res.ok) return null
-    const text = await res.text()
-    return extractReleaseNotesSection(text, version)
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
+  const urls = import.meta.env.DEV
+    ? [RELEASE_NOTES_URL_DEV, `/github-jsdelivr/gh/DawnSaint/velo@v${version}/docs/RELEASE_NOTES.md`]
+    : [RELEASE_NOTES_URL, `https://cdn.jsdelivr.net/gh/DawnSaint/velo@v${version}/docs/RELEASE_NOTES.md`]
+  for (const url of urls) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(url, { signal: controller.signal })
+      if (!res.ok) continue
+      const text = await res.text()
+      return extractReleaseNotesSection(text, version)
+    } catch {
+      continue
+    } finally {
+      clearTimeout(timer)
+    }
   }
+  return null
 }
 
 export function useUpdater() {
@@ -137,24 +175,16 @@ export function useUpdater() {
     errorMsg.value = ''
 
     try {
-      // 前端 fetch GitHub API,跳过 Rust 端 reqwest(代理不兼容)和版本对比(dev 版本相同返回 null)
-      const release = await fetchLatestRelease(15_000)
-      if (!release) {
-        updateInfo.value = null
-        if (!silent) {
-          notify.info('当前已是最新版本')
-          status.value = 'idle'
-        } else {
-          status.value = 'up-to-date'
-        }
-        return
-      }
-
-      // GitHub API 返回的 tag_name 格式为 "vX.Y.Z",去掉前缀 "v"
-      const version = release.tag_name.replace(/^v/, '')
+      // latest.json 是版本判定唯一来源;REST API 并行 best-effort,
+      // 只供 notes / 日期降级,403 / 断网不影响检查。
+      const [latest, release] = await Promise.all([
+        fetchLatestJson(15_000),
+        fetchLatestRelease(15_000).catch(() => null),
+      ])
+      const version = latest.version
       // 本地版本号与远程相同时不提示更新。
-      // fetchLatestRelease 拿的是 releases/latest 端点,永远返回最新 release,
-      // 必须自己对比版本号,否则本地与远程同版也会提示更新。
+      // latest.json 永远指向最新 release,必须自己对比版本号,
+      // 否则本地与远程同版也会提示更新。
       const localVersion = await getVersion()
       if (localVersion === version) {
         updateInfo.value = null
@@ -172,8 +202,8 @@ export function useUpdater() {
       status.value = 'available'
       updateInfo.value = {
         version,
-        body: notes ?? release.body,
-        date: release.published_at,
+        body: notes ?? release?.body ?? (latest.notes || undefined),
+        date: release?.published_at ?? latest.pub_date,
       }
       // silent(自动链路)时不弹「发现新版本」toast —— autoCheck 会接着后台下载,
       // 下载开始/完成的提示由 autoCheck 统一发出,避免 toast 重复。

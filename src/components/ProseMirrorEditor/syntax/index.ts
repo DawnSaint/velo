@@ -23,6 +23,7 @@ import { tocSyntax } from './block/toc'
 import { alertSyntax } from './block/alert'
 import { mathBlockSyntax } from './block/mathBlock'
 
+import { escapeSyntax } from './inline/escape'
 import { emphasisUnderscoreSyntax } from './inline/emphasis'
 import { emphasisStarSyntax } from './inline/emphasisStar'
 import { strikeSyntax } from './inline/strike'
@@ -54,6 +55,9 @@ registerBlockSyntax(alertSyntax)
 // 与其他 block syntax(### / ``` / > / - / 1. / --- / [TOC])无交集,放最后。
 registerBlockSyntax(mathBlockSyntax)
 
+// escape 必须排在所有 inline 语法最前:先把 `\*` / `\[` 转成带 escape mark 的字符,
+// 让 buildBlockText 将其掩码,避免后续 emphasis / strong / link 误把转义符号当界定符。
+registerInlineSyntax(escapeSyntax)
 registerInlineSyntax(linkSyntax)         // 优先 link,避免 [^id] 误抓 link 模式中的 ]
 registerInlineSyntax(footnoteRefSyntax)
 registerInlineSyntax(inlineMathSyntax)

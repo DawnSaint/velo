@@ -20,9 +20,9 @@ export const underlineSyntax: InlineSyntax = {
     if (!inner) return false
     const underlineType = schema.marks.underline
     if (!underlineType) return false
-    tr.delete(from, to)
-    tr.insertText(inner, from)
-    tr.addMark(from, from + inner.length, underlineType.create())
+    tr.delete(to - 4, to)
+    tr.delete(from, from + 3)
+    tr.addMark(from, to - 7, underlineType.create())
     // 闭合后移除 storedMark,避免继续输入继承(见 editor.md 关键取舍「语法实时转换」)
     tr.removeStoredMark(underlineType)
     return true

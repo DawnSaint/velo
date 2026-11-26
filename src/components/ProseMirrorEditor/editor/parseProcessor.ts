@@ -18,6 +18,7 @@ import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
 import { remarkSupSub } from '../plugins/remarkSupSub'
 import { remarkEmoji } from '../plugins/remarkEmoji'
+import { remarkTrackEscapes } from '../plugins/remarkTrackEscapes'
 import remarkFrontmatter from 'remark-frontmatter'
 
 /**
@@ -48,6 +49,7 @@ export function preprocessSource(md: string): string {
 export function createParseProcessor() {
   return unified()
     .use(remarkParse)
+    .use(remarkTrackEscapes)
     .use(remarkPreserveEmptyLine)
     .use(remarkEncodeLinkUrls)
     // remarkGfm 配 singleTilde:false —— gfm 删除线只匹配双 `~~`,单 `~` 留作下标。
