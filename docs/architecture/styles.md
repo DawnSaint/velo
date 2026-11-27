@@ -50,7 +50,7 @@
 
 | partial | 覆盖 |
 | --- | --- |
-| `_fonts.scss` | JetBrains Mono `@font-face` + `--font-mono` fallback |
+| `_fonts.scss` | 内嵌字体 `@font-face`（Google Sans / Google Sans Code / JetBrains Mono 等）+ `--font-mono` fallback |
 | `_editor-base.scss` | PM 壳 / 选区 / find 高亮 / drop-cursor / 专注模式 / 阅读模式 / 公共 icon 按钮 |
 | `_editor-typography.scss` | 标题 / 段落 / 引用 / 链接 / kbd / mark / details |
 | `_editor-lists.scss` | ul / ol / li + 任务列表 checkbox |

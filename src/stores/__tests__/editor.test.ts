@@ -46,9 +46,11 @@ describe('editor store 默认值', () => {
     expect(store.monoFont).toBe(expectedMono)
   })
 
-  it('fontMono 默认是等宽字体栈', () => {
+  it('fontMono 默认是等宽字体栈且拼接了 CJK 字体 fallback', () => {
     const store = useEditorStore()
     expect(store.fontMono).toContain('ui-monospace')
+    const expectedCjkName = /Mac/.test(navigator.userAgent) ? 'PingFang SC' : 'Microsoft YaHei'
+    expect(store.fontMono).toContain(expectedCjkName)
   })
 
   it('themeMode 默认 system', () => {
@@ -264,10 +266,11 @@ describe('editor store 字体选配 hydrate / snapshot', () => {
     expect(store.latinFont).toBe('georgia')
     expect(store.cjkFont).toBe('songti')
     expect(store.monoFont).toBe('jetbrains')
-    // computed 派生
+    // computed 派生（sans 与 mono 都包含用户所选的 CJK 字体）
     expect(store.fontFamily).toContain('Georgia')
     expect(store.fontFamily).toContain('Songti')
     expect(store.fontMono).toContain('JetBrains Mono')
+    expect(store.fontMono).toContain('Songti')
   })
 
   it('hydrate 缺失字体字段不改默认值', () => {

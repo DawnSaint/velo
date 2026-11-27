@@ -3,6 +3,7 @@
  *
  * 三类字体（latin / cjk / mono），每类有一个 key → CSS font-family stack 的映射表。
  * `buildFontStack(latinKey, cjkKey, monoKey)` 将 latin + cjk 拼接为 sans 栈，
+ * 同时将 mono + cjk 拼接为 mono 栈（避免代码中的中文落入系统默认的 NSimSun 新宋体），
  * 返回 { sans, mono } 供调用方注入 CSS 变量。
  *
  * 设计参考 vmark 的 fontStacks 模块，适配 velo 跨平台（Windows + macOS）场景：
@@ -44,9 +45,11 @@ type FontStackMap = Record<'latin' | 'cjk' | 'mono', Record<string, FontEntry>>
 export const fontStacks = {
   latin: {
     system: { stack: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', platforms: 'all' },
+    googlesans: { stack: '"Google Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', platforms: 'all' },
     georgia: { stack: 'Georgia, "Times New Roman", serif', platforms: 'all' },
     palatino: { stack: '"Palatino Linotype", Palatino, Georgia, serif', platforms: 'all' },
     charter: { stack: 'Charter, Georgia, serif', platforms: ['macos'] },
+    sfpro: { stack: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif', platforms: ['macos'] },
     cambria: { stack: 'Cambria, Georgia, serif', platforms: ['windows'] },
     constantia: { stack: 'Constantia, Georgia, serif', platforms: ['windows'] },
     segoe: { stack: '"Segoe UI", "Segoe UI Variable", Arial, sans-serif', platforms: ['windows'] },
@@ -60,19 +63,20 @@ export const fontStacks = {
     sourcehans: { stack: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif', platforms: 'all' },
   },
   mono: {
-    system: { stack: 'ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, Monaco, monospace', platforms: 'all' },
-    jetbrains: { stack: '"JetBrains Mono", ui-monospace, Consolas, Menlo, monospace', platforms: 'all' },
+    system: { stack: '"SF Mono", "Cascadia Code", Consolas, Menlo, Monaco, ui-monospace, monospace', platforms: 'all' },
+    googlesanscode: { stack: '"Google Sans Code", "JetBrains Mono", Consolas, Menlo, ui-monospace, monospace', platforms: 'all' },
+    jetbrains: { stack: '"JetBrains Mono", Consolas, Menlo, ui-monospace, monospace', platforms: 'all' },
     consolas: { stack: 'Consolas, "Courier New", ui-monospace, monospace', platforms: ['windows'] },
-    sfmono: { stack: '"SF Mono", ui-monospace, Menlo, monospace', platforms: ['macos'] },
-    menlo: { stack: 'Menlo, ui-monospace, Monaco, monospace', platforms: ['macos'] },
-    monaco: { stack: 'Monaco, ui-monospace, Menlo, monospace', platforms: ['macos'] },
-    cascadiacode: { stack: '"Cascadia Code", "Cascadia Mono", ui-monospace, Consolas, monospace', platforms: ['windows'] },
-    firacode: { stack: '"Fira Code", ui-monospace, Consolas, monospace', platforms: 'all' },
-    hack: { stack: 'Hack, ui-monospace, Consolas, monospace', platforms: 'all' },
-    ibmplexmono: { stack: '"IBM Plex Mono", ui-monospace, Consolas, monospace', platforms: 'all' },
-    inconsolata: { stack: 'Inconsolata, ui-monospace, Consolas, monospace', platforms: 'all' },
-    sourcecodepro: { stack: '"Source Code Pro", ui-monospace, Consolas, Menlo, monospace', platforms: 'all' },
-    dejavu: { stack: '"DejaVu Sans Mono", ui-monospace, Consolas, Menlo, monospace', platforms: 'all' },
+    sfmono: { stack: '"SF Mono", Menlo, ui-monospace, monospace', platforms: ['macos'] },
+    menlo: { stack: 'Menlo, Monaco, ui-monospace, monospace', platforms: ['macos'] },
+    monaco: { stack: 'Monaco, Menlo, ui-monospace, monospace', platforms: ['macos'] },
+    cascadiacode: { stack: '"Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace', platforms: ['windows'] },
+    firacode: { stack: '"Fira Code", "JetBrains Mono", Consolas, ui-monospace, monospace', platforms: 'all' },
+    hack: { stack: 'Hack, "JetBrains Mono", Consolas, ui-monospace, monospace', platforms: 'all' },
+    ibmplexmono: { stack: '"IBM Plex Mono", "JetBrains Mono", Consolas, ui-monospace, monospace', platforms: 'all' },
+    inconsolata: { stack: 'Inconsolata, "JetBrains Mono", Consolas, ui-monospace, monospace', platforms: 'all' },
+    sourcecodepro: { stack: '"Source Code Pro", "JetBrains Mono", Consolas, Menlo, ui-monospace, monospace', platforms: 'all' },
+    dejavu: { stack: '"DejaVu Sans Mono", "JetBrains Mono", Consolas, Menlo, ui-monospace, monospace', platforms: 'all' },
   },
 } as const satisfies FontStackMap
 
@@ -153,9 +157,11 @@ export function buildFontStack(
     fontStacks.mono[monoKey as keyof typeof fontStacks.mono] ??
     fontStacks.mono.system
 
+  const cjkNamed = stripTrailingGenerics(cjkEntry.stack)
+
   return {
     sans: `${stripTrailingGenerics(latinEntry.stack)}, ${cjkEntry.stack}`,
-    mono: monoEntry.stack,
+    mono: `${stripTrailingGenerics(monoEntry.stack)}, ${cjkNamed}, ui-monospace, monospace`,
   }
 }
 

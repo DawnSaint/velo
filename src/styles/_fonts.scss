@@ -212,6 +212,66 @@
   src: url('../fonts/notosanssc/NotoSansSC-Bold.woff2') format('woff2');
 }
 
+// ── Google Sans (4 woff2, ~93KB) ──
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/googlesans/GoogleSans-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/googlesans/GoogleSans-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/googlesans/GoogleSans-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/googlesans/GoogleSans-BoldItalic.woff2') format('woff2');
+}
+
+// ── Google Sans Code (4 woff2, ~98KB, 含完整 latin + box-drawing 制表符 + 几何符号) ──
+@font-face {
+  font-family: 'Google Sans Code';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/googlesanscode/GoogleSansCode-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans Code';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/googlesanscode/GoogleSansCode-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans Code';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/googlesanscode/GoogleSansCode-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans Code';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/googlesanscode/GoogleSansCode-BoldItalic.woff2') format('woff2');
+}
+
 :root {
   // Fallback: App.vue watch store.fontMono 在运行时注入用户选择的等宽字体栈,
   // 覆盖此静态值。仅在 store 未加载 / JS 未执行时短暂生效。

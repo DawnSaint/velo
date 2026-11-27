@@ -111,6 +111,26 @@ const BUNDLED_FONTS: readonly BundledFont[] = [
       { family: 'Noto Sans SC', filename: 'NotoSansSC-Bold.woff2', weight: 700, style: 'normal' },
     ],
   },
+  {
+    family: 'Google Sans',
+    dir: 'googlesans',
+    entries: [
+      { family: 'Google Sans', filename: 'GoogleSans-Regular.woff2', weight: 400, style: 'normal' },
+      { family: 'Google Sans', filename: 'GoogleSans-Bold.woff2', weight: 700, style: 'normal' },
+      { family: 'Google Sans', filename: 'GoogleSans-Italic.woff2', weight: 400, style: 'italic' },
+      { family: 'Google Sans', filename: 'GoogleSans-BoldItalic.woff2', weight: 700, style: 'italic' },
+    ],
+  },
+  {
+    family: 'Google Sans Code',
+    dir: 'googlesanscode',
+    entries: [
+      { family: 'Google Sans Code', filename: 'GoogleSansCode-Regular.woff2', weight: 400, style: 'normal' },
+      { family: 'Google Sans Code', filename: 'GoogleSansCode-Bold.woff2', weight: 700, style: 'normal' },
+      { family: 'Google Sans Code', filename: 'GoogleSansCode-Italic.woff2', weight: 400, style: 'italic' },
+      { family: 'Google Sans Code', filename: 'GoogleSansCode-BoldItalic.woff2', weight: 700, style: 'italic' },
+    ],
+  },
 ] as const
 
 // ── 批量收集所有 woff2 的构建产物 URL(与 _fonts.scss 复用同一批 .woff2 资产) ──

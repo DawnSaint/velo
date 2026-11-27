@@ -58,9 +58,11 @@ function buildFontOptions(
 }
 
 const latinFontOptions = buildFontOptions('latin', {
+  googlesans: 'Google Sans',
   georgia: 'Georgia',
   palatino: 'Palatino',
   charter: 'Charter',
+  sfpro: 'SF Pro',
   cambria: 'Cambria',
   constantia: 'Constantia',
   segoe: 'Segoe UI',
@@ -75,6 +77,7 @@ const cjkFontOptions = buildFontOptions('cjk', {
 })
 
 const monoFontOptions = buildFontOptions('mono', {
+  googlesanscode: 'Google Sans Code',
   jetbrains: 'JetBrains Mono',
   consolas: 'Consolas',
   sfmono: 'SF Mono',
@@ -167,7 +170,7 @@ const darkThemeOptions = computed<VeloSelectOption[]>(() => [
          按平台过滤:macOS 专有字体(SF Mono/Menlo/Monaco/Charter/PingFang)在 Windows 上隐藏,
          Windows 专有字体(Consolas/Cascadia/Cambria/微软雅黑/宋体/楷体)在 macOS 上隐藏。
          默认字体后标注「（默认）」。 -->
-    <SettingsItem label="西文字体" :keywords="['font', '字体', 'latin', '西文', '正文', 'serif', '衬线']">
+    <SettingsItem label="西文字体" :keywords="['font', '字体', 'latin', '西文', '正文', 'serif', '衬线', 'google', 'sans']">
       <VeloSelect
         v-model="store.latinFont"
         :options="latinFontOptions"
@@ -183,7 +186,7 @@ const darkThemeOptions = computed<VeloSelectOption[]>(() => [
       />
     </SettingsItem>
 
-    <SettingsItem label="等宽字体" :keywords="['font', '字体', 'mono', '等宽', '代码', 'code', 'jetbrains', 'consolas', 'firacode', 'source', 'dejavu']">
+    <SettingsItem label="等宽字体" :keywords="['font', '字体', 'mono', '等宽', '代码', 'code', 'google', 'jetbrains', 'consolas', 'firacode', 'source', 'dejavu']">
       <VeloSelect
         v-model="store.monoFont"
         :options="monoFontOptions"

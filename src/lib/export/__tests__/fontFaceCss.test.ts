@@ -38,9 +38,14 @@ describe('resolveBundledFamilies', () => {
   })
 
   it('跨多个栈合并去重,保持首次出现顺序', () => {
-    const sans = `'Noto Sans SC', 'Source Han Sans SC", 'Microsoft YaHei', sans-serif`
-    const mono = `'JetBrains Mono', ui-monospace, monospace`
-    expect(resolveBundledFamilies(sans, mono)).toEqual(['Noto Sans SC', 'JetBrains Mono'])
+    const sans = `'Google Sans', 'Noto Sans SC', 'Source Han Sans SC', 'Microsoft YaHei', sans-serif`
+    const mono = `'Google Sans Code', 'JetBrains Mono', ui-monospace, monospace`
+    expect(resolveBundledFamilies(sans, mono)).toEqual([
+      'Google Sans',
+      'Noto Sans SC',
+      'Google Sans Code',
+      'JetBrains Mono',
+    ])
   })
 
   it('同一族在两个栈里重复出现时只保留一次', () => {
