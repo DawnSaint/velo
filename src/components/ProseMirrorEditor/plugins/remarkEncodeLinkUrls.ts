@@ -16,12 +16,13 @@
 // 改写源文本会改变 mdast position.offset 的基准 —— 新增 / 修改本 wrapper 时
 // 必须同步 `parseProcessor.preprocessSource`,否则 offset 回查原文时错位。
 
-export const remarkEncodeLinkUrls = function(this: any) {
-  const self = this as any
-  const originalParser = self?.parser
+import type { Processor } from 'unified'
+
+export function remarkEncodeLinkUrls(this: Processor) {
+  const originalParser = this?.parser
   if (!originalParser) return
-  self.parser = function(this: any, doc: string) {
-    return originalParser.call(this, encodeLinkUrlSpaces(doc))
+  this.parser = function (doc, file) {
+    return originalParser.call(this, encodeLinkUrlSpaces(doc), file)
   }
 }
 
@@ -45,4 +46,51 @@ export function encodeLinkUrlSpaces(doc: string): string {
       return `[${text}](${url.replace(/ /g, '%20')})`
     },
   )
+}
+
+/**
+ * 与 encodeLinkUrlSpaces 输出严格一致，同时产出输出偏移 → 输入偏移映射表
+ * （长度 = out.length + 1），供块级原文切片保真回查磁盘坐标。
+ */
+export function encodeLinkUrlSpacesWithMap(doc: string): { text: string; toRaw: Int32Array } {
+  const re = /\[([^\]\n]+)\]\(([^()]*)\)/g
+  let out = ''
+  const map: number[] = []
+  let cursor = 0
+  let m: RegExpExecArray | null
+
+  const copyRange = (from: number, to: number) => {
+    for (let i = from; i < to; i++) map.push(i)
+    out += doc.slice(from, to)
+  }
+
+  while ((m = re.exec(doc)) !== null) {
+    const text = m[1]
+    const url = m[2]
+    if (!url.includes(' ') || url.trim() === '') continue
+    copyRange(cursor, m.index)
+    // `[${text}](` 原样拷贝
+    const urlStart = m.index + 1 + text.length + 2
+    copyRange(m.index, urlStart)
+    for (let k = 0; k < url.length; k++) {
+      const srcIdx = urlStart + k
+      if (url[k] === ' ') {
+        out += '%20'
+        map.push(srcIdx, srcIdx, srcIdx)
+      }
+      else {
+        out += url[k]
+        map.push(srcIdx)
+      }
+    }
+    // 闭合 `)`
+    const closeIdx = urlStart + url.length
+    out += ')'
+    map.push(closeIdx)
+    cursor = closeIdx + 1
+  }
+
+  copyRange(cursor, doc.length)
+  map.push(doc.length)
+  return { text: out, toRaw: Int32Array.from(map) }
 }

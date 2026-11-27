@@ -23,8 +23,14 @@ import { schema, type VeloSchema } from './editor/schema'
 import { AutoWidthTableView } from './editor/tableAutoWidth'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { EditorView } from 'prosemirror-view'
-import { fromMarkdown, fromMarkdownAsync, toMarkdown } from './editor/markdownIO'
-import { invalidateBlockCache, serializeDocIncremental } from './editor/blockSerializer'
+import { fromMarkdown } from './editor/markdownIO'
+import {
+  clearIncrementalBlockCache,
+  parseMarkdownForDoc,
+  parseMarkdownForDocAsync,
+  serializeDocIncremental,
+  serializeDocTransient,
+} from './editor/blockSerializer'
 import { decideOpenFocus } from './editor/openFocus'
 import { createImageNodeView } from './editor/imageNodeView'
 import { createHrNodeView } from './nodes/HrNodeView'
@@ -1023,7 +1029,8 @@ function serializeDoc(doc: PMNode, docId: string): string {
   if (!view) return serializeDocIncremental(doc, docId)
   const ranges = getSourceEditRanges(view.state)
   if (ranges.length === 0) return serializeDocIncremental(doc, docId)
-  invalidateBlockCache(docId)
+  // 只清增量缓存，保留原文切片基线（rawBaseline）：会话期间编辑某块不应导致整篇其它净块丢失原始格式。
+  clearIncrementalBlockCache(docId)
   // 源码编辑 session 活跃时,doc 中是纯文本源码(`![alt](src)` 等),
   // toMarkdown 会转义语法字符(`![` → `\![`)。用纯字母占位符替换源码文本,
   // toMarkdown 不会转义字母,输出后再把占位符还原为原始文本。
@@ -1038,7 +1045,7 @@ function serializeDoc(doc: PMNode, docId: string): string {
     tr = tr.replaceWith(from, to, schema_.text(placeholder))
     restores.unshift({ placeholder, original })
   }
-  let md = toMarkdown(tr.doc)
+  let md = serializeDocTransient(tr.doc, docId)
   for (const { placeholder, original } of restores) {
     md = md.replace(placeholder, original)
   }
@@ -1086,10 +1093,9 @@ watch(() => props.modelValue, async (newVal) => {
   if (newVal === lastSelfEmitted && lastSelfEmittedDocId === documentStore.activeId) return
   // 外部 modelValue 变化(切文件 / fs:watch / CLI 打开):cancel pending debounce,
   // 防止旧 doc 的序列化结果在 150ms 后覆盖新内容。
+  // 注意:若 loadContentInto 已同步解析并设置 pendingPmDoc,此处不能清掉刚建好的 rawBaseline;
+  // 无 pendingPmDoc 的回退路径(如源码模式编辑后切回 / 大文档延迟解析)在下方 parseMarkdownForDoc* 内更新基线。
   cancelPendingEmit()
-  // 外部替换会重新 fromMarkdown 出全新 doc,旧缓存的 node 引用全部失效 ——
-  // 显式清空让首次编辑走一次干净的全量重建,而不是逐块误判脏再连带邻块重算。
-  invalidateBlockCache(documentStore.activeId)
   const view = getView()
   if (!view) return
 
@@ -1097,10 +1103,11 @@ watch(() => props.modelValue, async (newVal) => {
   // 让此前的大文档异步链（双 rAF + Worker parse）失效，防止旧异步结果
   // 覆盖新内容（大文件 → 快速切小文件竞态根因）。
   const myToken = ++parseToken
+  const activeDocId = documentStore.activeId
 
   // C1+C3: 大文档(> 2000 行)loading 遮罩 + Worker 异步 parse。
   // loadContentInto 已跳过同步 fromMarkdown(C3),pendingPmDoc 为 null →
-  // fallback 走 fromMarkdownAsync(newVal)。双 rAF 确保浏览器先 paint 遮罩:
+  // fallback 走 parseMarkdownForDocAsync(newVal)。双 rAF 确保浏览器先 paint 遮罩:
   // 第一帧 Vue 更新 DOM 加遮罩;第二帧浏览器 paint 遮罩 → Worker parse(不阻塞)
   // 或同步降级(阻塞,但遮罩已可见)。
   const isLargeDoc = newVal.split('\n').length > 2000
@@ -1119,7 +1126,7 @@ watch(() => props.modelValue, async (newVal) => {
     }
     // C0: 优先消费 pendingPmDoc(延迟期间 loadContentInto 可能已存入)。
     const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
-    const doc = pendingDoc ?? await fromMarkdownAsync(newVal, schema as VeloSchema)
+    const doc = pendingDoc ?? await parseMarkdownForDocAsync(newVal, schema as VeloSchema, activeDocId)
     // Worker 解析期间可能又切了 tab,token 失效 → 放弃（同上，必须关 loading）
     if (myToken !== parseToken) {
       docLoading.value = false
@@ -1159,7 +1166,7 @@ watch(() => props.modelValue, async (newVal) => {
   // 小文档:同步路径(无遮罩,无 Worker)
   // C0: 优先消费 loadContentInto 存入的 pendingPmDoc,跳过冗余 fromMarkdown。
   const pendingDoc = documentStore.consumePendingPmDoc() as PMNode | null
-  const doc = pendingDoc ?? fromMarkdown(newVal, schema as VeloSchema)
+  const doc = pendingDoc ?? parseMarkdownForDoc(newVal, schema as VeloSchema, activeDocId)
   const openFocus = decideOpenFocus(doc)
   view.updateState(EditorState.create({
     schema,
@@ -1293,14 +1300,16 @@ const { containerRef, getView, setReadOnly, resetScrollToTop, restoreScrollTop }
   initialDoc: props.modelValue,
   fromMarkdown: (md, s) => {
     // C0: useProseMirror onMounted / rAF 回调中优先消费 pendingPmDoc,
-    //     跳过冗余 fromMarkdown(初始装载路径)。
+    //     跳过冗余 fromMarkdown(初始装载路径,loadContentInto 已建立 rawBaseline)。
     const pending = documentStore.consumePendingPmDoc() as PMNode | null
     if (pending) return pending
-    // C1: 大文档走 Worker 异步 parse,小文档走同步
+    const docId = documentStore.activeId
+    if (!docId) return fromMarkdown(md, s as VeloSchema)
+    // C1: 大文档走 Worker 异步 parse,小文档走同步;均同时建立原文切片基线
     if (md.split('\n').length > 2000) {
-      return fromMarkdownAsync(md, s as VeloSchema)
+      return parseMarkdownForDocAsync(md, s as VeloSchema, docId)
     }
-    return fromMarkdown(md, s as VeloSchema)
+    return parseMarkdownForDoc(md, s as VeloSchema, docId)
   },
   plugins: allPlugins,
   editable: !props.readOnly,

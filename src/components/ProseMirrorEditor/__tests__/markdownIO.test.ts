@@ -939,4 +939,51 @@ describe('remarkCjkEmphasis 与 CommonMark 边界空白对齐', () => {
     expect(strongTexts('正文**（2）数据：**')).toContain('（2）数据：')
     expect(toMarkdown(fromMarkdown('**数据排序：**正文', schema)).trim()).toBe('**数据排序：**正文')
   })
+
+  it('CJK 单星号斜体（中文紧贴弯引号/全角标点）正确解析且不自动补反斜杠', () => {
+    const line1 = '直接联动展示，还能切换视角看*“如果按晋江的门槛算，莆田会有多少家企业入围”*。'
+    const line2 = '比如莆*“鞋企智能化改造设备购置补助”，晋江叫“制鞋工业企业智改数转项目奖补”*”\\*，字面不一样'
+    const line3 = '但如果政*“支持超临界发泡鞋材、TPU新型功能材料研发”*研发”\\*，就拿这段文本'
+    for (const md of [line1, line2, line3]) {
+      const doc = fromMarkdown(md, schema)
+      let hasEmphasis = false
+      doc.descendants((node) => {
+        if (node.isText && node.marks.some(m => m.type.name === 'emphasis')) hasEmphasis = true
+      })
+      expect(hasEmphasis, md).toBe(true)
+      expect(toMarkdown(doc).trim(), md).toBe(md)
+    }
+  })
+
+  it('纯 ASCII 算式中的多个裸星号不误配为斜体', () => {
+    const doc = fromMarkdown('计算 (2*-1) + (3*-1) 的结果', schema)
+    let hasEmphasis = false
+    doc.descendants((node) => {
+      if (node.isText && node.marks.some(m => m.type.name === 'emphasis')) hasEmphasis = true
+    })
+    expect(hasEmphasis).toBe(false)
+  })
+})
+
+describe('markdownIO - 文档开头空行与普通空格保真', () => {
+  it('文档开头 1..4 行空行 round-trip 逐字节守恒（不再吃掉开头空行）', () => {
+    for (const count of [1, 2, 3, 4]) {
+      const md = '\n'.repeat(count) + '# 涉企政策匹配对比推送方案\n\n### 一、 业务本质拆解\n'
+      const once = toMarkdown(fromMarkdown(md, schema))
+      expect(once).toBe(md)
+      expect(toMarkdown(fromMarkdown(once, schema))).toBe(md)
+    }
+  })
+
+  it('空行处或行首输入普通空格 / Tab 时序列化为字面空格而非 &#x20;', () => {
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [schema.text('第一段')]),
+      schema.node('paragraph', null, [schema.text(' ')]),
+      schema.node('paragraph', null, [schema.text('    缩进段 ')]),
+    ])
+    const md = toMarkdown(doc)
+    expect(md).not.toContain('&#x20;')
+    expect(md).not.toContain('&#x9;')
+    expect(md).toBe('第一段\n\n \n\n    缩进段 \n')
+  })
 })

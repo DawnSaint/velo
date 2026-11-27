@@ -18,7 +18,11 @@ import {
 import { useWorkspaceStore } from './workspace'
 import { useVersionHistoryStore } from './versionHistory'
 import { fromMarkdown, toMarkdown } from '@/components/ProseMirrorEditor/editor/markdownIO'
-import { invalidateBlockCache, serializeDocIncremental } from '@/components/ProseMirrorEditor/editor/blockSerializer'
+import {
+  invalidateBlockCache,
+  parseMarkdownForDoc,
+  serializeDocIncremental,
+} from '@/components/ProseMirrorEditor/editor/blockSerializer'
 import { schema as pmSchema } from '@/components/ProseMirrorEditor/editor/schema'
 import { formatError } from '@/utils/formatError'
 
@@ -391,33 +395,11 @@ export const useDocumentStore = defineStore('document', () => {
    * 取舍:非 canonical 文件(CRLF / 多余空行)打开后 type+delete dirty 不归零,
    * 但大文档下 toMarkdown 耗时 100–300ms,不值得为边缘 dirty 场景买单。
    */
-  const CANON_SKIP_THRESHOLD = 2000
-
-  // 字符实体引用:数字(十进制 / 十六进制)或命名(&nbsp; / &amp; / &copy; ...)。
-  // 含这类实体的文档打开时保留 raw、不做 canonical round-trip —— 见 loadContentInto。
-  const CHAR_REF_RE = /&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]+);/
-
   /**
-   * 只在代码块 / 行内代码之外检测字符实体。
-   * 代码里的 `&#x20;` 是字面文本(parse/stringify 都不解码,不会被 canonical 改写),
-   * 不该让整篇文档白白失去 canonical 的 CRLF / 多空行 dirty 归零语义。
-   * 轻量行扫描(不建 mdast):围栏 ``` / ~~~ 成对跳过,行内 `...` 挖空。
+   * 行数超过此阈值时延迟同步 fromMarkdown(C3:让浏览器先 paint loading 遮罩,
+   * 由 EditorInner 在双 rAF 后调 parseMarkdownForDocAsync)。
    */
-  function hasCharRefOutsideCode(src: string): boolean {
-    let fence: string | null = null
-    for (const line of (src ?? '').split('\n')) {
-      const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line)
-      if (fenceMatch) {
-        const marker = fenceMatch[1][0]
-        if (!fence) fence = marker
-        else if (fence === marker) fence = null
-        continue
-      }
-      if (fence) continue
-      if (CHAR_REF_RE.test(line.replace(/`+[^`]*`+/g, ''))) return true
-    }
-    return false
-  }
+  const LARGE_DOC_DEFER_PARSE_THRESHOLD = 2000
 
   function loadContentInto(d: DocState, c: string, path: string | null, readOnlyLocked_ = false) {
     d.currentFilePath = path
@@ -425,50 +407,25 @@ export const useDocumentStore = defineStore('document', () => {
     d.virtualFileName = null
     d.readOnlyLocked = readOnlyLocked_
     d.userReadOnly = false
-    // 内容整体替换:旧块缓存的 node 引用全部失效,外部检测的 disk memo 也换了基线。
+    // 内容整体替换:旧块缓存与原文切片基线全部失效,外部检测的 disk memo 也换了基线。
     invalidateBlockCache(d.id)
     d.externalCanonicalCache = undefined
 
-    // C0: fromMarkdown 只调一次,PM Node 存入 pendingPmDoc 供 EditorInner 消费,
-    //     跳过 modelValue watch / useProseMirror 里的第二次 fromMarkdown。
-    // C0b: 大文档(> CANON_SKIP_THRESHOLD 行)跳过 toMarkdown canonical round-trip,
-    //      直接用 raw 内容作 content / lastSavedContent,省 100–300ms。
-    //      小文档仍 canonical round-trip 以保证 dirty 归零语义(type+delete 回原状 = clean)。
-    // C3: 大文档进一步跳过 loadContentInto 里的同步 fromMarkdown —— 不设 pendingPmDoc,
-    //     modelValue watch 的 fallback 在双 rAF 后执行 fromMarkdown,让浏览器先 paint
-    //     loading 遮罩。小文档仍同步 fromMarkdown + pendingPmDoc(延迟 < 50ms 无感知)。
-    if ((c ?? '').split('\n').length > CANON_SKIP_THRESHOLD) {
+    // 始终以磁盘原文(raw)作为 content 与 lastSavedContent 基线,打开零静默改写:
+    // - 小文档(≤ 2000 行):同步解析一次(C0)存入 pendingPmDoc,同时按 mdast position
+    //   建立块级原文切片基线(RawDocBaseline)—— 后续编辑仅序列化脏块,净块与净空行
+    //   间隙逐字节复用原文切片;Undo / 删回原状时经 PMNode.eq 还原原文切片使 dirty 归零。
+    // - 大文档(> 2000 行):跳过同步 parse(C3),由 EditorInner 在双 rAF 后走 Worker
+    //   异步解析并建立同一份块级原文切片基线。
+    if ((c ?? '').split('\n').length > LARGE_DOC_DEFER_PARSE_THRESHOLD) {
       d.pendingPmDoc = undefined
-      d.content = c
-      d.lastSavedContent = c
-    } else {
-      const pmDoc = fromMarkdown(c, pmSchema)
-      d.pendingPmDoc = markRaw(pmDoc)
-      // 正文含字符实体(&#x20; / &nbsp; 等)的文档:打开保留 raw,不做 canonical
-      // round-trip。char_ref mark 已让对齐过的实体原样写回,但标注对齐失败 / CRLF
-      // 场景仍会被 canonical 改写,塞进 content / lastSavedContent 就会静默改写
-      // 磁盘内容、且因两者相等不显示 dirty —— 用户看到"编辑器里实体没了但盘上还在"。
-      // 这类文档以 raw 作基线:源码模式逐字节保真、搜得到实体,打开不 dirty。
-      // 代价:实体文档 type+delete 不归零(与 >2000 行大文档同款取舍)。
-      // 代码块 / 行内代码里的字面实体不会被解码,照旧 canonical。
-      if (hasCharRefOutsideCode(c)) {
-        d.content = c
-        d.lastSavedContent = c
-      } else {
-        // 把磁盘内容过一遍 markdownIO 拿到 PM canonical 形式。
-        // 原因:round-trip(multi-empty-lines / html inline 等)在 toMarkdown 不与磁盘原文字节相等,
-        // 但 PM 内部状态是稳定的 —— load 时把磁盘内容规范化成 PM canonical 同时塞进
-        // `content` 和 `lastSavedContent`,后续编辑器 emit 仍是同一 canonical,
-        // 用户 type + delete 回到原状时 emit 与基线一致,`dirty = false` 归零。
-        // 等价于 markdown 编辑器的"打开即规范化",打开多空行文件 + 任意编辑 + 删除
-        // 不再永久 dirty。sample / new doc 空内容 canonical 也是 ''。
-        // 顺带产出块缓存:canonical 本来就要做一次全文档序列化,走增量路径
-        // 成本持平,但首次编辑即可命中缓存,不必再全量重建一次。
-        const canonical = serializeDocIncremental(pmDoc, d.id)
-        d.content = canonical
-        d.lastSavedContent = canonical
-      }
     }
+    else {
+      const pmDoc = parseMarkdownForDoc(c, pmSchema, d.id)
+      d.pendingPmDoc = markRaw(pmDoc)
+    }
+    d.content = c
+    d.lastSavedContent = c
 
     // 内容已外部替换 → Step 3 的 cached editor state 失效,切回时重建
     d.pmState = undefined
@@ -1043,6 +1000,7 @@ export const useDocumentStore = defineStore('document', () => {
     const idx = keys.indexOf(id)
     await stopWatch(d)
     await clearDraftForDoc(d)
+    invalidateBlockCache(d.id)
     documents.value.delete(id)
     if (activeId.value === id) {
       const neighbor = keys[idx - 1] ?? keys[idx + 1] ?? ''
@@ -1064,6 +1022,7 @@ export const useDocumentStore = defineStore('document', () => {
     for (const d of toClose) {
       await stopWatch(d)
       await clearDraftForDoc(d)
+      invalidateBlockCache(d.id)
       documents.value.delete(d.id)
     }
     if (!documents.value.has(activeId.value)) {
@@ -1120,6 +1079,7 @@ export const useDocumentStore = defineStore('document', () => {
       if (d.id === activeId.value) activeWillClose = true
       void stopWatch(d)
       void clearDraftForDoc(d)
+      invalidateBlockCache(d.id)
       documents.value.delete(d.id)
     }
     if (activeWillClose) {
@@ -1265,7 +1225,7 @@ export const useDocumentStore = defineStore('document', () => {
     const d = activeDoc()
     if (!d || !d.pmState) return null
     // 大文档:跳过 toMarkdown 验证(非 canonical + 耗时 100-300ms)
-    if ((d.content ?? '').split('\n').length > CANON_SKIP_THRESHOLD) {
+    if ((d.content ?? '').split('\n').length > LARGE_DOC_DEFER_PARSE_THRESHOLD) {
       return { state: d.pmState, scrollTop: d.scrollTop }
     }
     try {
@@ -1390,8 +1350,19 @@ export const useDocumentStore = defineStore('document', () => {
     await deleteDraftFromFs(ws, id)
   }
 
+  /** 回退当前未保存修改:直接按磁盘基线(lastSavedContent)重新装载,确保 content === lastSavedContent
+   *  (dirty=false)并清除崩溃恢复草稿,不再混入 canonical 与 raw 的错位。 */
+  async function revertUnsavedChanges(filePath?: string | null) {
+    const tabId = filePath ? findTabByPath(filePath) : activeId.value
+    const target = (tabId ? documents.value.get(tabId) : undefined) ?? activeDoc()
+    if (!target) return
+    if (target.id !== activeId.value) switchTab(target.id)
+    loadContentInto(target, target.lastSavedContent, target.currentFilePath)
+    await clearDraftForDoc(target)
+  }
+
   /** 恢复版本快照到编辑器:在当前 Tab 直接恢复(同文件)或复用干净未命名 Tab。
-   *  语义同 Hot Exit 恢复:设 lastSavedContent 为磁盘当前内容让 dirty=true,
+   *  语义同 Hot Exit 恢复:设 lastSavedContent 为磁盘当前内容让 dirty=true(若与磁盘相同则为 clean),
    *  用户 Ctrl+S 把快照写回磁盘,或关闭标签时放弃。
    *  不新开同文件 Tab —— 两个 Tab 指向同一文件会互相触发"已在外部更新"提示。 */
   async function restoreVersionContent(filePath: string, content: string) {
@@ -1412,6 +1383,9 @@ export const useDocumentStore = defineStore('document', () => {
     }
     catch {
       target.lastSavedContent = ''
+    }
+    if (target.content === target.lastSavedContent) {
+      await clearDraftForDoc(target)
     }
     void syncTitle()
   }
@@ -1505,6 +1479,7 @@ export const useDocumentStore = defineStore('document', () => {
     saveCurrentDraft,
     clearCurrentDraft,
     // 版本历史
+    revertUnsavedChanges,
     restoreVersionContent,
     hydrateSettings,
     snapshotSettings,

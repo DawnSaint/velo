@@ -12,12 +12,14 @@ import { schema } from '../editor/schema'
 import {
   getBlockCache,
   invalidateBlockCache,
+  parseMarkdownForDoc,
   resetBlockCaches,
   serializeDocIncremental,
   setBlockCache,
   toMarkdownIncremental,
   type BlockCache,
 } from '../editor/blockSerializer'
+import { diffLines } from '@/utils/lineDiff'
 
 const cases: Array<{ name: string; md: string }> = [
   { name: 'plain', md: '# 标题\n\n第一段 **粗** 与 *斜*。\n\n第二段。\n' },
@@ -27,6 +29,8 @@ const cases: Array<{ name: string; md: string }> = [
   { name: 'trailing-2-blank', md: 'A\n\n\n' },
   { name: 'trailing-3-blank', md: 'A\n\n\n\n' },
   { name: 'trailing-4-blank', md: 'A\n\n\n\n\n' },
+  { name: 'leading-1-blank', md: '\n# H\n\nB\n' },
+  { name: 'leading-4-blank', md: '\n\n\n\n# H\n\nB\n' },
   { name: 'all-blank', md: '\n\n\n\n' },
   { name: 'middle-blank', md: 'A\n\n\n\nB\n' },
   { name: 'many-middle-blank', md: 'A\n\n\n\n\n\nB\n' },
@@ -229,5 +233,101 @@ describe('blockSerializer 缓存槽', () => {
     expect(getBlockCache('doc-8')).toBeDefined()
     // 淘汰后重新序列化仍正确
     expect(serializeDocIncremental(doc, 'doc-0')).toBe(toMarkdown(doc))
+  })
+})
+
+describe('块级原文切片保真 (parseMarkdownForDoc)', () => {
+  beforeEach(() => resetBlockCaches())
+
+  it('只改一处段落时，未触碰的非标准格式块、开头多空行、CRLF、无尾换行均逐字节保留', () => {
+    const raw = [
+      '',
+      '',
+      '',
+      '',
+      '# 涉企政策匹配对比推送方案',
+      '',
+      '第一段需要编辑。',
+      '',
+      '',
+      '* 星号列表项保持 (128*-1) 不被加反斜杠',
+      '* 还能切换视角看*“如果按晋江的门槛算，莆田会有多少家企业入围”*。',
+      '',
+      '| 未对齐表 | 列 |',
+      '|---|---|',
+      '| 1 | 2 |',
+    ].join('\r\n') // 同时含 CRLF 与无尾换行
+
+    const doc = parseMarkdownForDoc(raw, schema, 'doc-raw')
+    // 未编辑时序列化逐字节等于原文
+    expect(serializeDocIncremental(doc, 'doc-raw')).toBe(raw)
+
+    // 修改「第一段需要编辑。」为「第一段已编辑。」
+    let targetPos = -1
+    doc.descendants((node, pos) => {
+      if (node.isText && node.text === '第一段需要编辑。') targetPos = pos
+    })
+    expect(targetPos).toBeGreaterThan(0)
+    const state = EditorState.create({ schema, doc })
+    const edited = state.apply(state.tr.insertText('已', targetPos + 3, targetPos + 5))
+    const out = serializeDocIncremental(edited.doc, 'doc-raw')
+
+    expect(out).toBe(raw.replace('第一段需要编辑。', '第一段已编辑。'))
+
+    // 用户再改回「第一段需要编辑。」（模拟删除 / Undo）：PMNode.eq 命中，全文逐字节还原为 raw
+    const reverted = edited.apply(edited.tr.insertText('需要', targetPos + 3, targetPos + 4))
+    expect(serializeDocIncremental(reverted.doc, 'doc-raw')).toBe(raw)
+  })
+
+  it('复现文档场景：增删任意一个文字时 diff 只出现 +1/-1（无心智外自动改动）', () => {
+    const raw = [
+      '',
+      '',
+      '',
+      '',
+      '# 涉企政策匹配对比推送方案',
+      '',
+      '',
+      '',
+      '### 一、 业务本质拆解',
+      '',
+      '正文段落内容。',
+      '',
+      '1. 政务端',
+      '   - 直接联动展示，还能切换视角看*“如果按晋江的门槛算，莆田会有多少家企业入围”*。',
+      '',
+      '- 链路一',
+      '  比如莆*“鞋企智能化改造设备购置补助”，晋江叫“制鞋工业企业智改数转项目奖补”*”\\*，字面不一样：',
+      '  1. 工商库的行业代码往往只到“制鞋业”，但如果政*“支持超临界发泡鞋材、TPU新型功能材料研发”*研发”\\*，就拿向量计算。',
+      '',
+    ].join('\n')
+
+    const doc = parseMarkdownForDoc(raw, schema, 'repro')
+    let editPos = -1
+    doc.descendants((node, pos) => {
+      if (node.isText && node.text === '正文段落内容。') editPos = pos
+    })
+    const state = EditorState.create({ schema, doc })
+    const next = state.apply(state.tr.insertText('新', editPos, editPos))
+    const nextMd = serializeDocIncremental(next.doc, 'repro')
+
+    const diff = diffLines(raw, nextMd)
+    const added = diff.filter(l => l.type === 'added').length
+    const removed = diff.filter(l => l.type === 'removed').length
+    expect({ added, removed }).toEqual({ added: 1, removed: 1 })
+  })
+
+  it('增删中间段落（块数变化）时，前后未触碰的非标准格式块仍逐字节保留', () => {
+    const raw = '* 星号列表 (128*-1)\n\n待删中间段\n\n| 未对齐表 | 列 |\n|---|---|\n| 1 | 2 |\n'
+    const doc = parseMarkdownForDoc(raw, schema, 'split-delete-doc')
+    expect(serializeDocIncremental(doc, 'split-delete-doc')).toBe(raw)
+
+    // 删除中间段落（块数从 3 变为 2），首尾非标准块仍保持原样
+    const midFrom = doc.child(0).nodeSize
+    const midTo = midFrom + doc.child(1).nodeSize
+    const state = EditorState.create({ schema, doc })
+    const deleted = state.apply(state.tr.delete(midFrom, midTo))
+    const out = serializeDocIncremental(deleted.doc, 'split-delete-doc')
+    expect(out).toBe('* 星号列表 (128*-1)\n\n| 未对齐表 | 列 |\n|---|---|\n| 1 | 2 |\n')
   })
 })

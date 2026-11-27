@@ -10,9 +10,9 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import { remarkStrictMath } from '../plugins/strictMath'
-import { remarkPreserveEmptyLine, preprocessBlankLines } from '../plugins/preserveEmptyLine'
+import { remarkPreserveEmptyLine, preprocessBlankLines, preprocessBlankLinesWithMap } from '../plugins/preserveEmptyLine'
 import { remarkAlert } from '../plugins/remarkAlert'
-import { remarkEncodeLinkUrls, encodeLinkUrlSpaces } from '../plugins/remarkEncodeLinkUrls'
+import { remarkEncodeLinkUrls, encodeLinkUrlSpaces, encodeLinkUrlSpacesWithMap } from '../plugins/remarkEncodeLinkUrls'
 import { remarkHighlight } from '../plugins/remarkHighlight'
 import { remarkUnderline } from '../plugins/remarkUnderline'
 import { remarkCjkEmphasis } from '../plugins/remarkCjkEmphasis'
@@ -38,6 +38,14 @@ import remarkFrontmatter from 'remark-frontmatter'
  */
 export function preprocessSource(md: string): string {
   return preprocessBlankLines(encodeLinkUrlSpaces(md))
+}
+
+/**
+ * 与 preprocessSource 输出完全一致，同时返回预处理串偏移 → 原始 md 偏移映射表。
+ */
+export function preprocessSourceWithMap(md: string): { text: string; toRaw: Int32Array } {
+  const step1 = encodeLinkUrlSpacesWithMap(md)
+  return preprocessBlankLinesWithMap(step1.text, step1.toRaw)
 }
 
 /**

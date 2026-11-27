@@ -17,7 +17,7 @@ import type { Root, RootContent, BlockContent, DefinitionContent, PhrasingConten
 import { resolveShikiLang } from '../nodes/CodeBlockLangs'
 import { parseHtmlImageSource, serializeHtmlImageSource } from '../image/imageSource'
 import type { FrontmatterLang } from '../syntax/block/frontmatter'
-import { createParseProcessor, preprocessSource } from './parseProcessor'
+import { createParseProcessor, preprocessSource, preprocessSourceWithMap } from './parseProcessor'
 import { CHAR_REF_MARK, scanCharRefs } from './charRef'
 import type { CharRefAt, CharRefSegment } from './charRef'
 import { ESCAPE_MARK, expandEscapedText, isEscapableChar } from './escape'
@@ -122,6 +122,27 @@ emphasisHandler.peek = function (_node: any, _parent: any, state: any) {
   return state.options.emphasis || '_'
 }
 
+// 剔除 mdast-util-to-markdown 对段落行首/行尾/纯空格行的 `&#x20;` / `&#x9;` 实体编码：
+// 用户在 WYSIWYG 空行或行首输入普通空格 / Tab 时，源码应保持字面空格而非 `&#x20;`；
+// 原始文档自带的实体已由 char_ref mark 走 charRef handler 原样输出，不依赖此规则。
+interface MarkdownTextState {
+  unsafe?: Array<{ character?: string; inConstruct?: unknown }>
+  indexStack: number[]
+  safe: (value: string | null | undefined, config: Record<string, unknown>) => string
+}
+
+const filteredUnsafeSets = new WeakSet<object>()
+function stripPhrasingWhitespaceUnsafe(state: MarkdownTextState): void {
+  if (!Array.isArray(state.unsafe) || filteredUnsafeSets.has(state.unsafe)) return
+  for (let i = state.unsafe.length - 1; i >= 0; i--) {
+    const u = state.unsafe[i]
+    if ((u.character === ' ' || u.character === '\t') && u.inConstruct === 'phrasing') {
+      state.unsafe.splice(i, 1)
+    }
+  }
+  filteredUnsafeSets.add(state.unsafe)
+}
+
 // 主线程 processor = parse 管线（共享） + stringify 配置（仅主线程需要）。
 // parse 部分由 createParseProcessor() 提供，与 markdownWorker.ts 共享同一配置。
 const processor = createParseProcessor()
@@ -139,6 +160,21 @@ const processor = createParseProcessor()
       // strong 默认 '*' → 恒定输出会丢 PM doc 中 mark.attrs.marker)。
       strong: strongHandler,
       emphasis: emphasisHandler,
+      text(
+        node: { value: string },
+        parent: { children?: unknown[] } | undefined,
+        state: MarkdownTextState,
+        info: Record<string, unknown>,
+      ) {
+        stripPhrasingWhitespaceUnsafe(state)
+        const siblings = parent?.children ?? []
+        const index = state.indexStack[state.indexStack.length - 1]
+        return state.safe(node.value, {
+          ...info,
+          afterNode: siblings[index + 1],
+          beforeNode: siblings[index - 1],
+        })
+      },
       // ==xxx== 高亮。mdast 没有原生 highlight 节点,这里走 state.write
       // 原样输出 `==`,内层 children 走 state.all 让 remark-stringify 自己序列化
       // (嵌套 strong / emphasis / link 都正确)。
@@ -234,6 +270,26 @@ const processor = createParseProcessor()
  * annotateMathDelimiterCount 需要 md 原文回查 offset，mdastBlockToPM 需要 schema —— 两步
  * 都依赖主线程上下文，不能在 Worker 里做。Worker 只负责 parse + runSync 产出 mdast。
  */
+interface RawBlockSlice {
+  node: PMNode
+  raw: string
+}
+
+interface RawGapSlice {
+  emptyCount: number
+  raw: string
+}
+
+export interface RawDocBaseline {
+  raw: string
+  eol: '\r\n' | '\n'
+  /** 整篇只有空段（realBlocks 为空）时的初始空段数 */
+  allEmptyCount: number
+  realBlocks: RawBlockSlice[]
+  /** 长度 = realBlocks.length + 1（当 realBlocks 非空时） */
+  gaps: RawGapSlice[]
+}
+
 function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
   annotateMathDelimiterCount(tree, md)
   annotateEmphasisMarker(tree, md)
@@ -248,10 +304,115 @@ function mdastToPMDoc(tree: Root, md: string, schema: Schema): PMNode {
   return schema.node('doc', null, blocks)
 }
 
+function mdastToPMDocWithBaseline(
+  tree: Root,
+  raw: string,
+  preprocessed: string,
+  toRaw: Int32Array,
+  schema: Schema,
+): { doc: PMNode; baseline: RawDocBaseline | null } {
+  if (!raw) {
+    return { doc: mdastToPMDoc(tree, preprocessed, schema), baseline: null }
+  }
+  annotateMathDelimiterCount(tree, preprocessed)
+  annotateEmphasisMarker(tree, preprocessed)
+  annotateCharRefs(tree, preprocessed)
+
+  const blocks: PMNode[] = []
+  const realBlocks: RawBlockSlice[] = []
+  const gaps: RawGapSlice[] = []
+  let emptyCount = 0
+  let cursorRaw = 0
+  let baselineValid = true
+
+  for (const child of tree.children) {
+    if (child.type === 'html' && child.value === '<br />') {
+      blocks.push(schema.node('paragraph'))
+      emptyCount++
+      continue
+    }
+    const pmNodes = mdastBlockToPM(child, schema)
+    if (pmNodes.length === 0) {
+      // 含被丢弃的块级节点（如未支持的引用定义 definition）时不启用切片基线，避免半边残留
+      baselineValid = false
+      continue
+    }
+    blocks.push(...pmNodes)
+    if (!baselineValid) continue
+    if (pmNodes.length !== 1 || (pmNodes[0].type.name === 'paragraph' && pmNodes[0].childCount === 0)) {
+      baselineValid = false
+      continue
+    }
+    const sOff = child.position?.start?.offset
+    const eOff = child.position?.end?.offset
+    if (typeof sOff !== 'number' || typeof eOff !== 'number'
+      || sOff < 0 || eOff > preprocessed.length || sOff > eOff) {
+      baselineValid = false
+      continue
+    }
+    let rawStart = toRaw[sOff]
+    const rawEnd = toRaw[eOff]
+    if (rawStart < cursorRaw || rawEnd < rawStart || rawEnd > raw.length) {
+      baselineValid = false
+      continue
+    }
+    // 缩进代码块 / 前导空格块：把同行行首缩进一并归入块自身，避免缩进残留在前序 gap
+    while (rawStart > cursorRaw && (raw[rawStart - 1] === ' ' || raw[rawStart - 1] === '\t')) {
+      rawStart--
+    }
+    gaps.push({
+      emptyCount,
+      raw: raw.slice(cursorRaw, rawStart),
+    })
+    realBlocks.push({
+      node: pmNodes[0],
+      raw: raw.slice(rawStart, rawEnd),
+    })
+    cursorRaw = rawEnd
+    emptyCount = 0
+  }
+
+  if (blocks.length === 0) {
+    blocks.push(schema.node('paragraph'))
+  }
+  else if (blocks.length === 1 && blocks[0].type.name === 'frontmatter') {
+    blocks.push(schema.node('paragraph'))
+    emptyCount++
+  }
+
+  const pmDoc = schema.node('doc', null, blocks)
+  if (!baselineValid) return { doc: pmDoc, baseline: null }
+
+  const eol: '\r\n' | '\n' = raw.includes('\r\n') ? '\r\n' : '\n'
+  if (realBlocks.length === 0) {
+    return {
+      doc: pmDoc,
+      baseline: { raw, eol, allEmptyCount: pmDoc.childCount, realBlocks: [], gaps: [] },
+    }
+  }
+  gaps.push({
+    emptyCount,
+    raw: raw.slice(cursorRaw, raw.length),
+  })
+  return {
+    doc: pmDoc,
+    baseline: { raw, eol, allEmptyCount: 0, realBlocks, gaps },
+  }
+}
+
 export function fromMarkdown(md: string, schema: Schema): PMNode {
   const tree = processor.runSync(processor.parse(md) as Root) as Root
   // 用 remark-parse 实际解析的预处理字符串回查 offset（见文件顶部 import 注释）
   return mdastToPMDoc(tree, preprocessSource(md), schema)
+}
+
+export function fromMarkdownWithBaseline(
+  md: string,
+  schema: Schema,
+): { doc: PMNode; baseline: RawDocBaseline | null } {
+  const tree = processor.runSync(processor.parse(md) as Root) as Root
+  const { text, toRaw } = preprocessSourceWithMap(md)
+  return mdastToPMDocWithBaseline(tree, md, text, toRaw, schema)
 }
 
 // ============================================================
@@ -291,25 +452,25 @@ function getWorker(): Worker | null {
 }
 
 /**
- * 异步 parse：Worker 后台 parse + runSync → 主线程 mdastToPMDoc。
+ * 异步 parse：Worker 后台 parse + runSync → 主线程 mdastToPMDocWithBaseline。
  *
- * Worker 不可用时降级到同步 fromMarkdown。
+ * Worker 不可用时降级到同步 fromMarkdownWithBaseline。
  * 超时（默认 10s）也降级到同步。
  */
-export async function fromMarkdownAsync(
+export async function fromMarkdownAsyncWithBaseline(
   md: string,
   schema: Schema,
   opts?: { signal?: AbortSignal; timeout?: number },
-): Promise<PMNode> {
+): Promise<{ doc: PMNode; baseline: RawDocBaseline | null }> {
   const worker = getWorker()
   if (!worker) {
-    return fromMarkdown(md, schema)
+    return fromMarkdownWithBaseline(md, schema)
   }
 
   const id = _nextId++
   const timeout = opts?.timeout ?? 10_000
 
-  return new Promise<PMNode>((resolve) => {
+  return new Promise<{ doc: PMNode; baseline: RawDocBaseline | null }>((resolve) => {
     let settled = false
 
     const cleanup = () => {
@@ -324,8 +485,7 @@ export async function fromMarkdownAsync(
       settled = true
       cleanup()
       console.warn('[markdownIO] Worker parse fallback (error/timeout), using sync')
-      // 降级到同步 parse
-      resolve(fromMarkdown(md, schema))
+      resolve(fromMarkdownWithBaseline(md, schema))
     }
 
     const onMessage = (e: MessageEvent) => {
@@ -335,10 +495,11 @@ export async function fromMarkdownAsync(
       cleanup()
       const { tree, error } = e.data
       if (error || !tree) {
-        resolve(fromMarkdown(md, schema))
+        resolve(fromMarkdownWithBaseline(md, schema))
         return
       }
-      resolve(mdastToPMDoc(tree as Root, preprocessSource(md), schema))
+      const { text, toRaw } = preprocessSourceWithMap(md)
+      resolve(mdastToPMDocWithBaseline(tree as Root, md, text, toRaw, schema))
     }
 
     const onError = () => fallback()
@@ -991,7 +1152,18 @@ export function finalizeMarkdown(doc: PMNode, body: string): string {
   // 空文档里按 Enter 造出的多个空段是用户有意留的空行,必须走 2K+1 补偿,
   // 否则整篇空行塌缩成 '' → content 永远等于 lastSavedContent → 不 dirty。
   if (k === doc.childCount && k <= 1) return ''
-  return body.replace(/\n*$/, '') + (k > 0 ? '\n'.repeat(2 * k + 1) : '\n')
+  let leadK = 0
+  if (k < doc.childCount) {
+    for (let i = 0; i < doc.childCount; i++) {
+      const c = doc.child(i)
+      if (c.type.name === 'paragraph' && c.childCount === 0) leadK++
+      else break
+    }
+  }
+  const normalized = leadK > 0
+    ? '\n'.repeat(leadK) + body.replace(/^\n+/, '')
+    : body
+  return normalized.replace(/\n*$/, '') + (k > 0 ? '\n'.repeat(2 * k + 1) : '\n')
 }
 
 export function toMarkdown(doc: PMNode): string {

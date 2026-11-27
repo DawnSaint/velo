@@ -36,7 +36,7 @@ const editorStore = useEditorStore()
 
 const emit = defineEmits<{
   'restore': [snapshot: TimelineEntry]
-  'revert': [filePath: string, content: string]
+  'revert': [filePath: string]
 }>()
 
 const selected = computed<TimelineEntry | null>(() => versionHistory.selectedEntry)
@@ -451,13 +451,11 @@ function onRestore() {
   versionHistory.closeDiffView()
 }
 
-/** 回退未保存修改:把编辑器内容恢复到上一版本(已保存内容) */
-async function onRevert() {
+/** 回退未保存修改:把编辑器内容恢复到当前磁盘保存基线 */
+function onRevert() {
   const entry = selected.value
   if (!entry) return
-  const oldResult = await versionHistory.diffOldContentAsync(entry.id)
-  const oldContent = oldResult.content ?? ''
-  emit('revert', entry.filePath, oldContent)
+  emit('revert', entry.filePath)
   versionHistory.closeDiffView()
 }
 

@@ -35,6 +35,10 @@ function isAsciiWord(ch: string | undefined): boolean {
   return !!ch && /[a-zA-Z0-9]/.test(ch)
 }
 
+function isNonAscii(ch: string | undefined): boolean {
+  return !!ch && ch.charCodeAt(0) > 0x7f
+}
+
 function isUnescapedChar(value: string, idx: number, ch: Marker, escaped: Set<number>): boolean {
   return idx >= 0 && idx < value.length && value[idx] === ch && !escaped.has(idx)
 }
@@ -261,10 +265,127 @@ function rewriteOuterEmphasisAroundStrong(children: PhrasingContent[]): Phrasing
   return changed ? out : children
 }
 
+function splitTextForSingleStar(
+  child: EscapableMdastText,
+): { tokens: Token[]; delimCount: number } {
+  const value = child.value
+  const escaped = new Set(child._escapes ?? [])
+  const tokens: Token[] = []
+  let delimCount = 0
+  let lastIdx = 0
+  for (let i = 0; i < value.length; i++) {
+    if (
+      isUnescapedChar(value, i, '*', escaped)
+      && !isUnescapedChar(value, i - 1, '*', escaped)
+      && !isUnescapedChar(value, i + 1, '*', escaped)
+    ) {
+      if (i > lastIdx) {
+        tokens.push({ kind: 'text', node: sliceEscapedText(child, lastIdx, i) })
+      }
+      tokens.push({ kind: 'delim' })
+      delimCount++
+      lastIdx = i + 1
+    }
+  }
+  if (delimCount === 0) {
+    return { tokens: [{ kind: 'text', node: child }], delimCount: 0 }
+  }
+  if (lastIdx < value.length) {
+    tokens.push({ kind: 'text', node: sliceEscapedText(child, lastIdx) })
+  }
+  return { tokens, delimCount }
+}
+
+function delimTouchesNonAscii(tokens: Token[], delimIdx: number): boolean {
+  const prev = tokens[delimIdx - 1]
+  const next = tokens[delimIdx + 1]
+  const prevChar = prev?.kind === 'text' ? prev.node.value[prev.node.value.length - 1] : undefined
+  const nextChar = next?.kind === 'text' ? next.node.value[0] : undefined
+  return isNonAscii(prevChar) || isNonAscii(nextChar)
+}
+
+/**
+ * 补齐 CJK / 全角标点 / 弯引号上下文导致的单字符 `*...*` 斜体漏配
+ * （如 `看*“如果按晋江的门槛算...”*。`、`政*“支持...研发”*研发`）。
+ * 至少一端界定符需紧邻非 ASCII 字符，避免误配纯 ASCII 算式 `(2*-1) + (3*-1)`。
+ */
+function rewriteSingleStarEmphasis(children: PhrasingContent[]): PhrasingContent[] {
+  let hasStar = false
+  for (const c of children) {
+    if (c.type === 'text' && (c as Text).value.includes('*')) {
+      hasStar = true
+      break
+    }
+  }
+  if (!hasStar) return children
+
+  const tokens: Token[] = []
+  let totalDelims = 0
+  for (const child of children) {
+    if (child.type === 'text') {
+      const { tokens: split, delimCount } = splitTextForSingleStar(child as EscapableMdastText)
+      totalDelims += delimCount
+      tokens.push(...split)
+    } else {
+      tokens.push({ kind: 'node', node: child })
+    }
+  }
+  if (totalDelims < 2) return children
+
+  const out: PhrasingContent[] = []
+  let openIdx = -1
+  let matched = false
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+    if (openIdx === -1) {
+      if (tok.kind === 'delim') {
+        if (canOpenAfter(tokens, i)) {
+          openIdx = i
+        } else {
+          emitToken(out, tok, '*')
+        }
+      } else {
+        emitToken(out, tok, '*')
+      }
+    } else if (tok.kind === 'delim') {
+      const afterClose = tokens[i + 1]
+      const followedByAsciiWord = afterClose?.kind === 'text' && isAsciiWord(afterClose.node.value[0])
+      const hasCjkContext = delimTouchesNonAscii(tokens, openIdx) || delimTouchesNonAscii(tokens, i)
+      if (i > openIdx + 1 && canCloseBefore(tokens, i) && !followedByAsciiWord && hasCjkContext) {
+        const inner: PhrasingContent[] = []
+        for (let k = openIdx + 1; k < i; k++) emitToken(inner, tokens[k], '*')
+        out.push({
+          type: 'emphasis',
+          children: inner,
+          _marker: '*',
+        } as unknown as PhrasingContent)
+        matched = true
+        openIdx = -1
+      } else {
+        for (let k = openIdx; k < i; k++) emitToken(out, tokens[k], '*')
+        openIdx = -1
+        if (canOpenAfter(tokens, i)) {
+          openIdx = i
+        } else {
+          emitToken(out, tok, '*')
+        }
+      }
+    }
+  }
+
+  if (openIdx !== -1) {
+    for (let k = openIdx; k < tokens.length; k++) emitToken(out, tokens[k], '*')
+  }
+
+  return matched ? out : children
+}
+
 function rewriteInlineChildren(children: PhrasingContent[]): PhrasingContent[] {
   let next = rewriteStrongMarker(children, '*')
   next = rewriteStrongMarker(next, '_')
   next = rewriteOuterEmphasisAroundStrong(next)
+  next = rewriteSingleStarEmphasis(next)
   return next
 }
 

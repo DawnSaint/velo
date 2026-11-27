@@ -222,6 +222,13 @@ describe('DiffView 加载竞态守卫', () => {
     expect(wrapper.text()).toContain('回退修改')
     expect(wrapper.text()).not.toContain('恢复此版本')
     expect(shownContent(wrapper)).toBe('UNSAVED BODY')
+
+    // 点击「回退修改」应 emit revert(filePath) 并关闭视图
+    const revertBtn = wrapper.findAll('button').find(b => b.text().includes('回退修改'))
+    expect(revertBtn).toBeDefined()
+    await revertBtn?.trigger('click')
+    expect(wrapper.emitted('revert')).toEqual([['/note.md']])
+    expect(state.closeDiffView).toHaveBeenCalledTimes(1)
   })
 })
 

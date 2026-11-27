@@ -206,8 +206,8 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     const entries: TimelineEntry[] = snaps.map(snapshotToEntry)
 
     // Git 条目(只要仓库已检测为 git 仓库就包含,不看 includeGit)
-    if (currentFileGitRoot.value && currentFileGitEntries.value) {
-      const path = documentStore.currentFilePath!
+    const path = documentStore.currentFilePath
+    if (path && currentFileGitRoot.value && currentFileGitEntries.value) {
       for (const g of currentFileGitEntries.value) {
         entries.push(gitToEntry(g, path))
       }
@@ -315,9 +315,8 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     if (!list) return ''
 
     if (entryId === UNSAVED_ID) {
-      // 未保存条目的前一版本 = 最新已保存本地快照(无快照则磁盘基线)
-      const snaps = currentFileSnapshots.value
-      if (snaps && snaps.length > 0) return snaps[0].content
+      // 未保存条目对比当前文档的磁盘保存基线(lastSavedContent)—— 即便文件在 Velo 外被更新过,
+      // 也不会误拿更早的本地快照做基准导致外部更新被当成未保存修改。
       return documentStore.lastSavedContent
     }
 
@@ -342,9 +341,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     if (!list) return { content: '', loading: false }
 
     if (entryId === UNSAVED_ID) {
-      const snaps = currentFileSnapshots.value
-      const content = snaps && snaps.length > 0 ? snaps[0].content : documentStore.lastSavedContent
-      return { content, loading: false }
+      return { content: documentStore.lastSavedContent, loading: false }
     }
 
     const idx = list.findIndex(e => e.id === entryId)
@@ -384,8 +381,7 @@ export const useVersionHistoryStore = defineStore('versionHistory', () => {
     if (!list) return ''
 
     if (entryId === UNSAVED_ID) {
-      const snaps = currentFileSnapshots.value
-      return snaps && snaps.length > 0 ? snaps[0].content : documentStore.lastSavedContent
+      return documentStore.lastSavedContent
     }
 
     const idx = list.findIndex(e => e.id === entryId)

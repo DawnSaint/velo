@@ -14,8 +14,8 @@
 - **`save()` 写盘前先推进 `lastSavedContent`**，用于短路自己触发的 fs:watch。
 - **echo 哨兵 `lastSelfEmitted` 不要绕过**，否则编辑时光标被重置。
 - **不在 `setContent` 里 canonicalize**（会退化成 echo 误吞）。
-- **大文档（> `CANON_SKIP_THRESHOLD` = 2000 行）与含字符实体文档走 raw 基线**，不要为省一次序列化改掉。
-- **`checkExternalChange` 的 canonical fallback 要保留**（未保存时 disk 是 raw）。
+- **打开文档一律走 raw 基线（`content = lastSavedContent = raw`）**，不在加载阶段用 `toMarkdown` 覆盖原文，避免未编辑区域被静默改写。
+- **`checkExternalChange` 的 canonical fallback 要保留**（兜底语义等价重写）。
 - **自动保存模式下三处 dirty 指示器全部跳过**（TabBar / StatusBar / 标题栏）。
 - **`content === lastSavedContent` 时不写盘、不写版本快照**。
 
@@ -65,7 +65,7 @@
 - **回到合并起点时不写新快照**：若新内容与被合并旧快照的前一条快照内容相同，只删旧快照不写新快照（调 `removeSnapshot` 同步移除内存缓存）。
 - 恢复快照走 `restoreVersionContent`（同 Hot Exit 恢复语义：新开标签 + 设磁盘基线让 dirty=true）。
 - 浏览入口：ActivityBar「版本历史」（`SidebarTab='history'`）→ `VersionHistoryPanel` 列出快照（每条显示与前一版本的 +/- 行数统计）；点击 → 编辑器区切 `DiffView`（覆盖编辑器，行级 diff + 「恢复此版本」按钮）。命令面板「浏览版本历史」同样触发。
-- **diff 语义同 VSCode Local History**：每个条目与其**前一版本**做 diff（列表倒序，最新在前，前一版本 = 该条目后面那个），而非与当前编辑器内容做 diff；未保存条目的前一版本 = 最新已保存快照（或磁盘基线），最旧的快照无前一版本（diff old = 空字符串）。
+- **diff 语义同 VSCode Local History**：已保存快照与 Git 条目各自对比其**前一版本**（列表倒序，最新在前，前一版本 = 该条目后面那个，最旧条目 old = 空字符串）；未保存条目（`UNSAVED_ID`）始终对比当前文档的磁盘保存基线（`lastSavedContent`），避免文件在外部更新后误拿陈旧本地快照做基准。DiffView 的「回退修改」走独立的 `revertUnsavedChanges` 恢复 `lastSavedContent` 并清草稿，区别于历史快照的 `restoreVersionContent`。
 - 文档 dirty 时列表头部插入虚拟「未保存」条目（`UNSAVED_ID`，不落盘），`content` = 当前编辑器内容；`openVersionHistory` dirty 时默认选中它，否则选最新快照。**自动保存模式下不生成虚拟条目**（`save()` 同步推进基线导致 dirty 反复横跳，条目忽现忽隐）—— `unsavedEntry` computed 在 `autoSaveEnabled` 时返回 null。
 - **Git 条目缓存 key 含文件路径**（`versionHistory.ts`）：`gitContentCache` / `gitDiffStats` 的 key 是 `git:<hash>:<filePath>`，不是 `git:<hash>`。同一 commit 中不同文件内容不同，同仓库 A/B 文件的 commit 历史可能交集，key 不含路径会导致跨文件缓存污染。`loadGitHistory` / `loadGitContent` 直接用传入的 `filePath` 参数，不依赖 `allEntries` / `currentFileGitRoot` computed（竞态场景下可能返回旧文件）。`invalidate(filePath)` 按 `:<filePath>` 后缀匹配清除该文件的缓存条目。
 
@@ -82,11 +82,8 @@
 
 ## 关键取舍
 
-- **`loadContent` 把磁盘内容过一遍 markdownIO canonical**：markdownIO round-trip（multi-empty-lines / html inline 等）在 `toMarkdown` 后不与磁盘原文字节相等 —— 用户打开一个 6 空行的文件，即使不编辑，`content` 与 `lastSavedContent` 也会因 round-trip drift 永远不一致，出现「输入再删回原状也一直 dirty」的 bug。修法：`toMarkdown(fromMarkdown(c, schema))`，canonical 形式**同时**塞进 `content` 与 `lastSavedContent`。后续编辑器 emit 的 canonical 与基线一致，edit + revert 归零；代价是打开时即时规范化（典型 markdown 编辑器行为）。
-- **canonical 基线顺带建块缓存**：`loadContentInto` 的小文档路径本来就要 `toMarkdown(pmDoc)` 取 canonical 基线，`serializeDocIncremental` 用同一次逐块序列化同时产出基线串与块缓存，首次编辑即可命中增量路径；逐块 stringify 与全量同量级（小文档约 +20ms），换来首次编辑不必再全量重建。
-- **`pendingPmDoc` 跳过冗余 fromMarkdown（C0）**：`loadContentInto` 解析出的 PM Node 存入 `DocState.pendingPmDoc`（`markRaw`），`EditorInner` 在 modelValue watch 与 `useProseMirror` fromMarkdown 回调中通过 `consumePendingPmDoc()` 一次性消费，跳过第二次 `fromMarkdown`。打开链路从 3 次 markdownIO（`fromMarkdown` × 2 + `toMarkdown` × 1）降到 2 次（小文档）或 1 次（大文档 + C0b）。
-- **C0b：大文档跳过 canonical round-trip**：`> CANON_SKIP_THRESHOLD`（2000 行）时 `content` 与 `lastSavedContent` 直接用 raw 磁盘内容，省 `toMarkdown` 100–300ms；代价是 CRLF / 多余空行等非 canonical 文件 type+delete dirty 不归零。`checkExternalChange` 的 canonical fallback 不受影响。阈值不是可随手删的性能补丁（删掉等于给大文档重新加一次主线程序列化）。
-- **含字符实体文档走 raw 基线**：`fromMarkdown` 会把 `&#x20;` / `&nbsp;` 解码成普通字符，canonical 结果若塞进 `content` / `lastSavedContent` 会静默改写磁盘内容且因两者相等不显示 dirty。`hasCharRefOutsideCode()` 只在代码块 / 行内代码之外检测，命中则 `content` 与 `lastSavedContent` 直接用 raw，源码逐字节保真、打开不 dirty。代价同 C0b（type+delete 不归零），且一旦编辑，debounce 回写的 `toMarkdown` 仍会把实体规范化掉 —— 保真只覆盖「打开且不编辑」。`char_ref` mark 落地后 `toMarkdown` 已能把对齐过的实体原样写回（见 [editor.md](./editor.md)），但 raw 基线**不因此退役**：`scanCharRefs` 与 mdast 解码串对不上时该处仍是普通文本、含 CRLF 的实体文档还需逐字节保真。
+- **打开保留 raw 基线 + 块级原文切片保真**：`loadContentInto` 始终把磁盘原文同时写入 `content` 与 `lastSavedContent`，并由 `parseMarkdownForDoc` 按 mdast `position.offset`（经 `preprocessSourceWithMap` 逆映射回磁盘偏移）记录每个顶层块与块间空行的原始切片（`RawDocBaseline`）。编辑回写时净块与未增减空行的间隙逐字节拼回原文切片，仅脏块走 `toMarkdown`；用户 Undo 或删回原状时经 `PMNode.eq` 命中原块还原原文切片，`dirty` 自然归零，兼顾「未触碰区域零自动改动」与「输入再删回原状不留假 dirty」。
+- **`pendingPmDoc` 跳过冗余解析（C0）与大文档延迟解析（C3）**：小文档（≤ 2000 行）在 `loadContentInto` 同步解析一次存入 `DocState.pendingPmDoc`（`markRaw`），`EditorInner` 通过 `consumePendingPmDoc()` 一次性消费；大文档（> 2000 行）跳过同步解析让 loading 遮罩先上屏，由 `EditorInner` 在双 rAF 后走 Worker 异步解析并建立同一份原文切片基线。
 - **echo 哨兵（`lastSelfEmitted`）**：EditorInner / SourceModeEditor dispatch 时先把 markdown 写进 `lastSelfEmitted`，父级 watch 看到匹配则跳过 echo，避免编辑时光标被重置。
 - **`setContent` 不推进基线（历史坑）**：曾用 `echosToAccept` 计数器让编辑器「规范化回吐」推进基线，但计数器无法区分「编辑器 echo」与「用户真实编辑」—— 用户恰好在 echo 到达前敲键时，编辑被误吞成 echo，把 `lastSavedContent` 推向新内容。后果：切窗口再 focus 时 `checkExternalChange` 看到 `disk(旧) !== lastSavedContent(新) !== content(新)` + `dirty=true`，弹出「文件在编辑器外被修改」误报。
 - **debounce 待回写不能被 modelValue 变化吞掉**：`EditorInner` 的 150ms `toMarkdown` debounce 里 `pendingDoc` 才是 view 的最新内容，而大纲 / 状态栏 / 自动保存只读 `documentStore.content`。`cancelPendingEmit()` 若跑在 self-emit echo 判定之前，echo 回环撞上后一笔编辑就会把那笔编辑永久丢弃 —— 表象是编辑器里标题已删、大纲仍挂旧 title、点击跳转找不到 DOM 无反应；debounce 窗口内切标签（`activeId` 已变）还会让旧标签的编辑被 cancel 或 emit 到新标签。规则：echo 分支直接返回、不碰 pending emit；切标签在 `tabSwitchToken` watch 里先 flush 并用 `setContentForDoc(docId, ...)` 按 id 回写；`lastSelfEmitted` 同时记 docId 且切标签时清空，否则跨标签会把外部替换误判成 echo 而跳过 view 重建。回归测试 `__tests__/contentSync.test.ts`。
@@ -95,5 +92,5 @@
 
 ## 附录
 
-- **尾部空行 `toMarkdown` 出口补偿**（`markdownIO.ts`）：`processor.stringify` 按 CommonMark 强制文档以单 `\n` 收尾并吃掉尾部空段，导致尾部空行每 round 丢 2 `\n`。但 PM doc 里尾部空段是活的（`<br />` 占位转成的空 paragraph），只是被 stringify 吃掉。`toMarkdown` 出口按 doc 尾部连续空段数 K 补 `\n`（K≥1 时 strip 尾 `\n` 后补 `2K+1` 个），使 `toMarkdown(fromMarkdown(x))` 对尾部空行严格 idempotent —— 2+ 个尾部空行字节守恒。**不要**改 `preprocessBlankLines` 公式做这事（段间占位的 ceil 公式对段间已结构闭合，改它只增风险不解决尾部；stringify 才是元凶）。边界：恰好 1 个尾部空行（`X\n\n`，N=2）CommonMark 不可表示，fromMarkdown 不产空段，塌缩成 0 —— 与 VSCode/Typora 同行为。
+- **首尾空行 `toMarkdown` 守恒**（`preserveEmptyLine.ts` + `markdownIO.ts`）：有正文的文档开头空行在 `preprocessBlankLines` 按 1:1 注入 `<br />` 占位，`finalizeMarkdown` 按前导连续空段数 `leadK` 还原为 `leadK` 个 `\n`，使任意数量开头空行严格守恒且 WYSIWYG 与源码模式行号一致。文档尾部空段被 `processor.stringify` 按 CommonMark 吃掉，`finalizeMarkdown` 按尾部连续空段数 `K` 补 `2K+1` 个 `\n`，使 2+ 个尾部空行字节守恒；恰好 1 个尾部空行（`X\n\n`）CommonMark 不可表示，与 VSCode/Typora 同行为。
 - **`WorkspacePatch` / `RecentFilesPatch`**：见 `persistence.ts`；`RecentFilesPatch.deletes` 收数组，与 `deletePrefixes`（前缀删）分开，不误伤同名前缀文件。

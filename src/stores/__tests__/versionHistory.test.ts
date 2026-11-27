@@ -326,7 +326,7 @@ describe('versionHistory store', () => {
       expect(store.selectedEntryId).toBe('1000')
     })
 
-    it('openUnsavedDiff: 打开未保存条目 diff,old 方取最新本地快照', async () => {
+    it('openUnsavedDiff: 打开未保存条目 diff,old 方始终取当前磁盘保存基线(lastSavedContent)', async () => {
       const docStore = useDocumentStore()
       vi.mocked(readTextFile).mockResolvedValue('hello')
       await docStore.openPath('/test.md')
@@ -354,9 +354,9 @@ describe('versionHistory store', () => {
       expect(opened).toBe(true)
       expect(store.diffViewActive).toBe(true)
       expect(store.selectedEntryId).toBe(UNSAVED_ID)
-      // old 方是最新快照(2000),不是磁盘基线 hello
+      // old 方始终是当前磁盘保存基线 hello,避免文件在外部被改后拿旧快照对比产生假变更
       const old = await store.diffOldContentAsync(UNSAVED_ID)
-      expect(old.content).toBe('snapshot new')
+      expect(old.content).toBe('hello')
     })
 
     it('openUnsavedDiff: 文档不 dirty 时不开视图', async () => {
@@ -478,7 +478,7 @@ describe('versionHistory store', () => {
       return store
     }
 
-    it('未保存条目 → 返回最新已保存快照 content', () => {
+    it('未保存条目 → 始终返回当前磁盘保存基线(lastSavedContent),不受陈旧本地快照影响', () => {
       const docStore = useDocumentStore()
       docStore.init('')
       docStore.loadContent('cur', '/test.md')
@@ -489,8 +489,7 @@ describe('versionHistory store', () => {
         { version: 1, id: '2000', filePath: '/test.md', content: 'v2', savedAt: 2000, trigger: 'manual' },
       ])
 
-      // 未保存条目的前一版本 = 最新快照(id=3000,content='v3')
-      expect(store.diffOldContent(UNSAVED_ID)).toBe('v3')
+      expect(store.diffOldContent(UNSAVED_ID)).toBe('cur')
     })
 
     it('未保存条目无已保存快照 → 返回磁盘基线(lastSavedContent)', () => {
@@ -700,8 +699,7 @@ describe('versionHistory store', () => {
       const store = useVersionHistoryStore()
       await store.loadSnapshots('/test.md')
 
-      let showCallCount = 0
-      vi.mocked(invoke).mockImplementation(async (command: string, args?: any) => {
+      vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
         if (command === 'git_repo_root') return '/repo'
         if (command === 'git_file_history') {
           return [
@@ -710,8 +708,8 @@ describe('versionHistory store', () => {
           ]
         }
         if (command === 'git_show_file') {
-          showCallCount++
-          if (args?.commitHash === 'bbb2222') return 'old content'
+          const commitHash = (args as { commitHash?: string } | undefined)?.commitHash
+          if (commitHash === 'bbb2222') return 'old content'
           return 'new content'
         }
         return undefined

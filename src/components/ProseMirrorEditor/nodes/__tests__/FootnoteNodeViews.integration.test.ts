@@ -207,13 +207,21 @@ describe('capture 阶段 mousedown 监听(防 ProseMirror 抢 selection)', () =>
     expect(ev.defaultPrevented).toBe(true)
   })
 
-  it('sup mousedown 无 modifier 不应 preventDefault(保留 focus 让用户能编辑 label)', () => {
+  it('sup mousedown 无 modifier 不应在 capture 阶段拦截(放行给 ProseMirror 置入光标)', () => {
     const sup = findSup(view)!
+    // prosemirror-view 1.44+ 在 view.dom bubble 阶段会对普通左键 mousedown 调 preventDefault
+    // 接管选区；这里在 sup target 阶段观测 NodeView capture 自身未 preventDefault，
+    // 并在 view.dom bubble 阶段确认事件未被 stopPropagation 截断。
+    let preventedByNodeView = true
+    let reachedEditorBubble = false
+    sup.addEventListener('mousedown', (e) => { preventedByNodeView = e.defaultPrevented })
+    view.dom.addEventListener('mousedown', () => { reachedEditorBubble = true })
     const ev = new MouseEvent('mousedown', {
       bubbles: true, cancelable: true, button: 0,
     })
     sup.dispatchEvent(ev)
-    expect(ev.defaultPrevented).toBe(false)
+    expect(preventedByNodeView).toBe(false)
+    expect(reachedEditorBubble).toBe(true)
   })
 
   it('backref mousedown 应在 capture 阶段 preventDefault(阻止 <a> 默认导航)', () => {

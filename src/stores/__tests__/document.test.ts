@@ -197,14 +197,12 @@ describe('document store', () => {
     // round-trip),但磁盘原文仍是 raw。checkExternalChange 读到 raw disk 后直接
     // 和 canonical lastSavedContent 比 → 不等 → 误判"外部修改"。
     // 修法:checkExternalChange 在 exact match 失败后,把 disk 也 canonicalize 再比。
-    it('非 canonical 磁盘文件:编辑后切窗口 focus 不误报外部修改', async () => {
-      // 磁盘原文用 CRLF 行尾,canonical 形式(LF)与 raw 不字节相等
+    it('非 canonical 磁盘文件:打开保留 raw 原文,编辑后切窗口 focus 不误报外部修改', async () => {
+      // 磁盘原文用 CRLF 行尾,打开时逐字节保留 raw,不做静默规范化
       const rawDisk = 'hello\r\n'
       const store = await setupOpenedFile(rawDisk, '/p.md')
-      // load 后 content/lastSavedContent 都是 canonical(rawDisk 经 round-trip)
       expect(store.dirty).toBe(false)
-      // canonical(LF)与 raw(CRLF)不字节相等
-      expect(store.content).not.toBe(rawDisk)
+      expect(store.content).toBe(rawDisk)
 
       // 用户编辑
       store.setContent(store.content + 'edited')
@@ -214,7 +212,7 @@ describe('document store', () => {
       vi.mocked(readTextFile).mockResolvedValue(rawDisk)
       await store.checkExternalChange()
 
-      // canonicalDisk === lastSavedContent → 应早退,不弹 confirm
+      // disk === lastSavedContent → 应早退,不弹 confirm
       expect(confirmAsk).not.toHaveBeenCalled()
       // 用户编辑保留
       expect(store.content).toContain('edited')
@@ -236,23 +234,22 @@ describe('document store', () => {
     // 后变成"X\n\n\n\n\n"(丢 N),导致 PM canonical 与磁盘原文不等。
     // 修法:loadContent 时把磁盘内容走一遍 markdownIO,canonical 形式同时塞进
     // `content` 与 `lastSavedContent`,editor 后续 emit 是同 canonical,edit+revert 归零。
-    it('多空行文件 load 后,type 再 delete 回到原状 → dirty=false(回归用户报告的 · 不消失)', async () => {
+    it('多空行文件 load 后保留 raw 原文,type 再 delete 回到原状 → dirty=false', async () => {
       const store = useDocumentStore()
       store.init('')
-      const disk = 'X\n\n\n\n\n\n\n\n' // 7 个 \n = 6 个视觉空行
+      const disk = 'X\n\n\n\n\n\n\n\n' // 8 个 \n = 7 个视觉空行
       vi.mocked(readTextFile).mockResolvedValueOnce(disk)
       await store.openPath('/multi-blank.md')
-      // load 时 canonicalize:content 与 lastSavedContent 都对齐 canonical 形式
-      const canonical = store.content
+      // load 时保留 raw 原文,不静默改写
       expect(store.dirty).toBe(false)
-      expect(canonical).not.toBe(disk) // canonical 与磁盘原文不等(load 时已规范化)
+      expect(store.content).toBe(disk)
 
       // 编辑器在某空段输入空格 —— dirty=true
-      store.setContent(canonical.replace('\n\n', '\n\n '))
+      store.setContent(disk.replace('\n\n', '\n\n '))
       expect(store.dirty).toBe(true)
 
-      // 编辑器删掉空格回到 canonical —— 与基线一致
-      store.setContent(canonical)
+      // 编辑器删掉空格(块级原文切片保真通过 PMNode.eq 还原为 disk)—— 与基线一致
+      store.setContent(disk)
       expect(store.dirty).toBe(false)
     })
   })
@@ -401,9 +398,8 @@ describe('document store', () => {
       // 1. 走到了 dialog(没被静默拦截)
       expect(vi.mocked(saveDialog)).toHaveBeenCalledTimes(1)
       expect(ok).toBe(true)
-      // 2. 写盘到用户挑的新路径,而非静默跳过(content 经 loadContentInto 的
-      //    markdownIO round-trip 规范化为 canonical 形式,保留尾部换行)
-      expect(vi.mocked(writeTextFile)).toHaveBeenCalledWith('/workspace/copy.md', '# sample content\n')
+      // 2. 写盘到用户挑的新路径,而非静默跳过(保留原始文本)
+      expect(vi.mocked(writeTextFile)).toHaveBeenCalledWith('/workspace/copy.md', '# sample content')
       // 3. 路径切换
       expect(store.currentFilePath).toBe('/workspace/copy.md')
       // 4. 翻回可编辑 + 清掉虚拟标题(标题改显示真实路径)
@@ -1021,7 +1017,7 @@ describe('document store', () => {
 
       expect(ok).toBe(true)
       expect(errorSpy).not.toHaveBeenCalled()
-      expect(store.content).toBe('new content\n')
+      expect(store.content).toBe('new content')
       expect(store.currentFilePath).toBe('/new.md')
       expect(useRecentFilesStore().entries.map(e => e.path)).toEqual(['/new.md'])
     })
@@ -1088,7 +1084,8 @@ describe('document store', () => {
     }
 
     it('auto 保存回到合并起点:只删旧快照不写新快照(无变化条目不进历史)', async () => {
-      const store = await setupOpenedFile('hello', '/p.md')
+      // 初始状态对应磁盘上最近一次 auto 保存(content='hello!')
+      const store = await setupOpenedFile('hello!', '/p.md')
       const vhStore = useVersionHistoryStore()
       const wsStore = useWorkspaceStore()
       wsStore.setActiveRoot('/test-ws')
@@ -1483,14 +1480,13 @@ describe('C0 + C0b + C3: pendingPmDoc + 大文档跳过 canonical + 延迟 fromM
       expect(store.consumePendingPmDoc()).toBeNull()
     })
 
-    it('小文档(≤ 2000 行):content 是 canonical 形式(CRLF 被规范化)', () => {
+    it('小文档(≤ 2000 行):content 保留 raw 原文(CRLF 不被静默改写)', () => {
       const store = useDocumentStore()
       store.init('')
       const rawDisk = 'hello\r\nworld\r\n'
       store.loadContent(rawDisk, '/p.md')
 
-      expect(store.content).not.toBe(rawDisk)
-      expect(store.content).toBe('hello\nworld\n')
+      expect(store.content).toBe(rawDisk)
       expect(store.dirty).toBe(false)
     })
 
@@ -1593,26 +1589,23 @@ describe('C0 + C0b + C3: pendingPmDoc + 大文档跳过 canonical + 延迟 fromM
       expect(store.dirty).toBe(false)
     })
 
-    it('代码块内的字面实体不触发 raw:canonical 仍规范化 CRLF', () => {
+    it('代码块内的字面实体同样逐字节保留 raw', () => {
       const store = useDocumentStore()
       store.init('')
       const raw = '```md\r\n代码 &#x20; 示例\r\n```\r\n'
       store.loadContent(raw, '/p.md')
 
-      // 代码块内容原样保留,但整体走 canonical → CRLF 被规范化
-      expect(store.content).toContain('&#x20;')
-      expect(store.content).not.toContain('\r\n')
+      expect(store.content).toBe(raw)
       expect(store.dirty).toBe(false)
     })
 
-    it('行内代码内的字面实体同样走 canonical', () => {
+    it('行内代码内的字面实体同样逐字节保留 raw', () => {
       const store = useDocumentStore()
       store.init('')
       const raw = '正文 `字面 &#x20;` 行内代码\r\n第二行\r\n'
       store.loadContent(raw, '/p.md')
 
-      expect(store.content).toContain('`字面 &#x20;`')
-      expect(store.content).not.toContain('\r\n')
+      expect(store.content).toBe(raw)
       expect(store.dirty).toBe(false)
     })
 
@@ -1624,6 +1617,27 @@ describe('C0 + C0b + C3: pendingPmDoc + 大文档跳过 canonical + 延迟 fromM
 
       expect(store.content).toBe(raw)
       expect(store.dirty).toBe(false)
+    })
+  })
+
+  describe('revertUnsavedChanges 回退未保存修改', () => {
+    it('含多空行与特殊格式的文档编辑后点回退修改：完全恢复磁盘基线且 dirty 归零', async () => {
+      const rawDisk = '\n\n\n\n# 标题\n\n* 列表 (128*-1)\r\n'
+      const store = await setupOpenedFile(rawDisk, '/repro.md')
+      expect(store.dirty).toBe(false)
+
+      // 模拟用户编辑并触发草稿
+      store.setContent('\n\n# 标题已改\n\n- 列表 (128\\*-1)\n')
+      expect(store.dirty).toBe(true)
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(remove).mockResolvedValue()
+
+      await store.revertUnsavedChanges('/repro.md')
+
+      expect(store.content).toBe(rawDisk)
+      expect(store.lastSavedContent).toBe(rawDisk)
+      expect(store.dirty).toBe(false)
+      expect(vi.mocked(remove)).toHaveBeenCalled()
     })
   })
 })

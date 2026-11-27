@@ -42,8 +42,10 @@ describe('preprocessBlankLines', () => {
     expect(preprocessBlankLines('a\n\n\n\n\n\n\n\nb')).toBe('a\n\n<br />\n\n<br />\n\n<br />\n\nb')
   })
 
-  it('文档开头 2 个空行:1 个 <br /> 占位', () => {
-    expect(preprocessBlankLines('\n\n\n\npara1')).toBe('\n\n<br />\n\npara1')
+  it('文档开头空行 1:1 注入 <br /> 占位(配合 finalizeMarkdown 严格守恒)', () => {
+    expect(preprocessBlankLines('\npara1')).toBe('<br />\n\npara1')
+    expect(preprocessBlankLines('\n\npara1')).toBe('<br />\n\n<br />\n\npara1')
+    expect(preprocessBlankLines('\n\n\n\npara1')).toBe('<br />\n\n<br />\n\n<br />\n\n<br />\n\npara1')
   })
 
   it('文档末尾 2 个空行:1 个 <br /> 占位', () => {

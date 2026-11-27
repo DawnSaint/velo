@@ -22,12 +22,13 @@
  * 改写源文本会改变 mdast position.offset 的基准 —— 新增 / 修改本 wrapper 时
  * 必须同步 `parseProcessor.preprocessSource`,否则 offset 回查原文时错位。
  */
-export const remarkPreserveEmptyLine = function(this: any) {
-  const self = this as any
-  const originalParser = self?.parser
+import type { Processor } from 'unified'
+
+export function remarkPreserveEmptyLine(this: Processor) {
+  const originalParser = this?.parser
   if (!originalParser) return
-  self.parser = function(this: any, doc: string) {
-    return originalParser.call(this, preprocessBlankLines(doc))
+  this.parser = function (doc, file) {
+    return originalParser.call(this, preprocessBlankLines(doc), file)
   }
 }
 
@@ -52,21 +53,33 @@ export const remarkPreserveEmptyLine = function(this: any) {
  */
 export function preprocessBlankLines(doc: string): string {
   const text = doc.replace(/\r\n?/g, '\n')
+  const hasContent = /[^\n]/.test(text)
   const ranges = findVerbatimRanges(text)
-  if (ranges.length === 0) return replaceBlankRuns(text)
+  if (ranges.length === 0) return replaceBlankRuns(text, hasContent)
 
   let out = ''
   let cursor = 0
   for (const range of ranges) {
-    out += replaceBlankRuns(text.slice(cursor, range.start))
+    out += replaceBlankRuns(text.slice(cursor, range.start), hasContent && cursor === 0)
     out += text.slice(range.start, range.end)
     cursor = range.end
   }
-  return out + replaceBlankRuns(text.slice(cursor))
+  return out + replaceBlankRuns(text.slice(cursor), false)
 }
 
-function replaceBlankRuns(text: string): string {
-  return text.replace(/\n\n\n+/g, (run) => {
+function replaceBlankRuns(text: string, isDocStart = false): string {
+  let rest = text
+  let prefix = ''
+  // 文档开头空行 1:1 注入 <br /> 占位（有正文时）：开头没有前一段的行尾 \n，
+  // N 个前导 \n 就是 N 行空行，配合 finalizeMarkdown 的前导空段补偿严格守恒。
+  if (isDocStart && rest.startsWith('\n')) {
+    const m = /^\n+/.exec(rest)
+    if (m) {
+      prefix = '<br />\n\n'.repeat(m[0].length)
+      rest = rest.slice(m[0].length)
+    }
+  }
+  return prefix + rest.replace(/\n\n\n+/g, (run) => {
     const count = Math.ceil(run.length / 2 - 1)
     let result = '\n\n'
     for (let i = 0; i < count; i++) {
@@ -74,6 +87,89 @@ function replaceBlankRuns(text: string): string {
     }
     return result
   })
+}
+
+/**
+ * 与 preprocessBlankLines 输出严格一致，同时把上游映射表 inMap（doc → raw）
+ * 复合为最终输出偏移 → raw 偏移映射表（长度 = out.length + 1）。
+ * 注入的 `<br />\n\n` 区间内部映射到对应换行起点，区间结束处精确落回下一块在 raw 中的起点。
+ */
+export function preprocessBlankLinesWithMap(
+  doc: string,
+  inMap: Int32Array,
+): { text: string; toRaw: Int32Array } {
+  // 1. CRLF / CR → LF，保证 `\r\n` 之前的偏移指向 `\r`、之后的偏移指向 `\n` 之后
+  let lf = ''
+  const lfMap: number[] = []
+  for (let i = 0; i < doc.length;) {
+    if (doc[i] === '\r') {
+      lf += '\n'
+      lfMap.push(inMap[i])
+      i += doc[i + 1] === '\n' ? 2 : 1
+    }
+    else {
+      lf += doc[i]
+      lfMap.push(inMap[i])
+      i++
+    }
+  }
+  lfMap.push(inMap[doc.length])
+
+  const hasContent = /[^\n]/.test(lf)
+  const ranges = findVerbatimRanges(lf)
+  let out = ''
+  const outMap: number[] = []
+
+  const copyLf = (from: number, to: number) => {
+    for (let i = from; i < to; i++) outMap.push(lfMap[i])
+    out += lf.slice(from, to)
+  }
+
+  const processNonVerbatim = (from: number, to: number, isDocStart: boolean) => {
+    let pos = from
+    if (isDocStart && pos < to && lf[pos] === '\n') {
+      let end = pos
+      while (end < to && lf[end] === '\n') end++
+      for (let k = pos; k < end; k++) {
+        const rawPos = lfMap[k]
+        const chunk = '<br />\n\n'
+        out += chunk
+        for (let c = 0; c < chunk.length; c++) outMap.push(rawPos)
+      }
+      pos = end
+    }
+    const sub = lf.slice(pos, to)
+    const runRe = /\n\n\n+/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = runRe.exec(sub)) !== null) {
+      copyLf(pos + last, pos + m.index)
+      const runStartRaw = lfMap[pos + m.index]
+      const count = Math.ceil(m[0].length / 2 - 1)
+      let repl = '\n\n'
+      for (let k = 0; k < count; k++) repl += '<br />\n\n'
+      out += repl
+      for (let c = 0; c < repl.length; c++) outMap.push(runStartRaw)
+      last = m.index + m[0].length
+    }
+    copyLf(pos + last, to)
+  }
+
+  if (ranges.length === 0) {
+    processNonVerbatim(0, lf.length, hasContent)
+  }
+  else {
+    let cursor = 0
+    for (const range of ranges) {
+      processNonVerbatim(cursor, range.start, hasContent && cursor === 0)
+      copyLf(range.start, range.end)
+      cursor = range.end
+    }
+    processNonVerbatim(cursor, lf.length, false)
+  }
+
+  outMap.push(lfMap[lf.length])
+  return { text: out, toRaw: Int32Array.from(outMap) }
 }
 
 // ============================================================
