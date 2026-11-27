@@ -61,15 +61,10 @@ vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
   writeText: vi.fn(async () => undefined),
 }))
 
-// linkClick 插件用 open() 调系统浏览器打开外部 URL。
-// 同 plugin-dialog 的 open 不同名模块,保持各自 stub 独立。
-vi.mock('@tauri-apps/plugin-shell', () => ({
-  open: vi.fn(async () => {}),
-}))
-
-// v0.5.1 文件树右键"在资源管理器中显示"用 plugin-opener.revealItemInDir。
-// plugin-shell 没有 reveal 能力 —— 它的 open(path) 走默认应用打开,不是高亮。
+// linkClick 插件用 openUrl() 调系统浏览器打开外部 URL;
+// 文件树右键"在资源管理器中显示"用 revealItemInDir()。
 vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(async () => {}),
   revealItemInDir: vi.fn(async () => {}),
 }))
 

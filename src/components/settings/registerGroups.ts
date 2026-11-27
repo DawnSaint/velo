@@ -1,6 +1,6 @@
 // 内置设置分组注册（#settings-panel 重做）
 //
-// App.vue setup 阶段调一次 registerBuiltinSettingsGroups() 把内置 3 组挂进 registry。
+// SettingsPage 首次挂载时调一次 registerBuiltinSettingsGroups() 把内置 3 组挂进 registry。
 // 新增分组 = 建一个 groups/XxxGroup.vue + 在此加一行 registerSettingsGroup。
 // registerSettingsGroup 幂等,重复调用安全(HMR / 多次初始化不会重复压入)。
 

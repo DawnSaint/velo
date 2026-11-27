@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, provide, computed, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, provide, computed, nextTick, defineAsyncComponent } from 'vue'
 import { useEditorStore } from '@/stores/editor'
 import { useDocumentStore } from '@/stores/document'
 import { useSystemStore } from '@/stores/system'
@@ -37,11 +37,7 @@ import { useZoom } from '@/composables/useZoom'
 import { useStaleEntry, probeExistingPath } from '@/composables/useStaleEntry'
 import { createPmBackend, createCmBackend } from '@/components/ProseMirrorEditor/findreplace/backend'
 import { findIntentKey } from '@/components/ProseMirrorEditor/findreplace/findIntent'
-import SettingsPage from '@/components/settings/SettingsPage.vue'
-import { registerBuiltinSettingsGroups } from '@/components/settings/registerGroups'
-import { getSettingsGroups } from '@/components/settings/registry'
 import Sidebar from '@/components/Sidebar/Sidebar.vue'
-import DiffView from '@/components/DiffView.vue'
 import WelcomeDialog from '@/components/WelcomeDialog.vue'
 import QuickCommandPanel from '@/components/QuickCommandPanel.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -160,6 +156,10 @@ void initSettings()
     mark('code-block-ready')
   })
 
+// 非首屏重组件懒加载:不阻塞启动期主包解析,首次打开从本地内存 chunk 毫秒级加载。
+const SettingsPage = defineAsyncComponent(() => import('@/components/settings/SettingsPage.vue'))
+const DiffView = defineAsyncComponent(() => import('@/components/DiffView.vue'))
+
 // 设置页不再挤在左侧栏(#settings-panel 重做):改为整页接管编辑器主区域。
 // leftPanelView 只剩 'sidebar'(文件树 / 大纲 / 搜索 / 资产);设置走 settingsOpen/Active。
 type LeftPanelView = 'sidebar' | null
@@ -169,11 +169,9 @@ const leftPanelView = ref<LeftPanelView>(null)
 // 不关闭(X / 中键 / Escape 才真正关)。像文档 tab 一样可后台保留。
 const settingsOpen = ref(false)
 const settingsActive = ref(false)
-// 注册内置设置分组(编辑器 / 外观 / 文档 / 系统);幂等,HMR 安全。
-registerBuiltinSettingsGroups()
-// 当前激活的设置分组 id。状态提升到 App.vue,保证设置失活再激活后能记住上次选中的类目。
-// 注册后必有至少一组(editor),取首个作默认值。
-const settingsActiveGroupId = ref<string>(getSettingsGroups()[0]?.id ?? '')
+// 当前激活的设置分组 id。状态提升到 App.vue,保证设置失活再激活后能记住上次选中的类目;
+// 内置分组注册随 SettingsPage 异步 chunk 延迟执行(见 SettingsPage.vue)。
+const settingsActiveGroupId = ref<string>('editor')
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // ========== 侧栏可拖拽 + 自动收起(v0.5.5)==========

@@ -18,9 +18,13 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { getSettingsGroups } from './registry'
+import { registerBuiltinSettingsGroups } from './registerGroups'
 import SettingsGroupWrapper from './SettingsGroupWrapper.vue'
 import SettingsSearchBox from './SettingsSearchBox.vue'
 import { useSettingsSearchIndex, type SettingsSearchEntry } from '@/composables/useSettingsSearchIndex'
+
+// 随 SettingsPage 懒加载 chunk 首次进入时注册内置分组(幂等),避免首屏主包拉入各分组组件。
+registerBuiltinSettingsGroups()
 
 const props = defineProps<{
   /** 当前激活的设置分组 id(Tab 切换驱动)。 */
@@ -80,7 +84,8 @@ const underlineLeft = ref(0)
 const underlineWidth = ref(0)
 
 function updateUnderline() {
-  const idx = groups.value.findIndex(g => g.id === props.activeGroupId)
+  const targetId = activeGroup.value?.id
+  const idx = groups.value.findIndex(g => g.id === targetId)
   if (idx === -1) return
   const el = tabRefs.value[idx]
   if (!el) return

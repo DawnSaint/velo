@@ -1,26 +1,20 @@
-// 内嵌字体自包含:把所有 woff2 inline 成 base64 data URI,让导出 HTML
+// 内嵌字体自包含:按需把命中的 woff2 转成 base64 data URI,让导出 HTML
 // 不依赖外部 /fonts/... 路径(外部浏览器 / 打印机 webview 都解析不到),视觉与
 // Tauri webview 内一致。
 //
-// 同 katexCss.ts 范式:走 Vite ?inline 在 build 期把 woff2 拿成 base64 data URI
-// 字符串。字体必须放 src/fonts/ 而非 public/ —— public/ 资源只能按 URL 引用,
-// Vite 禁止从 JS import(?inline glob 会报 "Assets in public directory cannot be
-// imported from JavaScript")。放 src/ 与 katexCss(走 node_modules)同范式,Vite 正常处理。
+// ── 运行时 ?url + fetch + 内存缓存 ──
+// 编辑器已在 _fonts.scss 通过 CSS url() 把 src/fonts/**/*.woff2 打包到 dist/assets/。
+// 此前用 `?inline` eager glob 会在 htmlRenderer chunk 里再存一份 ~5MB Base64 副本,
+// 与 .woff2 二进制资产双份占体积(无法被 Brotli/LZMA 去重)。
+// 改为 `?url` 引用同一份资产 URL,导出时仅对命中的字体族并行 fetch(Tauri 本地内存协议,
+// 不走网络,耗时数 ms)并转 base64 + 模块级缓存,彻底消除双份存储。
 //
-// ── 按需内联(v0.7.16) ──
-// 原先 `buildAllFontFaceCss()` 无条件内联全部 8 款字体(~5.19MB base64),不管用户
-// 选了哪一款。改成 `buildFontFaceCss(fontFamily, fontMono)`:从两个 CSS font-family
-// 栈里解析出实际命中的内嵌字体族,只生成这些字体的 @font-face。极端情况(选 JetBrains
-// Mono + 系统 CJK)从 5.19MB 降到 ~0.8MB。
+// 字体放 src/fonts/ 而非 public/:Vite 禁止 JS glob/import public/ 下资产。
 //
-// **已知取舍**:HTML 导出换一台没装该字体的机器打开时,会回退到系统字体(原先全量
-// 内联能保证跨机器一致)。PDF / DOCX 不受此取舍影响 —— PDF 渲染的就是用户本机;DOCX
-// 的 `htmlToContent` 显式丢弃 @font-face(见 docx/dist/html.mjs 注释),本来只用
-// font-family 名字,内联字体对 DOCX 从不生效。
-//
-// bundle 体积不变:`woff2DataUris` 是模块顶层 eager glob,所有字体仍进导出 chunk
-// (按需内联减少的是**导出 HTML 产物**体积,不是 bundle 体积)。真要减 bundle 得改
-// 惰性 fetch,代价是每次导出多 20+ 次 fetch + 转码,见 katexCss.ts 同段取舍说明。
+// ── 按需内联 ──
+// `buildFontFaceCss(fontFamily, fontMono)` 从两个 CSS font-family 栈里解析出实际命中的
+// 内嵌字体族,只拉取并生成这些字体的 @font-face。
+// **已知取舍**:HTML 导出换一台没装该字体的机器打开时,会回退到系统字体;PDF / DOCX 不受影响。
 
 // ── 字体注册表 ──
 // 每个内嵌字体的 font-family 名 + woff2 文件名 → 字重/样式映射。
@@ -119,17 +113,65 @@ const BUNDLED_FONTS: readonly BundledFont[] = [
   },
 ] as const
 
-// ── 批量加载所有 woff2 为 base64 data URI ──
-// 用一个大的 glob 匹配 src/fonts/ 下所有子目录的 woff2 文件。
+// ── 批量收集所有 woff2 的构建产物 URL(与 _fonts.scss 复用同一批 .woff2 资产) ──
 const allWoff2Modules = import.meta.glob(
   '../../fonts/**/*.woff2',
-  { query: '?inline', import: 'default', eager: true },
+  { query: '?url', import: 'default', eager: true },
 ) as Record<string, string>
 
-const woff2DataUris: Record<string, string> = {}
-for (const [modulePath, dataUri] of Object.entries(allWoff2Modules)) {
+const woff2Urls: Record<string, string> = {}
+for (const [modulePath, url] of Object.entries(allWoff2Modules)) {
   const filename = modulePath.split('/').at(-1) ?? ''
-  woff2DataUris[filename] = dataUri
+  woff2Urls[filename] = url
+}
+
+const dataUriCache = new Map<string, string>()
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
+async function loadWoff2DataUri(filename: string): Promise<string | undefined> {
+  const cached = dataUriCache.get(filename)
+  if (cached) return cached
+
+  const url = woff2Urls[filename]
+  if (!url) return undefined
+  if (url.startsWith('data:')) {
+    dataUriCache.set(filename, url)
+    return url
+  }
+
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const dataUri = `data:font/woff2;base64,${uint8ToBase64(bytes)}`
+    dataUriCache.set(filename, dataUri)
+    return dataUri
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function buildFontFacesForEntries(entries: readonly FontFaceEntry[]): Promise<string> {
+  const dataUris = await Promise.all(entries.map(e => loadWoff2DataUri(e.filename)))
+  const lines: string[] = []
+  for (let i = 0; i < entries.length; i++) {
+    const dataUri = dataUris[i]
+    if (!dataUri) continue
+    const entry = entries[i]
+    lines.push(
+      `@font-face{font-family:'${entry.family}';font-style:${entry.style};font-weight:${entry.weight};font-display:swap;src:url(${dataUri}) format("woff2")}`,
+    )
+  }
+  return lines.join('\n')
 }
 
 // ── 构建导出 HTML 的 @font-face CSS ──
@@ -170,18 +212,9 @@ export function resolveBundledFamilies(...stacks: readonly string[]): string[] {
  *
  * 体积:8 款字体共 ~5.2MB base64。
  */
-export function buildAllFontFaceCss(): string {
-  const lines: string[] = []
-  for (const font of BUNDLED_FONTS) {
-    for (const entry of font.entries) {
-      const dataUri = woff2DataUris[entry.filename]
-      if (!dataUri) continue
-      lines.push(
-        `@font-face{font-family:'${entry.family}';font-style:${entry.style};font-weight:${entry.weight};font-display:swap;src:url(${dataUri}) format("woff2")}`,
-      )
-    }
-  }
-  return lines.join('\n')
+export async function buildAllFontFaceCss(): Promise<string> {
+  const entries = BUNDLED_FONTS.flatMap(f => f.entries)
+  return buildFontFacesForEntries(entries)
 }
 
 /**
@@ -193,19 +226,13 @@ export function buildAllFontFaceCss(): string {
  * @param fontFamily - 正文字体栈(对应 `--md-font-family`)
  * @param fontMono - 等宽字体栈(对应 `--font-mono`)
  */
-export function buildFontFaceCss(fontFamily: string, fontMono: string): string {
+export async function buildFontFaceCss(fontFamily: string, fontMono: string): Promise<string> {
   const families = resolveBundledFamilies(fontFamily, fontMono)
-  const lines: string[] = []
+  if (families.length === 0) return ''
+  const entries: FontFaceEntry[] = []
   for (const family of families) {
     const font = BUNDLED_BY_FAMILY.get(family)
-    if (!font) continue
-    for (const entry of font.entries) {
-      const dataUri = woff2DataUris[entry.filename]
-      if (!dataUri) continue
-      lines.push(
-        `@font-face{font-family:'${entry.family}';font-style:${entry.style};font-weight:${entry.weight};font-display:swap;src:url(${dataUri}) format("woff2")}`,
-      )
-    }
+    if (font) entries.push(...font.entries)
   }
-  return lines.join('\n')
+  return buildFontFacesForEntries(entries)
 }

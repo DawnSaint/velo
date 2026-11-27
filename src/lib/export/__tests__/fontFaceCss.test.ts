@@ -1,14 +1,35 @@
 // fontFaceCss 按需内联逻辑测试。
 //
-// 只测纯函数 `resolveBundledFamilies` / `buildFontFaceCss`:
+// 测 `resolveBundledFamilies` / `buildFontFaceCss` / `buildAllFontFaceCss`:
 // - `resolveBundledFamilies`:从 CSS font-family 栈解析出命中的内嵌字体族
-// - `buildFontFaceCss`:按命中族生成 @font-face,并验"按需 vs 全量"的体积差异
+// - `buildFontFaceCss`:按命中族 fetch 对应 .woff2 并生成 @font-face,验"按需 vs 全量"体积差异
 //
-// 注:vitest 下 Vite 的 `?inline` glob **会**返回真实 base64(与 katexCss.ts
-// 注释里"`?inline` 返回空"的说法不同),所以这里能验到真实产出与体积差异。
+// jsdom 下没有针对 Vite `?url` 本地路径的 fetch 实现,这里 stub fetch 按路径从磁盘读真实 woff2。
 
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveBundledFamilies, buildFontFaceCss, buildAllFontFaceCss } from '../fontFaceCss'
+
+const PROJECT_ROOT = resolve(__dirname, '../../../..')
+
+beforeAll(() => {
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    const raw = String(input)
+    // Vite dev/vitest `?url` 返回形如 `/src/fonts/.../xxx.woff2` 的相对根路径
+    const clean = raw.replace(/^\/+/, '').split('?')[0]
+    const bytes = readFileSync(resolve(PROJECT_ROOT, clean))
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    }
+  }))
+})
+
+afterAll(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('resolveBundledFamilies', () => {
   it('从单个栈里挑出内嵌族,跳过系统字体', () => {
@@ -55,8 +76,8 @@ describe('resolveBundledFamilies', () => {
 })
 
 describe('buildFontFaceCss', () => {
-  it('命中族时只生成该族的 @font-face', () => {
-    const css = buildFontFaceCss(`'JetBrains Mono', ui-monospace, monospace`, 'monospace')
+  it('命中族时只生成该族的 @font-face', async () => {
+    const css = await buildFontFaceCss(`'JetBrains Mono', ui-monospace, monospace`, 'monospace')
     // 4 个 JetBrains Mono 字重(regular/bold/italic/bold-italic)
     expect(css.match(/@font-face/g)).toHaveLength(4)
     expect(css).toContain("font-family:'JetBrains Mono'")
@@ -65,21 +86,21 @@ describe('buildFontFaceCss', () => {
     expect(css).not.toContain('Noto Sans SC')
   })
 
-  it('未命中任何内嵌族时返回空串', () => {
-    expect(buildFontFaceCss(`'PingFang SC', sans-serif`, `Consolas, monospace`)).toBe('')
+  it('未命中任何内嵌族时返回空串', async () => {
+    expect(await buildFontFaceCss(`'PingFang SC', sans-serif`, `Consolas, monospace`)).toBe('')
   })
 
-  it('两个栈都为空时返回空串', () => {
-    expect(buildFontFaceCss('', '')).toBe('')
+  it('两个栈都为空时返回空串', async () => {
+    expect(await buildFontFaceCss('', '')).toBe('')
   })
 
-  it('按需产出显著小于全量产出', () => {
+  it('按需产出显著小于全量产出', async () => {
     // 典型场景:用户选 JetBrains Mono + 系统 CJK(不命中 Noto Sans SC)
-    const picked = buildFontFaceCss(
+    const picked = await buildFontFaceCss(
       `'PingFang SC', 'Microsoft YaHei', sans-serif`,
       `'JetBrains Mono', ui-monospace, Consolas, monospace`,
     )
-    const all = buildAllFontFaceCss()
+    const all = await buildAllFontFaceCss()
     // 按需只含 JetBrains Mono(~500KB b64),全量含 8 款(~5.2MB b64)
     expect(picked.length).toBeGreaterThan(0)
     expect(picked.length).toBeLessThan(all.length / 4)

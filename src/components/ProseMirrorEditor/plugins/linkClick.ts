@@ -6,7 +6,7 @@
 //      视觉指示这是"编辑源码"态。
 //   2. Ctrl/Cmd + 单击 = 跳转(行为保持不变):
 //      - href 以 # 开头 → 文档内 querySelector 找 heading[id] → scrollIntoView
-//      - 其他 → 调 @tauri-apps/plugin-shell 的 open() 用系统浏览器打开
+//      - 其他 → 调 @tauri-apps/plugin-opener 的 openUrl() 用系统浏览器打开
 //   3. 在编辑态下:
 //      - 用户编辑文本 → 普通 transaction,plugin state 自动跟随位置
 //      - 光标移出 [text](url) 范围 → apply 检测到,view.update 触发 commit
@@ -30,7 +30,7 @@ import type { EditorView } from 'prosemirror-view'
 import type { MarkType, Node as PMNode, ResolvedPos } from 'prosemirror-model'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import { keymap } from 'prosemirror-keymap'
-import { open } from '@tauri-apps/plugin-shell'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { fromMarkdown, toMarkdown } from '../editor/markdownIO'
 import { SKIP_CONTENT_EMIT } from '../editor/transactionMeta'
 import { refreshViewport } from '../nodes/viewportPlugin'
@@ -423,7 +423,7 @@ function scrollToAnchor(view: EditorView, rawId: string): void {
 /** 调系统浏览器打开外部 URL;失败仅 console.warn,不抛。 */
 async function openExternal(url: string): Promise<void> {
   try {
-    await open(url)
+    await openUrl(url)
   }
   catch (e) {
     console.warn('[linkClick] failed to open', url, e)

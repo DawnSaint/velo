@@ -1,53 +1,89 @@
-// KaTeX CSS 自包含:把 woff2 字体 inline 成 base64 data URI,strip woff/ttf 引用。
+// KaTeX CSS 自包含:按需把 woff2 字体转成 base64 data URI,strip woff/ttf 引用。
 //
 // 背景:
-//  - 编辑器在 EditorInner.vue:45 走 `import 'katex/dist/katex.min.css'`(side-effect
-//    import),Vite 在 dev / build 都把 url(fonts/KaTeX_*.{woff2,woff,ttf}) 重写
-//    成 bundled 资源路径,字体在主 webview 内能解析。
-//  - 导出 HTML 走 `?inline` 拿到 CSS 原文,Vite **不**改 url() 引用,导出文件
-//    旁没有 fonts/ 目录 → 浏览器 / 打印用的 WebView2 找不到 KaTeX_*.{woff2,
-//    woff,ttf} → 控制台 ERR_FILE_NOT_FOUND → 字体回退到系统 serif / sans-serif,
-//    公式外观与编辑器不一致。
+//  - 编辑器在 EditorInner.vue 走 `import 'katex/dist/katex.min.css'`(side-effect
+//    import),Vite 把 url(fonts/KaTeX_*.woff2) 打到 dist/assets/。
+//  - 导出 HTML 走 `?raw` 拿 CSS 原文,导出文件旁没有 fonts/ 目录,因此需要把
+//    `@font-face` 的 woff2 内联为 base64 data URI 并 strip woff/ttf 引用。
 //
-// 修法:
-//  - 走 `import.meta.glob` + Vite `?inline` 把 20 个 woff2 全部 inline 成 base64
-//    data URI(build 期完成,运行时已是字符串),拼回 katex.min.css 的 @font-face src
-//    里;woff / ttf 同步 strip(现代浏览器含 WebView2 都首选 woff2,后两条只是
-//    fallback)。
-//  - 改写后整段 src 只有一个 woff2 data URI,体积从 ~1MB raw / ~1.3MB base64
-//    (60 文件) 压到 ~260KB raw / ~340KB base64(20 woff2);同时少了 40 条
-//    解析不到的 url(),console 干净。
-//
-// 副作用:
-//  - 主 bundle 多 ~340KB 静态 base64(常驻,即使没导出也在;导出功能必用,可接受)
-//  - dev / build 路径一致(Vite 静态分析 glob,eager: true 同步拿到对象字面量)
-//
-// 为什么不走 fetch(...?url) 异步拿二进制再 FileReader 转 data URI:可以省主
-// bundle,但每个 export 触发 20 次 fetch + 转码,启动到 PDF 写出多几百 ms,而且
-// 写一份自包含文件要承担 race / 网络错。导出本身就不频繁(用户主动点),静态
-// inline 的简单/可靠 > bundle 大小。
+// 为什么用 `?url` + 运行时 fetch + 内存缓存而非 `?inline`:
+//  - `?inline` 会把 20 个 woff2 以 Base64 形式再打进 JS chunk(~345KB),与 dist/assets/
+//    里的二进制 woff2 双份存储且无法跨格式去重。
+//  - `?url` 复用同一批 .woff2 资产,首次导出时并行 fetch 本地 Tauri 内存资产(不走网络)
+//    并缓存结果,后续导出零 I/O。
 
-// Vite `?inline` 对 binary 资源返回 `data:<mime>;base64,...` 完整 data URI 字符串,
-// text 资源返回原文。20 个 woff2 一次性走 glob 拿到。
 const katexWoff2Modules = import.meta.glob(
   '../../../node_modules/katex/dist/fonts/*.woff2',
-  { query: '?inline', import: 'default', eager: true },
+  { query: '?url', import: 'default', eager: true },
 ) as Record<string, string>
 
-// 抽出 filename → dataUri 的查找表,运行时替换用。
+// 抽出 filename → asset URL 的查找表。
 // modulePath 形如 `'../../../node_modules/katex/dist/fonts/KaTeX_AMS-Regular.woff2'`。
-const katexWoff2DataUris: Record<string, string> = {}
-for (const [modulePath, dataUri] of Object.entries(katexWoff2Modules)) {
+const katexWoff2Urls: Record<string, string> = {}
+for (const [modulePath, url] of Object.entries(katexWoff2Modules)) {
   const filename = modulePath.split('/').at(-1) ?? ''
-  katexWoff2DataUris[filename] = dataUri
+  katexWoff2Urls[filename] = url
+}
+
+const katexDataUriCache = new Map<string, string>()
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function dataUriToBytes(uri: string): Uint8Array {
+  const b64 = uri.slice(uri.indexOf(',') + 1)
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
 }
 
 /**
- * 按文件名取 KaTeX woff2 的 base64 data URI（供 pdfPreview 运行时子集化取字节）。
+ * 按文件名读取 KaTeX woff2 原始字节（供 pdfPreview 运行时子集化用）。
  * 如 `KaTeX_Main-Regular.woff2`。
  */
-export function katexWoff2DataUri(filename: string): string | undefined {
-  return katexWoff2DataUris[filename]
+export async function loadKatexWoff2Bytes(filename: string): Promise<Uint8Array | undefined> {
+  const url = katexWoff2Urls[filename]
+  if (!url) return undefined
+  if (url.startsWith('data:')) return dataUriToBytes(url)
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    return new Uint8Array(await res.arrayBuffer())
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function loadKatexWoff2DataUri(filename: string): Promise<string | undefined> {
+  const cached = katexDataUriCache.get(filename)
+  if (cached) return cached
+
+  const url = katexWoff2Urls[filename]
+  if (!url) return undefined
+  if (url.startsWith('data:')) {
+    katexDataUriCache.set(filename, url)
+    return url
+  }
+
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const dataUri = `data:font/woff2;base64,${uint8ToBase64(bytes)}`
+    katexDataUriCache.set(filename, dataUri)
+    return dataUri
+  }
+  catch {
+    return undefined
+  }
 }
 
 /**
@@ -102,17 +138,29 @@ export function inlineKatexWoff2Fonts(
   })
 }
 
+let cachedInlinedCss: string | null = null
+
 /**
- * 生产路径:走 Vite `?raw` 拿 katex.min.css 原文,再走 `inlineKatexWoff2Fonts`
- * 改写 src。**用 `?raw` 而非 `?inline`**:Vite 的 `?inline` 在 dev / SSR 模式下
- * 返回经 CSS 插件处理过的 CSS(把 url() 改成 /node_modules/... 绝对路径或
- * `new URL(...,import.meta.url).href` JS 表达式),这两类形态的"url"都不是
- * 普通字符串,简单 regex 匹配不到;只有 `?raw` 完全绕开 Vite 的 CSS 流水线,
- * 返回原文件 byte-for-byte 文本(url(fonts/...) 原样保留)。模块顶层
- * import.meta.glob 已在 build / dev 阶段把所有 woff2 拿到 base64 data URI 串,
- * 函数内只做字符串 replace,无 I/O。
+ * 生产路径:走 Vite `?raw` 拿 katex.min.css 原文,并行 fetch 20 个 woff2 转 base64
+ * 后走 `inlineKatexWoff2Fonts` 改写 src,结果缓存在模块级变量中。
+ * **用 `?raw` 而非 `?inline`**:Vite 的 `?inline` 会把 CSS 中 url() 改成绝对路径或
+ * `new URL(...)` 表达式,只有 `?raw` 保留原文件 byte-for-byte 文本。
  */
 export async function loadKatexCssWithFontsInlined(): Promise<string> {
+  if (cachedInlinedCss !== null) return cachedInlinedCss
+
   const css = (await import('katex/dist/katex.min.css?raw')).default
-  return inlineKatexWoff2Fonts(css, katexWoff2DataUris)
+  const filenames = Object.keys(katexWoff2Urls)
+  const loaded = await Promise.all(
+    filenames.map(async (name) => [name, await loadKatexWoff2DataUri(name)] as const),
+  )
+  const fontDataUris: Record<string, string> = {}
+  for (const [name, uri] of loaded) {
+    if (uri) fontDataUris[name] = uri
+  }
+  const inlined = inlineKatexWoff2Fonts(css, fontDataUris)
+  if (Object.keys(fontDataUris).length > 0) {
+    cachedInlinedCss = inlined
+  }
+  return inlined
 }

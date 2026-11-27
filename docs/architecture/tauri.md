@@ -45,7 +45,7 @@
 
 ### capabilities / 权限
 
-`capabilities/default.json`：`windows: ["main", "velo-window-*"]`；权限含 `core:default` / `fs:default` / `dialog:default` / `clipboard-manager:default` / `shell:default` / `opener:default` / `updater:default` / `process:default`，加窗口标题 / 缩放 / 事件监听，以及 fs 全量操作的 `path: "**"`。`core:webview:allow-set-webview-zoom` 供 `useZoom` 调 `setZoom`。
+`capabilities/default.json`：`windows: ["main", "velo-window-*"]`；权限含 `core:default` / `fs:default` / `dialog:default` / `clipboard-manager:default` / `opener:default` / `updater:default` / `process:default`，加窗口标题 / 缩放 / 事件监听，以及 fs 全量操作的 `path: "**"`。`core:webview:allow-set-webview-zoom` 供 `useZoom` 调 `setZoom`。`src-tauri/Cargo.toml` 的 `[profile.release]` 启用 `lto = true` / `codegen-units = 1` / `opt-level = "s"` / `panic = "abort"` / `strip = true` 。
 
 ### Rust 命令清单
 

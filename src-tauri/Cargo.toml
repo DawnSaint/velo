@@ -19,9 +19,7 @@ tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-shell = "2"
-# v0.5.1: 文件树右键"在资源管理器中显示"用 reveal_item_in_dir。
-# plugin-shell.open 只能"用默认应用打开",不能在文件管理器高亮;plugin-opener 专门补这条。
+# 外部 URL 打开(openUrl)与文件树右键"在资源管理器中显示"(reveal_item_in_dir)统一走 plugin-opener。
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.11"
@@ -63,3 +61,13 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.52"
+
+# Release 体积优化(Tauri 官方推荐组合):
+# LTO + 单 CGU + opt-level="s" 跨 crate 裁剪 libgit2/reqwest/tauri 死码,
+# panic="abort" 去掉 .pdata 栈展开表(src-tauri 无 catch_unwind),strip 剥离符号。
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

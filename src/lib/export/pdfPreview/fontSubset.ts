@@ -18,7 +18,7 @@
 // woff2 都不进主 bundle。
 
 import { parse as parseFont } from 'opentype.js'
-import { katexWoff2DataUri } from '../katexCss'
+import { loadKatexWoff2Bytes } from '../katexCss'
 import { decompressWoff2 } from './woff2Decode'
 import hbSubsetWasmUrl from 'harfbuzzjs/dist/harfbuzz-subset.wasm?url'
 // 完整 woff2（与 fontFaceCss.ts 同一批文件）；?url 懒加载，构建期只拷资产不内联。
@@ -262,12 +262,8 @@ const katexFullySfnt = new Map<string, Uint8Array>()
 async function katexFullSfnt(filename: string): Promise<Uint8Array> {
   const hit = katexFullySfnt.get(filename)
   if (hit) return hit
-  const uri = katexWoff2DataUri(filename)
-  if (!uri) throw new Error(`KaTeX 字体未内联: ${filename}`)
-  const b64 = uri.slice(uri.indexOf(',') + 1)
-  const bin = atob(b64)
-  const woff2 = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) woff2[i] = bin.charCodeAt(i)
+  const woff2 = await loadKatexWoff2Bytes(filename)
+  if (!woff2) throw new Error(`KaTeX 字体未找到: ${filename}`)
   const sfnt = (await decompressWoff2(woff2)).slice()
   katexFullySfnt.set(filename, sfnt)
   return sfnt

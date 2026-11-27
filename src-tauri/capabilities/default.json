@@ -10,8 +10,6 @@
     "clipboard-manager:default",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-write-image",
-    "shell:default",
-    "shell:allow-open",
     "opener:default",
     "opener:allow-reveal-item-in-dir",
     "updater:default",

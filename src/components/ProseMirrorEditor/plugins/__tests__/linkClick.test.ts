@@ -10,7 +10,7 @@ import { EditorView } from 'prosemirror-view'
 import { Schema } from 'prosemirror-model'
 import { linkClickPlugin, linkClickPluginKey } from '../linkClick'
 import { SKIP_CONTENT_EMIT } from '../../editor/transactionMeta'
-import { open } from '@tauri-apps/plugin-shell'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 // jsdom 不实现 scrollIntoView;module-scope 持有 mock 实例,各测试 reset 后再断言。
 const scrollIntoViewMock = vi.fn()
@@ -63,8 +63,8 @@ const schema = new Schema({
 beforeEach(() => {
   scrollIntoViewMock.mockReset()
   Element.prototype.scrollIntoView = scrollIntoViewMock
-  vi.mocked(open).mockReset()
-  vi.mocked(open).mockResolvedValue(undefined)
+  vi.mocked(openUrl).mockReset()
+  vi.mocked(openUrl).mockResolvedValue(undefined)
 })
 
 interface Mounted {
@@ -101,7 +101,7 @@ describe('linkClickPlugin', () => {
     const a = view.dom.querySelector('a') as HTMLAnchorElement
     const event = new MouseEvent('click', { bubbles: true, cancelable: true })
     a.dispatchEvent(event)
-    expect(open).not.toHaveBeenCalled()
+    expect(openUrl).not.toHaveBeenCalled()
     // 渲染好的 <a> 被替换成源码文本
     expect(view.dom.querySelector('a')).toBeNull()
     expect(view.dom.textContent).toContain('[link](https://x.com)')
@@ -179,9 +179,9 @@ describe('linkClickPlugin', () => {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })
     a.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
-    // open() 是 async,等一个 microtask 让 promise 链解析到 mock
+    // openUrl() 是 async,等一个 microtask 让 promise 链解析到 mock
     await Promise.resolve()
-    expect(open).toHaveBeenCalledWith('https://x.com')
+    expect(openUrl).toHaveBeenCalledWith('https://x.com')
     cleanup()
   })
 
@@ -192,7 +192,7 @@ describe('linkClickPlugin', () => {
     a.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
     await Promise.resolve()
-    expect(open).toHaveBeenCalledWith('https://x.com')
+    expect(openUrl).toHaveBeenCalledWith('https://x.com')
     cleanup()
   })
 
@@ -206,7 +206,7 @@ describe('linkClickPlugin', () => {
     const { view, cleanup } = mountView(doc)
     const a = view.dom.querySelector('a') as HTMLAnchorElement
     a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }))
-    expect(open).not.toHaveBeenCalled()
+    expect(openUrl).not.toHaveBeenCalled()
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
     cleanup()
   })
@@ -217,14 +217,14 @@ describe('linkClickPlugin', () => {
     expect(() => {
       a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }))
     }).not.toThrow()
-    expect(open).not.toHaveBeenCalled()
+    expect(openUrl).not.toHaveBeenCalled()
     expect(scrollIntoViewMock).not.toHaveBeenCalled()
     cleanup()
   })
 
   it('open rejection is swallowed with console.warn, no unhandled rejection', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.mocked(open).mockRejectedValueOnce(new Error('boom'))
+    vi.mocked(openUrl).mockRejectedValueOnce(new Error('boom'))
     const { view, cleanup } = mountView(paragraphWithLink('https://nonexistent.invalid'))
     const a = view.dom.querySelector('a') as HTMLAnchorElement
     expect(() => {
@@ -250,7 +250,7 @@ describe('linkClickPlugin', () => {
     expect(() => {
       p.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }))
     }).not.toThrow()
-    expect(open).not.toHaveBeenCalled()
+    expect(openUrl).not.toHaveBeenCalled()
     cleanup()
   })
 })

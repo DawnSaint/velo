@@ -211,11 +211,12 @@ export async function buildExportHtml(opts: ExportOptions): Promise<ExportResult
   // @font-face 的 src 改写成 woff2 base64 data URI 并 strip woff/ttf 引用,
   // 让导出 HTML 完全自包含(否则 url(fonts/...) 在外部 webview / 打印机 webview
   // 都解析不到,公式字体回退到系统字体,与编辑器内不一致)。
-  const katexCss = await loadKatexCssWithFontsInlined()
-  // 内嵌字体 @font-face(内联 data URI),让导出 HTML 在外部浏览器 /
-  // 打印机 webview 内也使用同一套等宽字体,不依赖 /fonts/... 路径。
-  // 按需:只内联 fontFamily / fontMono 两个栈里实际命中的族(见 fontFaceCss.ts)。
-  const fontFaceCss = buildFontFaceCss(fontFamily, fontMono)
+  const [katexCss, fontFaceCss] = await Promise.all([
+    loadKatexCssWithFontsInlined(),
+    // 内嵌字体 @font-face(按需 fetch + 内存缓存),让导出 HTML 在外部浏览器 /
+    // 打印机 webview 内也使用同一套字体,不依赖 /fonts/... 路径。
+    buildFontFaceCss(fontFamily, fontMono),
+  ])
 
   const title = fileName || 'Velo Export'
   const html = `<!DOCTYPE html>

@@ -67,8 +67,7 @@
 - `@tauri-apps/plugin-fs` → `readTextFile` / `writeTextFile` / `readFile` / `writeFile` / `watch` / `watchImmediate` / `exists` / `mkdir` / `readDir` / `rename` / `remove` / `copyFile`
 - `@tauri-apps/plugin-dialog` → `open` / `save` / `message`
 - `@tauri-apps/plugin-clipboard-manager` → `writeText`
-- `@tauri-apps/plugin-shell` → `open`（linkClick 打开外部 URL）
-- `@tauri-apps/plugin-opener` → `revealItemInDir`
+- `@tauri-apps/plugin-opener` → `openUrl`（linkClick 打开外部 URL）/ `revealItemInDir`
 - `@tauri-apps/api/window` → `getCurrentWindow()` 单例（`label: 'main'` + setTitle / minimize / toggleMaximize / close / destroy / isMaximized / onResized / onCloseRequested）
 - `@tauri-apps/api/webviewWindow` → `getAllWebviewWindows` / `getCurrentWebviewWindow`
 - `@tauri-apps/api/path` → `appDataDir` / `join` / `dirname` / `sep`
