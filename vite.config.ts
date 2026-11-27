@@ -31,12 +31,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/github-api/, ''),
       },
-      // dev 环境代理 github.com Release 资产(latest.json),避免 WebView2 跨域/CSP 拦截
-      '/github-release': {
-        target: 'https://github.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/github-release/, ''),
-      },
       // dev 环境代理 raw.githubusercontent.com,用于 fetch docs/RELEASE_NOTES.md
       '/github-raw': {
         target: 'https://raw.githubusercontent.com',

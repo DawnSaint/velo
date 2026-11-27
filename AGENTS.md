@@ -167,7 +167,7 @@
 ```
 npm run ci
 ```
-等价于依次执行：type-check → lint:deps → lint:console → lint:design-tokens → knip → eslint --quiet → test → build。任何一步失败即中止。
+等价于依次执行：type-check → lint:deps → lint:console → lint:design-tokens → knip → eslint --quiet → test → build。
 
 ### 手动发版（应急）
 

@@ -14,24 +14,23 @@
 //   静默检查(silent)时网络错误完全不弹 toast —— 中国大陆直连 GitHub 不稳定,
 //   启动时弹一个红色错误 toast 会打扰用户;手动检查时弹 toast 给用户反馈。
 // - **超时**:check 请求 15s 超时,避免直连 GitHub 网络差时用户等一个无限超时。
-// - **前端 fetch check**:check 阶段用前端 fetch 请求 updater 的 latest.json,
-//   跳过 Rust 端 reqwest(代理不兼容)。版本判定只信 latest.json —— 它走 Release
-//   资产下载通道,不受 REST API 未认证 60 次/小时/IP 限流(共享出口 IP 极易 403);
-//   REST API 仅作 release notes 降级源,失败不影响检查。请求失败一律走错误路径,
-//   不得判「无更新」,否则限流/断网时静默吞掉检查。
-//   dev 环境 fetch 走 Vite proxy(/github-release / /github-api),避免 WebView2
-//   跨域/CSP/混合内容拦截;生产环境直连。downloadAndInstall 仍走 checkUpdate。
+// - **Rust checkUpdate 判定版本**:check 阶段直接走 tauri-plugin-updater 的 check(),
+//   请求 Release 资产通道的 latest.json(不受 REST API 未认证 60 次/小时/IP 限流,
+//   共享出口 IP 不会 403;tauri-plugin-updater 2.11+ 已启用 reqwest system-proxy 读取系统代理)。
+//   禁止用前端 fetch 请求 github.com/.../releases/.../latest.json —— GitHub Release
+//   302 跳转链(github.com → objects.githubusercontent.com)无 Access-Control-Allow-Origin,
+//   生产环境被 WebView CORS 拦截、dev 环境 Vite proxy 透传 302 后同样跨域失败(TypeError: Failed to fetch)。
+//   check() 返回的 Update 句柄在模块级缓存,供 App.vue 后台下载与设置页手动安装跨调用方复用。
 // - **release notes 来源**:更新卡片展示用户手写的 docs/RELEASE_NOTES.md(中文、
 //   面向用户),而非 release-please 自动生成的 CHANGELOG.md(英文 commit 流水账)。
 //   fetch GitHub raw 拿到 RELEASE_NOTES.md 全文后正则提取目标版本段落;
 //   raw 在国内网络间歇失败,降级 jsdelivr 按版本 tag 镜像(tag 内容 immutable,
-//   无分支缓存陈旧问题);再失败降级回 release.body(GitHub Release 页面 changelog)。
+//   无分支缓存陈旧问题);均失败时再按需请求 GitHub REST API 降级回 release.body。
 
 import { ref, readonly } from 'vue'
 import { check as checkUpdate, type DownloadEvent } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { isTauri } from '@tauri-apps/api/core'
-import { getVersion } from '@tauri-apps/api/app'
 import { useNotifyStore } from '@/stores/notify'
 import { useSystemStore } from '@/stores/system'
 
@@ -45,21 +44,26 @@ const errorMsg = ref('')
 // 全局只检查一次:App.vue 启动时调 checkForUpdate(true),设置页手动检查调 checkForUpdate(false)。
 // 已检查过且无更新时不重复弹 Toast。
 let autoChecked = false
+// 模块级缓存 Update 句柄：check() / download() 后持有，跨 App.vue(后台下载) 与 SystemGroup.vue(立即安装) 共享
+let pendingUpdate: Awaited<ReturnType<typeof checkUpdate>> = null
 
-/** 网络类错误特征匹配 —— updater 插件的错误消息包含 "error sending request" 或 "network" */
+/** 网络类错误特征匹配 —— 覆盖 Rust reqwest 与前端 fetch / AbortController 超时 */
 function isNetworkError(e: unknown): boolean {
   const msg = String(e).toLowerCase()
-  return msg.includes('error sending request') || msg.includes('network') || msg.includes('timeout') || msg.includes('connect')
+  return (
+    msg.includes('error sending request')
+    || msg.includes('network')
+    || msg.includes('timeout')
+    || msg.includes('timed out')
+    || msg.includes('connect')
+    || msg.includes('failed to fetch')
+    || msg.includes('load failed')
+    || msg.includes('aborted')
+  )
 }
 
-/** updater manifest:Release 资产下载通道,不受 REST API 60 次/小时/IP 限流 */
-const LATEST_JSON_URL = 'https://github.com/DawnSaint/velo/releases/latest/download/latest.json'
-
-/** dev 环境用 Vite proxy 避免 WebView2 跨域/CSP/混合内容拦截 */
-const LATEST_JSON_URL_DEV = '/github-release/DawnSaint/velo/releases/latest/download/latest.json'
-
 /** GitHub API releases/latest,不重定向,返回 tag_name/body/published_at。
- *  未认证限流 60 次/小时/IP,只作 best-effort 降级源,不可作版本判定源。 */
+ *  未认证限流 60 次/小时/IP,仅在 RELEASE_NOTES.md 均不可达时按需降级读取。 */
 const RELEASES_API = 'https://api.github.com/repos/DawnSaint/velo/releases/latest'
 
 /** dev 环境用 Vite proxy 避免 WebView2 跨域/CSP/混合内容拦截 */
@@ -71,31 +75,10 @@ const RELEASE_NOTES_URL = 'https://raw.githubusercontent.com/DawnSaint/velo/mast
 /** dev 环境用 Vite proxy(raw.githubusercontent.com 也受 CSP 跨域拦截) */
 const RELEASE_NOTES_URL_DEV = '/github-raw/DawnSaint/velo/master/docs/RELEASE_NOTES.md'
 
-interface UpdaterManifest {
-  version: string
-  notes?: string
-  pub_date?: string
-}
-
 interface GithubRelease {
   tag_name: string
   body?: string
   published_at?: string
-}
-
-/** fetch updater manifest。非 ok / 网络失败一律 throw 走错误路径,
- *  不能把请求失败当「无更新」(限流 403 时曾静默吞掉整条自动链路)。 */
-async function fetchLatestJson(timeoutMs: number): Promise<UpdaterManifest> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const url = import.meta.env.DEV ? LATEST_JSON_URL_DEV : LATEST_JSON_URL
-  try {
-    const res = await fetch(url, { signal: controller.signal })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.json() as UpdaterManifest
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 /** best-effort fetch GitHub API,供 release notes / 日期降级;失败由调用方 catch */
@@ -175,18 +158,13 @@ export function useUpdater() {
     errorMsg.value = ''
 
     try {
-      // latest.json 是版本判定唯一来源;REST API 并行 best-effort,
-      // 只供 notes / 日期降级,403 / 断网不影响检查。
-      const [latest, release] = await Promise.all([
-        fetchLatestJson(15_000),
-        fetchLatestRelease(15_000).catch(() => null),
-      ])
-      const version = latest.version
-      // 本地版本号与远程相同时不提示更新。
-      // latest.json 永远指向最新 release,必须自己对比版本号,
-      // 否则本地与远程同版也会提示更新。
-      const localVersion = await getVersion()
-      if (localVersion === version) {
+      if (pendingUpdate) {
+        pendingUpdate.close().catch(() => {})
+        pendingUpdate = null
+      }
+      // Rust 端请求 latest.json 并完成 semver 与平台匹配,无 WebView CORS / CSP 限制
+      const update = await checkUpdate({ timeout: 15_000 })
+      if (!update) {
         updateInfo.value = null
         if (!silent) {
           notify.info('当前已是最新版本')
@@ -196,14 +174,19 @@ export function useUpdater() {
         }
         return
       }
+      pendingUpdate = update
+      const version = update.version.replace(/^v/, '')
       // 优先从 docs/RELEASE_NOTES.md 提取用户手写的版本日志;
-      // fetch 失败或找不到对应版本时降级回 release.body(GitHub Release 页面 changelog)。
+      // 均失败时再按需请求 GitHub Release API 降级回 release.body,日常无更新时不消耗 API 限额。
       const notes = await fetchReleaseNotes(version, 15_000)
+      const release = (!notes || !update.date)
+        ? await fetchLatestRelease(15_000).catch(() => null)
+        : null
       status.value = 'available'
       updateInfo.value = {
         version,
-        body: notes ?? release?.body ?? (latest.notes || undefined),
-        date: release?.published_at ?? latest.pub_date,
+        body: notes ?? release?.body ?? (update.body || undefined),
+        date: update.date ?? release?.published_at,
       }
       // silent(自动链路)时不弹「发现新版本」toast —— autoCheck 会接着后台下载,
       // 下载开始/完成的提示由 autoCheck 统一发出,避免 toast 重复。
@@ -224,9 +207,6 @@ export function useUpdater() {
     }
   }
 
-  // 缓存 Update 对象：download() 后持有，install() 时复用
-  let pendingUpdate: Awaited<ReturnType<typeof checkUpdate>> = null
-
   /** 下载更新。返回是否成功到达 'downloaded' 状态(自动链路据此决定是否发完成提示)。 */
   async function startDownload(silent = false): Promise<boolean> {
     if (!isTauri()) return false
@@ -237,11 +217,10 @@ export function useUpdater() {
     errorMsg.value = ''
 
     try {
-      // 走 Rust 端 checkUpdate 拿 Update 对象(签名验证)
-      const update = await checkUpdate({ timeout: 15_000 })
+      // 优先复用 checkForUpdate 已持有的 Update 句柄;重试等为空的场景兜底重拉一次
+      const update = pendingUpdate ?? await checkUpdate({ timeout: 15_000 })
       if (!update) {
         status.value = 'up-to-date'
-        // 自动链路(前端 fetch 已判有新版)到这里说明签名/版本对不上,静默不弹
         if (!silent) notify.info('当前已是最新版本')
         return false
       }
@@ -285,6 +264,11 @@ export function useUpdater() {
       status.value = 'downloaded'
       return true
     } catch (e) {
+      // 下载失败释放旧句柄，下次重试重新走 checkUpdate 获取干净句柄
+      if (pendingUpdate) {
+        pendingUpdate.close().catch(() => {})
+        pendingUpdate = null
+      }
       // 下载失败后重置为 'available'：卡片保持展示、按钮恢复可点击，方便用户重试
       status.value = 'available'
       downloadProgress.value = 0

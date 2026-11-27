@@ -40,7 +40,7 @@
 
 ### 测试分层与规模
 
-132 个测试文件，按「越便宜越优先」分布：
+133 个测试文件，按「越便宜越优先」分布：
 
 | 位置 | 数量 | 覆盖重点 |
 | --- | --- | --- |
@@ -54,7 +54,7 @@
 | `ProseMirrorEditor/composables/__tests__/` | 2 | useProseMirror / useResizeSplitter |
 | `ProseMirrorEditor/editor/shortcuts/commands/__tests__/` | 1 | zoomCommands |
 | `src/lib/export/__tests__/` | 11 | htmlRenderer（含 SCSS 源断言）/ svgRaster / fontFaceCss / docxRenderer + pdfPreview（paperSize / htmlInline / codeIndent / links / footnote / fontSubset / formulaVector） |
-| `src/composables/__tests__/` | 1 | useStaleEntry |
+| `src/composables/__tests__/` | 2 | useStaleEntry / useUpdater |
 
 完整清单以文件系统为准（`find src -name '*.test.ts'`）；本表只用于判断「哪一层缺覆盖」。
 
