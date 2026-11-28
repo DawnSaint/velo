@@ -690,7 +690,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   background: transparent;
   &.tab-dot-on {
-    background: rgb(245 158 11);
+    background: var(--color-amber-500);
   }
 }
 
@@ -757,7 +757,7 @@ onBeforeUnmount(() => {
   background: var(--surface-hover);
 }
 .dark .tab-dot-on {
-  background: rgb(251 191 36);
+  background: var(--color-amber-400);
 }
 .dark .tab-new:hover {
   background: var(--surface-hover);

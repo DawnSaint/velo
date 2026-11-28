@@ -379,7 +379,7 @@ onUnmounted(detachScrollListener)
   animation: outline-flash 1.5s ease-out;
 }
 @keyframes outline-flash {
-  0%  { background-color: var(--md-primary-color, #1F71D9); color: #fff; border-radius: 4px; }
+  0%  { background-color: var(--md-primary-color, #1F71D9); color: var(--color-white); border-radius: 4px; }
   100% { background-color: transparent; color: inherit; }
 }
 /* 当前标题行高亮背景 —— 用 global class 而非 inline style，

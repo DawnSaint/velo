@@ -668,7 +668,7 @@ function isCollapsed(fullPath: string): boolean {
  * (selected 优先,"hover 是预览、selected 是确认"语义)。
  */
 .velo-ws-hovered {
-  background-color: rgb(243 244 246);
+  background-color: var(--color-gray-100);
 }
 .dark .velo-ws-hovered {
   background-color: var(--chrome-text-primary);

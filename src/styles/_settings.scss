@@ -81,7 +81,7 @@
   border: 1px solid var(--surface-border);
   border-radius: 0.5rem;
   background-color: var(--surface-3);
-  color: rgb(17 24 39); /* gray-900 */
+  color: var(--color-gray-900);
   font-size: 0.8125rem;
   padding: 0.375rem 0.625rem;
   cursor: pointer;
@@ -131,17 +131,13 @@ html.dark .velo-select-panel {
   background: var(--surface-3);
   box-shadow: var(--shadow-popover);
 }
-/* 面板滚动条:对齐全局色阶(亮 0.3/0.5,暗 0.2/0.35) */
+/* 面板滚动条:复用全局滚动条色阶 */
 .velo-select-panel::-webkit-scrollbar { width: 8px; }
 .velo-select-panel::-webkit-scrollbar-track { background: transparent; }
 .velo-select-panel::-webkit-scrollbar-thumb {
-  background-color: rgba(144, 146, 152, 0.3);
+  background-color: var(--scrollbar-thumb);
   border-radius: 4px;
-  &:hover { background-color: rgba(144, 146, 152, 0.5); }
-}
-html.dark .velo-select-panel::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-  &:hover { background-color: rgba(255, 255, 255, 0.35); }
+  &:hover { background-color: var(--scrollbar-thumb-hover); }
 }
 
 /* 面板出现/消失过渡 */
@@ -204,10 +200,7 @@ html.dark .velo-select-option--highlighted {
   width: 10px;
   height: 10px;
   border-radius: 9999px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-html.dark .velo-select-swatch {
-  border-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--surface-border);
 }
 
 /* 去掉 input[type=color] 默认外观,内部色块撑满整个圆 */
@@ -241,7 +234,7 @@ html.dark .velo-select-swatch {
   width: var(--switch-w);
   height: var(--switch-h);
   border-radius: 9999px;
-  background: #d1d5db; /* gray-300,未激活 */
+  background: var(--color-gray-300);
   cursor: pointer;
   transition: background-color .18s ease;
   flex-shrink: 0;
@@ -254,7 +247,7 @@ html.dark .velo-select-swatch {
   width: calc(var(--switch-h) - 4px);
   height: calc(var(--switch-h) - 4px);
   border-radius: 9999px;
-  background: #fff;
+  background: var(--color-white);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
   transition: transform .18s ease;
 }
@@ -282,7 +275,7 @@ html.dark .velo-select-swatch {
 /* 拖动圆:纯白球 + 灰边;暗色下深球 + 浅边 */
 .velo-slider-knob {
   will-change: left;
-  background: #ffffff;
+  background: var(--color-white);
   border-color: var(--chrome-text-primary);
 }
 .dark .velo-slider-knob {

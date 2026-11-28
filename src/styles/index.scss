@@ -67,6 +67,8 @@
   --chrome-accent-blue: #3b82f6;      /* blue-500 */
   --code-header-dark-bg: #1f2937;     /* gray-800 */
   --code-dark-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: rgba(144, 146, 152, 0.3);
+  --scrollbar-thumb-hover: rgba(144, 146, 152, 0.5);
 }
 .dark {
   --surface-0: #15171c;
@@ -83,6 +85,8 @@
   --chrome-text-primary: #d1d5db;     /* gray-300 */
   --chrome-text-active: #d1d5db;      /* gray-300 */
   --chrome-accent-blue: #60a5fa;      /* blue-400 */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
 }
 
 @layer base {
@@ -130,16 +134,9 @@
 
   ::-webkit-scrollbar-thumb {
     border-radius: 6px;
-    background-color: rgba(144, 146, 152, 0.3);
+    background-color: var(--scrollbar-thumb);
     &:hover {
-      background-color: rgba(144, 146, 152, 0.5);
-    }
-  }
-
-  .dark ::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-    &:hover {
-      background-color: rgba(255, 255, 255, 0.35);
+      background-color: var(--scrollbar-thumb-hover);
     }
   }
 }
@@ -177,7 +174,7 @@
   width: 6px;
   height: 0;
   border-radius: 3px;
-  background-color: rgba(144, 146, 152, 0.3);
+  background-color: var(--scrollbar-thumb);
   opacity: 0;
   transition: opacity 0.18s ease;
   pointer-events: none;
@@ -191,16 +188,7 @@
 
 .velo-scroll-thumb:hover,
 .velo-scroll-thumb-dragging {
-  background-color: rgba(144, 146, 152, 0.5);
-}
-
-.dark .velo-scroll-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-.dark .velo-scroll-thumb:hover,
-.dark .velo-scroll-thumb-dragging {
-  background-color: rgba(255, 255, 255, 0.35);
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* 侧栏分隔条(v0.5.5)。

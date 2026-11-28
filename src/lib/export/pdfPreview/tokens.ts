@@ -131,7 +131,7 @@ const SUBSTITUTES: Record<string, [string, FontKey]> = {
 const IGNORABLE_JOINERS = new Set(['\uFE0E', '\uFE0F', '\u200D'])
 
 /** 查询同字体内两个相邻 gid 的 1000 单位水平字距微调（GPOS / kern）。 */
-export function kernOf(font: FontKey, leftGid: number, rightGid: number): number {
+function kernOf(font: FontKey, leftGid: number, rightGid: number): number {
   return activeFonts?.slots[font]?.meta.kern?.[`${leftGid},${rightGid}`] ?? 0
 }
 

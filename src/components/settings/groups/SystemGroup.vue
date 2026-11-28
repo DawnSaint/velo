@@ -325,13 +325,9 @@ onMounted(async () => {
   & code {
     padding: 0.1rem 0.25rem;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.06);
+    background: color-mix(in srgb, currentColor 7%, transparent);
     font-size: 0.7rem;
     font-family: var(--font-mono, monospace);
-  }
-
-  :is(.dark *) & code {
-    background: rgba(255, 255, 255, 0.08);
   }
 
   & a {
@@ -350,7 +346,7 @@ onMounted(async () => {
   & hr {
     margin: 0.5rem 0;
     border: none;
-    border-top: 1px solid rgba(128, 128, 128, 0.25);
+    border-top: 1px solid var(--surface-border);
   }
 }
 </style>

@@ -95,7 +95,7 @@
 
 | 变量 | 用途 | 动态注入 |
 | --- | --- | --- |
-| `--surface-0..3` / `--surface-border` / `--surface-hover` / `--surface-pressed` / `--shadow-card` / `--shadow-popover` | 海拔填色与浮层 | ✗（dark 靠 CSS cascade） |
+| `--surface-0..3` / `--surface-border` / `--surface-hover` / `--surface-pressed` / `--shadow-card` / `--shadow-popover` / `--scrollbar-thumb` / `--scrollbar-thumb-hover` | 海拔填色、浮层与滚动条 | ✗（dark 靠 CSS cascade） |
 | `--editor-text-muted`、`--chrome-text-secondary/primary/active`、`--chrome-accent-blue` | 编辑器与 chrome 文字 | ✗ |
 | `--md-primary-color` | 主题强调色（UI chrome / 导出） | ✓ `store.primaryColor` |
 | `--md-doc-primary-color` | 文档内容强调色 | ✓ 仅 `themeColorAffectsDoc` 开启时注入 |
@@ -117,7 +117,7 @@
 
 ### 颜色门禁
 
-`lint:design-tokens`（`scripts/lint-design-tokens.mjs`）检测 SCSS / Vue `<style>` 中的硬编码颜色（`#hex` / `rgb()` / `rgba()` / `hsl()`），baseline 棘轮模式防新增。baseline 在 `scripts/lint-design-tokens-baseline.json`（212 条，按 `file:color` 记录，行号变动不漂移），**机器可读的存量清单以此为准**。
+`lint:design-tokens`（`scripts/lint-design-tokens.mjs`）检测 SCSS / Vue `<style>` 中的硬编码颜色（`#hex` / `rgb()` / `rgba()` / `hsl()`），baseline 棘轮模式防新增。baseline 在 `scripts/lint-design-tokens-baseline.json`（168 条，按 `file:color` 记录，行号变动不漂移），**机器可读的存量清单以此为准**。
 
 规则：UI chrome 背景走海拔变量、主题色走 `var(--md-primary-color)`；`var(--xxx, #fallback)` 的 fallback 与注释里的颜色放行。新增颜色先确认能否复用，确需新增再跑 `npm run lint-design-tokens:baseline` 更新 baseline。
 
@@ -126,15 +126,13 @@
 | 分组 | 位置 | 说明 |
 | --- | --- | --- |
 | UI chrome 海拔色 | `index.scss` 变量定义处 | 封闭四级 + 配套层，不建议新增 |
-| UI chrome 滚动条 | 三套滚动条共用色阶 | 改一处必须三处同步 |
-| UI chrome scoped | `_settings.scss` / `TabBar` / `AssetPanel` / `WindowControls` | 已迁移到 `--chrome-text-*` 的不再列入 |
-| 右键菜单 danger | `_context-menu.scss` | 删除类操作 |
-| 设置页交互 | `_settings.scss` | switch / slider / select |
+| UI chrome 滚动条 | `index.scss` `--scrollbar-thumb*` | 全局 / `.velo-scroll` / 设置下拉统一走变量；代码块与表格带 fallback 兼容导出 |
+| UI chrome scoped | `WindowControls` / `FileTree` / `ImagePreviewLightbox` | Tailwind 色阶已迁移到 `var(--color-*)`，仅保留暗房 / 原生窗口按钮 / 阴影 |
 | 编辑器语法高亮 | `_editor-code.scss` / `_editor-dark.scss` | 对齐 GitHub Primer 色板，不建议随意改 |
 | 编辑器文字灰阶 | 各 `_editor-*.scss` | 次要文字优先用 `--editor-text-muted` |
 | 编辑器链接 / 强调 | `_typography` / `_editor-tables` / `_math` / `_mermaid` / `_editor-fold` | — |
 | 导出样式 | `exportStyles.scss` | 与编辑器内容镜像 |
-| diff 线条语义 | `_editor-diff.scss` 的 `--diff-*` | 见 [editor.md](./editor.md) diff 节 |
+| diff 线条语义 | `_editor-diff.scss` 的 `--diff-*` | 亮暗各 2 个基色（绿增 / 红删），其余由 `color-mix()` / Tailwind 变量派生 |
 
 ## 关键取舍
 

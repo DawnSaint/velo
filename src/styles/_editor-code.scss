@@ -127,21 +127,21 @@ html.dark .velo-editor,
   cursor: default;
 }
 .velo-editor pre::-webkit-scrollbar-thumb {
-  background-color: rgba(144, 146, 152, 0.3);
+  background-color: var(--scrollbar-thumb, rgba(144, 146, 152, 0.3));
   border-radius: 4px;
   border: 2px solid transparent;
   background-clip: padding-box;
   cursor: default;
   &:hover {
-    background-color: rgba(144, 146, 152, 0.5);
+    background-color: var(--scrollbar-thumb-hover, rgba(144, 146, 152, 0.5));
   }
 }
 html.dark .velo-editor pre::-webkit-scrollbar-thumb,
 .dark .velo-editor pre::-webkit-scrollbar-thumb,
 .velo-editor.dark pre::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.2));
   &:hover {
-    background-color: rgba(255, 255, 255, 0.35);
+    background-color: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.35));
   }
 }
 
@@ -502,9 +502,9 @@ html.dark .velo-editor .velo-code-lineno,
 // ProseMirror widget 直挂 body 的 fixed 面板,与 Vue Teleport 菜单范式不重合。
 .velo-lang-dropdown {
   position: fixed;
-  background: #fff;
+  background: var(--surface-3);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-popover);
   width: 192px;
   max-height: 240px;
   overflow-y: auto;
@@ -530,7 +530,7 @@ html.dark .velo-lang-dropdown {
 
   &:hover,
   &.highlighted {
-    background: #f3f4f6;  // bg-gray-100
+    background: var(--color-gray-100);
   }
 }
 
@@ -539,17 +539,17 @@ html.dark .velo-lang-dropdown-item {
 
   &:hover,
   &.highlighted {
-    background: #374151;  // bg-gray-700
+    background: var(--color-gray-700);
   }
 }
 
 // 匹配关键字高亮:下拉项中与输入框 query 匹配的子串加粗着色
 .velo-lang-dropdown-item .velo-lang-match {
   font-weight: 600;
-  color: #e8590c; // orange-600,在灰底上高对比
+  color: var(--color-orange-600);
 }
 html.dark .velo-lang-dropdown-item .velo-lang-match {
-  color: #fb923c; // orange-400
+  color: var(--color-orange-400);
 }
 
 // ============================================================

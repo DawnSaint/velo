@@ -20,14 +20,9 @@
 
 .velo-emoji-source-edit {
   font-family: var(--font-mono);
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--surface-hover);
   border-radius: 3px;
   padding: 0 3px;
-  color: #666;
-}
-
-:is(.dark .velo-editor, .velo-editor.dark) .velo-emoji-source-edit {
-  background-color: rgba(255, 255, 255, 0.06);
   color: var(--editor-text-muted);
 }
 
@@ -49,9 +44,9 @@
 
 .velo-emoji-dropdown {
   position: fixed;
-  background: #fff;
+  background: var(--surface-3);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-popover);
   width: 220px;
   max-height: 240px;
   overflow-y: auto;
@@ -77,7 +72,7 @@ html.dark .velo-emoji-dropdown {
 
   &:hover,
   &.highlighted {
-    background: #f3f4f6; // bg-gray-100
+    background: var(--color-gray-100);
   }
 }
 
@@ -86,7 +81,7 @@ html.dark .velo-emoji-dropdown-item {
 
   &:hover,
   &.highlighted {
-    background: #374151; // bg-gray-700
+    background: var(--color-gray-700);
   }
 }
 
@@ -108,8 +103,8 @@ html.dark .velo-emoji-dropdown-item {
 // 匹配关键字高亮
 .velo-emoji-dropdown-item .velo-emoji-match {
   font-weight: 600;
-  color: #e8590c; // orange-600
+  color: var(--color-orange-600);
 }
 html.dark .velo-emoji-dropdown-item .velo-emoji-match {
-  color: #fb923c; // orange-400
+  color: var(--color-orange-400);
 }

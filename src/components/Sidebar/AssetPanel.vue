@@ -714,7 +714,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-section__header:hover {
-  background: rgb(243 244 246); /* gray-100 */
+  background: var(--color-gray-100);
 }
 
 .dark .asset-section__header {
@@ -722,7 +722,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .dark .asset-section__header:hover {
-  background: rgb(31 41 55 / 0.5); /* gray-800/50 */
+  background: color-mix(in srgb, var(--color-gray-800) 50%, transparent);
 }
 
 .asset-section__header--warn {
@@ -747,14 +747,14 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   height: 14px;
   padding: 0 4px;
   border-radius: 7px;
-  background: rgb(209 213 219); /* gray-300 */
+  background: var(--color-gray-300);
   font-size: 9px;
   font-weight: 600;
   color: var(--chrome-text-secondary);
 }
 
 .dark .asset-section__count {
-  background: rgb(55 65 81); /* gray-700 */
+  background: var(--color-gray-700);
   color: var(--chrome-text-secondary);
 }
 
@@ -798,22 +798,22 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
 }
 
 .asset-item:hover {
-  background: rgb(243 244 246); /* gray-100 */
+  background: var(--color-gray-100);
 }
 
 .dark .asset-item:hover {
-  background: rgb(31 41 55 / 0.5); /* gray-800/50 */
+  background: color-mix(in srgb, var(--color-gray-800) 50%, transparent);
 }
 
 /* 右键选中态：复用 hover 底色 + 字体加粗，与 hover 区分靠 font-weight */
 .asset-item.asset-item--selected,
 .asset-item.asset-item--selected:hover {
-  background: rgb(243 244 246); /* gray-100 */
+  background: var(--color-gray-100);
 }
 
 .dark .asset-item.asset-item--selected,
 .dark .asset-item.asset-item--selected:hover {
-  background: rgb(31 41 55 / 0.5); /* gray-800/50 */
+  background: color-mix(in srgb, var(--color-gray-800) 50%, transparent);
 }
 
 .asset-item__thumb {
@@ -824,7 +824,7 @@ function onAssetDragStart(event: DragEvent, src: string, alt: string) {
   width: 32px;
   height: 32px;
   border-radius: 4px;
-  background: rgb(243 244 246); /* gray-100 */
+  background: var(--color-gray-100);
   overflow: hidden;
 }
 

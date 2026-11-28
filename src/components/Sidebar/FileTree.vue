@@ -854,13 +854,13 @@ function displayName(node: TreeNode): string {
 /* revealFile 加的临时高亮 class —— 1500ms 后由 revealFile 内部移除。
  * 蓝色 outline + 浅蓝底,够醒目但不抢焦点(对比 active-file 行的 surface-pressed 更亮)。 */
 .reveal-flash {
-  background-color: rgb(219 234 254);   /* blue-100 */
+  background-color: var(--color-blue-100);
   outline: 2px solid var(--chrome-accent-blue);  /* blue-500 */
   outline-offset: -2px;
   transition: background-color 600ms ease-out, outline-color 600ms ease-out;
 }
 .dark .reveal-flash {
-  background-color: rgb(30 58 138 / 0.4);   /* blue-900 @ 40% */
+  background-color: color-mix(in srgb, var(--color-blue-900) 40%, transparent);
   outline-color: var(--chrome-accent-blue);          /* blue-400 */
 }
 </style>

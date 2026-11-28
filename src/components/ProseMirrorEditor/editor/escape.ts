@@ -10,7 +10,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 export const ESCAPE_MARK = 'escape'
 
 /** CommonMark §2.4 允许反斜杠转义的 32 个 ASCII 标点。 */
-export const ESCAPABLE_CHAR_RE = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/
+const ESCAPABLE_CHAR_RE = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/
 
 /** 匹配成对的 `\<ASCII punct>` 转义序列（全局扫描用）。 */
 export const ESCAPE_PAIR_RE = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g

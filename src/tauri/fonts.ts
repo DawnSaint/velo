@@ -7,7 +7,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { tauriOnly } from './fs'
 
-export interface SystemFontMeta {
+interface SystemFontMeta {
   upem: number
   chars: Record<string, [number, number]>
   widths: number[]
@@ -28,7 +28,7 @@ interface Type3ImageRaw {
   alphaFlateBase64?: string
 }
 
-export interface Type3Image {
+interface Type3Image {
   name: string
   width: number
   height: number
@@ -36,12 +36,12 @@ export interface Type3Image {
   alphaFlate?: Uint8Array
 }
 
-export interface Type3Shading {
+interface Type3Shading {
   name: string
   pdfDict: string
 }
 
-export interface Type3SoftMask {
+interface Type3SoftMask {
   name: string
   shadingDict: string
   bbox: [number, number, number, number]

@@ -49,19 +49,19 @@
   }
 }
 
-// ── 语义色（Primer 低饱和双色系：绿增 + 红删，正文与右侧 ruler 统一）──
+// ── 语义色（Primer 低饱和双色系：绿增 + 红删，正文与右侧 ruler 同源派生）──
 :root {
   --diff-add-line: #389e6d;
   --diff-del-ink: #be5863;
-  --diff-del-heading-ink: #c96f78;
-  --diff-del-line: rgba(214, 86, 98, 0.58);
-  --diff-fmt-line: #d97706; // 保留兼容（不再主动输出琥珀标记）
+  --diff-del-heading-ink: color-mix(in srgb, var(--diff-del-ink) 84%, transparent);
+  --diff-del-line: color-mix(in srgb, var(--diff-del-ink) 62%, transparent);
+  --diff-fmt-line: var(--color-amber-600); // 保留兼容（不再主动输出琥珀标记）
 
   // Overview Ruler(#diff-ruler)
-  --diff-ruler-add: rgba(45, 164, 110, 0.52);
-  --diff-ruler-del: rgba(214, 86, 98, 0.52);
-  --diff-ruler-thumb: rgba(120, 125, 132, 0.22);
-  --diff-ruler-thumb-hover: rgba(120, 125, 132, 0.36);
+  --diff-ruler-add: color-mix(in srgb, var(--diff-add-line) 54%, transparent);
+  --diff-ruler-del: color-mix(in srgb, var(--diff-del-ink) 56%, transparent);
+  --diff-ruler-thumb: color-mix(in srgb, var(--chrome-text-secondary) 24%, transparent);
+  --diff-ruler-thumb-hover: color-mix(in srgb, var(--chrome-text-secondary) 40%, transparent);
 }
 
 html.dark,
@@ -69,14 +69,8 @@ html.dark,
 .velo-editor.dark {
   --diff-add-line: #52b486;
   --diff-del-ink: #d2767e;
-  --diff-del-heading-ink: #ba6970;
-  --diff-del-line: rgba(220, 98, 108, 0.65);
-  --diff-fmt-line: #f59e0b;
-
-  --diff-ruler-add: rgba(68, 178, 128, 0.58);
-  --diff-ruler-del: rgba(220, 98, 108, 0.60);
-  --diff-ruler-thumb: rgba(154, 160, 168, 0.26);
-  --diff-ruler-thumb-hover: rgba(154, 160, 168, 0.42);
+  --diff-del-line: color-mix(in srgb, var(--diff-del-ink) 68%, transparent);
+  --diff-fmt-line: var(--color-amber-500);
 }
 
 // 语义「文本块」:能被文字删除线 / 文本标记承载的节点。
@@ -473,14 +467,14 @@ html.dark .velo-code-header-widget:has(+ pre.velo-diff-changed.velo-folded),
   margin-block: 2px;
   border-radius: 4px;
   user-select: none;
-  color: rgb(146 64 14); // amber-800
-  background-color: rgb(254 243 199); // amber-100
+  color: var(--color-amber-800);
+  background-color: var(--color-amber-100);
   border-left: 0;
 }
 
 html.dark .velo-diff-boundary-hint {
-  color: rgb(253 230 138);
-  background-color: rgb(69 26 3 / 0.5);
+  color: var(--color-amber-200);
+  background-color: color-mix(in srgb, var(--color-amber-950) 50%, transparent);
 }
 
 // ── 表格结构化 diff(#diff-wysiwyg)──

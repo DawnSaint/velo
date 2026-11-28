@@ -22,14 +22,14 @@
       cursor: default;
     }
     &::-webkit-scrollbar-thumb {
-      background-color: rgba(144, 146, 152, 0.3);
+      background-color: var(--scrollbar-thumb, rgba(144, 146, 152, 0.3));
       border-radius: 4px;
       border-top: 2px solid transparent;
       border-bottom: 2px solid transparent;
       background-clip: padding-box;
       cursor: default;
       &:hover {
-        background-color: rgba(144, 146, 152, 0.5);
+        background-color: var(--scrollbar-thumb-hover, rgba(144, 146, 152, 0.5));
       }
     }
   }
@@ -272,9 +272,9 @@
 :is(.dark .velo-editor, .velo-editor.dark) {
   // 暗色滚动条对齐 code_block
   .tableWrapper::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.2));
     &:hover {
-      background-color: rgba(255, 255, 255, 0.35);
+      background-color: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.35));
     }
   }
   --velo-table-border: #3a3a3a;

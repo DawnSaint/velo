@@ -35,7 +35,7 @@ export interface FontMeta {
   kern?: Record<string, number>
 }
 
-export interface PreviewCssFont {
+interface PreviewCssFont {
   family: string
   weight: number
   italic?: boolean
@@ -211,7 +211,7 @@ export function collectKernPairs(text: string): string[] {
 }
 
 /** 解析 CSS font-family 栈字符串为去重后的族名列表（跳过纯 generic family）。 */
-export function parseCssFontStack(stack?: string): string[] {
+function parseCssFontStack(stack?: string): string[] {
   if (!stack) return []
   const out: string[] = []
   const seen = new Set<string>()
