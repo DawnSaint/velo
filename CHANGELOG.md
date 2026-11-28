@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.7.17](https://github.com/DawnSaint/velo/compare/v0.7.16...v0.7.17) (2026-11-28)
+
+
+### Features
+
+* **diff:** add hunk navigation, unified overview ruler, and two-color preview diff ([123d08a](https://github.com/DawnSaint/velo/commit/123d08a1774b0dbf631c1fb3581c250a7dd8a3a7))
+* **editor:** add Google Sans and Google Sans Code fonts and improve mono fallback ([2326701](https://github.com/DawnSaint/velo/commit/23267019c1b5c3a2c3d26b5a31181f8f5bff9ab2))
+* **export:** add rustybuzz shaping for emoji sequences and kerning in pdf preview ([f452482](https://github.com/DawnSaint/velo/commit/f4524825c3da489fdce1d2409ad5de4844e0894e))
+* **export:** add Type3 color emoji and soft-mask gradients to pdf preview ([5c3bebd](https://github.com/DawnSaint/velo/commit/5c3bebdcda673c42dc733373e0ed8277e7fc7cbb))
+* **export:** support dynamic editor fonts in pdf preview and keep window controls accessible over modals ([8e66bee](https://github.com/DawnSaint/velo/commit/8e66bee2879ab42baab55a2e621d635306d2d4cb))
+
+
+### Bug Fixes
+
+* **editor:** preserve raw markdown slices and prevent silent document mutations ([13c1d89](https://github.com/DawnSaint/velo/commit/13c1d897bd16ed0e78049dd1af68e9e6fb41bdd9))
+* **editor:** support backslash escapes, bold-italic nesting, and updater fallback ([15f9ff9](https://github.com/DawnSaint/velo/commit/15f9ff98692cc03e470282c62f10e703003605e6))
+* **updater:** use rust checkUpdate to avoid webview cors failure ([90b3897](https://github.com/DawnSaint/velo/commit/90b38973dd8f693b5511de013c229277032d9b5e))
+
+
+### Performance Improvements
+
+* **build:** optimize binary size and lazy-load settings and diff views ([040f7ed](https://github.com/DawnSaint/velo/commit/040f7edfdc076838db93645d26520e4643007384))
+
 ## [0.7.16](https://github.com/DawnSaint/velo/compare/v0.7.15...v0.7.16) (2026-11-25)
 
 
