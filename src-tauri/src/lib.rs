@@ -244,6 +244,7 @@ mod git;
 /// 工作区遍历/搜索(#rust-search-quickopen-git):walker 单 command 化,
 /// Ctrl+P 索引与全文搜索共用。
 mod workspace;
+mod color_fonts;
 mod fonts;
 
 /// 前端设置面板:读取 GPU 硬件加速启用状态。仅 Windows 有意义。

@@ -12,7 +12,7 @@
 // woff2 都不进主 bundle。
 
 import { parse as parseFont } from 'opentype.js'
-import { fallbackSubsetSystemFonts, resolveAndSubsetSystemFont } from '@/tauri/fonts'
+import { fallbackSubsetSystemFonts, resolveAndSubsetSystemFont, type Type3FontData } from '@/tauri/fonts'
 import { loadKatexWoff2Bytes } from '../katexCss'
 import { decompressWoff2 } from './woff2Decode'
 import hbSubsetWasmUrl from 'harfbuzzjs/dist/harfbuzz-subset.wasm?url'
@@ -39,9 +39,11 @@ export interface PreviewCssFont {
   italic?: boolean
 }
 
+export type { Type3FontData } from '@/tauri/fonts'
+
 export interface SubsetFont {
   meta: FontMeta
-  /** 子集 TTF 字节：PDF FontFile2 嵌入用（打包字体同时供预览 @font-face） */
+  /** 子集 TTF 字节：PDF FontFile2 嵌入用（打包字体同时供预览 @font-face；纯 Type3 彩色槽位为空） */
   ttf: Uint8Array
   /**
    * 系统字体 DOM 预览声明。
@@ -49,6 +51,8 @@ export interface SubsetFont {
    * 系统字体在 WebView 本机已安装，预览直接走系统 font-family，与编辑器同源。
    */
   previewCss?: PreviewCssFont
+  /** PDF Type3 彩色字形数据（COLR v0/v1 矢量或 sbix/CBDT PNG 位图） */
+  type3?: Type3FontData
 }
 
 export interface FontSet {
@@ -65,6 +69,8 @@ export interface FontSet {
 export interface FontStackPrefs {
   fontFamily?: string
   fontMono?: string
+  /** 紧跟 VS16 (U+FE0F) 请求彩色 emoji 呈现的基字符（如 ⚠️ 的 ⚠、❤️ 的 ❤） */
+  colorPreferredChars?: string
 }
 
 // 批量收集 src/fonts/**/*.woff2 的构建产物 URL（与 fontFaceCss.ts / _fonts.scss 复用同一批资产）
@@ -119,9 +125,22 @@ export function collectCharset(content: string, extra = ''): string {
   for (let i = 32; i < 127; i++) set.add(String.fromCharCode(i))
   for (const ch of content) set.add(ch)
   for (const ch of extra) set.add(ch)
-  // 空白统一按空格渲染（tokens.glyph），不占字形
+  // 空白统一按空格渲染（tokens.glyph），变体选择符（VS15/VS16）无独立字形，均不进字符集
   set.delete('\n'); set.delete('\r'); set.delete('\t')
+  set.delete('\uFE0E'); set.delete('\uFE0F')
   return [...set].sort().join('')
+}
+
+/** 收集紧跟 VS16 (U+FE0F) 请求彩色 emoji 呈现的基字符（如 ⚠️ → ⚠、❤️ → ❤）。 */
+export function collectColorPreferredChars(text: string): string {
+  const cps = [...text]
+  const out = new Set<string>()
+  for (let i = 0; i + 1 < cps.length; i++) {
+    if (cps[i + 1] === '\uFE0F' && cps[i] !== '\uFE0F' && cps[i] !== '\uFE0E') {
+      out.add(cps[i])
+    }
+  }
+  return [...out].sort().join('')
 }
 
 /** 解析 CSS font-family 栈字符串为去重后的族名列表（跳过纯 generic family）。 */
@@ -328,7 +347,7 @@ function buildDefaultCandidates(role: FontRole, prefs?: FontStackPrefs): { famil
  *   剩余缺字走 Rust fallback 补齐。
  */
 export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Promise<FontSet> {
-  const famKey = `${fontPrefs?.fontFamily ?? ''}\u0000${fontPrefs?.fontMono ?? ''}`
+  const famKey = `${fontPrefs?.fontFamily ?? ''}\u0000${fontPrefs?.fontMono ?? ''}\u0000${fontPrefs?.colorPreferredChars ?? ''}`
   const key = `${text.length}:${text.slice(0, 64)}:${hash(text)}:${hash(famKey)}`
   const hit = subsetCache.get(key)
   if (hit) return hit
@@ -380,8 +399,9 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
           if (sys) {
             sub = {
               meta: sys.meta,
-              ttf: sys.ttf,
+              ttf: sys.ttf ?? new Uint8Array(0),
               previewCss: { family: sys.family, weight: sys.weight, italic: sys.italic },
+              type3: sys.type3,
             }
           }
         }
@@ -410,16 +430,26 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
     }
   }
 
-  // 系统缺字兜底（仅 Tauri 环境生效；非 Tauri 返回 []）
-  const stillMissing = allChars.filter(ch => !/\s/.test(ch) && !coveredAny.has(ch)).join('')
+  // 系统缺字兜底（仅 Tauri 环境生效；非 Tauri 返回 []）。
+  // 明确带 U+FE0F 请求彩色 emoji 呈现的基字符（如 ⚠️ 的 ⚠、❤️ 的 ❤）即使主字体有单色轮廓，
+  // 也并入兜底请求以提取 Type3 彩色字形。
+  const stillMissingSet = new Set<string>()
+  for (const ch of allChars) {
+    if (!/\s/.test(ch) && !coveredAny.has(ch)) stillMissingSet.add(ch)
+  }
+  for (const ch of fontPrefs?.colorPreferredChars ?? '') {
+    if (!/\s/.test(ch)) stillMissingSet.add(ch)
+  }
+  const stillMissing = [...stillMissingSet].join('')
   if (stillMissing.length > 0) {
     const fallbacks = await fallbackSubsetSystemFonts(stillMissing, 400)
     fallbacks.forEach((sys, idx) => {
       const slotKey = `fb:${idx}`
       slots[slotKey] = {
         meta: sys.meta,
-        ttf: sys.ttf,
+        ttf: sys.ttf ?? new Uint8Array(0),
         previewCss: { family: sys.family, weight: sys.weight, italic: sys.italic },
+        type3: sys.type3,
       }
       chains.sans.push(slotKey)
       chains.bold.push(slotKey)

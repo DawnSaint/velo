@@ -8,10 +8,10 @@
 // 必须已注入；未注入时 glyph() 会抛错而不是静默画错字。
 
 import type { FontKey, FontRole, PdfLayoutOptions } from './types'
-import type { FontMeta, FontSet } from './fontSubset'
+import type { FontMeta, FontSet, Type3FontData } from './fontSubset'
 import { MM_TO_PT, PDF_PAPER_SIZES } from './types'
 
-export type { FontMeta } from './fontSubset'
+export type { FontMeta, Type3FontData } from './fontSubset'
 
 let activeFonts: FontSet | null = null
 /** 当前字体集槽位 → PDF 资源名（F1..Fn）。默认三套固定占 F1/F2/F3，扩展槽位顺延。 */
@@ -72,6 +72,17 @@ export function loadFontBytes(): Promise<Record<FontKey, Uint8Array>> {
   return Promise.resolve(out)
 }
 
+/** 查询槽位是否为 Type3 彩色字体，返回其 Type3 数据（普通 CIDFont 返回 undefined）。 */
+export function type3FontData(font: FontKey): Type3FontData | undefined {
+  return activeFonts?.slots[font]?.type3
+}
+
+/** 按槽位类型把 gid 序列编码为 PDF 十六进制字符串：Type3 为单字节 2 位 hex，CIDFont 为 2 字节 4 位 hex。 */
+export function encodeGidsHex(font: FontKey, gids: number[]): string {
+  const pad = type3FontData(font) ? 2 : 4
+  return gids.map(g => g.toString(16).toUpperCase().padStart(pad, '0')).join('')
+}
+
 /**
  * 公式矢量用的 KaTeX 子集族（按需，见 katexVector.ts）。
  * 与正文三套一样走全局注入：多文档缓存命中时由 layout() 重新 install。
@@ -115,16 +126,23 @@ const SUBSTITUTES: Record<string, [string, FontKey]> = {
   '■': ['■', 'mono'], '▲': ['▲', 'mono'], '●': ['●', 'mono'], '○': ['○', 'mono'],
 }
 
+/** 变体选择符（VS15 文本 / VS16 彩色 emoji）：本身无独立字形，不占宽、不报缺字。 */
+const VARIATION_SELECTORS = new Set(['\uFE0E', '\uFE0F'])
+
 /**
  * 字符 → glyph。
  *
  * 解析顺序：
+ *   0. 若 preferColor=true（紧跟 U+FE0F），优先命中 Type3 彩色槽位（避免被单色正文字体截胡）
  *   1. preferred 对应的字体链（按用户 CSS 栈顺序 + 系统兜底）
  *   2. 其余逻辑角色链（sans → mono）
  *   3. 同形替换（如非 Tauri 环境下 ☑→✓）
  *   4. '?' 并记账给 missingGlyphs
  */
-export function glyph(ch: string, preferred: FontKey): GlyphHit {
+export function glyph(ch: string, preferred: FontKey, preferColor = false): GlyphHit {
+  if (VARIATION_SELECTORS.has(ch)) {
+    return { ch: '', font: preferred, gid: 0, w: 0 }
+  }
   const s = fontSet()
   const slots = s.slots
 
@@ -147,6 +165,22 @@ export function glyph(ch: string, preferred: FontKey): GlyphHit {
       if (sp) return { ch: ' ', font: k, gid: sp[0], w: sp[1] }
     }
     return { ch: ' ', font: primary, gid: 1, w: 250 }
+  }
+
+  // 0. 显式请求彩色 emoji 呈现（base + U+FE0F）：优先查 Type3 彩色槽位
+  if (preferColor) {
+    for (const slotKey of chainOf(preferred)) {
+      const slot = slots[slotKey]
+      if (!slot?.type3) continue
+      const hit = slot.meta.chars[ch]
+      if (hit) return { ch, font: slotKey, gid: hit[0], w: hit[1] }
+    }
+    for (const slotKey of s.chains.sans) {
+      const slot = slots[slotKey]
+      if (!slot?.type3) continue
+      const hit = slot.meta.chars[ch]
+      if (hit) return { ch, font: slotKey, gid: hit[0], w: hit[1] }
+    }
   }
 
   // 1. 先按首选角色链查找（含用户字体栈 + Rust 兜底字体）
@@ -188,8 +222,13 @@ export function glyph(ch: string, preferred: FontKey): GlyphHit {
 
 /** 字符串宽度（pt） */
 export function measure(text: string, font: FontKey, size: number): number {
+  const cps = [...text]
   let total = 0
-  for (const ch of text) total += glyph(ch, font).w / 1000 * size
+  for (let i = 0; i < cps.length; i++) {
+    if (VARIATION_SELECTORS.has(cps[i])) continue
+    const preferColor = cps[i + 1] === '\uFE0F'
+    total += glyph(cps[i], font, preferColor).w / 1000 * size
+  }
   return total
 }
 
@@ -210,22 +249,33 @@ export interface EncodedRun {
  */
 export function encodeMixed(text: string, preferred: FontKey): EncodedRun[] {
   const runs: EncodedRun[] = []
-  for (const ch of text) {
-    const g = glyph(ch, preferred)
+  const cps = [...text]
+  for (let i = 0; i < cps.length; i++) {
+    const ch = cps[i]
+    if (VARIATION_SELECTORS.has(ch)) continue
+    const preferColor = cps[i + 1] === '\uFE0F'
+    const g = glyph(ch, preferred, preferColor)
+    // DOM 预览文本保留 U+FE0F，使浏览器也按彩色 emoji 渲染；PDF gids 仅发单个基字形
+    const displayText = preferColor ? `${g.ch}\uFE0F` : g.ch
     const last = runs[runs.length - 1]
     if (last && last.font === g.font) {
-      last.gids.push(g.gid); last.text += g.ch; last.units += g.w
+      last.gids.push(g.gid); last.text += displayText; last.units += g.w
     } else {
-      runs.push({ font: g.font, gids: [g.gid], text: g.ch, units: g.w })
+      runs.push({ font: g.font, gids: [g.gid], text: displayText, units: g.w })
     }
   }
   return runs
 }
 
-/** 与 encodeMixed 完全同源的宽度（含缺字回退差异） */
+/** 与 encodeMixed 完全同源的宽度（含缺字回退与 VS16 彩色优先差异） */
 export function measureMixed(text: string, preferred: FontKey, size: number): number {
+  const cps = [...text]
   let units = 0
-  for (const ch of text) units += glyph(ch, preferred).w
+  for (let i = 0; i < cps.length; i++) {
+    if (VARIATION_SELECTORS.has(cps[i])) continue
+    const preferColor = cps[i + 1] === '\uFE0F'
+    units += glyph(cps[i], preferred, preferColor).w
+  }
   return units / 1000 * size
 }
 

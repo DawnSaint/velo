@@ -5128,12 +5128,14 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "velo"
 version = "0.7.16"
 dependencies = [
+ "flate2",
  "fontdb",
  "git2",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
  "log",
+ "png 0.17.16",
  "rayon",
  "regex",
  "serde",

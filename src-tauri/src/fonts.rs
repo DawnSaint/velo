@@ -15,6 +15,8 @@ use std::sync::OnceLock;
 use fontdb::{Database, Family, ID, Query, Stretch, Style, Weight};
 use serde::Serialize;
 
+use crate::color_fonts::{self, Type3FontData, Type3ResourceCollector};
+
 /// 进程内共享的系统字体数据库（首次调用扫描一次，后续查询 <0.1ms）。
 static FONT_DB: OnceLock<Database> = OnceLock::new();
 
@@ -51,8 +53,12 @@ pub struct SystemSubsetFont {
     pub weight: u16,
     pub italic: bool,
     pub meta: SystemFontMeta,
-    /// 子集 TTF 字节（base64 编码，几十 KB 级）
-    pub ttf_base64: String,
+    /// 子集 TTF 字节（base64 编码，几十 KB 级）；纯 Type3 彩色字体时为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttf_base64: Option<String>,
+    /// PDF Type3 彩色字形数据（COLR v0/v1 矢量或 sbix/CBDT 位图）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type3: Option<Type3FontData>,
 }
 
 /// CSS generic family 映射：不直接作为字体名查询；对系统 UI 别名给一个平台合理映射。
@@ -96,6 +102,15 @@ fn resolve_family_candidates(name: &str) -> Vec<&str> {
     }
 }
 
+/// 跨平台彩色 emoji 字体优先表：兜底阶段先以 `color_only = true` 跑一轮，
+/// 确保 ✅ / 🎉 / ⚠(⚠️) / ❤(❤️) 等彩色 emoji 不被单色正文字体或符号字体截胡，
+/// 同时不误吞 ①② 等非彩色字符。
+const COLOR_EMOJI_PRIORITY: &[&str] = &[
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Noto Color Emoji",
+];
+
 /// 跨平台常见兜底字体优先级（在全库扫描前先查，避免缺字落到冷门或装饰字体）。
 const FALLBACK_PRIORITY: &[&str] = &[
     "Microsoft YaHei",
@@ -109,7 +124,6 @@ const FALLBACK_PRIORITY: &[&str] = &[
     "Noto Sans CJK SC",
     "Noto Sans Symbols",
     "Noto Sans Symbols 2",
-    "Segoe UI Emoji",
     "SimSun-ExtB",
     "MingLiU-ExtB",
     "DejaVu Sans",
@@ -147,10 +161,22 @@ fn round_1000(val: i32, upem: u16) -> i32 {
     ((val as f64) / (upem as f64) * 1000.0).round() as i32
 }
 
-/// 对指定 `ID` 的系统字体按 `chars` 做子集化并提取度量。
-/// 若该字体对 `chars` 零命中、或格式不被 subsetter 支持（如纯位图字体），返回 `None`。
-fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Option<&str>) -> Option<SystemSubsetFont> {
-    let info = db.face(id)?;
+/// 对指定 `ID` 的系统字体按 `chars` 做子集化 / Type3 彩色提取并计算度量。
+///
+/// 彩色字形（COLR v0/v1 或 sbix/CBDT PNG）与普通单色轮廓字形分离产出：
+/// - 彩色字形按最多 255 个/片切分为 Type3 字体（单字节编码 1..=255 + ToUnicode）
+/// - 单色轮廓字形走 `subsetter::subset` 产出 CIDFontType2 子集 TTF
+/// 若某字形在彩色提取中失败（如损坏表），自动降级回单色轮廓子集化。
+fn subset_face_id_multi(
+    db: &Database,
+    id: ID,
+    chars: &[char],
+    preferred_family: Option<&str>,
+    color_only: bool,
+) -> Vec<SystemSubsetFont> {
+    let Some(info) = db.face(id) else {
+        return Vec::new();
+    };
     let family_name = preferred_family
         .map(str::to_string)
         .or_else(|| info.families.first().map(|(n, _)| n.clone()))
@@ -158,7 +184,7 @@ fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Optio
     let weight = info.weight.0;
     let italic = info.style != Style::Normal;
 
-    let mut result: Option<SystemSubsetFont> = None;
+    let mut outputs: Vec<SystemSubsetFont> = Vec::new();
 
     db.with_face_data(id, |data, face_index| {
         let Ok(face) = ttf_parser::Face::parse(data, face_index) else {
@@ -169,19 +195,99 @@ fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Optio
             return;
         }
 
-        // 收集该 face 实际命中的字符；始终保底 remap 空格（若存在）供空白测量。
-        let mut remapper = subsetter::GlyphRemapper::new();
-        let mut matched: Vec<(char, u16)> = Vec::new();
+        let bbox = face.global_bounding_box();
+        let bbox_arr = [bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max];
+        let ascent = round_1000(face.ascender() as i32, upem);
+        let descent = round_1000(face.descender() as i32, upem);
+        let cap_height = round_1000(
+            face.capital_height().unwrap_or(face.ascender()) as i32,
+            upem,
+        );
+
+        let mut color_matched: Vec<(char, ttf_parser::GlyphId, u16)> = Vec::new();
+        let mut mono_matched: Vec<(char, u16)> = Vec::new();
+
         for &ch in chars {
-            if let Some(gid) = face.glyph_index(ch) {
-                if gid.0 != 0 {
-                    remapper.remap(gid.0);
-                    matched.push((ch, gid.0));
+            let Some(gid) = face.glyph_index(ch) else {
+                continue;
+            };
+            if gid.0 == 0 {
+                continue;
+            }
+            if color_fonts::has_color_glyph(&face, gid) {
+                let adv = face.glyph_hor_advance(gid).unwrap_or(upem);
+                let w1000 = round_1000(adv as i32, upem).clamp(0, u16::MAX as i32) as u16;
+                color_matched.push((ch, gid, w1000));
+            } else if !color_only {
+                mono_matched.push((ch, gid.0));
+            }
+        }
+
+        // 1. 彩色字形 → Type3（每片最多 255 个字符）
+        if !color_matched.is_empty() {
+            for chunk in color_matched.chunks(255) {
+                let mut res = Type3ResourceCollector::new();
+                let mut char_procs: HashMap<u8, String> = HashMap::with_capacity(chunk.len());
+                let mut char_map: HashMap<String, [u16; 2]> = HashMap::with_capacity(chunk.len());
+                let mut widths: Vec<u16> = vec![0];
+                let mut next_code: u8 = 1;
+
+                for &(ch, gid, w1000) in chunk {
+                    if let Some(proc_ops) = color_fonts::build_color_char_proc(
+                        &face,
+                        gid,
+                        w1000,
+                        upem,
+                        &mut res,
+                        encode_base64,
+                    ) {
+                        let code = next_code;
+                        next_code = next_code.saturating_add(1);
+                        char_procs.insert(code, proc_ops);
+                        char_map.insert(ch.to_string(), [code as u16, w1000]);
+                        widths.push(w1000);
+                    } else {
+                        // 彩色提取失败时降级到单色子集通道
+                        mono_matched.push((ch, gid.0));
+                    }
+                }
+
+                if !char_procs.is_empty() {
+                    let glyph_count = widths.len();
+                    outputs.push(SystemSubsetFont {
+                        family: family_name.clone(),
+                        weight,
+                        italic,
+                        meta: SystemFontMeta {
+                            upem,
+                            chars: char_map,
+                            widths,
+                            bbox: bbox_arr,
+                            ascent,
+                            descent,
+                            cap_height,
+                            glyph_count,
+                        },
+                        ttf_base64: None,
+                        type3: Some(Type3FontData {
+                            char_procs,
+                            alphas: res.alphas,
+                            soft_masks: res.soft_masks,
+                            shadings: res.shadings,
+                            images: res.images,
+                        }),
+                    });
                 }
             }
         }
-        if matched.is_empty() {
+
+        // 2. 单色轮廓字形 → CIDFontType2 子集 TTF
+        if color_only || mono_matched.is_empty() {
             return;
+        }
+        let mut remapper = subsetter::GlyphRemapper::new();
+        for &(_, old_gid) in &mono_matched {
+            remapper.remap(old_gid);
         }
         if let Some(sp) = face.glyph_index(' ') {
             if sp.0 != 0 {
@@ -205,8 +311,8 @@ fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Optio
             }
         }
 
-        let mut char_map = HashMap::with_capacity(matched.len() + 1);
-        for (ch, old_gid) in matched {
+        let mut char_map = HashMap::with_capacity(mono_matched.len() + 1);
+        for (ch, old_gid) in mono_matched {
             if let Some(new_gid) = remapper.get(old_gid) {
                 let w = widths.get(new_gid as usize).copied().unwrap_or(0);
                 char_map.insert(ch.to_string(), [new_gid, w]);
@@ -221,15 +327,7 @@ fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Optio
             }
         }
 
-        let bbox = face.global_bounding_box();
-        let ascent = round_1000(face.ascender() as i32, upem);
-        let descent = round_1000(face.descender() as i32, upem);
-        let cap_height = round_1000(
-            face.capital_height().unwrap_or(face.ascender()) as i32,
-            upem,
-        );
-
-        result = Some(SystemSubsetFont {
+        outputs.push(SystemSubsetFont {
             family: family_name.clone(),
             weight,
             italic,
@@ -237,17 +335,18 @@ fn subset_face_id(db: &Database, id: ID, chars: &[char], preferred_family: Optio
                 upem,
                 chars: char_map,
                 widths,
-                bbox: [bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max],
+                bbox: bbox_arr,
                 ascent,
                 descent,
                 cap_height,
                 glyph_count: num_glyphs,
             },
-            ttf_base64: encode_base64(&sub_ttf),
+            ttf_base64: Some(encode_base64(&sub_ttf)),
+            type3: None,
         });
     });
 
-    result
+    outputs
 }
 
 /// 按 CSS 字体族候选列表查找第一个命中的系统字体并按 `chars` 子集化。
@@ -279,7 +378,8 @@ pub async fn resolve_and_subset_system_font(
                     style,
                 };
                 if let Some(id) = db.query(&query) {
-                    if let Some(sub) = subset_face_id(db, id, &unique_chars, Some(cand)) {
+                    let subs = subset_face_id_multi(db, id, &unique_chars, Some(cand), false);
+                    if let Some(sub) = subs.into_iter().next() {
                         return Some(sub);
                     }
                 }
@@ -317,6 +417,26 @@ pub async fn fallback_subset_system_fonts(
         let mut tried_ids: HashSet<ID> = HashSet::new();
         let target_weight = Weight(weight);
 
+        // 0. 优先从系统彩色 emoji 字体提取彩色字形（color_only=true，不误吞单色字符）
+        for &fam in COLOR_EMOJI_PRIORITY {
+            if remaining.is_empty() {
+                break;
+            }
+            let Some(id) = db.query(&Query {
+                families: &[Family::Name(fam)],
+                weight: Weight::NORMAL,
+                stretch: Stretch::Normal,
+                style: Style::Normal,
+            }) else {
+                continue;
+            };
+            let subs = subset_face_id_multi(db, id, &remaining, Some(fam), true);
+            for sub in subs {
+                remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
+                out.push(sub);
+            }
+        }
+
         // 1. 优先查常见符号 / CJK 系统字体
         for &fam in FALLBACK_PRIORITY {
             if remaining.is_empty() {
@@ -341,7 +461,8 @@ pub async fn fallback_subset_system_fonts(
             if !tried_ids.insert(id) {
                 continue;
             }
-            if let Some(sub) = subset_face_id(db, id, &remaining, Some(fam)) {
+            let subs = subset_face_id_multi(db, id, &remaining, Some(fam), false);
+            for sub in subs {
                 remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
                 out.push(sub);
             }
@@ -362,7 +483,8 @@ pub async fn fallback_subset_system_fonts(
                 if !tried_ids.insert(id) {
                     continue;
                 }
-                if let Some(sub) = subset_face_id(db, id, &remaining, None) {
+                let subs = subset_face_id_multi(db, id, &remaining, None, false);
+                for sub in subs {
                     remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
                     out.push(sub);
                 }
@@ -401,15 +523,17 @@ mod tests {
             })
             .expect("Windows should have Microsoft YaHei");
         let chars: Vec<char> = "你好世界①②ABC".chars().collect();
-        let sub = subset_face_id(db, id, &chars, Some("Microsoft YaHei"))
-            .expect("msyh subset should succeed");
+        let subs = subset_face_id_multi(db, id, &chars, Some("Microsoft YaHei"), false);
+        assert_eq!(subs.len(), 1);
+        let sub = &subs[0];
         assert!(sub.meta.chars.contains_key("①"));
         assert!(sub.meta.chars.contains_key("②"));
         assert!(sub.meta.chars.contains_key("你"));
         assert!(sub.meta.glyph_count > 5);
-        assert!(!sub.ttf_base64.is_empty());
+        assert!(sub.ttf_base64.as_deref().is_some_and(|s| !s.is_empty()));
+        assert!(sub.type3.is_none());
 
-        // ✅ 不在微软雅黑里，应由兜底链（Segoe UI Emoji）补齐
+        // ✅ 🎉 🔥 ⚠ 应由 Segoe UI Emoji 产出 Type3 彩色字形（color_only 不误吞 ①②）
         assert!(!sub.meta.chars.contains_key("✅"));
         let emoji_id = db
             .query(&Query {
@@ -419,9 +543,27 @@ mod tests {
                 style: Style::Normal,
             })
             .expect("Windows should have Segoe UI Emoji");
-        let emoji_chars: Vec<char> = "✅".chars().collect();
-        let emoji_sub = subset_face_id(db, emoji_id, &emoji_chars, Some("Segoe UI Emoji"))
-            .expect("Segoe UI Emoji subset should succeed");
-        assert!(emoji_sub.meta.chars.contains_key("✅"));
+        let emoji_chars: Vec<char> = "✅🎉🔥⚠😅①".chars().collect();
+        let emoji_subs = subset_face_id_multi(db, emoji_id, &emoji_chars, Some("Segoe UI Emoji"), true);
+        assert_eq!(emoji_subs.len(), 1);
+        let emoji_sub = &emoji_subs[0];
+        assert!(emoji_sub.ttf_base64.is_none());
+        assert!(!emoji_sub.meta.chars.contains_key("①"));
+        let t3 = emoji_sub.type3.as_ref().expect("Segoe UI Emoji should produce Type3 color glyphs");
+        assert!(
+            !t3.soft_masks.is_empty(),
+            "COLR v1 alpha gradients in 😅 should produce Luminosity soft masks"
+        );
+        for ch in ["✅", "🎉", "🔥", "⚠", "😅"] {
+            let [code, w] = emoji_sub.meta.chars[ch];
+            assert!(code >= 1 && code <= 255);
+            assert!(w > 0);
+            let ops = t3.char_procs.get(&(code as u8)).expect("char_proc missing");
+            assert!(ops.contains(" d0\n"), "CharProc must start with d0: {ops}");
+            assert!(
+                ops.contains(" rg\n") || ops.contains(" sh\n"),
+                "Color emoji CharProc must emit color/shading ops: {ops}"
+            );
+        }
     }
 }

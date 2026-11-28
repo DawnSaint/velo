@@ -53,7 +53,7 @@ vi.stubGlobal('fetch', vi.fn(async (url: string) => {
 }))
 
 // 动态 import：确保上面的 vi.mock / stubGlobal 先生效
-const { collectCharset, buildFontSet } = await import('../fontSubset')
+const { collectCharset, collectColorPreferredChars, buildFontSet } = await import('../fontSubset')
 const { installFontSet, glyph, measure, measureMixed, encodeMixed, resetMissingGlyphs, drainMissingGlyphs, loadFontBytes } = await import('../tokens')
 const { writePdf } = await import('../pdfWriter')
 
@@ -85,9 +85,12 @@ describe('collectCharset', () => {
     expect([...cs]).toEqual([...new Set([...cs])].sort())
   })
 
-  it('extra 字面量并入字符集（页眉 / 目录等版式用字）', () => {
-    const cs = collectCharset('正文', '目录CAUTION')
-    for (const ch of '目录CAUTION') expect(cs).toContain(ch)
+  it('extra 字面量并入字符集（页眉 / 目录等版式用字），并过滤 VS15/VS16 变体选择符', () => {
+    const cs = collectCharset('正文⚠️', '目录CAUTION')
+    for (const ch of '目录CAUTION⚠') expect(cs).toContain(ch)
+    expect(cs).not.toContain('\uFE0F')
+    expect(cs).not.toContain('\uFE0E')
+    expect(collectColorPreferredChars('警告⚠️ 爱心❤️')).toBe('⚠❤')
   })
 })
 
@@ -274,5 +277,106 @@ describe('writePdf 端到端（最小文档）', () => {
     // mono 的 '□'（☐ 的同形替换目标）
     const [gidSq] = fonts.mono.meta.chars['□']
     expect(latin).toContain(`<${hex4(gidSq)}> <25A1>`)
+  })
+
+  it('Type3 彩色字形：输出 /Subtype /Type3 + CharProcs + 单字节编码 + UTF-16BE 代理对 ToUnicode', async () => {
+    const emojiSlot = {
+      meta: {
+        upem: 2048,
+        chars: { '✅': [1, 1000] as [number, number], '🎉': [2, 1000] as [number, number] },
+        widths: [0, 1000, 1000],
+        bbox: [0, -256, 2048, 1792],
+        ascent: 875,
+        descent: -125,
+        capHeight: 875,
+        glyphCount: 3,
+      },
+      ttf: new Uint8Array(0),
+      previewCss: { family: 'Segoe UI Emoji', weight: 400 },
+      type3: {
+        charProcs: {
+          1: '1000 0 d0\n0.49 0 0 0.49 0 0 cm\n0.086 0.776 0.047 rg\n0 0 2048 2048 re f\n',
+          2: '1000 0 d0\n0.49 0 0 0.49 0 0 cm\nq /GSa0 gs\n/Sh0 sh\nQ\n',
+        },
+        alphas: [['GSa0', 0.5] as [string, number]],
+        softMasks: [{
+          name: 'GSsm0',
+          shadingDict: '<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [0 0 0 0 0 1000] /Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [0.6] /N 1 >> /Extend [true true] >>',
+          bbox: [-2048, -2048, 2048, 2048] as [number, number, number, number],
+        }],
+        shadings: [{
+          name: 'Sh0',
+          pdfDict: '<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 1000 1000] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 1 0] /N 1 >> /Extend [true true] >>',
+        }],
+        images: [],
+      },
+    }
+    const withEmoji: FontSet = {
+      ...fonts,
+      slots: { ...fonts.slots, 'fb:0': emojiSlot },
+      chains: {
+        sans: [...fonts.chains.sans, 'fb:0'],
+        bold: [...fonts.chains.bold, 'fb:0'],
+        mono: [...fonts.chains.mono, 'fb:0'],
+      },
+    }
+    installFontSet(withEmoji)
+    try {
+      const runs = encodeMixed('OK✅🎉', 'sans')
+      let x = 50
+      const ops = runs.map(r => {
+        const op = {
+          op: 'text' as const, x, y: 700, size: 12, color: '#000000',
+          font: r.font, gids: r.gids, text: r.text,
+        }
+        x += r.units / 1000 * 12
+        return op
+      })
+      const bytes = await writePdf({
+        pages: [{ ops }],
+        fragments: {},
+        destinations: {},
+        warnings: [],
+        missingGlyphs: [],
+        pageWidth: 595,
+        pageHeight: 842,
+        options: { ...DEFAULT_PDF_LAYOUT_OPTIONS },
+      })
+      const latin = new TextDecoder().decode(bytes)
+      expect(latin).toContain('/Subtype /Type3')
+      expect(latin).toContain('/FontMatrix [0.001 0 0 0.001 0 0]')
+      expect(latin).toContain('/Differences [1 /g1 /g2]')
+      expect(latin).toContain('/ExtGState << /GSa0')
+      expect(latin).toContain('/GSsm0')
+      expect(latin).toContain('/S /Luminosity')
+      expect(latin).toContain('/Shading << /Sh0')
+      // 单字节 2 位 hex 编码（<0102> Tj），不是 4 位 CID
+      expect(latin).toContain('<0102> Tj')
+      // ToUnicode 支持 BMP (✅ U+2705) 与非 BMP 代理对 (🎉 U+1F389 → D83C DF89)
+      expect(latin).toContain('<00> <FF>')
+      expect(latin).toContain('<01> <2705>')
+      expect(latin).toContain('<02> <D83CDF89>')
+
+      // VS16（⚠️ = ⚠ + U+FE0F）：跳过 U+FE0F 不报缺字，并优先路由到 Type3 彩色槽位
+      resetMissingGlyphs()
+      const warnSlot = {
+        ...emojiSlot,
+        meta: {
+          ...emojiSlot.meta,
+          chars: { ...emojiSlot.meta.chars, '⚠': [3, 1000] as [number, number] },
+          widths: [0, 1000, 1000, 1000],
+          glyphCount: 4,
+        },
+      }
+      installFontSet({ ...withEmoji, slots: { ...withEmoji.slots, 'fb:0': warnSlot } })
+      const warnRuns = encodeMixed('注意⚠️', 'sans')
+      expect(drainMissingGlyphs()).toEqual([])
+      const warnEmojiRun = warnRuns.find(r => r.font === 'fb:0')
+      expect(warnEmojiRun).toBeDefined()
+      expect(warnEmojiRun?.gids).toEqual([3])
+      expect(warnEmojiRun?.text).toBe('⚠️')
+    } finally {
+      installFontSet(fonts)
+    }
   })
 })

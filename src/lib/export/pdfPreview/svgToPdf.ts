@@ -9,7 +9,7 @@
 // 正缩放 `q sx 0 0 sy x y cm ... Q`，不需要负 d —— 负 d 会把文字整体镜像，
 // 这是 SVG→PDF 最容易踩的坑。
 
-import { FONT_RES, colorToRgb, encodeMixed, measureMixed, type Tokens } from './tokens'
+import { FONT_RES, colorToRgb, encodeGidsHex, encodeMixed, measureMixed, type Tokens } from './tokens'
 
 export interface SvgToPdfResult {
   pdf: string
@@ -290,7 +290,7 @@ export function svgToPdf(svgSource: string, tokens: Tokens): SvgToPdfResult {
         const fill = colorOf(st.fill, tokens.ink) ?? tokens.ink
         let cx = x
         for (const run of encodeMixed(part.text, font)) {
-          const hex = run.gids.map(g => g.toString(16).toUpperCase().padStart(4, '0')).join('')
+          const hex = encodeGidsHex(run.font, run.gids)
           if (hex) {
             out += `${colorToRgb(fill)} rg\nBT /${FONT_RES[run.font]} ${f(size)} Tf 1 0 0 1 ${f(cx - minX)} ${f(coord.fy(part.y))} Tm <${hex}> Tj ET\n`
           }

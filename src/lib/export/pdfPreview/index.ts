@@ -13,6 +13,7 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkFrontmatter from 'remark-frontmatter'
 import type { Root } from 'mdast'
+import { get as emojiGet, has as emojiHas } from 'node-emoji'
 import { remarkPreserveEmptyLine } from '@/components/ProseMirrorEditor/plugins/preserveEmptyLine'
 import { remarkAlert } from '@/components/ProseMirrorEditor/plugins/remarkAlert'
 import { remarkEncodeLinkUrls } from '@/components/ProseMirrorEditor/plugins/remarkEncodeLinkUrls'
@@ -23,7 +24,7 @@ import { buildFragments } from './fragmentBuilder'
 import { buildBlocks, relayout, type BlockIR } from './layoutEngine'
 import { ensurePreviewDomStyles } from './previewRenderer'
 import { writePdf } from './pdfWriter'
-import { buildFontSet, collectCharset, type FontSet } from './fontSubset'
+import { buildFontSet, collectCharset, collectColorPreferredChars, type FontSet } from './fontSubset'
 import { installFontSet, installFormulaFonts, type FormulaFontEntry } from './tokens'
 import type { PdfDocument, PdfLayoutOptions, PdfSource, RichFragment } from './types'
 
@@ -77,6 +78,21 @@ function parse(content: string): Root {
   return processor.runSync(processor.parse(content) as Root) as Root
 }
 
+/** 收集 mdast 中所有 remarkEmoji 节点展开后的 Unicode emoji（如 :sweat_smile: → 😅），
+ * 避免 collectCharset 只扫原文 ASCII 而漏掉展开后的彩色字形。 */
+function collectExpandedEmojis(node: unknown, out: string[]): void {
+  if (!node || typeof node !== 'object') return
+  const n = node as { type?: string; shortcode?: string; children?: unknown[] }
+  if (n.type === 'emoji' && n.shortcode && emojiHas(n.shortcode)) {
+    const ch = emojiGet(n.shortcode)
+    if (ch) out.push(ch)
+    return
+  }
+  if (Array.isArray(n.children)) {
+    for (const child of n.children) collectExpandedEmojis(child, out)
+  }
+}
+
 export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promise<PdfBuild> {
   const t0 = performance.now()
   // 字体先行：运行时子集化 + 度量注入必须在任何 glyph()/measure 之前完成。
@@ -85,13 +101,21 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
   const key = hash(`${source.content}\u0000${source.currentFilePath}\u0000${source.lightTheme}\u0000${source.darkTheme}\u0000${source.fontFamily ?? ''}\u0000${source.fontMono ?? ''}`)
   let entry = cache.get(key)
   if (!entry) {
-    // 字符集 = 文档全文 + 版式字面量（页眉 / 目录标题 / alert 标签 / 页码）。
+    // 字符集 = 文档全文 + shortcode 展开后的 emoji + 版式字面量（页眉 / 目录标题 / alert 标签 / 页码）。
     // 注意顺序：buildFragments 里 mermaid 的 svgToPdf 会调 glyph()/measureMixed，
     // 必须先 installFontSet 再渲染富片段，不能并行。
     const tree = parse(source.content)
+    const expanded: string[] = []
+    collectExpandedEmojis(tree, expanded)
+    const emojiText = expanded.join('')
     // ↩ 是脚注回链字符（layoutEngine footnote 分支），必须进子集否则会缺字成 '?'。
-    const charset = collectCharset(source.content, `${opts.headerText}目录NOTETIPIMPORTANTWARNINGCAUTION↩ /0123456789`)
-    const fonts = await buildFontSet(charset, { fontFamily: source.fontFamily, fontMono: source.fontMono })
+    const charset = collectCharset(source.content, `${emojiText}${opts.headerText}目录NOTETIPIMPORTANTWARNINGCAUTION↩ /0123456789`)
+    const colorPreferredChars = collectColorPreferredChars(`${source.content}${emojiText}`)
+    const fonts = await buildFontSet(charset, {
+      fontFamily: source.fontFamily,
+      fontMono: source.fontMono,
+      colorPreferredChars,
+    })
     installFontSet(fonts)
     const fb = await buildFragments(tree, source, opts)
     installFormulaFonts(fb.formulaFonts)

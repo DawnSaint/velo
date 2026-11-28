@@ -18,12 +18,56 @@ export interface SystemFontMeta {
   glyphCount: number
 }
 
+interface Type3ImageRaw {
+  name: string
+  width: number
+  height: number
+  rgbFlateBase64: string
+  alphaFlateBase64?: string
+}
+
+export interface Type3Image {
+  name: string
+  width: number
+  height: number
+  rgbFlate: Uint8Array
+  alphaFlate?: Uint8Array
+}
+
+export interface Type3Shading {
+  name: string
+  pdfDict: string
+}
+
+export interface Type3SoftMask {
+  name: string
+  shadingDict: string
+  bbox: [number, number, number, number]
+}
+
+interface Type3FontDataRaw {
+  charProcs: Record<string, string>
+  alphas: [string, number][]
+  softMasks?: Type3SoftMask[]
+  shadings: Type3Shading[]
+  images: Type3ImageRaw[]
+}
+
+export interface Type3FontData {
+  charProcs: Record<number, string>
+  alphas: [string, number][]
+  softMasks: Type3SoftMask[]
+  shadings: Type3Shading[]
+  images: Type3Image[]
+}
+
 interface SystemSubsetFontRaw {
   family: string
   weight: number
   italic: boolean
   meta: SystemFontMeta
-  ttfBase64: string
+  ttfBase64?: string
+  type3?: Type3FontDataRaw
 }
 
 export interface ResolvedSystemFont {
@@ -32,8 +76,10 @@ export interface ResolvedSystemFont {
   weight: number
   italic: boolean
   meta: SystemFontMeta
-  /** 子集 TTF 字节(由 Rust subsetter 生成,供 PDF CIDFontType2 嵌入) */
-  ttf: Uint8Array
+  /** 子集 TTF 字节(由 Rust subsetter 生成,供 PDF CIDFontType2 嵌入);纯 Type3 彩色字体时为空 */
+  ttf?: Uint8Array
+  /** PDF Type3 彩色字形数据(COLR v0/v1 矢量或 sbix/CBDT 位图) */
+  type3?: Type3FontData
 }
 
 function decodeBase64(b64: string): Uint8Array {
@@ -43,13 +89,35 @@ function decodeBase64(b64: string): Uint8Array {
   return out
 }
 
+function toType3(raw: Type3FontDataRaw): Type3FontData {
+  const charProcs: Record<number, string> = {}
+  for (const [k, v] of Object.entries(raw.charProcs)) {
+    const code = Number(k)
+    if (Number.isInteger(code) && code >= 1 && code <= 255) charProcs[code] = v
+  }
+  return {
+    charProcs,
+    alphas: raw.alphas,
+    softMasks: raw.softMasks ?? [],
+    shadings: raw.shadings,
+    images: raw.images.map(img => ({
+      name: img.name,
+      width: img.width,
+      height: img.height,
+      rgbFlate: decodeBase64(img.rgbFlateBase64),
+      alphaFlate: img.alphaFlateBase64 ? decodeBase64(img.alphaFlateBase64) : undefined,
+    })),
+  }
+}
+
 function toResolved(raw: SystemSubsetFontRaw): ResolvedSystemFont {
   return {
     family: raw.family,
     weight: raw.weight,
     italic: raw.italic,
     meta: raw.meta,
-    ttf: decodeBase64(raw.ttfBase64),
+    ttf: raw.ttfBase64 ? decodeBase64(raw.ttfBase64) : undefined,
+    type3: raw.type3 ? toType3(raw.type3) : undefined,
   }
 }
 

@@ -13,13 +13,15 @@
 //   都没有 → 降级为 fallbackText，进 warnings。
 
 import {
-  fontMeta, fontSlotKeys, FONT_RES, colorToRgb, encodeMixed, formulaFontList, loadFontBytes,
-  type FontMeta,
+  fontMeta, fontSlotKeys, FONT_RES, colorToRgb, encodeGidsHex, encodeMixed, formulaFontList,
+  loadFontBytes, type3FontData,
+  type FontMeta, type Type3FontData,
 } from './tokens'
 import type { DisplayOp, PdfDocument, RichFragment } from './types'
 
 const enc = new TextEncoder()
 const f = (n: number): string => (Math.round(n * 100) / 100).toString()
+const hex2 = (n: number): string => n.toString(16).toUpperCase().padStart(2, '0')
 const hex4 = (n: number): string => n.toString(16).toUpperCase().padStart(4, '0')
 
 /** 圆角矩形路径（PDF 坐标，y 向上；调用方负责填色 / 描边）。 */
@@ -73,6 +75,38 @@ function toUnicodeCmap(meta: FontMeta): string {
     '/CMapType 2 def',
     '1 begincodespacerange',
     '<0000> <FFFF>',
+    'endcodespacerange',
+    ...lines,
+    'endcmap',
+    'CMapName currentdict /CMap defineresource pop',
+    'end',
+    'end',
+  ].join('\n')
+}
+
+function toUnicodeCmapType3(meta: FontMeta): string {
+  const map = new Map<number, string>()
+  for (const [ch, pair] of Object.entries(meta.chars)) {
+    const code = pair[0]
+    if (code >= 1 && code <= 255 && !map.has(code)) map.set(code, unicodeHex(ch))
+  }
+  const entries = [...map.entries()].sort((a, b) => a[0] - b[0])
+  const lines: string[] = []
+  for (let i = 0; i < entries.length; i += 100) {
+    const chunk = entries.slice(i, i + 100)
+    lines.push(`${chunk.length} beginbfchar`)
+    for (const [code, u] of chunk) lines.push(`<${hex2(code)}> <${u}>`)
+    lines.push('endbfchar')
+  }
+  return [
+    '/CIDInit /ProcSet findresource begin',
+    '12 dict begin',
+    'begincmap',
+    '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+    '/CMapName /Adobe-Identity-UCS def',
+    '/CMapType 2 def',
+    '1 begincodespacerange',
+    '<00> <FF>',
     'endcodespacerange',
     ...lines,
     'endcmap',
@@ -174,7 +208,7 @@ function contentStream(
   for (const op of page.ops) {
     switch (op.op) {
       case 'text': {
-        const hex = op.gids.map(hex4).join('')
+        const hex = encodeGidsHex(op.font, op.gids)
         if (!hex) break
         out += `${color(op.color)}BT /${FONT_RES[op.font]} ${f(op.size)} Tf 1 0 0 1 ${f(op.x)} ${f(H - op.y)} Tm <${hex}> Tj ET\n`
         break
@@ -230,7 +264,7 @@ function contentStream(
           for (const t of fx.texts) {
             const res = resNameOf(t.font)
             if (!res) continue
-            body += `${color(t.color)} rg\nBT ${res} ${f(t.size)} Tf 1 0 0 1 ${f(t.x)} ${f(t.y)} Tm <${hex4(t.gid)}> Tj ET\n`
+            body += `${color(t.color)} rg\nBT ${res} ${f(t.size)} Tf 1 0 0 1 ${f(t.x)} ${f(t.y)} Tm <${encodeGidsHex(t.font, [t.gid])}> Tj ET\n`
           }
           body += 'Q\n'
           out += `q 1 0 0 1 ${f(op.x)} ${f(bottom)} cm\n${body}Q\n`
@@ -246,7 +280,7 @@ function contentStream(
           const size = Math.min(10, op.h / 2)
           let x = op.x
           for (const g of encodeMixed(fr.fallbackText.slice(0, 200), 'sans')) {
-            out += `0.4 0.4 0.4 rg\nBT /${FONT_RES[g.font]} ${f(size)} Tf 1 0 0 1 ${f(x)} ${f(H - op.y - size)} Tm <${g.gids.map(hex4).join('')}> Tj ET\n`
+            out += `0.4 0.4 0.4 rg\nBT /${FONT_RES[g.font]} ${f(size)} Tf 1 0 0 1 ${f(x)} ${f(H - op.y - size)} Tm <${encodeGidsHex(g.font, g.gids)}> Tj ET\n`
             x += g.units / 1000 * size
           }
         }
@@ -366,13 +400,113 @@ export async function writePdf(doc: PdfDocument): Promise<Uint8Array> {
     return ids.type0
   }
 
+  const writeType3FontObjects = (meta: FontMeta, t3: Type3FontData): number => {
+    const fontId = b.reserve()
+    const tounicodeId = b.reserve()
+
+    const codes = Object.keys(t3.charProcs).map(Number).filter(c => c >= 1 && c <= 255).sort((a, c) => a - c)
+    const firstChar = codes[0] ?? 1
+    const lastChar = codes[codes.length - 1] ?? 1
+
+    const procRefs: string[] = []
+    for (const code of codes) {
+      const pid = b.reserve()
+      const stream = enc.encode(t3.charProcs[code])
+      b.setStream(pid, `<< /Length ${stream.length} >>`, stream)
+      procRefs.push(`/g${code} ${pid} 0 R`)
+    }
+
+    // Type3 字体私有资源（ExtGState 常量透明度 + 渐变软遮罩 / Shading 渐变 / Image 位图）
+    const resParts: string[] = []
+    const gsRefs: string[] = []
+    for (const [name, alpha] of t3.alphas) {
+      const gid = b.reserve()
+      const a = Math.round(alpha * 1000) / 1000
+      b.set(gid, `<< /Type /ExtGState /ca ${a} /CA ${a} >>`)
+      gsRefs.push(`/${name} ${gid} 0 R`)
+    }
+    for (const sm of t3.softMasks) {
+      const shId = b.reserve()
+      b.set(shId, sm.shadingDict)
+      const formId = b.reserve()
+      const formStream = enc.encode('/ShM sh\n')
+      b.setStream(
+        formId,
+        `<< /Type /XObject /Subtype /Form /BBox [${sm.bbox.map(f).join(' ')}] /Group << /Type /Group /S /Transparency /CS /DeviceGray >> /Resources << /Shading << /ShM ${shId} 0 R >> >> /Length ${formStream.length} >>`,
+        formStream,
+      )
+      const gsId = b.reserve()
+      b.set(gsId, `<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${formId} 0 R >> >>`)
+      gsRefs.push(`/${sm.name} ${gsId} 0 R`)
+    }
+    if (gsRefs.length > 0) {
+      resParts.push(`/ExtGState << ${gsRefs.join(' ')} >>`)
+    }
+    if (t3.shadings.length > 0) {
+      const shRefs: string[] = []
+      for (const sh of t3.shadings) {
+        const sid = b.reserve()
+        b.set(sid, sh.pdfDict)
+        shRefs.push(`/${sh.name} ${sid} 0 R`)
+      }
+      resParts.push(`/Shading << ${shRefs.join(' ')} >>`)
+    }
+    if (t3.images.length > 0) {
+      const imRefs: string[] = []
+      for (const img of t3.images) {
+        let smaskPart = ''
+        if (img.alphaFlate) {
+          const smId = b.reserve()
+          b.setStream(
+            smId,
+            `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ${img.alphaFlate.length} >>`,
+            img.alphaFlate,
+          )
+          smaskPart = ` /SMask ${smId} 0 R`
+        }
+        const imId = b.reserve()
+        b.setStream(
+          imId,
+          `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode${smaskPart} /Length ${img.rgbFlate.length} >>`,
+          img.rgbFlate,
+        )
+        imRefs.push(`/${img.name} ${imId} 0 R`)
+      }
+      resParts.push(`/XObject << ${imRefs.join(' ')} >>`)
+    }
+
+    const diffNames: string[] = []
+    const widths: number[] = []
+    for (let c = firstChar; c <= lastChar; c++) {
+      diffNames.push(c in t3.charProcs ? `/g${c}` : '/.notdef')
+      widths.push(meta.widths[c] ?? 0)
+    }
+
+    const scale = 1000 / Math.max(1, meta.upem)
+    const bbox1000 = meta.bbox.map(v => Math.round(v * scale))
+
+    const cmap = enc.encode(toUnicodeCmapType3(meta))
+    b.setStream(tounicodeId, `<< /Length ${cmap.length} >>`, cmap)
+    const resDict = resParts.length ? ` /Resources << ${resParts.join(' ')} >>` : ''
+    b.set(
+      fontId,
+      `<< /Type /Font /Subtype /Type3 /FontBBox [${bbox1000.join(' ')}] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << ${procRefs.join(' ')} >> /Encoding << /Type /Encoding /Differences [${firstChar} ${diffNames.join(' ')}] >> /FirstChar ${firstChar} /LastChar ${lastChar} /Widths [${widths.join(' ')}]${resDict} /ToUnicode ${tounicodeId} 0 R >>`,
+    )
+    return fontId
+  }
+
   const sanitize = (s: string): string => s.replace(/[^A-Za-z0-9]/g, '')
   const bodyRes: string[] = []
   const metaMap = fontMeta()
   for (const key of fontKeys) {
-    const clean = sanitize(key)
-    const base = `Velo${clean[0]?.toUpperCase() ?? 'F'}${clean.slice(1)}`
-    const id = writeFontObjects(metaMap[key], fontBytes[key], base)
+    const t3 = type3FontData(key)
+    const id = t3
+      ? writeType3FontObjects(metaMap[key], t3)
+      : (() => {
+          const clean = sanitize(key)
+          const base = `Velo${clean[0]?.toUpperCase() ?? 'F'}${clean.slice(1)}`
+          return writeFontObjects(metaMap[key], fontBytes[key], base)
+        })()
     bodyRes.push(`/${FONT_RES[key]} ${id} 0 R`)
   }
 

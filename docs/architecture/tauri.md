@@ -55,7 +55,7 @@
 | `lib.rs` | `take_window_cli_args` / `show_main_window` / `new_app_window` / `open_devtools` / `export_pdf` / `gpu_accel_state` / `set_gpu_accel` / `open_default_apps_settings` / `shell_integration_state` / `set_shell_integration` |
 | `git.rs` | `git_repo_root` / `git_file_history` / `git_show_file` |
 | `workspace.rs` | `scan_workspace_files` / `search_workspace` / `cancel_workspace_search` / `replace_workspace` |
-| `fonts.rs` | `resolve_and_subset_system_font` / `fallback_subset_system_fonts`（`fontdb` + `ttf-parser` + `subsetter`） |
+| `fonts.rs` / `color_fonts.rs` | `resolve_and_subset_system_font` / `fallback_subset_system_fonts`（`fontdb` + `ttf-parser` + `subsetter` + Type3 COLR/sbix/CBDT 彩色字形提取） |
 | `file_assoc.rs` | `open_settings`（被 `open_default_apps_settings` 调用） |
 | `gpu_accel.rs` | `gpu_accel_enabled` / `set_gpu_accel` / `additional_browser_args_if_disabled` |
 | `pdf.rs` / `pdf_windows.rs` | PDF 导出实现，见 [export.md](./export.md) |
