@@ -78,6 +78,8 @@ function source() {
     currentFilePath: documentStore.currentFilePath,
     lightTheme: editorStore.codeLightTheme,
     darkTheme: editorStore.codeDarkTheme,
+    fontFamily: editorStore.fontFamily,
+    fontMono: editorStore.fontMono,
   }
 }
 
@@ -204,6 +206,12 @@ watch(() => editorStore.primaryColor, () => {
   opts.primaryColor = editorStore.primaryColor
 })
 
+// 编辑器换字体 → 重新构建子集字体并重排。
+watch(() => [editorStore.fontFamily, editorStore.fontMono], () => {
+  if (!open() || !engine.value) return
+  void rebuild()
+})
+
 watch(() => exportStore.previewOpen, async (v) => {
   if (!v) return
   await ensureEngine()
@@ -263,11 +271,11 @@ async function doExport() {
     <Transition name="velo-pdf-preview">
       <div
         v-if="open()"
-        class="fixed inset-0 z-[1400] flex items-center justify-center bg-black/30 dark:bg-black/60"
+        class="fixed inset-0 z-[1400] flex items-center justify-center bg-black/30 pt-9.5 dark:bg-black/60"
         @click.self="exportStore.closePdfPreview()"
       >
         <div
-          class="flex h-[94vh] w-[min(1440px,96vw)] flex-col overflow-hidden rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-3)] shadow-[var(--shadow-popover)]"
+          class="flex h-[94%] w-[min(1440px,96vw)] flex-col overflow-hidden rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-3)] shadow-[var(--shadow-popover)]"
           role="dialog"
           aria-modal="true"
           aria-label="PDF 分页预览"

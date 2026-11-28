@@ -142,4 +142,5 @@
 - **编辑器内容不经过 Vue 模板，也无法走 Tailwind**，因此 PM 侧只能 class + SCSS；这是分工的硬约束，不是风格偏好。
 - **行内 code 不做语法着色**：文字 `color: inherit` 跟随正文色，底色用 `color-mix(in srgb, currentColor 7%, transparent)` 由当前文字色派生，亮暗自动翻面，也不需要 dark 覆盖规则。
 - **导出样式靠 `@forward` 复用编辑器 partials**：新增节点样式时，若该节点会出现在导出 HTML 中（非纯交互 widget），确认对应 partial 已被 `exportStyles.scss` forward；交互类样式（find 高亮 / drop-cursor / fold toggle）不需要 forward —— CSS 没命中选择器就不会画。
+- **全屏遮罩不挡窗口按钮**：Teleport 全屏遮罩（导出面板 / PDF 预览 / 确认弹窗 / 图片预览，z 1200–1400）仍 `fixed inset-0` 盖住顶栏以阻断标签等交互，但自绘 `WindowControls` 的 wrapper 用 `relative z-[2000]` 浮在所有遮罩之上（前提：header 及祖先不建 stacking context，别给它们加 transform / z-index）；遮罩内容一律用 `pt-9.5`（= header 高度）避让顶栏，避免卡片 / 关闭按钮与右上窗口按钮或 macOS 原生交通灯重叠。新增全屏遮罩按同一约定处理。
 - **加新 Vue 组件**：布局 / 间距 / 颜色用 Tailwind → 复杂样式用 scoped → 暗色优先 `dark:` → 不在 scoped 里硬编码与 Tailwind 重复的 RGB。

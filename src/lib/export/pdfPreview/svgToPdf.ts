@@ -9,7 +9,7 @@
 // 正缩放 `q sx 0 0 sy x y cm ... Q`，不需要负 d —— 负 d 会把文字整体镜像，
 // 这是 SVG→PDF 最容易踩的坑。
 
-import { FONT_RES, colorToRgb, glyph, measureMixed, type Tokens } from './tokens'
+import { FONT_RES, colorToRgb, encodeMixed, measureMixed, type Tokens } from './tokens'
 
 export interface SvgToPdfResult {
   pdf: string
@@ -288,9 +288,14 @@ export function svgToPdf(svgSource: string, tokens: Tokens): SvgToPdfResult {
         if (part.anchor === 'middle') x -= w / 2
         else if (part.anchor === 'end') x -= w
         const fill = colorOf(st.fill, tokens.ink) ?? tokens.ink
-        const runs = [...part.text].map(ch => glyph(ch, font))
-        const hex = runs.map(g => g.gid.toString(16).toUpperCase().padStart(4, '0')).join('')
-        out += `${colorToRgb(fill)} rg\nBT /${FONT_RES[font]} ${f(size)} Tf 1 0 0 1 ${f(x - minX)} ${f(coord.fy(part.y))} Tm <${hex}> Tj ET\n`
+        let cx = x
+        for (const run of encodeMixed(part.text, font)) {
+          const hex = run.gids.map(g => g.toString(16).toUpperCase().padStart(4, '0')).join('')
+          if (hex) {
+            out += `${colorToRgb(fill)} rg\nBT /${FONT_RES[run.font]} ${f(size)} Tf 1 0 0 1 ${f(cx - minX)} ${f(coord.fy(part.y))} Tm <${hex}> Tj ET\n`
+          }
+          cx += run.units / 1000 * size
+        }
       }
     } else if (!['svg', 'g', 'tspan', 'defs', 'title', 'desc'].includes(tag)) {
       warnings.push(`SVG 元素未适配: ${tag}`)

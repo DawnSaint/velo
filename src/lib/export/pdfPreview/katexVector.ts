@@ -13,8 +13,8 @@
 // 路径算子只有 m/l/c/h（绝对语义），直接进 PDF 内容流；预览转 SVG path d 时必须翻成大写
 // （SVG 小写是相对命令，PDF 没有相对形式，见 previewRenderer.pdfPathOpsToSvg）。
 
-import type { FormulaContent, FontKey, PdfColor } from './types'
-import { fontMeta } from './tokens'
+import type { FormulaContent, FontRole, PdfColor } from './types'
+import { fontSet } from './tokens'
 import { buildKatexFontSet, type SubsetFont } from './fontSubset'
 
 /** 测量放大倍率：探针字号 = bodyPt × 该值 */
@@ -579,12 +579,14 @@ export async function finalizeFormulaVector(items: MeasuredFormula[]): Promise<F
     return { contents, fonts: [], failed, warnings: [`公式矢量字体子集化失败，已回退位图: ${msg}`] }
   }
 
-  const bodyMeta = fontMeta()
+  const bodyFonts = fontSet()
   const resolveBody = (ch: string, bold: boolean): ResolvedGlyph | null => {
-    const order: FontKey[] = bold ? ['bold', 'sans', 'mono'] : ['sans', 'bold', 'mono']
-    for (const key of order) {
-      const hit = bodyMeta[key].chars[ch]
-      if (hit) return { font: key, gid: hit[0] }
+    const order: FontRole[] = bold ? ['bold', 'sans', 'mono'] : ['sans', 'bold', 'mono']
+    for (const role of order) {
+      for (const slotKey of bodyFonts.chains[role]) {
+        const hit = bodyFonts.slots[slotKey]?.meta.chars[ch]
+        if (hit) return { font: slotKey, gid: hit[0] }
+      }
     }
     return null
   }

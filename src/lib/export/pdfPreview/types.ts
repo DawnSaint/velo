@@ -4,7 +4,10 @@
 // 只共享同一棵布局结果。富片段以 id 引用，DOM 只存在于 fragments 表，
 // 不进 Display List 本身 —— 布局结果保持纯数据，可缓存 / 可比较。
 
-export type FontKey = 'sans' | 'bold' | 'mono'
+/** 逻辑字体角色：布局阶段请求「正文 / 粗体 / 等宽」，由 tokens.glyph 解析到实际槽位。 */
+export type FontRole = 'sans' | 'bold' | 'mono'
+/** 实际字体槽位键：含 'sans' | 'bold' | 'mono' 以及动态扩展槽位（如 'sans:1' / 'fb:0'）。 */
+export type FontKey = string
 export type PdfColor = string
 
 export interface TextOp {
@@ -276,4 +279,8 @@ export interface PdfSource {
   currentFilePath: string | null
   lightTheme: string
   darkTheme: string
+  /** 正文字体栈（对应 editorStore.fontFamily），缺省回退内置 Noto Sans SC */
+  fontFamily?: string
+  /** 等宽字体栈（对应 editorStore.fontMono），缺省回退内置 JetBrains Mono */
+  fontMono?: string
 }

@@ -59,7 +59,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
     <Transition name="velo-confirm">
       <div
         v-if="request"
-        class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/5 dark:bg-black/50"
+        class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/5 pt-9.5 dark:bg-black/50"
         @click.self="confirmStore.cancel()"
       >
         <div

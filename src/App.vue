@@ -1483,7 +1483,9 @@ watch(editorRef, (v) => {
       <!-- 右侧段:仅窗口控制。wrapper items-stretch 让 WindowControls 撑满顶栏高度,按钮贴齐窗口右缘。 -->
       <!-- macOS 原生装饰自带交通灯(关闭/最小化/全屏),不需要自绘窗口按钮;
            Windows/Linux 无原生装饰,继续用 WindowControls。 -->
-      <div v-if="!isMacOS" class="ml-auto flex shrink-0 items-stretch">
+      <!-- relative z-[2000]:浮在所有 Teleport 全屏遮罩(≤1400)之上,弹窗打开时仍可最小化 / 最大化 / 关闭;
+           前提是 header 及祖先不建 stacking context。 -->
+      <div v-if="!isMacOS" class="relative z-[2000] ml-auto flex shrink-0 items-stretch">
         <WindowControls v-if="tauri" />
       </div>
     </header>

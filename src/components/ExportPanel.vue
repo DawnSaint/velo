@@ -44,7 +44,7 @@ function pick(type: ExportType): void {
     <Transition name="velo-export">
       <div
         v-if="open"
-        class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/5 dark:bg-black/50"
+        class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/5 pt-9.5 dark:bg-black/50"
       >
         <div
           class="velo-export-card w-[520px] max-w-[calc(100vw-32px)] rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-3)] p-6 shadow-[var(--shadow-popover)]"

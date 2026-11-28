@@ -45,10 +45,20 @@ function pdfPathOpsToSvg(ops: string): string {
   return out.join(' ')
 }
 
-function formulaFont(font: string): PreviewFont {
-  if (font === 'sans' || font === 'bold' || font === 'mono') {
-    return { family: FONT_FAMILY[font], weight: 400, style: 'normal' }
+function previewFontStyle(slotKey: string): PreviewFont {
+  const slot = fontSet().slots[slotKey]
+  if (slot?.previewCss) {
+    return {
+      family: slot.previewCss.family,
+      weight: slot.previewCss.weight,
+      style: slot.previewCss.italic ? 'italic' : 'normal',
+    }
   }
+  return { family: FONT_FAMILY[slotKey] ?? 'sans-serif', weight: 400, style: 'normal' }
+}
+
+function formulaFont(font: string): PreviewFont {
+  if (font in fontSet().slots) return previewFontStyle(font)
   return katexCssFont(font) ?? { family: 'sans-serif', weight: 400, style: 'normal' }
 }
 
@@ -132,9 +142,10 @@ function renderFormulaFragment(root: HTMLElement, fr: RichFragment, op: Fragment
 }
 
 /**
- * 注入 @font-face 与 KaTeX CSS。@font-face 指向**运行时子集 TTF** 的 blob URL
- * （与 PDF FontFile2 嵌入同一份字节），子集变化时重建。必须在 installFontSet
- * 之后调用（buildPdf 内部顺序已保证）。
+ * 注入 @font-face 与 KaTeX CSS。
+ * - 打包字体（无 previewCss）：@font-face 指向运行时子集 TTF 的 blob URL（与 PDF 同源）
+ * - 系统字体（带 previewCss）：跳过 @font-face，渲染时直接使用本机系统 font-family
+ * 子集变化时重建；必须在 installFontSet 之后调用（buildPdf 内部顺序已保证）。
  */
 export function ensurePreviewDomStyles(): void {
   const set = fontSet()
@@ -142,11 +153,14 @@ export function ensurePreviewDomStyles(): void {
     installedSet = set
     for (const u of blobUrls) URL.revokeObjectURL(u)
     blobUrls.length = 0
-    const css = (['sans', 'bold', 'mono'] as const).map(k => {
-      const url = URL.createObjectURL(new Blob([set[k].ttf.slice().buffer as ArrayBuffer], { type: 'font/ttf' }))
+    const rules: string[] = []
+    for (const [k, slot] of Object.entries(set.slots)) {
+      if (slot.previewCss) continue
+      const url = URL.createObjectURL(new Blob([slot.ttf.slice().buffer as ArrayBuffer], { type: 'font/ttf' }))
       blobUrls.push(url)
-      return `@font-face{font-family:'${FONT_FAMILY[k]}';src:url('${url}') format('truetype');font-display:block;}`
-    }).join('\n')
+      rules.push(`@font-face{font-family:'${FONT_FAMILY[k]}';src:url('${url}') format('truetype');font-display:block;}`)
+    }
+    const css = rules.join('\n')
     let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null
     if (!style) {
       style = document.createElement('style')
@@ -185,10 +199,11 @@ export function renderPageDom(doc: PdfDocument, index: number, scale: number): H
     switch (op.op) {
       case 'text': {
         if (!op.text) break
+        const pf = previewFontStyle(op.font)
         const span = el('span',
           `position:absolute;left:${op.x * s}px;top:${(op.y - op.size * 0.82) * s}px;`
-          + `font-family:'${FONT_FAMILY[op.font]}',sans-serif;font-size:${op.size * s}px;`
-          + `line-height:1;color:${op.color};white-space:pre;`)
+          + `font-family:'${pf.family}',sans-serif;font-weight:${pf.weight};font-style:${pf.style};`
+          + `font-size:${op.size * s}px;line-height:1;color:${op.color};white-space:pre;`)
         span.textContent = op.text
         root.appendChild(span)
         break

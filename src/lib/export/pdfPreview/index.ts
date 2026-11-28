@@ -82,7 +82,7 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
   // 字体先行：运行时子集化 + 度量注入必须在任何 glyph()/measure 之前完成。
   // 字符集 = 文档全文 + 版式字面量（页眉文字 / 目录标题 / alert 标签等）。
   // buildFontSet 内部按字符集缓存，与下面的 IR 缓存互不依赖。
-  const key = hash(`${source.content}\u0000${source.currentFilePath}\u0000${source.lightTheme}\u0000${source.darkTheme}`)
+  const key = hash(`${source.content}\u0000${source.currentFilePath}\u0000${source.lightTheme}\u0000${source.darkTheme}\u0000${source.fontFamily ?? ''}\u0000${source.fontMono ?? ''}`)
   let entry = cache.get(key)
   if (!entry) {
     // 字符集 = 文档全文 + 版式字面量（页眉 / 目录标题 / alert 标签 / 页码）。
@@ -91,7 +91,7 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
     const tree = parse(source.content)
     // ↩ 是脚注回链字符（layoutEngine footnote 分支），必须进子集否则会缺字成 '?'。
     const charset = collectCharset(source.content, `${opts.headerText}目录NOTETIPIMPORTANTWARNINGCAUTION↩ /0123456789`)
-    const fonts = await buildFontSet(charset)
+    const fonts = await buildFontSet(charset, { fontFamily: source.fontFamily, fontMono: source.fontMono })
     installFontSet(fonts)
     const fb = await buildFragments(tree, source, opts)
     installFormulaFonts(fb.formulaFonts)

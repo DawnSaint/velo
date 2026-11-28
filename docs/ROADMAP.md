@@ -22,6 +22,7 @@
 P2  #system-tray ──→ #daily-note
     #block-drag · #table-enhance · #md-lint · #changelog-popup
     #diff-autoscroll · #diff-change-preview · #diff-ruler
+    #pdf-font-fidelity（独立）
 
 P3  #code-signing（独立，CI 核心已通）
     #ai-assist · #bookmark（独立）
@@ -52,6 +53,15 @@ P3  #code-signing（独立，CI 核心已通）
   - 参考 VSCode 的 Git diff overview ruler：在 diff 视图右侧滚动条区域叠加一条 ruler，按每处变更在全文中的相对位置画绿色（新增）/ 红色（删除）块，长文档滚动时也能一眼看出改动分布
   - 点击 / 拖动色块跳转到对应变更，与 `#diff-autoscroll` 的 hunk 导航共用同一套变更锚点，避免维护两份定位数据
   - 源码模式按行号映射、预览模式按 block 位置映射；无变更时不显示 ruler
+
+### PDF 预览 / 导出 — 字形保真
+
+- [ ] **PDF 预览字体跟随编辑器 + 无降级缺字** `#pdf-font-fidelity` `P2` `L` —— [RESEARCH](./research/pdf-font-fidelity.md)
+  - 字体注册表动态化：PDF 预览按用户字体设置（latin / cjk / mono）解析字体，打包字体直接复用对应 woff2，不再写死 Noto Sans SC + JetBrains Mono
+  - Rust 字体服务：按 family 返回系统字体字节（含 TTC index / 可变轴），并提供平台原生 fallback 查询，消除 `①②` 这类「字体栈里没有」的缺字
+  - 彩色 emoji：Type3 字体 + ToUnicode，COLR 走矢量、sbix / CBDT 走 PNG，保持可选中 / 可搜索
+  - HarfBuzz shaping（复用 `harfbuzzjs` 自带的 `harfbuzz.wasm`）：ZWJ emoji 序列、旗帜、连字、kerning
+  - 达成后再评估下线 WebView PrintToPdf 导出入口
 
 
 

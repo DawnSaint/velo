@@ -354,7 +354,8 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 顶栏:名称 + 元信息 / 动作 -->
-        <div class="pointer-events-none absolute inset-x-0 top-0 flex h-14 items-center justify-between gap-4 bg-gradient-to-b from-black/50 to-transparent px-4">
+        <!-- top-9.5 避让顶栏高度:右上角关闭按钮不与窗口控制按钮 / macOS 交通灯重叠。 -->
+        <div class="pointer-events-none absolute inset-x-0 top-9.5 flex h-14 items-center justify-between gap-4 bg-gradient-to-b from-black/50 to-transparent px-4">
           <div class="pointer-events-auto flex min-w-0 flex-col">
             <span class="truncate text-sm font-medium text-gray-100" :title="current.absPath ?? current.url">{{ current.name }}</span>
             <span v-if="metaLabel" class="text-[11px] tabular-nums text-gray-400">{{ metaLabel }}</span>

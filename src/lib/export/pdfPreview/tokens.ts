@@ -7,22 +7,40 @@
 // 按文档字符集运行时子集化 + 解析注入（installFontSet）。布局 / 序列化开始前
 // 必须已注入；未注入时 glyph() 会抛错而不是静默画错字。
 
-import type { FontKey, PdfLayoutOptions } from './types'
+import type { FontKey, FontRole, PdfLayoutOptions } from './types'
 import type { FontMeta, FontSet } from './fontSubset'
 import { MM_TO_PT, PDF_PAPER_SIZES } from './types'
 
 export type { FontMeta } from './fontSubset'
 
 let activeFonts: FontSet | null = null
+/** 当前字体集槽位 → PDF 资源名（F1..Fn）。默认三套固定占 F1/F2/F3，扩展槽位顺延。 */
 export const FONT_RES: Record<FontKey, string> = { sans: 'F1', bold: 'F2', mono: 'F3' }
-/** 预览侧 @font-face 的字体族名 —— 与 PDF 用同一份子集，避免预览 / 导出漂移。 */
+/** 预览侧 @font-face 的字体族名（仅打包字体用；系统字体由 SubsetFont.previewCss 直出）。 */
 export const FONT_FAMILY: Record<FontKey, string> = {
   sans: 'VeloPdfSans', bold: 'VeloPdfBold', mono: 'VeloPdfMono',
+}
+
+function rebuildFontMaps(set: FontSet): void {
+  for (const k of Object.keys(FONT_RES)) delete FONT_RES[k]
+  for (const k of Object.keys(FONT_FAMILY)) delete FONT_FAMILY[k]
+  const ordered = [
+    ...(['sans', 'bold', 'mono'].filter(k => k in set.slots)),
+    ...Object.keys(set.slots).filter(k => k !== 'sans' && k !== 'bold' && k !== 'mono'),
+  ]
+  ordered.forEach((slotKey, idx) => {
+    FONT_RES[slotKey] = `F${idx + 1}`
+    if (slotKey === 'sans') FONT_FAMILY[slotKey] = 'VeloPdfSans'
+    else if (slotKey === 'bold') FONT_FAMILY[slotKey] = 'VeloPdfBold'
+    else if (slotKey === 'mono') FONT_FAMILY[slotKey] = 'VeloPdfMono'
+    else FONT_FAMILY[slotKey] = `VeloPdfSlot_${idx + 1}`
+  })
 }
 
 /** 注入运行时子集字体（buildPdf 调）。同一份字节供预览 @font-face 与 PDF 嵌入。 */
 export function installFontSet(set: FontSet): void {
   activeFonts = set
+  rebuildFontMaps(set)
 }
 
 export function fontSet(): FontSet {
@@ -30,15 +48,28 @@ export function fontSet(): FontSet {
   return activeFonts
 }
 
-export function fontMeta(): Record<FontKey, FontMeta> {
+/** 当前字体集全部槽位键（与 FONT_RES 分配顺序一致）。 */
+export function fontSlotKeys(): FontKey[] {
   const s = fontSet()
-  return { sans: s.sans.meta, bold: s.bold.meta, mono: s.mono.meta }
+  return [
+    ...(['sans', 'bold', 'mono'].filter(k => k in s.slots)),
+    ...Object.keys(s.slots).filter(k => k !== 'sans' && k !== 'bold' && k !== 'mono'),
+  ]
 }
 
-/** 当前子集 TTF 字节（PDF FontFile2 嵌入用；与预览 @font-face 同源）。 */
+export function fontMeta(): Record<FontKey, FontMeta> {
+  const s = fontSet()
+  const out: Record<string, FontMeta> = {}
+  for (const [k, v] of Object.entries(s.slots)) out[k] = v.meta
+  return out
+}
+
+/** 当前子集 TTF 字节（PDF FontFile2 嵌入用）。 */
 export function loadFontBytes(): Promise<Record<FontKey, Uint8Array>> {
   const s = fontSet()
-  return Promise.resolve({ sans: s.sans.ttf, bold: s.bold.ttf, mono: s.mono.ttf })
+  const out: Record<string, Uint8Array> = {}
+  for (const [k, v] of Object.entries(s.slots)) out[k] = v.ttf
+  return Promise.resolve(out)
 }
 
 /**
@@ -85,38 +116,74 @@ const SUBSTITUTES: Record<string, [string, FontKey]> = {
 }
 
 /**
- * 字符 → glyph。缺字依次回退 sans → mono → 同形替换 → '?'，并记账给 warnings。
- * ⌘ 等符号只在 mono 字库里，单独兜底。
+ * 字符 → glyph。
+ *
+ * 解析顺序：
+ *   1. preferred 对应的字体链（按用户 CSS 栈顺序 + 系统兜底）
+ *   2. 其余逻辑角色链（sans → mono）
+ *   3. 同形替换（如非 Tauri 环境下 ☑→✓）
+ *   4. '?' 并记账给 missingGlyphs
  */
 export function glyph(ch: string, preferred: FontKey): GlyphHit {
-  const meta = fontMeta()
-  // 空白 / 控制字符统一当空格，不进缺字统计，也不污染 ToUnicode。
-  // 宽度必须取**所在字体**的空格：JetBrainsMono 是 600/1000（等宽），
-  // NotoSansSC 只有 224/1000。代码块缩进若按 sans 量，即使保留了空格
-  // 也只有正确宽度的 37%，和同一行的代码字符错位。
-  if (/\s/.test(ch)) {
-    const own = meta[preferred].chars[' ']
-    const sp = own ?? meta.sans.chars[' ']
-    const font: FontKey = own ? preferred : 'sans'
-    return { ch: ' ', font, gid: sp ? sp[0] : 1, w: sp ? sp[1] : 250 }
+  const s = fontSet()
+  const slots = s.slots
+
+  const chainOf = (roleOrKey: FontKey): string[] => {
+    if (roleOrKey === 'sans' || roleOrKey === 'bold' || roleOrKey === 'mono') {
+      return s.chains[roleOrKey]
+    }
+    return roleOrKey in slots ? [roleOrKey] : s.chains.sans
   }
-  const cmd = meta.mono.chars['⌘']
-  if (ch === '⌘' && cmd) return { ch, font: 'mono', gid: cmd[0], w: cmd[1] }
+
+  // 空白 / 控制字符统一当空格，不进缺字统计，也不污染 ToUnicode。
+  // 宽度必须取**所在角色主字体**的空格：等宽字体空格通常 600/1000，
+  // 比例字体约 224–330/1000，避免代码块缩进错位。
+  if (/\s/.test(ch)) {
+    const primary = chainOf(preferred)[0] ?? 'sans'
+    const own = slots[primary]?.meta.chars[' ']
+    if (own) return { ch: ' ', font: primary, gid: own[0], w: own[1] }
+    for (const k of s.chains.sans) {
+      const sp = slots[k]?.meta.chars[' ']
+      if (sp) return { ch: ' ', font: k, gid: sp[0], w: sp[1] }
+    }
+    return { ch: ' ', font: primary, gid: 1, w: 250 }
+  }
+
+  // 1. 先按首选角色链查找（含用户字体栈 + Rust 兜底字体）
+  for (const slotKey of chainOf(preferred)) {
+    const hit = slots[slotKey]?.meta.chars[ch]
+    if (hit) return { ch, font: slotKey, gid: hit[0], w: hit[1] }
+  }
+
+  // 2. 跨角色兜底（sans → mono）
+  const fallbackRoles: FontRole[] = preferred === 'sans'
+    ? ['mono']
+    : preferred === 'mono'
+      ? ['sans']
+      : ['sans', 'mono']
+  for (const role of fallbackRoles) {
+    for (const slotKey of s.chains[role]) {
+      const hit = slots[slotKey]?.meta.chars[ch]
+      if (hit) return { ch, font: slotKey, gid: hit[0], w: hit[1] }
+    }
+  }
+
+  // 3. 同形替换（如非 Tauri 环境下 ☑ → ✓）
   const sub = SUBSTITUTES[ch]
   if (sub) {
-    const hit = meta[sub[1]].chars[sub[0]]
-    if (hit) return { ch: sub[0], font: sub[1], gid: hit[0], w: hit[1] }
+    for (const slotKey of chainOf(sub[1])) {
+      const hit = slots[slotKey]?.meta.chars[sub[0]]
+      if (hit) return { ch: sub[0], font: slotKey, gid: hit[0], w: hit[1] }
+    }
   }
-  let font = preferred
-  let hit = meta[font].chars[ch]
-  if (!hit && font !== 'sans') { font = 'sans'; hit = meta.sans.chars[ch] }
-  if (!hit && font !== 'mono') { font = 'mono'; hit = meta.mono.chars[ch] }
-  if (!hit) {
-    missing.add(ch)
-    const q = meta.sans.chars['?']
-    return { ch: '?', font: 'sans', gid: q ? q[0] : 1, w: q ? q[1] : 500 }
+
+  // 4. 实在没有：记入缺字并画 '?'
+  missing.add(ch)
+  for (const slotKey of s.chains.sans) {
+    const q = slots[slotKey]?.meta.chars['?']
+    if (q) return { ch: '?', font: slotKey, gid: q[0], w: q[1] }
   }
-  return { ch, font, gid: hit[0], w: hit[1] }
+  return { ch: '?', font: s.chains.sans[0] ?? 'sans', gid: 1, w: 500 }
 }
 
 /** 字符串宽度（pt） */
