@@ -45,11 +45,12 @@ rayon = "1"
 # default-features=false 关掉 https/ssh(只读本地仓库,不需要网络传输),
 # 避免 OpenSSL 依赖。Windows 链接需 advapi32/crypt32(见 build.rs)。
 git2 = { version = "0.19", default-features = false }
-# #pdf-font-fidelity: 系统字体枚举 + 度量提取 + PDF 子集化 + Type3 彩色字形提取
+# #pdf-font-fidelity: 系统字体枚举 + 度量提取 + PDF 子集化 + Type3 彩色字形 + HarfBuzz shaping
 # （纯 Rust 跨平台，避免把 18–70MB 完整系统字体跨 IPC 传给前端 WASM）。
 fontdb = "0.24"
 ttf-parser = "0.25"
 subsetter = "0.2"
+rustybuzz = "0.20"
 png = "0.17"
 flate2 = "1"
 

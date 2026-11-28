@@ -24,7 +24,10 @@ import { buildFragments } from './fragmentBuilder'
 import { buildBlocks, relayout, type BlockIR } from './layoutEngine'
 import { ensurePreviewDomStyles } from './previewRenderer'
 import { writePdf } from './pdfWriter'
-import { buildFontSet, collectCharset, collectColorPreferredChars, type FontSet } from './fontSubset'
+import {
+  buildFontSet, collectCharset, collectColorPreferredChars, collectEmojiSequences, collectKernPairs,
+  type FontSet,
+} from './fontSubset'
 import { installFontSet, installFormulaFonts, type FormulaFontEntry } from './tokens'
 import type { PdfDocument, PdfLayoutOptions, PdfSource, RichFragment } from './types'
 
@@ -109,12 +112,17 @@ export async function buildPdf(source: PdfSource, opts: PdfLayoutOptions): Promi
     collectExpandedEmojis(tree, expanded)
     const emojiText = expanded.join('')
     // ↩ 是脚注回链字符（layoutEngine footnote 分支），必须进子集否则会缺字成 '?'。
+    const fullText = `${source.content}${emojiText}`
     const charset = collectCharset(source.content, `${emojiText}${opts.headerText}目录NOTETIPIMPORTANTWARNINGCAUTION↩ /0123456789`)
-    const colorPreferredChars = collectColorPreferredChars(`${source.content}${emojiText}`)
+    const colorPreferredChars = collectColorPreferredChars(fullText)
+    const emojiSequences = collectEmojiSequences(fullText)
+    const kernPairs = collectKernPairs(source.content)
     const fonts = await buildFontSet(charset, {
       fontFamily: source.fontFamily,
       fontMono: source.fontMono,
       colorPreferredChars,
+      emojiSequences,
+      kernPairs,
     })
     installFontSet(fonts)
     const fb = await buildFragments(tree, source, opts)

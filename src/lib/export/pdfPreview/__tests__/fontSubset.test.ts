@@ -53,7 +53,9 @@ vi.stubGlobal('fetch', vi.fn(async (url: string) => {
 }))
 
 // 动态 import：确保上面的 vi.mock / stubGlobal 先生效
-const { collectCharset, collectColorPreferredChars, buildFontSet } = await import('../fontSubset')
+const {
+  collectCharset, collectColorPreferredChars, collectEmojiSequences, collectKernPairs, buildFontSet,
+} = await import('../fontSubset')
 const { installFontSet, glyph, measure, measureMixed, encodeMixed, resetMissingGlyphs, drainMissingGlyphs, loadFontBytes } = await import('../tokens')
 const { writePdf } = await import('../pdfWriter')
 
@@ -91,6 +93,22 @@ describe('collectCharset', () => {
     expect(cs).not.toContain('\uFE0F')
     expect(cs).not.toContain('\uFE0E')
     expect(collectColorPreferredChars('警告⚠️ 爱心❤️')).toBe('⚠❤')
+  })
+
+  it('collectEmojiSequences 与 collectKernPairs 正确提取多码点序列与拉丁字距对', () => {
+    const seqs = collectEmojiSequences('家庭👨‍👩‍👧‍👦 程序员👨‍💻 中国🇨🇳 肤色👍🏽 按键1️⃣ 警告⚠️')
+    expect(seqs).toContain('👨‍👩‍👧‍👦')
+    expect(seqs).toContain('👨‍💻')
+    expect(seqs).toContain('🇨🇳')
+    expect(seqs).toContain('👍🏽')
+    expect(seqs).toContain('1️⃣')
+    // 纯 base + VS16 (⚠️) 走 colorPreferredChars，不进多码点 shaping 队列
+    expect(seqs).not.toContain('⚠️')
+
+    const pairs = collectKernPairs('AV To Wa 中文')
+    expect(pairs).toContain('AV')
+    expect(pairs).toContain('To')
+    expect(pairs).toContain('Wa')
   })
 })
 
@@ -369,12 +387,72 @@ describe('writePdf 端到端（最小文档）', () => {
         },
       }
       installFontSet({ ...withEmoji, slots: { ...withEmoji.slots, 'fb:0': warnSlot } })
-      const warnRuns = encodeMixed('注意⚠️', 'sans')
+      const warnRuns = encodeMixed('中文⚠️', 'sans')
       expect(drainMissingGlyphs()).toEqual([])
       const warnEmojiRun = warnRuns.find(r => r.font === 'fb:0')
       expect(warnEmojiRun).toBeDefined()
       expect(warnEmojiRun?.gids).toEqual([3])
       expect(warnEmojiRun?.text).toBe('⚠️')
+
+      // 多码点 ZWJ 序列（👨‍💻）ToUnicode 映射完整 UTF-16BE + kerning 输出 TJ 数组
+      const zwjSlot = {
+        ...emojiSlot,
+        meta: {
+          ...emojiSlot.meta,
+          chars: { ...emojiSlot.meta.chars, '👨‍💻': [4, 1000] as [number, number] },
+          widths: [0, 1000, 1000, 1000, 1000],
+          glyphCount: 5,
+        },
+        type3: {
+          ...emojiSlot.type3,
+          charProcs: {
+            ...emojiSlot.type3.charProcs,
+            4: '1000 0 d0\n0.49 0 0 0.49 0 0 cm\n0 0 1 rg\n0 0 1000 1000 re f\n',
+          },
+        },
+      }
+      const [gidA] = fonts.sans.meta.chars.A
+      const [gidV] = fonts.sans.meta.chars.V
+      const kernSans = {
+        ...fonts.sans,
+        meta: { ...fonts.sans.meta, kern: { [`${gidA},${gidV}`]: -50 } },
+      }
+      installFontSet({
+        ...withEmoji,
+        sans: kernSans,
+        slots: { ...withEmoji.slots, sans: kernSans, 'fb:0': zwjSlot },
+      })
+      const mixedRuns = encodeMixed('AV👨‍💻', 'sans')
+      const avRun = mixedRuns.find(r => r.font === 'sans')
+      expect(avRun?.kerns).toEqual([-50])
+      const zwjRun = mixedRuns.find(r => r.font === 'fb:0')
+      expect(zwjRun?.gids).toEqual([4])
+      expect(zwjRun?.text).toBe('👨‍💻')
+
+      let kx = 50
+      const kOps = mixedRuns.map(r => {
+        const op = {
+          op: 'text' as const, x: kx, y: 700, size: 12, color: '#000000',
+          font: r.font, gids: r.gids, ...(r.kerns ? { kerns: r.kerns } : {}), text: r.text,
+        }
+        kx += r.units / 1000 * 12
+        return op
+      })
+      const kBytes = await writePdf({
+        pages: [{ ops: kOps }],
+        fragments: {},
+        destinations: {},
+        warnings: [],
+        missingGlyphs: [],
+        pageWidth: 595,
+        pageHeight: 842,
+        options: { ...DEFAULT_PDF_LAYOUT_OPTIONS },
+      })
+      const kLatin = new TextDecoder().decode(kBytes)
+      // 负 kerning -50 在 PDF TJ 里写为正数 50
+      expect(kLatin).toContain(`[<${gidA.toString(16).toUpperCase().padStart(4, '0')}> 50 <${gidV.toString(16).toUpperCase().padStart(4, '0')}>] TJ`)
+      // 👨‍💻 = U+1F468 (D83D DC68) + U+200D (200D) + U+1F4BB (D83D DCBB)
+      expect(kLatin).toContain('<04> <D83DDC68200DD83DDCBB>')
     } finally {
       installFontSet(fonts)
     }

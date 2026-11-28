@@ -15,7 +15,7 @@ import { renderCodeBlockHtml } from '../shikiHtml'
 import type { FragmentBuild } from './fragmentBuilder'
 import {
   ALERT_COLORS, drainMissingGlyphs, encodeMixed, glyph, layoutGeometry,
-  measureMixed, resetMissingGlyphs, tokensOf, type Tokens,
+  measureMixed, resetMissingGlyphs, segmentGraphemes, tokensOf, type Tokens,
 } from './tokens'
 import type {
   DisplayOp, FontKey, PdfDestinations, PdfDocument, PdfLayoutOptions, PdfPage, PdfSource,
@@ -610,10 +610,10 @@ function wrap(runs: Run[], maxW: number, base: number, opts: WrapOpts = {}): Lin
         continue
       }
       let buf = '', bw = 0
-      for (const ch of chunk) {
-        const w = glyph(ch, r.font).w / 1000 * size
+      for (const seg of segmentGraphemes(chunk)) {
+        const w = measureMixed(seg, r.font, size)
         if (cur.w + bw + w > maxW + EPS && buf) { pushRun(buf, bw); buf = ''; bw = 0 }
-        buf += ch; bw += w
+        buf += seg; bw += w
       }
       if (buf) pushRun(buf, bw)
     }
@@ -695,7 +695,11 @@ class Painter {
     const startX = x
     let spanUnits = 0
     for (const g of encodeMixed(text, r.font)) {
-      const op: TextOp = { op: 'text', x, y: baseline, size, color, font: g.font, gids: g.gids, text: g.text }
+      const op: TextOp = {
+        op: 'text', x, y: baseline, size, color, font: g.font, gids: g.gids,
+        ...(g.kerns ? { kerns: g.kerns } : {}),
+        text: g.text,
+      }
       this.cur.ops.push(op)
       x += g.units / 1000 * size
       spanUnits += g.units
@@ -731,6 +735,24 @@ class Painter {
         px += p.w
       }
     }
+    // 两遍绘制：先画整行所有片段的底色/底衬（bgKey / deco），再画前景文字/片段，
+    // 避免相邻片段的 `x - 1` 扩展背景矩形盖住前一片段末字（如行内代码 `AV / To` 里 V、/ 右缘被遮）。
+    let bgX = x0
+    for (const p of line.pieces) {
+      if (!p.frag) {
+        const pSize = base * p.run.scale * (p.run.deco?.scale ?? 1)
+        const padX = p.padX ?? 0
+        const textW = p.w - padX * 2
+        if (p.run.bgKey) {
+          this.cur.ops.push({ op: 'rect', x: bgX + padX - 1, y: baseline - pSize * 1.02, w: textW + 2, h: pSize * 1.3, fill: this.t[p.run.bgKey] ?? this.t.inlineBg })
+        }
+        const shift = p.run.deco?.shiftEm ?? 0
+        if (p.run.deco && (p.run.deco.fill || p.run.deco.stroke)) {
+          this.cur.ops.push(decoOp(bgX + padX, baseline, textW, pSize, p.run.deco, shift))
+        }
+      }
+      bgX += p.w
+    }
     let x = x0
     for (const p of line.pieces) {
       const pSize = base * p.run.scale * (p.run.deco?.scale ?? 1)
@@ -744,14 +766,7 @@ class Painter {
       // run 级内边距：文字从 padX 起画，宽度已含左右两段 pad。
       const padX = p.padX ?? 0
       const textW = p.w - padX * 2
-      if (p.run.bgKey) {
-        this.cur.ops.push({ op: 'rect', x: x + padX - 1, y: baseline - pSize * 1.02, w: textW + 2, h: pSize * 1.3, fill: this.t[p.run.bgKey] ?? this.t.inlineBg })
-      }
-      // 底衬要在文字下层：deco 先入栈，再 text。
       const shift = p.run.deco?.shiftEm ?? 0
-      if (p.run.deco && (p.run.deco.fill || p.run.deco.stroke)) {
-        this.cur.ops.push(decoOp(x + padX, baseline, textW, pSize, p.run.deco, shift))
-      }
       this.text(x + padX, baseline + shift * pSize, p.text, p.run, pSize)
       if (p.run.strike) {
         this.cur.ops.push({ op: 'line', x1: x + padX, y1: baseline - pSize * 0.3, x2: x + padX + textW, y2: baseline - pSize * 0.3, color: runColor(p.run, this.t, this.opts.dark), width: 0.6 })
@@ -785,7 +800,11 @@ class Painter {
     const put = (ops: DisplayOp[], text: string, x: number, y: number, size: number) => {
       let cx = x
       for (const g of encodeMixed(text, SANS)) {
-        ops.push({ op: 'text', x: cx, y, size, color: this.t.muted, font: g.font, gids: g.gids, text: g.text })
+        ops.push({
+          op: 'text', x: cx, y, size, color: this.t.muted, font: g.font, gids: g.gids,
+          ...(g.kerns ? { kerns: g.kerns } : {}),
+          text: g.text,
+        })
         cx += g.units / 1000 * size
       }
     }

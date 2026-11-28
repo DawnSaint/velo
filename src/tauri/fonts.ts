@@ -16,6 +16,8 @@ export interface SystemFontMeta {
   descent: number
   capHeight: number
   glyphCount: number
+  /** GPOS / kern 字距微调表: "leftNewGid,rightNewGid" -> 1000 单位水平位移差 */
+  kern?: Record<string, number>
 }
 
 interface Type3ImageRaw {
@@ -130,6 +132,7 @@ export async function resolveAndSubsetSystemFont(
   weight: number,
   italic: boolean,
   chars: string,
+  kernPairs?: string[],
 ): Promise<ResolvedSystemFont | null> {
   if (!tauriOnly() || families.length === 0 || !chars) return null
   try {
@@ -138,6 +141,7 @@ export async function resolveAndSubsetSystemFont(
       weight,
       italic,
       chars,
+      kernPairs: kernPairs && kernPairs.length > 0 ? kernPairs : undefined,
     })
     return raw ? toResolved(raw) : null
   }
@@ -147,18 +151,20 @@ export async function resolveAndSubsetSystemFont(
 }
 
 /**
- * 为主字体栈均未覆盖的剩余字符查找系统兜底字体并子集化。
+ * 为主字体栈均未覆盖的剩余字符(及多码点 emoji 序列)查找系统兜底字体并子集化。
  * 非 Tauri 环境返回空数组。
  */
 export async function fallbackSubsetSystemFonts(
   missingChars: string,
   weight = 400,
+  sequences?: string[],
 ): Promise<ResolvedSystemFont[]> {
-  if (!tauriOnly() || !missingChars) return []
+  if (!tauriOnly() || (!missingChars && (!sequences || sequences.length === 0))) return []
   try {
     const list = await invoke<SystemSubsetFontRaw[]>('fallback_subset_system_fonts', {
       missingChars,
       weight,
+      sequences: sequences && sequences.length > 0 ? sequences : undefined,
     })
     return list.map(toResolved)
   }

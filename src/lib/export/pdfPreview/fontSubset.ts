@@ -31,6 +31,8 @@ export interface FontMeta {
   descent: number
   capHeight: number
   glyphCount: number
+  /** GPOS / kern 字距微调表："leftGid,rightGid" → 1000 单位水平位移差 */
+  kern?: Record<string, number>
 }
 
 export interface PreviewCssFont {
@@ -71,6 +73,10 @@ export interface FontStackPrefs {
   fontMono?: string
   /** 紧跟 VS16 (U+FE0F) 请求彩色 emoji 呈现的基字符（如 ⚠️ 的 ⚠、❤️ 的 ❤） */
   colorPreferredChars?: string
+  /** 需经 HarfBuzz shaping 的多码点 emoji 序列（ZWJ / 国旗 / 肤色 / 按键序列等） */
+  emojiSequences?: string[]
+  /** 文档中出现的相邻拉丁/符号字符对（用于提取 GPOS / kern 字距微调） */
+  kernPairs?: string[]
 }
 
 // 批量收集 src/fonts/**/*.woff2 的构建产物 URL（与 fontFaceCss.ts / _fonts.scss 复用同一批资产）
@@ -141,6 +147,67 @@ export function collectColorPreferredChars(text: string): string {
     }
   }
   return [...out].sort().join('')
+}
+
+const graphemeSegmenter: Intl.Segmenter | null =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null
+
+/** 按字素簇（grapheme cluster）切分字符串：保证 ZWJ emoji / 国旗 / 肤色修饰 / VS16 不被拆断。 */
+export function segmentGraphemes(text: string): string[] {
+  if (!text) return []
+  if (graphemeSegmenter) {
+    const out: string[] = []
+    for (const seg of graphemeSegmenter.segment(text)) out.push(seg.segment)
+    return out
+  }
+  return [...text]
+}
+
+function isMultiCodepointEmojiSeq(seg: string): boolean {
+  const cps = [...seg]
+  if (cps.length < 2) return false
+  // 纯 base + VS16 (如 ⚠️) 走单码点 colorPreferredChars 路径，这里收集真正需要 GSUB shaping 的序列
+  if (cps.length === 2 && (cps[1] === '\uFE0F' || cps[1] === '\uFE0E')) return false
+  for (const ch of cps) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (
+      cp === 0x200D // ZWJ (👨‍👩‍👧‍👦, 👨‍💻, 🏳️‍🌈)
+      || cp === 0x20E3 // Combining Enclosing Keycap (1️⃣, #️⃣)
+      || (cp >= 0x1F1E6 && cp <= 0x1F1FF) // Regional Indicator flags (🇨🇳, 🇺🇸)
+      || (cp >= 0x1F3FB && cp <= 0x1F3FF) // Skin tone modifiers (👍🏽)
+      || (cp >= 0xE0020 && cp <= 0xE007F) // Tag sequences (🏴󠁧󠁢󠁥󠁮󠁧󠁿)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/** 收集文档中出现的多码点 emoji 序列（ZWJ / 国旗 / 肤色 / 按键序列），供 Rust rustybuzz shaping。 */
+export function collectEmojiSequences(text: string): string[] {
+  const out = new Set<string>()
+  for (const seg of segmentGraphemes(text)) {
+    if (isMultiCodepointEmojiSeq(seg)) out.add(seg)
+  }
+  return [...out].sort()
+}
+
+/** 收集文档中相邻的 ASCII/Latin 可打印字符对（去重且上限 512 对），供 GPOS / kern 字距微调。 */
+export function collectKernPairs(text: string): string[] {
+  const out = new Set<string>()
+  const isLatin = (code: number) =>
+    (code >= 0x21 && code <= 0x7E) || (code >= 0x00C0 && code <= 0x024F)
+  for (let i = 0; i + 1 < text.length; i++) {
+    const a = text.charCodeAt(i)
+    const b = text.charCodeAt(i + 1)
+    if (isLatin(a) && isLatin(b)) {
+      out.add(text.slice(i, i + 2))
+      if (out.size >= 512) break
+    }
+  }
+  return [...out].sort()
 }
 
 /** 解析 CSS font-family 栈字符串为去重后的族名列表（跳过纯 generic family）。 */
@@ -254,7 +321,7 @@ async function hbSubset(sfnt: Uint8Array, text: string): Promise<Uint8Array> {
 
 // ---- 度量提取 ----------------------------------------------------------------
 
-function extractMeta(ttf: Uint8Array, text: string): FontMeta {
+function extractMeta(ttf: Uint8Array, text: string, kernPairs?: string[]): FontMeta {
   const buf = ttf.buffer.slice(ttf.byteOffset, ttf.byteOffset + ttf.byteLength) as ArrayBuffer
   const font = parseFont(buf)
   const upem = font.unitsPerEm
@@ -268,6 +335,21 @@ function extractMeta(ttf: Uint8Array, text: string): FontMeta {
   for (let i = 0; i < font.numGlyphs; i++) {
     widths[i] = Math.round((font.glyphs.get(i).advanceWidth ?? 0) / upem * 1000)
   }
+  let kern: Record<string, number> | undefined
+  if (kernPairs && kernPairs.length > 0) {
+    for (const pair of kernPairs) {
+      if (pair.length !== 2) continue
+      const left = chars[pair[0]]
+      const right = chars[pair[1]]
+      if (!left || !right) continue
+      const raw = font.getKerningValue(font.glyphs.get(left[0]), font.glyphs.get(right[0]))
+      if (!raw) continue
+      const k1000 = Math.round(raw / upem * 1000)
+      if (k1000 !== 0) {
+        (kern ??= {})[`${left[0]},${right[0]}`] = k1000
+      }
+    }
+  }
   const head = font.tables.head as unknown as { xMin: number; yMin: number; xMax: number; yMax: number }
   const os2 = font.tables.os2 as unknown as { sCapHeight?: number } | undefined
   return {
@@ -279,6 +361,7 @@ function extractMeta(ttf: Uint8Array, text: string): FontMeta {
     descent: Math.round(font.descender / upem * 1000),
     capHeight: Math.round((os2?.sCapHeight ?? font.ascender) / upem * 1000),
     glyphCount: font.numGlyphs,
+    ...(kern ? { kern } : {}),
   }
 }
 
@@ -300,12 +383,12 @@ async function loadBundledSfnt(filename: string): Promise<Uint8Array | null> {
   return sfnt
 }
 
-async function subsetBundled(filename: string, text: string): Promise<SubsetFont | null> {
+async function subsetBundled(filename: string, text: string, kernPairs?: string[]): Promise<SubsetFont | null> {
   const sfnt = await loadBundledSfnt(filename)
   if (!sfnt) return null
   try {
     const ttf = await hbSubset(sfnt, text)
-    const meta = extractMeta(ttf, text)
+    const meta = extractMeta(ttf, text, kernPairs)
     if (Object.keys(meta.chars).length === 0) return null
     return { meta, ttf }
   } catch {
@@ -347,7 +430,8 @@ function buildDefaultCandidates(role: FontRole, prefs?: FontStackPrefs): { famil
  *   剩余缺字走 Rust fallback 补齐。
  */
 export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Promise<FontSet> {
-  const famKey = `${fontPrefs?.fontFamily ?? ''}\u0000${fontPrefs?.fontMono ?? ''}\u0000${fontPrefs?.colorPreferredChars ?? ''}`
+  const seqKey = fontPrefs?.emojiSequences?.join('\u0001') ?? ''
+  const famKey = `${fontPrefs?.fontFamily ?? ''}\u0000${fontPrefs?.fontMono ?? ''}\u0000${fontPrefs?.colorPreferredChars ?? ''}\u0000${seqKey}`
   const key = `${text.length}:${text.slice(0, 64)}:${hash(text)}:${hash(famKey)}`
   const hit = subsetCache.get(key)
   if (hit) return hit
@@ -358,6 +442,7 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
   // 每个字符集拆分为去重数组便于按已覆盖剔除
   const allChars = [...new Set(text)]
   const coveredAny = new Set<string>()
+  const kernPairs = fontPrefs?.kernPairs
 
   const hasCustomPrefs = Boolean(fontPrefs?.fontFamily || fontPrefs?.fontMono)
 
@@ -371,7 +456,7 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
       const sfnt = await loadBundledSfnt(filename)
       if (!sfnt) throw new Error(`字体加载失败: ${role}`)
       const ttf = await hbSubset(sfnt, text)
-      const meta = extractMeta(ttf, text)
+      const meta = extractMeta(ttf, text, role === 'mono' ? undefined : kernPairs)
       slots[role] = { meta, ttf }
       chains[role] = [role]
       for (const ch of Object.keys(meta.chars)) coveredAny.add(ch)
@@ -381,6 +466,7 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
     for (const role of ['sans', 'bold', 'mono'] as const) {
       const { families, weight, defaultFile } = buildDefaultCandidates(role, fontPrefs)
       const remaining = new Set<string>(allChars)
+      const roleKernPairs = role === 'mono' ? undefined : kernPairs
       let seq = 0
 
       for (const fam of families) {
@@ -393,9 +479,9 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
         const bundled = BUNDLED_FONT_FILES[fam]
         if (bundled) {
           const file = weight >= 600 ? bundled.bold : bundled.regular
-          sub = await subsetBundled(file, reqChars)
+          sub = await subsetBundled(file, reqChars, roleKernPairs)
         } else {
-          const sys = await resolveAndSubsetSystemFont([fam], weight, false, reqChars)
+          const sys = await resolveAndSubsetSystemFont([fam], weight, false, reqChars, roleKernPairs)
           if (sys) {
             sub = {
               meta: sys.meta,
@@ -422,7 +508,7 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
         const sfnt = await loadBundledSfnt(defaultFile)
         if (!sfnt) throw new Error(`字体加载失败: ${role}`)
         const ttf = await hbSubset(sfnt, text)
-        const meta = extractMeta(ttf, text)
+        const meta = extractMeta(ttf, text, roleKernPairs)
         slots[role] = { meta, ttf }
         chains[role] = [role]
         for (const ch of Object.keys(meta.chars)) coveredAny.add(ch)
@@ -432,7 +518,7 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
 
   // 系统缺字兜底（仅 Tauri 环境生效；非 Tauri 返回 []）。
   // 明确带 U+FE0F 请求彩色 emoji 呈现的基字符（如 ⚠️ 的 ⚠、❤️ 的 ❤）即使主字体有单色轮廓，
-  // 也并入兜底请求以提取 Type3 彩色字形。
+  // 也并入兜底请求以提取 Type3 彩色字形；多码点序列（ZWJ / 国旗 / 肤色等）走 Rust rustybuzz shaping。
   const stillMissingSet = new Set<string>()
   for (const ch of allChars) {
     if (!/\s/.test(ch) && !coveredAny.has(ch)) stillMissingSet.add(ch)
@@ -441,8 +527,9 @@ export async function buildFontSet(text: string, fontPrefs?: FontStackPrefs): Pr
     if (!/\s/.test(ch)) stillMissingSet.add(ch)
   }
   const stillMissing = [...stillMissingSet].join('')
-  if (stillMissing.length > 0) {
-    const fallbacks = await fallbackSubsetSystemFonts(stillMissing, 400)
+  const emojiSequences = fontPrefs?.emojiSequences ?? []
+  if (stillMissing.length > 0 || emojiSequences.length > 0) {
+    const fallbacks = await fallbackSubsetSystemFonts(stillMissing, 400, emojiSequences)
     fallbacks.forEach((sys, idx) => {
       const slotKey = `fb:${idx}`
       slots[slotKey] = {

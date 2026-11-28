@@ -44,12 +44,45 @@ function roundedRectPdf(x: number, yBottom: number, w: number, h: number, r: num
   ].join('')
 }
 
-/** gid → UTF-16BE 码位（支持 BMP 外字符的代理对）。 */
-function unicodeHex(ch: string): string {
-  const cp = ch.codePointAt(0) ?? 0
-  if (cp <= 0xFFFF) return hex4(cp)
-  const v = cp - 0x10000
-  return hex4(0xD800 + (v >> 10)) + hex4(0xDC00 + (v & 0x3FF))
+/** 字符（或多码点 emoji 序列）→ UTF-16BE 码位（支持 BMP 外代理对与多码点 ZWJ/国旗序列）。 */
+function unicodeHex(str: string): string {
+  let out = ''
+  for (const ch of str) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (cp <= 0xFFFF) out += hex4(cp)
+    else {
+      const v = cp - 0x10000
+      out += hex4(0xD800 + (v >> 10)) + hex4(0xDC00 + (v & 0x3FF))
+    }
+  }
+  return out
+}
+
+/** 构造文本显示算子：无字距微调走 `<hex> Tj`，有 kerning 走 `[<g0> -k0 <g1> ...] TJ`。 */
+function textShowOp(font: string, gids: number[], kerns?: number[]): string {
+  if (!kerns || !kerns.some(k => k !== 0)) {
+    const hex = encodeGidsHex(font, gids)
+    return hex ? `<${hex}> Tj` : ''
+  }
+  const parts: string[] = []
+  let seg: number[] = []
+  const flush = () => {
+    if (seg.length) {
+      parts.push(`<${encodeGidsHex(font, seg)}>`)
+      seg = []
+    }
+  }
+  for (let i = 0; i < gids.length; i++) {
+    seg.push(gids[i])
+    const k = kerns[i] ?? 0
+    if (i + 1 < gids.length && k !== 0) {
+      flush()
+      // PDF TJ 数值与水平位移反向：负 kerning（收紧）写正数
+      parts.push(String(-k))
+    }
+  }
+  flush()
+  return parts.length ? `[${parts.join(' ')}] TJ` : ''
 }
 
 function toUnicodeCmap(meta: FontMeta): string {
@@ -208,9 +241,9 @@ function contentStream(
   for (const op of page.ops) {
     switch (op.op) {
       case 'text': {
-        const hex = encodeGidsHex(op.font, op.gids)
-        if (!hex) break
-        out += `${color(op.color)}BT /${FONT_RES[op.font]} ${f(op.size)} Tf 1 0 0 1 ${f(op.x)} ${f(H - op.y)} Tm <${hex}> Tj ET\n`
+        const show = textShowOp(op.font, op.gids, op.kerns)
+        if (!show) break
+        out += `${color(op.color)}BT /${FONT_RES[op.font]} ${f(op.size)} Tf 1 0 0 1 ${f(op.x)} ${f(H - op.y)} Tm ${show} ET\n`
         break
       }
       case 'rect':

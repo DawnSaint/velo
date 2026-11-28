@@ -651,27 +651,20 @@ fn decode_png_to_flate_rgb_alpha(
     Some((width, height, rgb_flate, alpha_flate))
 }
 
-/// 为单个彩色 `gid` 生成完整 Type3 CharProc 流（含 `w1000 0 d0` 与 `1000/upem` 缩放）。
-pub fn build_color_char_proc(
+/// 为单个彩色 `gid` 生成纯绘制算子（不含外层 `d0` 与 `1000/upem` 缩放，坐标为字体单位）。
+fn build_color_glyph_body(
     face: &Face<'_>,
     gid: GlyphId,
-    w1000: u16,
     upem: u16,
     res: &mut Type3ResourceCollector,
     encode_b64: fn(&[u8]) -> String,
 ) -> Option<String> {
-    let scale = 1000.0 / (upem.max(1) as f32);
-    let header = format!(
-        "{w1000} 0 d0\n{s} 0 0 {s} 0 0 cm\n",
-        s = fmt_num(scale),
-    );
-
     // 1. 优先 COLR v0/v1 矢量
     if face.is_color_glyph(gid) {
         let mut painter = PdfColrPainter::new(face, res);
         let fg = RgbaColor::new(0, 0, 0, 255);
         if face.paint_color_glyph(gid, 0, fg, &mut painter).is_some() && !painter.ops.is_empty() {
-            return Some(format!("{header}{}", painter.ops));
+            return Some(painter.ops);
         }
     }
 
@@ -698,7 +691,7 @@ pub fn build_color_char_proc(
                 (img.y as f32 - ph as f32) * fu_per_px
             };
             return Some(format!(
-                "{header}q {} 0 0 {} {} {} cm /{name} Do Q\n",
+                "q {} 0 0 {} {} {} cm /{name} Do Q\n",
                 fmt_num(w_fu),
                 fmt_num(h_fu),
                 fmt_num(x_fu),
@@ -708,4 +701,61 @@ pub fn build_color_char_proc(
     }
 
     None
+}
+
+/// 为单个彩色 `gid` 生成完整 Type3 CharProc 流（含 `w1000 0 d0` 与 `1000/upem` 缩放）。
+pub fn build_color_char_proc(
+    face: &Face<'_>,
+    gid: GlyphId,
+    w1000: u16,
+    upem: u16,
+    res: &mut Type3ResourceCollector,
+    encode_b64: fn(&[u8]) -> String,
+) -> Option<String> {
+    let body = build_color_glyph_body(face, gid, upem, res, encode_b64)?;
+    let scale = 1000.0 / (upem.max(1) as f32);
+    Some(format!(
+        "{w1000} 0 d0\n{s} 0 0 {s} 0 0 cm\n{body}",
+        s = fmt_num(scale),
+    ))
+}
+
+/// 为经过 HarfBuzz (rustybuzz) shaping 的多字形序列（ZWJ emoji / 国旗 / 肤色 / 按键序列等）
+/// 合成单个 Type3 CharProc 流，支持单字形替换与多字形定位拼接。
+pub fn build_shaped_color_char_proc(
+    face: &Face<'_>,
+    glyphs: &[(GlyphId, i32, i32, i32)], // (gid, x_offset, y_offset, x_advance) in font units
+    w1000: u16,
+    upem: u16,
+    res: &mut Type3ResourceCollector,
+    encode_b64: fn(&[u8]) -> String,
+) -> Option<String> {
+    if glyphs.is_empty() {
+        return None;
+    }
+    let scale = 1000.0 / (upem.max(1) as f32);
+    let mut out = format!(
+        "{w1000} 0 d0\n{s} 0 0 {s} 0 0 cm\n",
+        s = fmt_num(scale),
+    );
+    let mut cursor_x: i32 = 0;
+    let mut any_drawn = false;
+    for &(gid, x_off, y_off, x_adv) in glyphs {
+        if let Some(body) = build_color_glyph_body(face, gid, upem, res, encode_b64) {
+            let tx = cursor_x + x_off;
+            let ty = y_off;
+            if tx != 0 || ty != 0 {
+                out.push_str(&format!(
+                    "q 1 0 0 1 {} {} cm\n{body}Q\n",
+                    fmt_num(tx as f32),
+                    fmt_num(ty as f32),
+                ));
+            } else {
+                out.push_str(&body);
+            }
+            any_drawn = true;
+        }
+        cursor_x += x_adv;
+    }
+    if any_drawn { Some(out) } else { None }
 }

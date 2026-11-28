@@ -33,7 +33,7 @@ fn font_db() -> &'static Database {
 #[serde(rename_all = "camelCase")]
 pub struct SystemFontMeta {
     pub upem: u16,
-    /// 字符 → [子集后新 gid, 1000 单位字宽]
+    /// 字符（或经 HarfBuzz shaping 的多码点序列，如 👨‍👩‍👧‍👦 / 🇨🇳）→ [子集后新 gid, 1000 单位字宽]
     pub chars: HashMap<String, [u16; 2]>,
     /// 按新 gid 顺序的 1000 单位字宽表（含 gid 0 `.notdef`）
     pub widths: Vec<u16>,
@@ -43,6 +43,9 @@ pub struct SystemFontMeta {
     pub descent: i32,
     pub cap_height: i32,
     pub glyph_count: usize,
+    /// GPOS / kern 字距微调表：`"leftNewGid,rightNewGid"` → 1000 单位水平位移差（负值收紧）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kern: Option<HashMap<String, i16>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,6 +164,189 @@ fn round_1000(val: i32, upem: u16) -> i32 {
     ((val as f64) / (upem as f64) * 1000.0).round() as i32
 }
 
+/// 用 rustybuzz 为已子集化的拉丁/符号字符对提取 GPOS / kern 水平字距微调（1000 单位）。
+fn extract_kerning_pairs(
+    data: &[u8],
+    face_index: u32,
+    face: &ttf_parser::Face<'_>,
+    remapper: &subsetter::GlyphRemapper,
+    upem: u16,
+    kern_pairs: &[String],
+) -> Option<HashMap<String, i16>> {
+    if kern_pairs.is_empty() || upem == 0 {
+        return None;
+    }
+    let rb_face = rustybuzz::Face::from_slice(data, face_index)?;
+    let mut map: HashMap<String, i16> = HashMap::new();
+
+    for pair in kern_pairs {
+        let mut it = pair.chars();
+        let (Some(c1), Some(c2), None) = (it.next(), it.next(), it.next()) else {
+            continue;
+        };
+        let (Some(g1), Some(g2)) = (face.glyph_index(c1), face.glyph_index(c2)) else {
+            continue;
+        };
+        let (Some(ng1), Some(ng2)) = (remapper.get(g1.0), remapper.get(g2.0)) else {
+            continue;
+        };
+        let mut buf = rustybuzz::UnicodeBuffer::new();
+        buf.push_str(pair);
+        let output = rustybuzz::shape(&rb_face, &[], buf);
+        let infos = output.glyph_infos();
+        let positions = output.glyph_positions();
+        if infos.len() == 2 && infos[0].glyph_id == g1.0 as u32 && infos[1].glyph_id == g2.0 as u32 {
+            let base_adv = face.glyph_hor_advance(g1).unwrap_or(0) as i32;
+            let delta = positions[0].x_advance - base_adv;
+            if delta != 0 {
+                let k1000 = round_1000(delta, upem).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                if k1000 != 0 {
+                    map.insert(format!("{ng1},{ng2}"), k1000);
+                }
+            }
+        }
+    }
+
+    if map.is_empty() { None } else { Some(map) }
+}
+
+/// 用 rustybuzz 对多码点 emoji 序列（ZWJ 组合 / 国旗 / 肤色修饰 / 按键序列等）做 shaping，
+/// 并将命中的彩色字形提取为 Type3 字体（每片最多 255 序列）。
+fn extract_shaped_emoji_sequences(
+    db: &Database,
+    id: ID,
+    sequences: &[String],
+    preferred_family: Option<&str>,
+) -> Vec<SystemSubsetFont> {
+    if sequences.is_empty() {
+        return Vec::new();
+    }
+    let Some(info) = db.face(id) else {
+        return Vec::new();
+    };
+    let family_name = preferred_family
+        .map(str::to_string)
+        .or_else(|| info.families.first().map(|(n, _)| n.clone()))
+        .unwrap_or_default();
+    let weight = info.weight.0;
+    let italic = info.style != Style::Normal;
+
+    let mut outputs: Vec<SystemSubsetFont> = Vec::new();
+
+    db.with_face_data(id, |data, face_index| {
+        let Ok(face) = ttf_parser::Face::parse(data, face_index) else {
+            return;
+        };
+        let Some(rb_face) = rustybuzz::Face::from_slice(data, face_index) else {
+            return;
+        };
+        let upem = face.units_per_em();
+        if upem == 0 {
+            return;
+        }
+
+        let bbox = face.global_bounding_box();
+        let bbox_arr = [bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max];
+        let ascent = round_1000(face.ascender() as i32, upem);
+        let descent = round_1000(face.descender() as i32, upem);
+        let cap_height = round_1000(
+            face.capital_height().unwrap_or(face.ascender()) as i32,
+            upem,
+        );
+
+        let mut matched: Vec<(String, Vec<(ttf_parser::GlyphId, i32, i32, i32)>, u16)> = Vec::new();
+
+        for seq in sequences {
+            let mut buf = rustybuzz::UnicodeBuffer::new();
+            buf.push_str(seq);
+            let output = rustybuzz::shape(&rb_face, &[], buf);
+            let infos = output.glyph_infos();
+            let positions = output.glyph_positions();
+            if infos.is_empty() {
+                continue;
+            }
+            // 任何字形落到 .notdef（gid 0）说明该字体不支持此序列，跳过交给下一个候选字体
+            if infos.iter().any(|i| i.glyph_id == 0 || i.glyph_id > u16::MAX as u32) {
+                continue;
+            }
+            let glyphs: Vec<(ttf_parser::GlyphId, i32, i32, i32)> = infos
+                .iter()
+                .zip(positions.iter())
+                .map(|(info, pos)| {
+                    (
+                        ttf_parser::GlyphId(info.glyph_id as u16),
+                        pos.x_offset,
+                        pos.y_offset,
+                        pos.x_advance,
+                    )
+                })
+                .collect();
+            if !glyphs.iter().any(|&(gid, _, _, _)| color_fonts::has_color_glyph(&face, gid)) {
+                continue;
+            }
+            let total_adv: i32 = glyphs.iter().map(|g| g.3).sum();
+            let adv = if total_adv > 0 { total_adv } else { upem as i32 };
+            let w1000 = round_1000(adv, upem).clamp(0, u16::MAX as i32) as u16;
+            matched.push((seq.clone(), glyphs, w1000));
+        }
+
+        for chunk in matched.chunks(255) {
+            let mut res = Type3ResourceCollector::new();
+            let mut char_procs: HashMap<u8, String> = HashMap::with_capacity(chunk.len());
+            let mut char_map: HashMap<String, [u16; 2]> = HashMap::with_capacity(chunk.len());
+            let mut widths: Vec<u16> = vec![0];
+            let mut next_code: u8 = 1;
+
+            for (seq, glyphs, w1000) in chunk {
+                if let Some(proc_ops) = color_fonts::build_shaped_color_char_proc(
+                    &face,
+                    glyphs,
+                    *w1000,
+                    upem,
+                    &mut res,
+                    encode_base64,
+                ) {
+                    let code = next_code;
+                    next_code = next_code.saturating_add(1);
+                    char_procs.insert(code, proc_ops);
+                    char_map.insert(seq.clone(), [code as u16, *w1000]);
+                    widths.push(*w1000);
+                }
+            }
+
+            if !char_procs.is_empty() {
+                let glyph_count = widths.len();
+                outputs.push(SystemSubsetFont {
+                    family: family_name.clone(),
+                    weight,
+                    italic,
+                    meta: SystemFontMeta {
+                        upem,
+                        chars: char_map,
+                        widths,
+                        bbox: bbox_arr,
+                        ascent,
+                        descent,
+                        cap_height,
+                        glyph_count,
+                        kern: None,
+                    },
+                    ttf_base64: None,
+                    type3: Some(Type3FontData {
+                        char_procs,
+                        alphas: res.alphas,
+                        soft_masks: res.soft_masks,
+                        shadings: res.shadings,
+                        images: res.images,
+                    }),
+                });
+            }
+        }
+    });
+
+    outputs
+}
+
 /// 对指定 `ID` 的系统字体按 `chars` 做子集化 / Type3 彩色提取并计算度量。
 ///
 /// 彩色字形（COLR v0/v1 或 sbix/CBDT PNG）与普通单色轮廓字形分离产出：
@@ -173,6 +359,7 @@ fn subset_face_id_multi(
     chars: &[char],
     preferred_family: Option<&str>,
     color_only: bool,
+    kern_pairs: &[String],
 ) -> Vec<SystemSubsetFont> {
     let Some(info) = db.face(id) else {
         return Vec::new();
@@ -267,6 +454,7 @@ fn subset_face_id_multi(
                             descent,
                             cap_height,
                             glyph_count,
+                            kern: None,
                         },
                         ttf_base64: None,
                         type3: Some(Type3FontData {
@@ -327,6 +515,8 @@ fn subset_face_id_multi(
             }
         }
 
+        let kern = extract_kerning_pairs(data, face_index, &face, &remapper, upem, kern_pairs);
+
         outputs.push(SystemSubsetFont {
             family: family_name.clone(),
             weight,
@@ -340,6 +530,7 @@ fn subset_face_id_multi(
                 descent,
                 cap_height,
                 glyph_count: num_glyphs,
+                kern,
             },
             ttf_base64: Some(encode_base64(&sub_ttf)),
             type3: None,
@@ -356,6 +547,7 @@ pub async fn resolve_and_subset_system_font(
     weight: u16,
     italic: bool,
     chars: String,
+    kern_pairs: Option<Vec<String>>,
 ) -> Result<Option<SystemSubsetFont>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db = font_db();
@@ -366,6 +558,7 @@ pub async fn resolve_and_subset_system_font(
         if unique_chars.is_empty() {
             return None;
         }
+        let pairs = kern_pairs.unwrap_or_default();
         let style = if italic { Style::Italic } else { Style::Normal };
         let w = Weight(weight);
 
@@ -378,7 +571,7 @@ pub async fn resolve_and_subset_system_font(
                     style,
                 };
                 if let Some(id) = db.query(&query) {
-                    let subs = subset_face_id_multi(db, id, &unique_chars, Some(cand), false);
+                    let subs = subset_face_id_multi(db, id, &unique_chars, Some(cand), false, &pairs);
                     if let Some(sub) = subs.into_iter().next() {
                         return Some(sub);
                     }
@@ -391,14 +584,15 @@ pub async fn resolve_and_subset_system_font(
     .map_err(|e| format!("系统字体子集化线程异常: {e}"))
 }
 
-/// 为主字体栈均未覆盖的剩余字符查找系统兜底字体并子集化。
+/// 为主字体栈均未覆盖的剩余字符（及多码点 emoji 序列）查找系统兜底字体并子集化。
 ///
-/// 先按 `FALLBACK_PRIORITY` 查找，剩余字符再扫全库常规字重 face。
-/// 每个命中的兜底字体只子集化它负责的那批缺字，返回列表按命中顺序排列。
+/// 先按 `COLOR_EMOJI_PRIORITY` 处理多码点序列（rustybuzz shaping）与单码点彩色字形，
+/// 再按 `FALLBACK_PRIORITY` 查找常见符号/CJK，剩余字符扫全库常规字重 face。
 #[tauri::command]
 pub async fn fallback_subset_system_fonts(
     missing_chars: String,
     weight: u16,
+    sequences: Option<Vec<String>>,
 ) -> Result<Vec<SystemSubsetFont>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db = font_db();
@@ -409,7 +603,15 @@ pub async fn fallback_subset_system_fonts(
                 .filter(|c| !c.is_whitespace() && seen.insert(*c))
                 .collect()
         };
-        if remaining.is_empty() {
+        let mut remaining_seqs: Vec<String> = {
+            let mut seen = HashSet::new();
+            sequences
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| !s.is_empty() && seen.insert(s.clone()))
+                .collect()
+        };
+        if remaining.is_empty() && remaining_seqs.is_empty() {
             return Vec::new();
         }
 
@@ -417,9 +619,9 @@ pub async fn fallback_subset_system_fonts(
         let mut tried_ids: HashSet<ID> = HashSet::new();
         let target_weight = Weight(weight);
 
-        // 0. 优先从系统彩色 emoji 字体提取彩色字形（color_only=true，不误吞单色字符）
+        // 0. 优先从系统彩色 emoji 字体提取多码点序列（rustybuzz shaping）与单码点彩色字形
         for &fam in COLOR_EMOJI_PRIORITY {
-            if remaining.is_empty() {
+            if remaining.is_empty() && remaining_seqs.is_empty() {
                 break;
             }
             let Some(id) = db.query(&Query {
@@ -430,10 +632,19 @@ pub async fn fallback_subset_system_fonts(
             }) else {
                 continue;
             };
-            let subs = subset_face_id_multi(db, id, &remaining, Some(fam), true);
-            for sub in subs {
-                remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
-                out.push(sub);
+            if !remaining_seqs.is_empty() {
+                let seq_subs = extract_shaped_emoji_sequences(db, id, &remaining_seqs, Some(fam));
+                for sub in seq_subs {
+                    remaining_seqs.retain(|s| !sub.meta.chars.contains_key(s));
+                    out.push(sub);
+                }
+            }
+            if !remaining.is_empty() {
+                let subs = subset_face_id_multi(db, id, &remaining, Some(fam), true, &[]);
+                for sub in subs {
+                    remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
+                    out.push(sub);
+                }
             }
         }
 
@@ -461,7 +672,7 @@ pub async fn fallback_subset_system_fonts(
             if !tried_ids.insert(id) {
                 continue;
             }
-            let subs = subset_face_id_multi(db, id, &remaining, Some(fam), false);
+            let subs = subset_face_id_multi(db, id, &remaining, Some(fam), false, &[]);
             for sub in subs {
                 remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
                 out.push(sub);
@@ -483,7 +694,7 @@ pub async fn fallback_subset_system_fonts(
                 if !tried_ids.insert(id) {
                     continue;
                 }
-                let subs = subset_face_id_multi(db, id, &remaining, None, false);
+                let subs = subset_face_id_multi(db, id, &remaining, None, false, &[]);
                 for sub in subs {
                     remaining.retain(|ch| !sub.meta.chars.contains_key(&ch.to_string()));
                     out.push(sub);
@@ -523,7 +734,7 @@ mod tests {
             })
             .expect("Windows should have Microsoft YaHei");
         let chars: Vec<char> = "你好世界①②ABC".chars().collect();
-        let subs = subset_face_id_multi(db, id, &chars, Some("Microsoft YaHei"), false);
+        let subs = subset_face_id_multi(db, id, &chars, Some("Microsoft YaHei"), false, &[]);
         assert_eq!(subs.len(), 1);
         let sub = &subs[0];
         assert!(sub.meta.chars.contains_key("①"));
@@ -544,7 +755,7 @@ mod tests {
             })
             .expect("Windows should have Segoe UI Emoji");
         let emoji_chars: Vec<char> = "✅🎉🔥⚠😅①".chars().collect();
-        let emoji_subs = subset_face_id_multi(db, emoji_id, &emoji_chars, Some("Segoe UI Emoji"), true);
+        let emoji_subs = subset_face_id_multi(db, emoji_id, &emoji_chars, Some("Segoe UI Emoji"), true, &[]);
         assert_eq!(emoji_subs.len(), 1);
         let emoji_sub = &emoji_subs[0];
         assert!(emoji_sub.ttf_base64.is_none());
@@ -565,5 +776,38 @@ mod tests {
                 "Color emoji CharProc must emit color/shading ops: {ops}"
             );
         }
+
+        // HarfBuzz (rustybuzz) shaping：ZWJ 组合 / 肤色修饰 / 按键序列 / 彩虹旗
+        let seqs: Vec<String> = ["👨‍👩‍👧‍👦", "👨‍💻", "👍🏽", "1️⃣", "🏳️‍🌈"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let seq_subs = extract_shaped_emoji_sequences(db, emoji_id, &seqs, Some("Segoe UI Emoji"));
+        assert_eq!(seq_subs.len(), 1);
+        let seq_sub = &seq_subs[0];
+        let seq_t3 = seq_sub.type3.as_ref().expect("shaped emoji sequences should produce Type3");
+        for s in &seqs {
+            let [code, w] = seq_sub.meta.chars[s];
+            assert!(code >= 1 && code <= 255);
+            assert!(w > 0);
+            let ops = seq_t3.char_procs.get(&(code as u8)).expect("seq char_proc missing");
+            assert!(ops.contains(" d0\n"));
+        }
+
+        // GPOS kerning：Segoe UI 对 AV / To 应提取出负字距微调
+        let segoe_id = db
+            .query(&Query {
+                families: &[Family::Name("Segoe UI")],
+                weight: Weight::NORMAL,
+                stretch: Stretch::Normal,
+                style: Style::Normal,
+            })
+            .expect("Windows should have Segoe UI");
+        let kern_chars: Vec<char> = "AVToWa".chars().collect();
+        let kern_pairs = vec!["AV".to_string(), "To".to_string(), "Wa".to_string()];
+        let segoe_subs = subset_face_id_multi(db, segoe_id, &kern_chars, Some("Segoe UI"), false, &kern_pairs);
+        assert_eq!(segoe_subs.len(), 1);
+        let kern_map = segoe_subs[0].meta.kern.as_ref().expect("Segoe UI should have kerning pairs for AV/To/Wa");
+        assert!(kern_map.values().any(|&v| v < 0), "expected negative kerning: {kern_map:?}");
     }
 }

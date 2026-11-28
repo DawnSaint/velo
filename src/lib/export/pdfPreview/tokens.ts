@@ -8,10 +8,11 @@
 // 必须已注入；未注入时 glyph() 会抛错而不是静默画错字。
 
 import type { FontKey, FontRole, PdfLayoutOptions } from './types'
-import type { FontMeta, FontSet, Type3FontData } from './fontSubset'
+import { segmentGraphemes, type FontMeta, type FontSet, type Type3FontData } from './fontSubset'
 import { MM_TO_PT, PDF_PAPER_SIZES } from './types'
 
 export type { FontMeta, Type3FontData } from './fontSubset'
+export { segmentGraphemes } from './fontSubset'
 
 let activeFonts: FontSet | null = null
 /** 当前字体集槽位 → PDF 资源名（F1..Fn）。默认三套固定占 F1/F2/F3，扩展槽位顺延。 */
@@ -126,8 +127,32 @@ const SUBSTITUTES: Record<string, [string, FontKey]> = {
   '■': ['■', 'mono'], '▲': ['▲', 'mono'], '●': ['●', 'mono'], '○': ['○', 'mono'],
 }
 
-/** 变体选择符（VS15 文本 / VS16 彩色 emoji）：本身无独立字形，不占宽、不报缺字。 */
-const VARIATION_SELECTORS = new Set(['\uFE0E', '\uFE0F'])
+/** 变体选择符（VS15/VS16）与零宽连接符（ZWJ）：本身无独立字形，不占宽、不报缺字。 */
+const IGNORABLE_JOINERS = new Set(['\uFE0E', '\uFE0F', '\u200D'])
+
+/** 查询同字体内两个相邻 gid 的 1000 单位水平字距微调（GPOS / kern）。 */
+export function kernOf(font: FontKey, leftGid: number, rightGid: number): number {
+  return activeFonts?.slots[font]?.meta.kern?.[`${leftGid},${rightGid}`] ?? 0
+}
+
+/** 查多码点序列（ZWJ emoji / 国旗 / 肤色修饰 / 按键序列等）在 Type3 槽位中的整簇命中。 */
+function lookupSequenceGlyph(seq: string, preferred: FontKey): GlyphHit | null {
+  const s = fontSet()
+  const slots = s.slots
+  const check = (keys: string[]): GlyphHit | null => {
+    for (const slotKey of keys) {
+      const slot = slots[slotKey]
+      if (!slot?.type3) continue
+      const hit = slot.meta.chars[seq]
+      if (hit) return { ch: seq, font: slotKey, gid: hit[0], w: hit[1] }
+    }
+    return null
+  }
+  const ownChain = preferred === 'sans' || preferred === 'bold' || preferred === 'mono'
+    ? s.chains[preferred]
+    : preferred in slots ? [preferred] : s.chains.sans
+  return check(ownChain) ?? check(s.chains.sans)
+}
 
 /**
  * 字符 → glyph。
@@ -140,8 +165,12 @@ const VARIATION_SELECTORS = new Set(['\uFE0E', '\uFE0F'])
  *   4. '?' 并记账给 missingGlyphs
  */
 export function glyph(ch: string, preferred: FontKey, preferColor = false): GlyphHit {
-  if (VARIATION_SELECTORS.has(ch)) {
+  if (IGNORABLE_JOINERS.has(ch)) {
     return { ch: '', font: preferred, gid: 0, w: 0 }
+  }
+  if (ch.length > 1) {
+    const seqHit = lookupSequenceGlyph(ch, preferred)
+    if (seqHit) return seqHit
   }
   const s = fontSet()
   const slots = s.slots
@@ -220,61 +249,100 @@ export function glyph(ch: string, preferred: FontKey, preferColor = false): Glyp
   return { ch: '?', font: s.chains.sans[0] ?? 'sans', gid: 1, w: 500 }
 }
 
-/** 字符串宽度（pt） */
-export function measure(text: string, font: FontKey, size: number): number {
-  const cps = [...text]
-  let total = 0
-  for (let i = 0; i < cps.length; i++) {
-    if (VARIATION_SELECTORS.has(cps[i])) continue
-    const preferColor = cps[i + 1] === '\uFE0F'
-    total += glyph(cps[i], font, preferColor).w / 1000 * size
+/** 把单个字素簇解析为一个或多个 GlyphHit（多码点 emoji 优先整簇命中 Type3，未命中则逐码点降级）。 */
+function resolveGrapheme(seg: string, preferred: FontKey): { hit: GlyphHit; displayText: string }[] {
+  const cps = [...seg]
+  if (cps.length === 1) {
+    if (IGNORABLE_JOINERS.has(cps[0])) return []
+    const hit = glyph(cps[0], preferred, false)
+    return [{ hit, displayText: hit.ch }]
   }
-  return total
+  // 1. 整簇命中（Rust rustybuzz shaping 产出的 ZWJ / 国旗 / 肤色 / 按键 Type3 字形）
+  const seqHit = lookupSequenceGlyph(seg, preferred)
+  if (seqHit) return [{ hit: seqHit, displayText: seg }]
+  // 2. base + VS16 (⚠️ / ❤️)：单基字形优先走 Type3 彩色槽位，预览文本保留 VS16
+  if (cps.length === 2 && cps[1] === '\uFE0F') {
+    const hit = glyph(cps[0], preferred, true)
+    return [{ hit, displayText: `${hit.ch}\uFE0F` }]
+  }
+  if (cps.length === 2 && cps[1] === '\uFE0E') {
+    const hit = glyph(cps[0], preferred, false)
+    return [{ hit, displayText: hit.ch }]
+  }
+  // 3. 未命中整簇（如非 Tauri 或系统字库缺该序列）：逐码点降级，跳过不可见连接符/变体选择符
+  const out: { hit: GlyphHit; displayText: string }[] = []
+  for (let i = 0; i < cps.length; i++) {
+    if (IGNORABLE_JOINERS.has(cps[i])) continue
+    const preferColor = cps[i + 1] === '\uFE0F'
+    const hit = glyph(cps[i], preferred, preferColor)
+    out.push({ hit, displayText: preferColor ? `${hit.ch}\uFE0F` : hit.ch })
+  }
+  return out
 }
 
 export interface EncodedRun {
   font: FontKey
   gids: number[]
+  /** 可选字距微调表（1000 单位，长度 = gids.length - 1）；全 0 时省略 */
+  kerns?: number[]
   text: string
-  /** 未乘字号的 1000 单位宽度 */
+  /** 未乘字号的 1000 单位宽度（含字距微调） */
   units: number
 }
 
 /**
- * 字符串 → 按「实际解析到的字体」分组的 gid 序列。
+ * 字符串 → 按「实际解析到的字体」分组的 gid 序列（支持多码点 emoji 集群与 GPOS/kern 字距微调）。
  *
  * 不能直接 `encode(text, preferred)`：glyph() 遇到缺字会回退 sans，遇到 ⌘
  * 会切 mono。若整段都标成 preferred，PDF 用 preferred 字体画回退字符的 gid
  * 就是错字。这里把连续同源字符切段，layoutEngine 一段产一个 TextOp。
  */
 export function encodeMixed(text: string, preferred: FontKey): EncodedRun[] {
-  const runs: EncodedRun[] = []
-  const cps = [...text]
-  for (let i = 0; i < cps.length; i++) {
-    const ch = cps[i]
-    if (VARIATION_SELECTORS.has(ch)) continue
-    const preferColor = cps[i + 1] === '\uFE0F'
-    const g = glyph(ch, preferred, preferColor)
-    // DOM 预览文本保留 U+FE0F，使浏览器也按彩色 emoji 渲染；PDF gids 仅发单个基字形
-    const displayText = preferColor ? `${g.ch}\uFE0F` : g.ch
-    const last = runs[runs.length - 1]
-    if (last && last.font === g.font) {
-      last.gids.push(g.gid); last.text += displayText; last.units += g.w
-    } else {
-      runs.push({ font: g.font, gids: [g.gid], text: displayText, units: g.w })
+  const runs: (EncodedRun & { _kerns: number[]; _hasKern: boolean })[] = []
+  for (const seg of segmentGraphemes(text)) {
+    for (const { hit: g, displayText } of resolveGrapheme(seg, preferred)) {
+      const last = runs[runs.length - 1]
+      if (last && last.font === g.font) {
+        const k = kernOf(g.font, last.gids[last.gids.length - 1], g.gid)
+        last._kerns.push(k)
+        if (k !== 0) last._hasKern = true
+        last.gids.push(g.gid)
+        last.text += displayText
+        last.units += g.w + k
+      } else {
+        runs.push({
+          font: g.font,
+          gids: [g.gid],
+          text: displayText,
+          units: g.w,
+          _kerns: [],
+          _hasKern: false,
+        })
+      }
     }
   }
-  return runs
+  return runs.map(({ font, gids, text: t, units, _kerns, _hasKern }) =>
+    _hasKern ? { font, gids, kerns: _kerns, text: t, units } : { font, gids, text: t, units },
+  )
 }
 
-/** 与 encodeMixed 完全同源的宽度（含缺字回退与 VS16 彩色优先差异） */
+/** 字符串宽度（pt），与 encodeMixed 完全同源（含多码点集群与字距微调） */
+export function measure(text: string, font: FontKey, size: number): number {
+  return measureMixed(text, font, size)
+}
+
+/** 与 encodeMixed 完全同源的宽度（含缺字回退、多码点集群与字距微调） */
 export function measureMixed(text: string, preferred: FontKey, size: number): number {
-  const cps = [...text]
   let units = 0
-  for (let i = 0; i < cps.length; i++) {
-    if (VARIATION_SELECTORS.has(cps[i])) continue
-    const preferColor = cps[i + 1] === '\uFE0F'
-    units += glyph(cps[i], preferred, preferColor).w
+  let prevFont: FontKey | null = null
+  let prevGid = 0
+  for (const seg of segmentGraphemes(text)) {
+    for (const { hit: g } of resolveGrapheme(seg, preferred)) {
+      if (prevFont === g.font) units += kernOf(g.font, prevGid, g.gid)
+      units += g.w
+      prevFont = g.font
+      prevGid = g.gid
+    }
   }
   return units / 1000 * size
 }

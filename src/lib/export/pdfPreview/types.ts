@@ -18,6 +18,8 @@ export interface TextOp {
   color: PdfColor
   font: FontKey
   gids: number[]
+  /** 可选字距微调表（1000 单位，长度 = gids.length - 1，负值收紧）；存在非零项时 PDF 用 TJ 输出 */
+  kerns?: number[]
   /** 原始字符：DOM 预览与文本层调试用，PDF 绘制只用 gids */
   text: string
 }
